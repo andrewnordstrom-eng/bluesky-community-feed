@@ -112,6 +112,19 @@ function recordEventAt(nowMs: number): void {
  * Loads the last cursor from the database and connects.
  */
 export async function startJetstream(): Promise<void> {
+  isShuttingDown = false;
+  queueOverflowReconnectInProgress = false;
+
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+    logger.warn('Jetstream start requested while connection already active');
+    return;
+  }
+
+  if (metricsIntervalId) {
+    clearInterval(metricsIntervalId);
+    metricsIntervalId = null;
+  }
+
   const cursor = await getLastCursor();
   if (cursor) {
     logger.info({ cursor: cursor.toString() }, 'Resuming from cursor');
