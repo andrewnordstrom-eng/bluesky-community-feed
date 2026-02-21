@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { config } from '../src/config.js';
 
 const { verifyJwtMock, resolveAtprotoKeyMock } = vi.hoisted(() => ({
   verifyJwtMock: vi.fn(),
@@ -44,7 +45,7 @@ describe('verifyFeedRequesterDid', () => {
     expect(result).toBeNull();
   });
 
-  it('returns verified subject DID when present', async () => {
+  it('returns issuer DID even when subject is present', async () => {
     const jwt = makeJwt({
       iss: 'did:plc:issuer123',
       sub: 'did:plc:viewer123',
@@ -60,7 +61,7 @@ describe('verifyFeedRequesterDid', () => {
     });
 
     const result = await verifyFeedRequesterDid(`Bearer ${jwt}`);
-    expect(result).toBe('did:plc:viewer123');
+    expect(result).toBe('did:plc:issuer123');
   });
 
   it('falls back to issuer DID when subject is absent', async () => {
@@ -98,5 +99,33 @@ describe('verifyFeedRequesterDid', () => {
 
     const result = await verifyFeedRequesterDid(`Bearer ${jwt}`);
     expect(result).toBeNull();
+  });
+
+  it('enforces audience and lexicon method during verification', async () => {
+    const jwt = makeJwt({
+      iss: 'did:plc:issuer123',
+      aud: config.FEEDGEN_SERVICE_DID,
+      lxm: 'app.bsky.feed.getFeedSkeleton',
+      exp: Math.floor(Date.now() / 1000) + 60,
+      iat: Math.floor(Date.now() / 1000),
+    });
+
+    verifyJwtMock.mockResolvedValueOnce({
+      iss: 'did:plc:issuer123',
+      aud: config.FEEDGEN_SERVICE_DID,
+      lxm: 'app.bsky.feed.getFeedSkeleton',
+      exp: Math.floor(Date.now() / 1000) + 60,
+    });
+
+    await verifyFeedRequesterDid(`Bearer ${jwt}`);
+
+    const expectedAudience =
+      config.FEED_JWT_AUDIENCE.length > 0 ? config.FEED_JWT_AUDIENCE : config.FEEDGEN_SERVICE_DID;
+    expect(verifyJwtMock).toHaveBeenCalledWith(
+      jwt,
+      expectedAudience,
+      'app.bsky.feed.getFeedSkeleton',
+      expect.any(Function)
+    );
   });
 });
