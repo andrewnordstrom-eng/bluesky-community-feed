@@ -107,7 +107,6 @@ export function registerAuthRoute(app: FastifyInstance): void {
         success: true,
         did: session.did,
         handle: session.handle,
-        accessJwt: session.accessJwt,
         expiresAt: session.expiresAt.toISOString(),
       });
     } catch (err) {

@@ -56,6 +56,9 @@ describe('governance auth cookie flow', () => {
     });
 
     expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body).not.toHaveProperty('accessJwt');
+    expect(body).not.toHaveProperty('token');
     const setCookie = response.headers['set-cookie'];
     expect(typeof setCookie).toBe('string');
     expect(String(setCookie)).toContain(`${config.GOVERNANCE_SESSION_COOKIE_NAME}=`);

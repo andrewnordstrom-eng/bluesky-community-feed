@@ -18,7 +18,6 @@ export interface LoginResponse {
   success: boolean;
   did: string;
   handle: string;
-  accessJwt: string;
   expiresAt: string;
 }
 
