@@ -19,3 +19,13 @@
 - Added configurable rate limiting (60 req/min default via `RATE_LIMIT_INTERACTIONS_MAX/WINDOW_MS`)
 - Added `GET /api/admin/interactions/feed-signals` analytics endpoint: totals by type (today/yesterday/7-day), per-epoch breakdown, top posts by requestMore/requestLess ratio
 - All 162 tests pass, build clean
+
+## 2026-03-06 — Phase 3: Scoring Component Interface
+
+- Defined `ScoringComponent` interface and `ScoringContext` in `src/scoring/component.interface.ts`
+- Added `ScoringComponent` wrappers to all 5 components (recency, engagement, bridging, source-diversity, relevance) alongside existing functions — zero breaking changes
+- Created `src/scoring/registry.ts` with `DEFAULT_COMPONENTS` array and `validateRegistry()` that cross-checks against votable-params at module load
+- Refactored `scorePost()` in pipeline.ts to iterate `DEFAULT_COMPONENTS` with type-safe `WEIGHT_ACCESSORS` lookup map (no `as any`)
+- `scoreAllPosts()` now creates `ScoringContext` once per run with fresh `authorCounts`
+- `storeScore()` unchanged — Golden Rule preserved
+- All 162 tests pass, build clean
