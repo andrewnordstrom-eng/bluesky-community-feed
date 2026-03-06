@@ -1,0 +1,45 @@
+name: Feature Request
+description: Suggest an improvement or new capability
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have an idea for the feed? We welcome suggestions, especially those related to governance, transparency, or scoring.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or motivation
+      description: What problem does this solve, or what opportunity does it create?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How would you like this to work?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches you thought about.
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of the system does this relate to?
+      options:
+        - Scoring (new component or algorithm change)
+        - Governance (voting, epochs, content rules)
+        - Transparency (dashboard, explanations, audit)
+        - Admin tooling (CLI, MCP, dashboard)
+        - Research (export, anonymization, participant management)
+        - Infrastructure (deployment, monitoring, performance)
+        - Other
+    validations:
+      required: true

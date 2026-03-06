@@ -1,0 +1,65 @@
+name: Bug Report
+description: Report something that is broken or behaving unexpectedly
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please fill out the sections below so we can reproduce and fix the issue.
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description of the bug.
+      placeholder: "When I try to vote on weights, the submit button..."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps to trigger the bug.
+      placeholder: |
+        1. Go to feed.corgi.network/vote
+        2. Adjust the recency slider to 0.4
+        3. Click Submit
+        4. See error
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of the system is affected?
+      options:
+        - Feed (content/ranking)
+        - Governance (voting/epochs)
+        - Dashboard (transparency UI)
+        - Admin (CLI/MCP/dashboard)
+        - Ingestion (Jetstream/data)
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Node version, OS, browser, or deployment context.
+      placeholder: "Node 20.x, macOS 14, Chrome 120"
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or screenshots
+      description: Paste error output or attach a screenshot.
+    validations:
+      required: false
