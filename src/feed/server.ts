@@ -11,6 +11,7 @@ import { config } from '../config.js';
 import { registerDescribeGenerator } from './routes/describe-generator.js';
 import { registerWellKnown } from './routes/well-known.js';
 import { registerFeedSkeleton } from './routes/feed-skeleton.js';
+import { registerSendInteractions } from './routes/send-interactions.js';
 import { registerGovernanceRoutes } from '../governance/server.js';
 import { registerTransparencyRoutes } from '../transparency/server.js';
 import { registerDebugRoutes } from './routes/debug.js';
@@ -143,6 +144,7 @@ export async function createServer() {
   registerDescribeGenerator(app);
   registerWellKnown(app);
   registerFeedSkeleton(app);
+  registerSendInteractions(app);
 
   // Register governance routes
   registerGovernanceRoutes(app);
@@ -314,6 +316,14 @@ export function buildRouteRateLimitConfig(
 ): RouteRateLimitConfig | null {
   const methods = normalizeRouteMethods(method);
   const isReadOnly = methods.every((value) => value === 'GET' || value === 'HEAD' || value === 'OPTIONS');
+
+  // Tight rate limit on sendInteractions due to cold-cache DID resolution cost
+  if (url === '/xrpc/app.bsky.feed.sendInteractions') {
+    return {
+      max: config.RATE_LIMIT_INTERACTIONS_MAX,
+      timeWindow: config.RATE_LIMIT_INTERACTIONS_WINDOW_MS,
+    };
+  }
 
   if (url.startsWith('/api/governance/auth/login')) {
     return {
