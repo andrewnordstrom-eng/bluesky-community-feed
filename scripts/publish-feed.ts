@@ -65,8 +65,7 @@ async function main() {
     description:
       'A feed where subscribers collectively vote on algorithm parameters. ' +
       'Transparent, explainable, democratic.',
-    // Optional: Add an avatar image (must be a blob reference)
-    // avatar: undefined,
+    acceptsInteractions: true,
     createdAt: new Date().toISOString(),
   };
 
