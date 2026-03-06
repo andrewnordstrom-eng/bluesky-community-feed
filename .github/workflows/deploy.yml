@@ -26,4 +26,6 @@ jobs:
             npm run test -- --reporter=verbose --run
             cd web && npm ci && npm run build
             cd ..
+            cd cli && npm ci && npx tsc
+            cd ..
             sudo systemctl restart bluesky-feed

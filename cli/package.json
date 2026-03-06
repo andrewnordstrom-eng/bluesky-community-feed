@@ -1,0 +1,20 @@
+{
+  "name": "feed-cli",
+  "version": "1.0.0",
+  "description": "Admin CLI for Corgi Network Bluesky Feed",
+  "type": "module",
+  "bin": {
+    "feed-cli": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "commander": "^12.0.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

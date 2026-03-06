@@ -1,0 +1,51 @@
+name: Weekly Research Export
+
+on:
+  schedule:
+    - cron: '0 6 * * 0' # Sunday 6 AM UTC
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install server dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Install CLI dependencies
+        run: cd cli && npm ci
+
+      - name: Build CLI
+        run: cd cli && npx tsc
+
+      - name: Export votes CSV
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          EXPORT_ANONYMIZATION_SALT: ${{ secrets.EXPORT_ANONYMIZATION_SALT }}
+        run: |
+          mkdir -p data/exports
+          node cli/dist/index.js export votes --epoch=current --format=csv --direct > data/exports/votes.csv
+
+      - name: Export scores CSV
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          EXPORT_ANONYMIZATION_SALT: ${{ secrets.EXPORT_ANONYMIZATION_SALT }}
+        run: |
+          node cli/dist/index.js export scores --epoch=current --format=csv --direct > data/exports/scores.csv
+
+      - name: Upload exports
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-export-${{ github.run_number }}
+          path: data/exports/
+          retention-days: 90

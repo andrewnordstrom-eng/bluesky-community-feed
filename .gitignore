@@ -38,3 +38,9 @@ coverage/
 
 # TypeScript cache
 *.tsbuildinfo
+
+# CLI build output
+cli/dist/
+
+# Research exports
+data/exports/
