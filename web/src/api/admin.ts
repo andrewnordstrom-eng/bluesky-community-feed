@@ -6,20 +6,9 @@
  */
 
 import { api } from './client';
+import type { GovernanceWeights, ContentRules } from '@shared/api-types';
 
-// Types
-export interface GovernanceWeights {
-  recency: number;
-  engagement: number;
-  bridging: number;
-  sourceDiversity: number;
-  relevance: number;
-}
-
-export interface ContentRules {
-  includeKeywords: string[];
-  excludeKeywords: string[];
-}
+export type { GovernanceWeights, ContentRules };
 
 export interface RoundSummary {
   id: number;
