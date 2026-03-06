@@ -18,6 +18,7 @@
     "cli": "cd cli && npx tsx src/index.ts",
     "cli:build": "cd cli && tsc",
     "seed-topics": "tsx scripts/seed-topics.ts",
+    "backfill-topics": "tsx scripts/backfill-topics.ts",
     "prepare": "husky"
   },
   "dependencies": {
