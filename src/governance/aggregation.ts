@@ -323,8 +323,11 @@ export async function aggregateContentVotes(epochId: number): Promise<ContentRul
   const n = votes.rows.length;
 
   if (n === 0) {
-    logger.info({ epochId }, 'No content votes to aggregate');
-    return emptyContentRules();
+    logger.info({ epochId }, 'No content votes to aggregate, using safety-net defaults');
+    return {
+      includeKeywords: [],
+      excludeKeywords: ['spam', 'nsfw', 'onlyfans'],
+    };
   }
 
   // Calculate threshold - minimum votes needed for keyword to be included

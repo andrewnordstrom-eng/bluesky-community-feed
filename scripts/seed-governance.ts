@@ -25,6 +25,12 @@ const DEFAULT_WEIGHTS = {
   relevance: 0.10,
 };
 
+/** Safety-net exclude keywords for new epochs. AT Protocol labels handle NSFW; these catch the rest. */
+const DEFAULT_CONTENT_RULES = {
+  includeKeywords: [] as string[],
+  excludeKeywords: ['spam', 'nsfw', 'onlyfans'],
+};
+
 async function seedGovernance(): Promise<void> {
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
@@ -38,13 +44,13 @@ async function seedGovernance(): Promise<void> {
       return;
     }
 
-    // Create first epoch with default weights
+    // Create first epoch with default weights and safety-net content rules
     const epochResult = await pool.query(
       `INSERT INTO governance_epochs (
         status, recency_weight, engagement_weight, bridging_weight,
-        source_diversity_weight, relevance_weight, vote_count, description
+        source_diversity_weight, relevance_weight, content_rules, vote_count, description
       ) VALUES (
-        'active', $1, $2, $3, $4, $5, 0, 'Initial epoch with default weights'
+        'active', $1, $2, $3, $4, $5, $6, 0, 'Initial epoch with default weights'
       ) RETURNING id`,
       [
         DEFAULT_WEIGHTS.recency,
@@ -52,6 +58,7 @@ async function seedGovernance(): Promise<void> {
         DEFAULT_WEIGHTS.bridging,
         DEFAULT_WEIGHTS.source_diversity,
         DEFAULT_WEIGHTS.relevance,
+        JSON.stringify(DEFAULT_CONTENT_RULES),
       ]
     );
 

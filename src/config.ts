@@ -69,6 +69,9 @@ const ConfigSchema = z.object({
   RATE_LIMIT_INTERACTIONS_MAX: z.coerce.number().default(60),
   RATE_LIMIT_INTERACTIONS_WINDOW_MS: z.coerce.number().default(60_000),
 
+  // Content filtering
+  FILTER_NSFW_LABELS: z.coerce.boolean().default(true),
+
   // Private feed mode (research gating)
   FEED_PRIVATE_MODE: z.coerce.boolean().default(false),
 

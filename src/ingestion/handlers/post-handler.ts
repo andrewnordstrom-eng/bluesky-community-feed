@@ -7,7 +7,23 @@
 
 import { db } from '../../db/client.js';
 import { logger } from '../../lib/logger.js';
+import { config } from '../../config.js';
 import { getCurrentContentRules, checkContentRules, hasActiveContentRules } from '../../governance/content-filter.js';
+
+/** AT Protocol content labels that indicate NSFW content. */
+const NSFW_LABELS = new Set(['porn', 'sexual', 'graphic-media', 'nudity']);
+
+/**
+ * Check if a post record contains AT Protocol NSFW content labels.
+ *
+ * @param record - The raw post record from Jetstream
+ * @returns True if any NSFW label is present
+ */
+function hasNsfwLabels(record: Record<string, unknown>): boolean {
+  const labels = record?.labels as { values?: Array<{ val: string }> } | undefined;
+  if (!labels?.values) return false;
+  return labels.values.some((l) => NSFW_LABELS.has(l.val));
+}
 
 interface PostRecord {
   text?: string;
@@ -20,6 +36,9 @@ interface PostRecord {
   embed?: {
     images?: unknown[];
     video?: unknown;
+  };
+  labels?: {
+    values?: Array<{ val: string }>;
   };
 }
 
@@ -41,6 +60,19 @@ export async function handlePost(
 
   // Check for media
   const hasMedia = !!(postRecord.embed?.images?.length || postRecord.embed?.video);
+
+  // Pre-ingestion NSFW label filtering: skip posts with AT Protocol content labels.
+  // Fail-open: if the check fails, continue to keyword filtering / insertion.
+  if (config.FILTER_NSFW_LABELS) {
+    try {
+      if (hasNsfwLabels(record)) {
+        logger.debug({ uri, authorDid }, 'Post skipped by NSFW content label');
+        return;
+      }
+    } catch (err) {
+      logger.warn({ err, uri }, 'NSFW label check failed, continuing with post');
+    }
+  }
 
   // Pre-ingestion content filtering: skip posts that don't match include keywords.
   // Fail-open: if the filter check fails, insert anyway (cleanup handles it later).
