@@ -10,7 +10,7 @@
 import { db } from '../db/client.js';
 import { logger } from '../lib/logger.js';
 import { config } from '../config.js';
-import { aggregateVotes, aggregateContentVotes } from './aggregation.js';
+import { aggregateVotes, aggregateContentVotes, aggregateTopicWeights } from './aggregation.js';
 import { GovernanceWeights, weightsToVotePayload, ContentRules } from './governance.types.js';
 import { postAnnouncementSafe } from '../bot/safe-poster.js';
 import { invalidateContentRulesCache } from './content-filter.js';
@@ -305,6 +305,9 @@ export async function closeCurrentEpochAndCreateNext(): Promise<number> {
     // 3b. Aggregate content votes
     const contentRules = await aggregateContentVotes(currentEpochId);
 
+    // 3c. Aggregate topic weight votes
+    const topicWeights = await aggregateTopicWeights(currentEpochId);
+
     // 4. Close current epoch
     await client.query(
       `UPDATE governance_epochs
@@ -313,14 +316,14 @@ export async function closeCurrentEpochAndCreateNext(): Promise<number> {
       [currentEpochId]
     );
 
-    // 5. Create new epoch with aggregated weights and content rules
+    // 5. Create new epoch with aggregated weights, content rules, and topic weights
     const newEpoch = await client.query(
       `INSERT INTO governance_epochs (
         recency_weight, engagement_weight, bridging_weight,
         source_diversity_weight, relevance_weight,
-        content_rules,
+        content_rules, topic_weights,
         vote_count, description
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING id`,
       [
         newWeightsPayload.recency_weight,
@@ -332,6 +335,7 @@ export async function closeCurrentEpochAndCreateNext(): Promise<number> {
           include_keywords: contentRules.includeKeywords,
           exclude_keywords: contentRules.excludeKeywords,
         }),
+        JSON.stringify(topicWeights),
         weightVoteCount,
         `Weights updated from epoch ${currentEpochId} based on ${weightVoteCount} weight votes (${voteCount} total votes).`,
       ]
@@ -356,6 +360,7 @@ export async function closeCurrentEpochAndCreateNext(): Promise<number> {
         JSON.stringify({
           old_weights: oldWeights,
           new_weights: newWeights,
+          topic_weights: topicWeights,
           vote_count: weightVoteCount,
           total_vote_count: voteCount,
           new_epoch_id: newEpochId,
@@ -372,6 +377,7 @@ export async function closeCurrentEpochAndCreateNext(): Promise<number> {
         JSON.stringify({
           weights: newWeights,
           content_rules: contentRules,
+          topic_weights: topicWeights,
           derived_from_epoch: currentEpochId,
           vote_count: weightVoteCount,
           total_vote_count: voteCount,
@@ -404,6 +410,7 @@ export async function closeCurrentEpochAndCreateNext(): Promise<number> {
         totalVoteCount: voteCount,
         oldWeights,
         newWeights,
+        topicWeightsCount: Object.keys(topicWeights).length,
         contentRules: {
           includeKeywords: contentRules.includeKeywords.length,
           excludeKeywords: contentRules.excludeKeywords.length,
@@ -550,6 +557,9 @@ export async function forceEpochTransition(): Promise<number> {
     // 3. Aggregate content votes
     const contentRules = await aggregateContentVotes(currentEpochId);
 
+    // 3b. Aggregate topic weight votes
+    const topicWeights = await aggregateTopicWeights(currentEpochId);
+
     // 4. Close current epoch
     await client.query(
       `UPDATE governance_epochs
@@ -558,14 +568,14 @@ export async function forceEpochTransition(): Promise<number> {
       [currentEpochId]
     );
 
-    // 5. Create new epoch with aggregated weights and content rules
+    // 5. Create new epoch with aggregated weights, content rules, and topic weights
     const newEpoch = await client.query(
       `INSERT INTO governance_epochs (
         recency_weight, engagement_weight, bridging_weight,
         source_diversity_weight, relevance_weight,
-        content_rules,
+        content_rules, topic_weights,
         vote_count, description
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING id`,
       [
         newWeightsPayload.recency_weight,
@@ -577,6 +587,7 @@ export async function forceEpochTransition(): Promise<number> {
           include_keywords: contentRules.includeKeywords,
           exclude_keywords: contentRules.excludeKeywords,
         }),
+        JSON.stringify(topicWeights),
         weightVoteCount,
         `FORCED transition from epoch ${currentEpochId} with ${weightVoteCount} weight votes (${voteCount} total votes).`,
       ]
@@ -601,6 +612,7 @@ export async function forceEpochTransition(): Promise<number> {
         JSON.stringify({
           old_weights: oldWeights,
           new_weights: newWeights,
+          topic_weights: topicWeights,
           vote_count: weightVoteCount,
           total_vote_count: voteCount,
           new_epoch_id: newEpochId,
@@ -618,6 +630,7 @@ export async function forceEpochTransition(): Promise<number> {
         JSON.stringify({
           weights: newWeights,
           content_rules: contentRules,
+          topic_weights: topicWeights,
           derived_from_epoch: currentEpochId,
           vote_count: weightVoteCount,
           total_vote_count: voteCount,
@@ -655,6 +668,7 @@ export async function forceEpochTransition(): Promise<number> {
         totalVoteCount: voteCount,
         oldWeights,
         newWeights,
+        topicWeightsCount: Object.keys(topicWeights).length,
         contentRules: {
           includeKeywords: contentRules.includeKeywords,
           excludeKeywords: contentRules.excludeKeywords,

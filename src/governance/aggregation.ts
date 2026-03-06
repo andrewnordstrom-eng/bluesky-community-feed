@@ -295,6 +295,90 @@ function calculateMedian(values: number[]): number {
 }
 
 // ============================================================================
+// Topic Weight Vote Aggregation
+// ============================================================================
+
+/** Default trim percentage for topic weight aggregation. */
+const TOPIC_TRIM_PERCENT = 0.1;
+
+/**
+ * Aggregate topic weight votes for an epoch using trimmed mean.
+ * Same algorithm as component weight aggregation.
+ *
+ * For each active topic:
+ *   1. Collect all votes for that topic
+ *   2. Trim top and bottom 10% of values (requires >= 10 votes)
+ *   3. Average the remaining values
+ *   4. Topics with no votes are excluded (default to 0.5 at scoring time)
+ *
+ * @param epochId - The epoch to aggregate topic weight votes for
+ * @param trimPercent - Percentage to trim from each end (default 0.1)
+ * @returns Record of topic slug → aggregated weight. Empty = no votes cast.
+ */
+export async function aggregateTopicWeights(
+  epochId: number,
+  trimPercent: number = TOPIC_TRIM_PERCENT
+): Promise<Record<string, number>> {
+  // 1. Get all votes with topic_weight_votes
+  const votes = await db.query(
+    `SELECT topic_weight_votes FROM governance_votes
+     WHERE epoch_id = $1
+       AND topic_weight_votes IS NOT NULL
+       AND topic_weight_votes != '{}'::jsonb`,
+    [epochId]
+  );
+
+  if (votes.rows.length === 0) {
+    logger.info({ epochId }, 'No topic weight votes to aggregate');
+    return {};
+  }
+
+  // 2. Get active topic slugs
+  const slugResult = await db.query(
+    'SELECT slug FROM topic_catalog WHERE is_active = TRUE'
+  );
+  const activeSlugs = slugResult.rows.map((r: Record<string, unknown>) => r.slug as string);
+
+  // 3. For each active topic, collect votes, trim, and average
+  const result: Record<string, number> = {};
+
+  for (const slug of activeSlugs) {
+    const values = votes.rows
+      .map((v: Record<string, unknown>) => {
+        const topicVotes = v.topic_weight_votes as Record<string, number> | null;
+        return topicVotes?.[slug];
+      })
+      .filter((v): v is number => v !== undefined && v !== null)
+      .sort((a, b) => a - b);
+
+    if (values.length === 0) continue; // Unvoted = excluded, defaults to 0.5 at scoring time
+
+    const effectiveTrim = values.length >= 10
+      ? Math.floor(values.length * trimPercent)
+      : 0;
+
+    const trimmed = effectiveTrim > 0
+      ? values.slice(effectiveTrim, values.length - effectiveTrim)
+      : values;
+
+    const mean = trimmed.reduce((sum, v) => sum + v, 0) / trimmed.length;
+    result[slug] = Math.round(mean * 1000) / 1000; // 3 decimal places
+  }
+
+  logger.info(
+    {
+      epochId,
+      voterCount: votes.rows.length,
+      topicsWithVotes: Object.keys(result).length,
+      activeSlugs: activeSlugs.length,
+    },
+    'Topic weight votes aggregated'
+  );
+
+  return result;
+}
+
+// ============================================================================
 // Content Vote Aggregation
 // ============================================================================
 
