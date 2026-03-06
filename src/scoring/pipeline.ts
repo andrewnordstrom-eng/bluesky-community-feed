@@ -15,19 +15,19 @@ import { db } from '../db/client.js';
 import { redis } from '../db/redis.js';
 import { config } from '../config.js';
 import { logger } from '../lib/logger.js';
+import { getActiveEpoch } from '../db/queries/epochs.js';
 import { randomUUID } from 'crypto';
-import { scoreRecency } from './components/recency.js';
-import { scoreEngagement } from './components/engagement.js';
-import { scoreBridging } from './components/bridging.js';
-import { scoreSourceDiversity, createAuthorCountMap } from './components/source-diversity.js';
-import { scoreRelevance } from './components/relevance.js';
+import { createAuthorCountMap } from './components/source-diversity.js';
 import {
   GovernanceEpoch,
   PostForScoring,
   ScoredPost,
-  toGovernanceEpoch,
+  ScoreComponents,
   toPostForScoring,
 } from './score.types.js';
+import { DEFAULT_COMPONENTS } from './registry.js';
+import type { ScoringContext } from './component.interface.js';
+import type { GovernanceWeightKey } from '../config/votable-params.js';
 import {
   getCurrentContentRules,
   filterPosts,
@@ -218,21 +218,6 @@ async function updateCurrentRunScope(
       }),
     ]
   );
-}
-
-/**
- * Get the currently active governance epoch.
- */
-async function getActiveEpoch(): Promise<GovernanceEpoch | null> {
-  const result = await db.query(
-    `SELECT * FROM governance_epochs WHERE status = 'active' ORDER BY id DESC LIMIT 1`
-  );
-
-  if (result.rows.length === 0) {
-    return null;
-  }
-
-  return toGovernanceEpoch(result.rows[0]);
 }
 
 /**
@@ -478,9 +463,15 @@ async function scoreAllPosts(
   const scored: ScoredPost[] = [];
   const authorCounts = createAuthorCountMap();
 
+  const context: ScoringContext = {
+    epoch,
+    scoringWindowHours: config.SCORING_WINDOW_HOURS,
+    authorCounts,
+  };
+
   for (const post of posts) {
     try {
-      const scoredPost = await scorePost(post, epoch, authorCounts);
+      const scoredPost = await scorePost(post, epoch, context);
       scored.push(scoredPost);
 
       // Store to database (GOLDEN RULE: all components, weights, and weighted values)
@@ -494,56 +485,43 @@ async function scoreAllPosts(
   return scored;
 }
 
+/** Type-safe weight lookup from GovernanceEpoch by component key. */
+const WEIGHT_ACCESSORS: Record<GovernanceWeightKey, (e: GovernanceEpoch) => number> = {
+  recency: (e) => e.recencyWeight,
+  engagement: (e) => e.engagementWeight,
+  bridging: (e) => e.bridgingWeight,
+  sourceDiversity: (e) => e.sourceDiversityWeight,
+  relevance: (e) => e.relevanceWeight,
+};
+
 /**
- * Score a single post with all 5 components.
+ * Score a single post using all registered components.
  */
 async function scorePost(
   post: PostForScoring,
   epoch: GovernanceEpoch,
-  authorCounts: Map<string, number>
+  context: ScoringContext
 ): Promise<ScoredPost> {
-  // Calculate raw component scores (0.0-1.0)
-  const recency = scoreRecency(post.createdAt, config.SCORING_WINDOW_HOURS);
-  const engagement = scoreEngagement(post.likeCount, post.repostCount, post.replyCount);
-  const bridging = await scoreBridging(post.uri, post.authorDid);
-  const sourceDiversity = scoreSourceDiversity(post.authorDid, authorCounts);
-  const relevance = scoreRelevance(post);
+  const raw = {} as ScoreComponents;
+  const weights = {} as ScoreComponents;
+  const weighted = {} as ScoreComponents;
+  let total = 0;
 
-  // Get weights from governance epoch
-  const weights = {
-    recency: epoch.recencyWeight,
-    engagement: epoch.engagementWeight,
-    bridging: epoch.bridgingWeight,
-    sourceDiversity: epoch.sourceDiversityWeight,
-    relevance: epoch.relevanceWeight,
-  };
+  for (const component of DEFAULT_COMPONENTS) {
+    const rawScore = await component.score(post, context);
+    const weight = WEIGHT_ACCESSORS[component.key](epoch);
+    const weightedScore = rawScore * weight;
 
-  // Calculate weighted values
-  const weighted = {
-    recency: recency * weights.recency,
-    engagement: engagement * weights.engagement,
-    bridging: bridging * weights.bridging,
-    sourceDiversity: sourceDiversity * weights.sourceDiversity,
-    relevance: relevance * weights.relevance,
-  };
-
-  // Calculate total score (sum of weighted components)
-  const total =
-    weighted.recency +
-    weighted.engagement +
-    weighted.bridging +
-    weighted.sourceDiversity +
-    weighted.relevance;
+    raw[component.key] = rawScore;
+    weights[component.key] = weight;
+    weighted[component.key] = weightedScore;
+    total += weightedScore;
+  }
 
   return {
     uri: post.uri,
     authorDid: post.authorDid,
-    score: {
-      raw: { recency, engagement, bridging, sourceDiversity, relevance },
-      weights,
-      weighted,
-      total,
-    },
+    score: { raw, weights, weighted, total },
   };
 }
 

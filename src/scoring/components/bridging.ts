@@ -139,3 +139,14 @@ function jaccardDistance(setA: Set<string>, setB: Set<string>): number {
   const similarity = intersectionSize / unionSize;
   return 1 - similarity;
 }
+
+import type { ScoringComponent } from '../component.interface.js';
+
+/** ScoringComponent wrapper for the bridging scorer. */
+export const bridgingComponent: ScoringComponent = {
+  key: 'bridging',
+  name: 'Bridging',
+  async score(post) {
+    return scoreBridging(post.uri, post.authorDid);
+  },
+};

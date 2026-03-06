@@ -46,3 +46,14 @@ export function scoreEngagement(
   const maxEngagement = 1001; // log10(1001) = ~3
   return Math.min(1.0, Math.log10(raw + 1) / Math.log10(maxEngagement));
 }
+
+import type { ScoringComponent } from '../component.interface.js';
+
+/** ScoringComponent wrapper for the engagement scorer. */
+export const engagementComponent: ScoringComponent = {
+  key: 'engagement',
+  name: 'Engagement',
+  async score(post) {
+    return scoreEngagement(post.likeCount, post.repostCount, post.replyCount);
+  },
+};

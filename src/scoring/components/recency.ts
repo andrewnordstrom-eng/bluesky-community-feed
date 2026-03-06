@@ -13,6 +13,8 @@
  * - 72 hours old: 0.0625
  */
 
+import type { ScoringComponent } from '../component.interface.js';
+
 /**
  * Calculate recency score for a post.
  *
@@ -43,3 +45,12 @@ export function scoreRecency(createdAt: Date | string, windowHours: number): num
 
   return Math.exp(-lambda * ageHours);
 }
+
+/** ScoringComponent wrapper for the recency scorer. */
+export const recencyComponent: ScoringComponent = {
+  key: 'recency',
+  name: 'Recency',
+  async score(post, context) {
+    return scoreRecency(post.createdAt, context.scoringWindowHours);
+  },
+};

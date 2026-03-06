@@ -3,6 +3,8 @@ import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import fastifyRateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
+import swagger from '@fastify/swagger';
+import swaggerUi from '@fastify/swagger-ui';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -11,6 +13,7 @@ import { config } from '../config.js';
 import { registerDescribeGenerator } from './routes/describe-generator.js';
 import { registerWellKnown } from './routes/well-known.js';
 import { registerFeedSkeleton } from './routes/feed-skeleton.js';
+import { registerSendInteractions } from './routes/send-interactions.js';
 import { registerGovernanceRoutes } from '../governance/server.js';
 import { registerTransparencyRoutes } from '../transparency/server.js';
 import { registerDebugRoutes } from './routes/debug.js';
@@ -74,6 +77,26 @@ export async function createServer() {
     referrerPolicy: {
       policy: 'strict-origin-when-cross-origin',
     },
+  });
+
+  // No-op validator: route schemas are for OpenAPI documentation only.
+  // Actual request validation is handled by Zod safeParse() in each handler.
+  app.setValidatorCompiler(() => () => true);
+
+  // OpenAPI documentation via Swagger
+  await app.register(swagger, {
+    openapi: {
+      info: {
+        title: 'Community Feed API',
+        description: 'Community-governed Bluesky feed generator API',
+        version: '1.0.0',
+      },
+      servers: [{ url: `https://${config.FEEDGEN_HOSTNAME}` }],
+    },
+  });
+
+  await app.register(swaggerUi, {
+    routePrefix: '/docs',
   });
 
   if (config.RATE_LIMIT_ENABLED) {
@@ -143,6 +166,7 @@ export async function createServer() {
   registerDescribeGenerator(app);
   registerWellKnown(app);
   registerFeedSkeleton(app);
+  registerSendInteractions(app);
 
   // Register governance routes
   registerGovernanceRoutes(app);
@@ -179,6 +203,11 @@ export async function createServer() {
       return reply.status(200).send({ status: 'ready' });
     }
     return reply.status(503).send({ status: 'not ready' });
+  });
+
+  // OpenAPI JSON endpoint
+  app.get('/api/openapi.json', { schema: { hide: true } }, async () => {
+    return app.swagger();
   });
 
   // Standardized error handler with correlation ID
@@ -314,6 +343,14 @@ export function buildRouteRateLimitConfig(
 ): RouteRateLimitConfig | null {
   const methods = normalizeRouteMethods(method);
   const isReadOnly = methods.every((value) => value === 'GET' || value === 'HEAD' || value === 'OPTIONS');
+
+  // Tight rate limit on sendInteractions due to cold-cache DID resolution cost
+  if (url === '/xrpc/app.bsky.feed.sendInteractions') {
+    return {
+      max: config.RATE_LIMIT_INTERACTIONS_MAX,
+      timeWindow: config.RATE_LIMIT_INTERACTIONS_WINDOW_MS,
+    };
+  }
 
   if (url.startsWith('/api/governance/auth/login')) {
     return {

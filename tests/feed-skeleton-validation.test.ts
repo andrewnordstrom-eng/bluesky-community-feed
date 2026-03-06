@@ -1,4 +1,3 @@
-import Fastify from 'fastify';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { redisMock, dbQueryMock } = vi.hoisted(() => {
@@ -34,6 +33,7 @@ vi.mock('../src/db/client.js', () => ({
 
 import { config } from '../src/config.js';
 import { registerFeedSkeleton } from '../src/feed/routes/feed-skeleton.js';
+import { buildTestApp } from './helpers/index.js';
 
 describe('getFeedSkeleton query validation', () => {
   const feedUri = `at://${config.FEEDGEN_PUBLISHER_DID}/app.bsky.feed.generator/community-gov`;
@@ -51,7 +51,7 @@ describe('getFeedSkeleton query validation', () => {
   it.each(['0', '101', '2.5', 'abc'])(
     'returns 400 for invalid limit value %s',
     async (limit) => {
-      const app = Fastify();
+      const app = buildTestApp();
       registerFeedSkeleton(app);
 
       const response = await app.inject({
@@ -69,7 +69,7 @@ describe('getFeedSkeleton query validation', () => {
   );
 
   it('returns 400 for invalid cursor', async () => {
-    const app = Fastify();
+    const app = buildTestApp();
     registerFeedSkeleton(app);
 
     const response = await app.inject({
@@ -89,7 +89,7 @@ describe('getFeedSkeleton query validation', () => {
     { s: 'snap', o: 1.5 },
     { s: 'snap', o: '2' },
   ])('returns 400 for structurally invalid cursor payload %o', async (payload) => {
-    const app = Fastify();
+    const app = buildTestApp();
     registerFeedSkeleton(app);
 
     const cursor = Buffer.from(JSON.stringify(payload)).toString('base64url');
@@ -107,7 +107,7 @@ describe('getFeedSkeleton query validation', () => {
   });
 
   it('returns empty feed for cursor offset above max bound', async () => {
-    const app = Fastify();
+    const app = buildTestApp();
     registerFeedSkeleton(app);
 
     const cursor = Buffer.from(JSON.stringify({ s: 'snap', o: 999999999 })).toString('base64url');
@@ -123,7 +123,7 @@ describe('getFeedSkeleton query validation', () => {
   });
 
   it('returns empty feed for cursor offset below min bound', async () => {
-    const app = Fastify();
+    const app = buildTestApp();
     registerFeedSkeleton(app);
 
     const cursor = Buffer.from(JSON.stringify({ s: 'snap', o: -1 })).toString('base64url');
@@ -139,7 +139,7 @@ describe('getFeedSkeleton query validation', () => {
   });
 
   it('supports in-range cursor offsets for pagination', async () => {
-    const app = Fastify();
+    const app = buildTestApp();
     registerFeedSkeleton(app);
 
     const allUris = Array.from(
@@ -169,7 +169,7 @@ describe('getFeedSkeleton query validation', () => {
   });
 
   it('returns 200 for valid query', async () => {
-    const app = Fastify();
+    const app = buildTestApp();
     registerFeedSkeleton(app);
 
     const response = await app.inject({

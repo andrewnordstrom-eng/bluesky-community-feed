@@ -331,5 +331,82 @@ export function registerInteractionRoutes(app: FastifyInstance): void {
     }
   });
 
+  /**
+   * GET /api/admin/interactions/feed-signals
+   * Analytics from the sendInteractions API (requestMore, requestLess, etc.).
+   * Shows totals by type, per-epoch breakdown, and top posts by signal ratio.
+   */
+  app.get('/interactions/feed-signals', async (_request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      // Total interactions by type: today, yesterday, 7-day
+      const byTypeResult = await db.query(`
+        SELECT
+          interaction_type,
+          COUNT(*) FILTER (WHERE reported_at::date = CURRENT_DATE) AS today,
+          COUNT(*) FILTER (WHERE reported_at::date = CURRENT_DATE - 1) AS yesterday,
+          COUNT(*) FILTER (WHERE reported_at >= NOW() - INTERVAL '7 days') AS last_7_days
+        FROM feed_interactions
+        WHERE reported_at >= NOW() - INTERVAL '8 days'
+        GROUP BY interaction_type
+        ORDER BY last_7_days DESC
+      `);
+
+      // Per-epoch breakdown
+      const byEpochResult = await db.query(`
+        SELECT
+          epoch_id,
+          interaction_type,
+          COUNT(*) AS count,
+          COUNT(DISTINCT requester_did) AS unique_users
+        FROM feed_interactions
+        WHERE epoch_id IS NOT NULL
+        GROUP BY epoch_id, interaction_type
+        ORDER BY epoch_id DESC, count DESC
+        LIMIT 50
+      `);
+
+      // Top posts by requestMore/requestLess ratio (last 7 days)
+      const topPostsResult = await db.query(`
+        SELECT
+          post_uri,
+          COUNT(*) FILTER (WHERE interaction_type = 'app.bsky.feed.defs#requestMore') AS request_more,
+          COUNT(*) FILTER (WHERE interaction_type = 'app.bsky.feed.defs#requestLess') AS request_less,
+          COUNT(*) AS total_signals
+        FROM feed_interactions
+        WHERE reported_at >= NOW() - INTERVAL '7 days'
+        GROUP BY post_uri
+        HAVING COUNT(*) >= 3
+        ORDER BY
+          COUNT(*) FILTER (WHERE interaction_type = 'app.bsky.feed.defs#requestMore')::float
+          / GREATEST(COUNT(*) FILTER (WHERE interaction_type = 'app.bsky.feed.defs#requestLess'), 1) DESC
+        LIMIT 20
+      `);
+
+      return reply.send({
+        byType: byTypeResult.rows.map((row) => ({
+          type: row.interaction_type,
+          today: parseInt(row.today) || 0,
+          yesterday: parseInt(row.yesterday) || 0,
+          last7Days: parseInt(row.last_7_days) || 0,
+        })),
+        byEpoch: byEpochResult.rows.map((row) => ({
+          epochId: row.epoch_id,
+          type: row.interaction_type,
+          count: parseInt(row.count) || 0,
+          uniqueUsers: parseInt(row.unique_users) || 0,
+        })),
+        topPosts: topPostsResult.rows.map((row) => ({
+          postUri: row.post_uri,
+          requestMore: parseInt(row.request_more) || 0,
+          requestLess: parseInt(row.request_less) || 0,
+          totalSignals: parseInt(row.total_signals) || 0,
+        })),
+      });
+    } catch (err) {
+      logger.error({ err }, 'Failed to get feed signals');
+      return reply.code(500).send({ error: 'InternalError', message: 'Failed to get feed signal analytics' });
+    }
+  });
+
   logger.debug('Interaction routes registered');
 }

@@ -79,3 +79,14 @@ export function peekSourceDiversity(
   const penaltyIndex = Math.min(currentCount, DIVERSITY_PENALTIES.length - 1);
   return DIVERSITY_PENALTIES[penaltyIndex];
 }
+
+import type { ScoringComponent } from '../component.interface.js';
+
+/** ScoringComponent wrapper for the source diversity scorer. */
+export const sourceDiversityComponent: ScoringComponent = {
+  key: 'sourceDiversity',
+  name: 'Source Diversity',
+  async score(post, context) {
+    return scoreSourceDiversity(post.authorDid, context.authorCounts);
+  },
+};

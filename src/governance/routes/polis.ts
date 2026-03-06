@@ -2,11 +2,16 @@
  * Polis Route (Placeholder)
  *
  * Placeholder for future Polis integration.
- * Polis provides deliberation infrastructure for gathering nuanced community input.
+ * Polis provides deliberation infrastructure for gathering nuanced community input
+ * that can inform governance weight voting.
  *
- * Future integration points:
- * - GET /api/governance/polis - Get Polis conversation info
- * - POST /api/governance/polis/sync - Sync Polis results to governance system
+ * @status placeholder — returns static config; no live Polis API calls
+ * @planned Full integration: embed conversations, sync opinion groups,
+ *   detect consensus areas, and feed results into governance weight suggestions.
+ *
+ * Endpoints:
+ * - GET /api/governance/polis — conversation info (if POLIS_CONVERSATION_ID set)
+ * - GET /api/governance/polis/status — feature roadmap for the integration
  */
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
@@ -19,8 +24,7 @@ export function registerPolisRoute(app: FastifyInstance): void {
    * Currently a placeholder for future integration.
    */
   app.get('/api/governance/polis', async (_request: FastifyRequest, reply: FastifyReply) => {
-    // Check if Polis is configured
-    const polisConversationId = process.env.POLIS_CONVERSATION_ID;
+    const polisConversationId = config.POLIS_CONVERSATION_ID;
 
     if (!polisConversationId) {
       return reply.send({

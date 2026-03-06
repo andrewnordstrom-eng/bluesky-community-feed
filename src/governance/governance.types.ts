@@ -8,18 +8,9 @@
  * - Audit log entries
  */
 import { createDefaultGovernanceWeightRecord, GOVERNANCE_WEIGHT_KEYS } from '../config/votable-params.js';
+import type { GovernanceWeights, ContentRules } from '../shared/api-types.js';
 
-/**
- * Governance weights for the scoring algorithm.
- * All values must be 0.0-1.0 and sum to 1.0.
- */
-export interface GovernanceWeights {
-  recency: number;
-  engagement: number;
-  bridging: number;
-  sourceDiversity: number;
-  relevance: number;
-}
+export type { GovernanceWeights, ContentRules } from '../shared/api-types.js';
 
 const WEIGHT_KEYS = GOVERNANCE_WEIGHT_KEYS as ReadonlyArray<keyof GovernanceWeights>;
 const WEIGHT_SCALE = 1000;
@@ -278,17 +269,6 @@ function assertNormalizedWeights(weights: GovernanceWeights): void {
 // ============================================================================
 // Content Theme Governance Types
 // ============================================================================
-
-/**
- * Content filtering rules derived from community votes.
- * Applied during scoring to filter posts by keyword.
- */
-export interface ContentRules {
-  /** Posts must contain at least one of these keywords (OR logic) */
-  includeKeywords: string[];
-  /** Posts containing any of these keywords are filtered out (OR logic, takes precedence) */
-  excludeKeywords: string[];
-}
 
 /**
  * Content vote payload (snake_case to match DB schema).

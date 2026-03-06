@@ -13,9 +13,12 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { db } from '../../db/client.js';
+import { config } from '../../config.js';
 import { GOVERNANCE_WEIGHT_VOTE_FIELDS, VOTABLE_WEIGHT_PARAMS } from '../../config/votable-params.js';
 import { logger } from '../../lib/logger.js';
+import { Errors } from '../../lib/errors.js';
 import { getAuthenticatedDid, SessionStoreUnavailableError } from '../auth.js';
+import { isParticipantApproved } from '../../feed/access-control.js';
 import {
   normalizeWeights,
   votePayloadToWeights,
@@ -116,6 +119,13 @@ export function registerVoteRoute(app: FastifyInstance): void {
         error: 'Forbidden',
         message: 'You must be an active feed subscriber to vote. Use the feed first to become a subscriber.',
       });
+    }
+
+    // 2b. Private mode: require approved participant
+    if (config.FEED_PRIVATE_MODE) {
+      if (!await isParticipantApproved(voterDid)) {
+        throw Errors.FORBIDDEN('Private feed mode: approved participants only.');
+      }
     }
 
     // 3. Validate vote body

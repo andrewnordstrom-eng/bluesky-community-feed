@@ -5,14 +5,14 @@
  * Extending weight voting should start here, then flow into DB/schema updates.
  */
 
-export interface VotableWeightParam {
-  key: 'recency' | 'engagement' | 'bridging' | 'sourceDiversity' | 'relevance';
+import type {
+  GovernanceWeightKey,
+  VotableWeightParam as SharedVotableWeightParam,
+} from '../shared/api-types.js';
+
+/** Backend-specific extension with DB column mapping. */
+export interface VotableWeightParam extends SharedVotableWeightParam {
   voteField: 'recency_weight' | 'engagement_weight' | 'bridging_weight' | 'source_diversity_weight' | 'relevance_weight';
-  label: string;
-  description: string;
-  min: number;
-  max: number;
-  defaultValue: number;
 }
 
 export const VOTABLE_WEIGHT_PARAMS: readonly VotableWeightParam[] = [
@@ -61,11 +61,12 @@ export const VOTABLE_WEIGHT_PARAMS: readonly VotableWeightParam[] = [
     max: 1,
     defaultValue: 0.2,
   },
+  // GENERATOR_PARAM_ANCHOR — do not remove
 ] as const;
 
-export type GovernanceWeightKey = (typeof VOTABLE_WEIGHT_PARAMS)[number]['key'];
 export type GovernanceWeightVoteField = (typeof VOTABLE_WEIGHT_PARAMS)[number]['voteField'];
 
+export { type GovernanceWeightKey } from '../shared/api-types.js';
 export const GOVERNANCE_WEIGHT_KEYS = VOTABLE_WEIGHT_PARAMS.map((param) => param.key) as ReadonlyArray<GovernanceWeightKey>;
 export const GOVERNANCE_WEIGHT_VOTE_FIELDS = VOTABLE_WEIGHT_PARAMS.map((param) => param.voteField) as ReadonlyArray<GovernanceWeightVoteField>;
 

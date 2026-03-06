@@ -18,15 +18,19 @@ import { AnnouncementPanel } from '../components/admin/AnnouncementPanel';
 import { FeedHealth } from '../components/admin/FeedHealth';
 import { AuditLog } from '../components/admin/AuditLog';
 import { InteractionsPanel } from '../components/admin/InteractionsPanel';
+import { ParticipantsPanel } from '../components/admin/ParticipantsPanel';
 import { TabPanel } from '../components/TabPanel';
 import { useAuth } from '../contexts/useAuth';
+import { useAdminStatus } from '../hooks/useAdminStatus';
 import '../styles/admin.css';
 
-type AdminTab = 'overview' | 'governance' | 'announcements' | 'health' | 'interactions' | 'audit';
+type AdminTab = 'overview' | 'governance' | 'announcements' | 'health' | 'interactions' | 'participants' | 'audit';
 
 export function AdminPage() {
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
   const { userHandle, logout } = useAuth();
+  const { status } = useAdminStatus();
+  const isPrivateMode = status?.feedPrivateMode ?? false;
 
   const handleLogout = async () => {
     await logout();
@@ -69,6 +73,7 @@ export function AdminPage() {
               { id: 'announcements', label: 'Announcements' },
               { id: 'health', label: 'Feed Health' },
               { id: 'interactions', label: 'Interactions' },
+              ...(isPrivateMode ? [{ id: 'participants', label: 'Participants' }] : []),
               { id: 'audit', label: 'Audit Log' }
             ].map(tab => (
               <button
@@ -98,6 +103,11 @@ export function AdminPage() {
               <TabPanel isActive={activeTab === 'interactions'} tabKey="interactions">
                 <InteractionsPanel />
               </TabPanel>
+              {isPrivateMode && (
+                <TabPanel isActive={activeTab === 'participants'} tabKey="participants">
+                  <ParticipantsPanel />
+                </TabPanel>
+              )}
               <TabPanel isActive={activeTab === 'audit'} tabKey="audit">
                 <AuditLog />
               </TabPanel>

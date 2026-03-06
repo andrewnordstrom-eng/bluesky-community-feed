@@ -1,7 +1,7 @@
-import Fastify from 'fastify';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { config } from '../src/config.js';
 import { registerFeedSkeleton } from '../src/feed/routes/feed-skeleton.js';
+import { buildTestApp } from './helpers/index.js';
 
 const {
   redisMock,
@@ -77,7 +77,7 @@ describe('getFeedSkeleton tracking', () => {
   it('treats unverified JWT as anonymous and skips subscriber upsert', async () => {
     verifyFeedRequesterDidMock.mockResolvedValueOnce(null);
 
-    const app = Fastify();
+    const app = buildTestApp();
     registerFeedSkeleton(app);
 
     const response = await app.inject({
@@ -110,7 +110,7 @@ describe('getFeedSkeleton tracking', () => {
   it('tracks verified DID for subscriber upsert and request logging', async () => {
     verifyFeedRequesterDidMock.mockResolvedValueOnce('did:plc:verified-user');
 
-    const app = Fastify();
+    const app = buildTestApp();
     registerFeedSkeleton(app);
 
     const response = await app.inject({
@@ -145,7 +145,7 @@ describe('getFeedSkeleton tracking', () => {
   ])('logs %s as anonymous when verifier rejects', async (authorization) => {
     verifyFeedRequesterDidMock.mockResolvedValueOnce(null);
 
-    const app = Fastify();
+    const app = buildTestApp();
     registerFeedSkeleton(app);
 
     const response = await app.inject({

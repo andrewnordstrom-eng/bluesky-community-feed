@@ -1,26 +1,6 @@
-export type GovernanceWeightKey =
-  | 'recency'
-  | 'engagement'
-  | 'bridging'
-  | 'sourceDiversity'
-  | 'relevance';
+import type { GovernanceWeightKey, GovernanceWeights, VotableWeightParam } from '@shared/api-types';
 
-export interface GovernanceWeights {
-  recency: number;
-  engagement: number;
-  bridging: number;
-  sourceDiversity: number;
-  relevance: number;
-}
-
-export interface VotableWeightParam {
-  key: GovernanceWeightKey;
-  label: string;
-  description: string;
-  min: number;
-  max: number;
-  defaultValue: number;
-}
+export type { GovernanceWeightKey, GovernanceWeights, VotableWeightParam };
 
 export const VOTABLE_WEIGHT_PARAMS: readonly VotableWeightParam[] = [
   {

@@ -7,6 +7,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { db } from '../../db/client.js';
 import { redis } from '../../db/redis.js';
+import { config } from '../../config.js';
 import { getCurrentContentRules } from '../../governance/content-filter.js';
 
 export function registerStatusRoutes(app: FastifyInstance): void {
@@ -101,6 +102,7 @@ export function registerStatusRoutes(app: FastifyInstance): void {
 
     return reply.send({
       isAdmin: true,
+      feedPrivateMode: config.FEED_PRIVATE_MODE,
       system: {
         currentEpoch: currentEpoch
           ? {

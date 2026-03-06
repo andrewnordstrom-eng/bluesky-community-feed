@@ -17,6 +17,7 @@ import { registerAuditAnalysisRoutes } from './audit-analysis.js';
 import { registerSchedulerRoutes } from './scheduler.js';
 import { registerGovernanceRoutes } from './governance.js';
 import { registerInteractionRoutes } from './interactions.js';
+import { registerParticipantRoutes } from './participants.js';
 import { logger } from '../../lib/logger.js';
 
 export function registerAdminRoutes(app: FastifyInstance): void {
@@ -36,6 +37,7 @@ export function registerAdminRoutes(app: FastifyInstance): void {
       registerSchedulerRoutes(adminApp);
       registerGovernanceRoutes(adminApp);
       registerInteractionRoutes(adminApp);
+      registerParticipantRoutes(adminApp);
 
       logger.info('Admin routes registered');
     },

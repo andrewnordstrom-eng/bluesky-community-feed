@@ -1,4 +1,3 @@
-import Fastify from 'fastify';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { redisMock, dbQueryMock, verifyFeedRequesterDidMock } = vi.hoisted(() => {
@@ -39,6 +38,7 @@ vi.mock('../src/feed/jwt-verifier.js', () => ({
 
 import { config } from '../src/config.js';
 import { registerFeedSkeleton } from '../src/feed/routes/feed-skeleton.js';
+import { buildTestApp } from './helpers/index.js';
 
 describe('getFeedSkeleton auth handling', () => {
   const feedUri = `at://${config.FEEDGEN_PUBLISHER_DID}/app.bsky.feed.generator/community-gov`;
@@ -58,7 +58,7 @@ describe('getFeedSkeleton auth handling', () => {
   });
 
   it('returns 200 without auth header', async () => {
-    const app = Fastify();
+    const app = buildTestApp();
     registerFeedSkeleton(app);
 
     const response = await app.inject({
@@ -76,7 +76,7 @@ describe('getFeedSkeleton auth handling', () => {
   });
 
   it('returns 200 with malformed auth header', async () => {
-    const app = Fastify();
+    const app = buildTestApp();
     registerFeedSkeleton(app);
 
     const response = await app.inject({

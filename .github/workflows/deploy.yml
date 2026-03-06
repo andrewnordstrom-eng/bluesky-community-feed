@@ -20,6 +20,10 @@ jobs:
           script: |
             cd /opt/bluesky-feed
             git pull origin main
-            cd web && npm run build
-            cd .. && npm run build
+            npm ci --ignore-scripts
+            npm audit --audit-level=high
+            npm run build
+            npm run test -- --reporter=verbose --run
+            cd web && npm ci && npm run build
+            cd ..
             sudo systemctl restart bluesky-feed

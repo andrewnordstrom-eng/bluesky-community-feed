@@ -1,4 +1,3 @@
-import Fastify from 'fastify';
 import { describe, expect, it, vi } from 'vitest';
 
 const { redisMock, dbQueryMock, verifyFeedRequesterDidMock } = vi.hoisted(() => {
@@ -39,6 +38,7 @@ vi.mock('../src/feed/jwt-verifier.js', () => ({
 
 import { config } from '../src/config.js';
 import { registerFeedSkeleton } from '../src/feed/routes/feed-skeleton.js';
+import { buildTestApp } from './helpers/index.js';
 
 describe('getFeedSkeleton requester auth hot path', () => {
   it('returns 200 without blocking on requester auth verification', async () => {
@@ -57,7 +57,7 @@ describe('getFeedSkeleton requester auth hot path', () => {
 
     const feedUri = `at://${config.FEEDGEN_PUBLISHER_DID}/app.bsky.feed.generator/community-gov`;
 
-    const app = Fastify();
+    const app = buildTestApp();
     registerFeedSkeleton(app);
 
     const startedAt = Date.now();

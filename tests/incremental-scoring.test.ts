@@ -48,38 +48,14 @@ vi.mock('../src/admin/status-tracker.js', () => ({
 
 
 import { runScoringPipeline, getLastScoringRunAt, __resetPipelineState } from '../src/scoring/pipeline.js';
+import { buildEpochRow, buildPostRow } from './helpers/index.js';
 
 function makeEpochRow(id = 2) {
-  return {
-    id,
-    status: 'active',
-    recency_weight: 0.2,
-    engagement_weight: 0.2,
-    bridging_weight: 0.2,
-    source_diversity_weight: 0.2,
-    relevance_weight: 0.2,
-    vote_count: 10,
-    created_at: new Date().toISOString(),
-    closed_at: null,
-    description: 'test epoch',
-  };
+  return buildEpochRow({ id });
 }
 
 function makePostRow(uri = 'at://did:plc:test/post/1') {
-  return {
-    uri,
-    cid: 'bafytest',
-    author_did: 'did:plc:author',
-    text: 'hello world',
-    reply_root: null,
-    reply_parent: null,
-    langs: ['en'],
-    has_media: false,
-    created_at: new Date().toISOString(),
-    like_count: 1,
-    repost_count: 0,
-    reply_count: 0,
-  };
+  return buildPostRow({ uri });
 }
 
 function setupDefaultMocks() {

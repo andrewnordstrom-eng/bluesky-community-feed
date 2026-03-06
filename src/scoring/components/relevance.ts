@@ -14,7 +14,8 @@
  * post content and subscriber context into account.
  */
 
-import { PostForScoring } from '../score.types.js';
+import type { PostForScoring } from '../score.types.js';
+import type { ScoringComponent } from '../component.interface.js';
 
 /** Default relevance score for MVP (neutral) */
 const DEFAULT_RELEVANCE_SCORE = 0.5;
@@ -47,3 +48,12 @@ export async function scorePersonalizedRelevance(
   // Will use subscriber interests, followed topics, etc.
   return DEFAULT_RELEVANCE_SCORE;
 }
+
+/** ScoringComponent wrapper for the relevance scorer. */
+export const relevanceComponent: ScoringComponent = {
+  key: 'relevance',
+  name: 'Relevance',
+  async score(post) {
+    return scoreRelevance(post);
+  },
+};
