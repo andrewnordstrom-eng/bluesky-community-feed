@@ -14,18 +14,24 @@ dist/
 .vscode/
 *.swp
 *.swo
+
+# AI tooling & prompts
 .claude/
 .cursor/
+Prompts/
 AGENTS.md
 CLAUDE.md
 TASKING.md
 docs/AI_CODING_GUIDE.md
 docs/IMPLEMENTATION_SPEC.md
 docs/ADMIN_DASHBOARD_SPEC.md
+docs/CODEBASE_DEEP_DIVE.md
 
 # OS files
 .DS_Store
 Thumbs.db
+*\ 2.*
+*\ 2
 
 # Logs
 *.log
@@ -41,6 +47,9 @@ coverage/
 
 # CLI build output
 cli/dist/
+
+# Test results
+test-results/
 
 # Research exports
 data/exports/
