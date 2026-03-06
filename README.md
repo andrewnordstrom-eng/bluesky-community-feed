@@ -9,8 +9,6 @@ A production Bluesky custom feed where subscribers democratically vote on rankin
 
 > **Research question:** Can communities meaningfully govern their own recommendation algorithms?
 
-![Transparency Dashboard](docs/screenshots/dashboard.png)
-
 ---
 
 ## Try It
@@ -25,18 +23,6 @@ A production Bluesky custom feed where subscribers democratically vote on rankin
 
 3. **See the transparency dashboard** — View current weights, vote history, and score breakdowns:
    [feed.corgi.network/dashboard](https://feed.corgi.network/dashboard)
-
----
-
-## Screenshots
-
-| Governance Voting | Feed in Bluesky | Admin Audit View |
-|:-:|:-:|:-:|
-| ![Voting](docs/screenshots/voting-ui.png) | ![Feed](docs/screenshots/feed-in-app.png) | ![Audit](docs/screenshots/audit-view.png) |
-
-| Round History | Bot Announcement |
-|:-:|:-:|
-| ![History](docs/screenshots/history.png) | ![Bot](docs/screenshots/bot-announcement-post.png) |
 
 ---
 
