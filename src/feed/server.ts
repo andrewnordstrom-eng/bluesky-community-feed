@@ -19,6 +19,7 @@ import { registerTransparencyRoutes } from '../transparency/server.js';
 import { registerDebugRoutes } from './routes/debug.js';
 import { registerAdminRoutes } from '../admin/routes/index.js';
 import { registerLegalRoutes } from '../legal/server.js';
+import { registerMcpRoutes } from '../mcp/transport.js';
 import { getPublicHealthStatus, isLive, isReady } from '../lib/health.js';
 import { generateCorrelationId } from '../lib/correlation.js';
 import { AppError, isAppError } from '../lib/errors.js';
@@ -182,6 +183,9 @@ export async function createServer() {
 
   // Register legal document routes
   registerLegalRoutes(app);
+
+  // Register MCP (Model Context Protocol) routes
+  registerMcpRoutes(app);
 
   // Public health check endpoint - redacted status only
   app.get('/health', async () => {
