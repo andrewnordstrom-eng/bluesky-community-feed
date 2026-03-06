@@ -17,6 +17,7 @@
     "generate:route": "tsx scripts/generate-route.ts",
     "cli": "cd cli && npx tsx src/index.ts",
     "cli:build": "cd cli && tsc",
+    "seed-topics": "tsx scripts/seed-topics.ts",
     "prepare": "husky"
   },
   "dependencies": {
