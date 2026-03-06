@@ -78,6 +78,9 @@ const ConfigSchema = z.object({
   BOT_APP_PASSWORD: z.string().optional(),
   BOT_ADMIN_DIDS: z.string().optional().default(''),
   BOT_PIN_TTL_HOURS: z.coerce.number().default(24),
+
+  // Research export
+  EXPORT_ANONYMIZATION_SALT: z.string().min(16).default('dev-salt-not-for-prod'),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
