@@ -48,9 +48,15 @@ export const RateLimitResponseSchema = {
 /**
  * Security requirement for governance endpoints (cookie or bearer auth).
  */
-export const governanceSecurity = [{ cookieAuth: [] }, { bearerAuth: [] }];
+export const governanceSecurity: { [key: string]: string[] }[] = [
+  { cookieAuth: [] },
+  { bearerAuth: [] },
+];
 
 /**
  * Security requirement for admin endpoints.
  */
-export const adminSecurity = [{ cookieAuth: [] }, { bearerAuth: [] }];
+export const adminSecurity: { [key: string]: string[] }[] = [
+  { cookieAuth: [] },
+  { bearerAuth: [] },
+];

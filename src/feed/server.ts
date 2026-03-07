@@ -245,12 +245,49 @@ export async function createServer() {
   registerMcpRoutes(app);
 
   // Public health check endpoint - redacted status only
-  app.get('/health', async () => {
+  app.get('/health', {
+    schema: {
+      tags: ['Health'],
+      summary: 'Public health check',
+      description: 'Returns a redacted health status (ok or degraded). Does not expose component details.',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            status: { type: 'string', enum: ['ok', 'degraded'], description: 'Overall system health' },
+          },
+          required: ['status'],
+        },
+      },
+    },
+  }, async () => {
     return getPublicHealthStatus();
   });
 
   // Liveness probe - just checks if process is running (k8s liveness)
-  app.get('/health/live', async (_request, reply) => {
+  app.get('/health/live', {
+    schema: {
+      tags: ['Health'],
+      summary: 'Liveness probe',
+      description: 'Returns 200 if the process is running. Used by Kubernetes liveness probes.',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            status: { type: 'string', enum: ['live'], description: 'Process is running' },
+          },
+          required: ['status'],
+        },
+        503: {
+          type: 'object',
+          properties: {
+            status: { type: 'string', enum: ['not live'] },
+          },
+          required: ['status'],
+        },
+      },
+    },
+  }, async (_request, reply) => {
     if (isLive()) {
       return reply.status(200).send({ status: 'live' });
     }
@@ -258,7 +295,29 @@ export async function createServer() {
   });
 
   // Readiness probe - checks if all dependencies are healthy (k8s readiness)
-  app.get('/health/ready', async (_request, reply) => {
+  app.get('/health/ready', {
+    schema: {
+      tags: ['Health'],
+      summary: 'Readiness probe',
+      description: 'Returns 200 if database and Redis are healthy. Used by Kubernetes readiness probes.',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            status: { type: 'string', enum: ['ready'], description: 'All critical dependencies healthy' },
+          },
+          required: ['status'],
+        },
+        503: {
+          type: 'object',
+          properties: {
+            status: { type: 'string', enum: ['not ready'] },
+          },
+          required: ['status'],
+        },
+      },
+    },
+  }, async (_request, reply) => {
     const ready = await isReady();
     if (ready) {
       return reply.status(200).send({ status: 'ready' });
