@@ -17,6 +17,7 @@ import { db } from '../../db/client.js';
 import { redis } from '../../db/redis.js';
 import { logger } from '../../lib/logger.js';
 import { Errors } from '../../lib/errors.js';
+import { ErrorResponseSchema, RateLimitResponseSchema } from '../../lib/openapi.js';
 import { verifyFeedRequesterDid } from '../jwt-verifier.js';
 import { config } from '../../config.js';
 import { isParticipantApproved } from '../access-control.js';
@@ -66,7 +67,18 @@ export function registerSendInteractions(app: FastifyInstance): void {
     '/xrpc/app.bsky.feed.sendInteractions',
     {
       schema: {
+        tags: ['Feed'],
+        summary: 'Send interaction signals',
+        description:
+          'Receives user interaction signals (requestMore, requestLess, etc.) from Bluesky clients. ' +
+          'Requires a valid JWT in the Authorization header. Stored for analytics and scoring feedback.',
         body: SendInteractionsBodyJsonSchema,
+        response: {
+          200: { type: 'object', description: 'Empty object on success' },
+          400: ErrorResponseSchema,
+          401: ErrorResponseSchema,
+          429: RateLimitResponseSchema,
+        },
       },
     },
     async (request: FastifyRequest, reply) => {
