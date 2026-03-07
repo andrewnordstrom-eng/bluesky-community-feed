@@ -63,8 +63,8 @@ async function main() {
     did: serviceDid,
     displayName: 'Community Governed Feed',
     description:
-      'A feed where subscribers collectively vote on algorithm parameters. ' +
-      'Transparent, explainable, democratic.',
+      'A community-governed feed where subscribers vote on algorithm weights and topic priorities. ' +
+      '25 steerable topics, transparent scoring, democratic control.',
     acceptsInteractions: true,
     createdAt: new Date().toISOString(),
   };
