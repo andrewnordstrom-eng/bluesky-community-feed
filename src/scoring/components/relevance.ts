@@ -11,16 +11,18 @@
  * "politics" at 0.2 and the community penalized it to 0.1, that contributes little.
  *
  * Backward compatibility:
- * - Posts without topic vectors → 0.5 (neutral)
- * - Epochs without topic weights → 0.5 (neutral)
- * - Topics in post but not in community weights → default 0.5
+ * - Posts without topic vectors → 0.2 (below midpoint)
+ * - Epochs without topic weights → 0.2 (below midpoint)
+ * - Topics in post but not in community weights → default 0.2
  */
 
 import type { PostForScoring } from '../score.types.js';
 import type { ScoringComponent, ScoringContext } from '../component.interface.js';
 
-/** Default relevance score when no topic data is available. */
-const DEFAULT_RELEVANCE_SCORE = 0.5;
+/** Default relevance score when no topic data is available.
+ * Set below midpoint so classified posts outrank unclassified ones
+ * when the community has expressed topic preferences. */
+const DEFAULT_RELEVANCE_SCORE = 0.2;
 
 /**
  * Calculate topic-weighted relevance score.

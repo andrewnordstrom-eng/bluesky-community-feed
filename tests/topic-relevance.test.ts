@@ -54,28 +54,28 @@ function makeContext(topicWeights?: Record<string, number>): ScoringContext {
 }
 
 describe('scoreRelevance', () => {
-  it('returns 0.5 when post has no topicVector', () => {
+  it('returns default score when post has no topicVector', () => {
     const post = makePost(undefined);
     const context = makeContext({ 'software-development': 0.9 });
-    expect(scoreRelevance(post, context)).toBe(0.5);
+    expect(scoreRelevance(post, context)).toBe(0.2);
   });
 
-  it('returns 0.5 when post has empty topicVector', () => {
+  it('returns default score when post has empty topicVector', () => {
     const post = makePost({});
     const context = makeContext({ 'software-development': 0.9 });
-    expect(scoreRelevance(post, context)).toBe(0.5);
+    expect(scoreRelevance(post, context)).toBe(0.2);
   });
 
-  it('returns 0.5 when epoch has no topicWeights', () => {
+  it('returns default score when epoch has no topicWeights', () => {
     const post = makePost({ 'software-development': 0.8 });
     const context = makeContext(undefined);
-    expect(scoreRelevance(post, context)).toBe(0.5);
+    expect(scoreRelevance(post, context)).toBe(0.2);
   });
 
-  it('returns 0.5 when epoch has empty topicWeights', () => {
+  it('returns default score when epoch has empty topicWeights', () => {
     const post = makePost({ 'software-development': 0.8 });
     const context = makeContext({});
-    expect(scoreRelevance(post, context)).toBe(0.5);
+    expect(scoreRelevance(post, context)).toBe(0.2);
   });
 
   it('returns > 0.5 for post matching a boosted topic', () => {
@@ -109,25 +109,25 @@ describe('scoreRelevance', () => {
     expect(score).toBeCloseTo(0.74, 6);
   });
 
-  it('uses default 0.5 for topics not in community weights', () => {
+  it('uses default 0.2 for topics not in community weights', () => {
     const post = makePost({
       'software-development': 0.6,
       'unknown-topic': 0.4,
     });
     const context = makeContext({ 'software-development': 1.0 });
 
-    // Expected: (0.6*1.0 + 0.4*0.5) / (0.6+0.4) = (0.6+0.2)/1.0 = 0.8
+    // Expected: (0.6*1.0 + 0.4*0.2) / (0.6+0.4) = (0.6+0.08)/1.0 = 0.68
     const score = scoreRelevance(post, context);
-    expect(score).toBeCloseTo(0.8, 6);
+    expect(score).toBeCloseTo(0.68, 6);
   });
 
-  it('returns 0.5 when all post topic scores are zero', () => {
+  it('returns default score when all post topic scores are zero', () => {
     const post = makePost({
       'software-development': 0,
       'politics': 0,
     });
     const context = makeContext({ 'software-development': 0.9 });
-    expect(scoreRelevance(post, context)).toBe(0.5);
+    expect(scoreRelevance(post, context)).toBe(0.2);
   });
 
   it('clamps result to 0.0-1.0 range', () => {
@@ -146,7 +146,7 @@ describe('scoreRelevance', () => {
     });
     const context = makeContext({ 'software-development': 0.9 });
 
-    // Both topics default to 0.5: (0.5*0.5 + 0.3*0.5) / (0.5+0.3) = 0.4/0.8 = 0.5
-    expect(scoreRelevance(post, context)).toBeCloseTo(0.5, 6);
+    // Both topics default to 0.2: (0.5*0.2 + 0.3*0.2) / (0.5+0.3) = 0.16/0.8 = 0.2
+    expect(scoreRelevance(post, context)).toBeCloseTo(0.2, 6);
   });
 });
