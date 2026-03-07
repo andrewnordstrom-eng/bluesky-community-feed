@@ -601,22 +601,29 @@ async function storeScore(
 }
 
 /**
- * Write the ranked feed to Redis by reading all stored scores from the database.
+ * Write the ranked feed to Redis by reading stored scores from the database.
  *
  * Works for both full and incremental runs: in incremental mode, only new/changed
  * posts were scored and upserted into post_scores, but previous scores remain.
  * Reading from DB produces the complete, correctly-ranked feed.
+ *
+ * Applies the scoring window cutoff so posts older than SCORING_WINDOW_HOURS
+ * are excluded even if they have stale scores in post_scores.
  */
 async function writeToRedisFromDb(epochId: number, runId: string): Promise<void> {
+  const cutoffMs = config.SCORING_WINDOW_HOURS * 60 * 60 * 1000;
+  const cutoff = new Date(Date.now() - cutoffMs);
+
   const result = await db.query<{ post_uri: string; total_score: number }>(
     `SELECT ps.post_uri, ps.total_score
      FROM post_scores ps
      INNER JOIN posts p ON p.uri = ps.post_uri
      WHERE ps.epoch_id = $1
        AND p.deleted = FALSE
+       AND p.created_at > $3
      ORDER BY ps.total_score DESC
      LIMIT $2`,
-    [epochId, config.FEED_MAX_POSTS]
+    [epochId, config.FEED_MAX_POSTS, cutoff.toISOString()]
   );
 
   const topPosts = result.rows;
