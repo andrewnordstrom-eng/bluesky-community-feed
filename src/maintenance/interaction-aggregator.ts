@@ -308,11 +308,15 @@ async function computeEpochStats(): Promise<void> {
 async function retentionCleanup(): Promise<void> {
   try {
     const feedResult = await db.query(
-      `DELETE FROM feed_requests WHERE requested_at < NOW() - INTERVAL '${RETENTION_DAYS} days'`
+      `DELETE FROM feed_requests
+       WHERE requested_at < NOW() - ($1::int * INTERVAL '1 day')`,
+      [RETENTION_DAYS]
     );
 
     const attrResult = await db.query(
-      `DELETE FROM engagement_attributions WHERE served_at < NOW() - INTERVAL '${RETENTION_DAYS} days'`
+      `DELETE FROM engagement_attributions
+       WHERE served_at < NOW() - ($1::int * INTERVAL '1 day')`,
+      [RETENTION_DAYS]
     );
 
     const feedDeleted = feedResult.rowCount ?? 0;

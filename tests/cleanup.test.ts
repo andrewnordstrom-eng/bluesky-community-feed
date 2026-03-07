@@ -332,7 +332,7 @@ describe('cleanup job', () => {
         (call[0] as string).includes('post_scores')
     );
     expect(staleLikeCall).toBeDefined();
-    expect(staleLikeCall![0]).toContain("INTERVAL '7 days'");
+    expect(staleLikeCall![0]).toContain("($1::int * INTERVAL '1 day')");
     expect(staleLikeCall![0]).toContain('NOT EXISTS (SELECT 1 FROM post_scores');
 
     const staleRepostCall = clientQueryMock.mock.calls.find(
@@ -342,7 +342,7 @@ describe('cleanup job', () => {
         (call[0] as string).includes('post_scores')
     );
     expect(staleRepostCall).toBeDefined();
-    expect(staleRepostCall![0]).toContain("INTERVAL '7 days'");
+    expect(staleRepostCall![0]).toContain("($1::int * INTERVAL '1 day')");
 
     const followsCall = clientQueryMock.mock.calls.find(
       (call: unknown[]) =>
@@ -350,6 +350,6 @@ describe('cleanup job', () => {
         (call[0] as string).includes('DELETE FROM follows')
     );
     expect(followsCall).toBeDefined();
-    expect(followsCall![0]).toContain("INTERVAL '7 days'");
+    expect(followsCall![0]).toContain("($1::int * INTERVAL '1 day')");
   });
 });

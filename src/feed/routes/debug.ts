@@ -18,7 +18,10 @@ import {
 } from '../../governance/content-filter.js';
 
 export function registerDebugRoutes(app: FastifyInstance): void {
-  const preHandler = config.NODE_ENV === 'production' ? requireAdmin : undefined;
+  // Always require admin auth — debug endpoints expose epoch data, vote counts,
+  // subscriber counts, and sample post scores. Even in dev/staging, they should
+  // not be public in case those environments contain real data.
+  const preHandler = requireAdmin;
 
   /**
    * GET /api/debug/feed-health

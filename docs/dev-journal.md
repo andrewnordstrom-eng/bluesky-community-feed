@@ -353,3 +353,23 @@ Backfill processes 500 posts per batch with unnest() UPDATE pattern for efficien
 
 ### Open questions
 Consider merging dev/topic-engine to main and tagging as v1.1.0.
+
+## 2026-03-07 — Comprehensive Security Audit
+**Branch:** `dev/security-audit`
+**Commits:** `9bb9937`, `65bbf7d`, `47a3e69`, `c629f4b`, `25ce7c8`, `9273d4d`, `ed36a20`, `df661b7`, `97673ce`, `c444f71`, `22fedf7`, `210930a`, `9104da3`
+**Files changed:** `src/feed/routes/send-interactions.ts`, `src/feed/routes/debug.ts`, `src/feed/server.ts`, `src/maintenance/cleanup.ts`, `src/maintenance/interaction-aggregator.ts`, `src/admin/routes/export.ts`, `src/admin/routes/participants.ts`, `src/auth/admin.ts`, `src/config.ts`, `.env.example`, `.github/workflows/deploy.yml`, `.github/workflows/daily-health.yml`, `.github/workflows/weekly-export.yml`, `docs/SECURITY.md`, `docs/SECURITY_AUDIT.md`, `tests/send-interactions-security.test.ts`, `tests/admin-export.test.ts`, `tests/rate-limit-config.test.ts`, `tests/cleanup.test.ts`, `tests/interaction-aggregator.test.ts`, `tests/config-defaults-security.test.ts`, `tests/debug-routes-access.test.ts`
+
+### What changed
+Full-repository security audit covering 316 tracked files (62,965 lines). Found and fixed 9 HIGH, 4 MEDIUM issues. Key remediations: unconditional admin auth on debug routes, OpenAPI docs gated behind admin in production, recursive DID scrubbing in audit export JSONB, private-mode enforcement on sendInteractions, SQL interval parameterization in maintenance jobs, production-only export salt validation, MCP rate limiting, research consent filtering in exports, admin DID parsing at startup, participant DELETE param validation, Fastify bodyLimit, and SHA-pinned GitHub Actions. Zero CRITICAL findings.
+
+### Why
+Production research system handling governance integrity and participant data. IRB compliance requires anonymization guarantees and consent filtering. Defense-in-depth against misconfiguration (debug routes, OpenAPI exposure) and supply-chain attacks (CI pinning).
+
+### Measurements
+248 tests pass across 53 files. Backend and frontend builds clean. `npm audit`: 0 high/critical, 5 moderate (dev-only vitest/esbuild chain — accepted risk). Full findings in `docs/SECURITY_AUDIT.md`.
+
+### Decisions & alternatives
+Elevated OpenAPI docs from MEDIUM to HIGH — combined with debug route exposure, provides full system reconnaissance on misconfigured instances. Accepted 16-hex-char anonymization truncation (64 bits, sufficient for ~20M DIDs) over 32-char — salt secrecy is the primary control. Dev-only vitest CVEs deferred to next major vitest upgrade.
+
+### Open questions
+None.

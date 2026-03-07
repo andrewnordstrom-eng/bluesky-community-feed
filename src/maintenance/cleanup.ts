@@ -255,12 +255,12 @@ async function batchDeleteOldPosts(feedUris: string[]): Promise<number> {
         `DELETE FROM posts
          WHERE uri IN (
            SELECT p.uri FROM posts p
-           WHERE p.indexed_at < NOW() - INTERVAL '${RETENTION_HOURS} hours'
+           WHERE p.indexed_at < NOW() - ($1::int * INTERVAL '1 hour')
              AND NOT EXISTS (SELECT 1 FROM post_scores ps WHERE ps.post_uri = p.uri)
-             AND p.uri != ALL($1::text[])
-           LIMIT $2
+             AND p.uri != ALL($2::text[])
+           LIMIT $3
          )`,
-        [feedUris, BATCH_SIZE]
+        [RETENTION_HOURS, feedUris, BATCH_SIZE]
       );
 
       const deleted = result.rowCount ?? 0;
@@ -295,11 +295,11 @@ async function batchDeleteOrphanedLikes(): Promise<number> {
         `DELETE FROM likes
          WHERE uri IN (
            SELECT l.uri FROM likes l
-           WHERE l.created_at < NOW() - INTERVAL '${RETENTION_HOURS} hours'
+           WHERE l.created_at < NOW() - ($1::int * INTERVAL '1 hour')
              AND NOT EXISTS (SELECT 1 FROM posts p WHERE p.uri = l.subject_uri)
-           LIMIT $1
+           LIMIT $2
          )`,
-        [BATCH_SIZE]
+        [RETENTION_HOURS, BATCH_SIZE]
       );
 
       const deleted = result.rowCount ?? 0;
@@ -334,11 +334,11 @@ async function batchDeleteOrphanedReposts(): Promise<number> {
         `DELETE FROM reposts
          WHERE uri IN (
            SELECT r.uri FROM reposts r
-           WHERE r.created_at < NOW() - INTERVAL '${RETENTION_HOURS} hours'
+           WHERE r.created_at < NOW() - ($1::int * INTERVAL '1 hour')
              AND NOT EXISTS (SELECT 1 FROM posts p WHERE p.uri = r.subject_uri)
-           LIMIT $1
+           LIMIT $2
          )`,
-        [BATCH_SIZE]
+        [RETENTION_HOURS, BATCH_SIZE]
       );
 
       const deleted = result.rowCount ?? 0;
@@ -373,11 +373,11 @@ async function batchDeleteStaleLikes(): Promise<number> {
         `DELETE FROM likes
          WHERE uri IN (
            SELECT l.uri FROM likes l
-           WHERE l.created_at < NOW() - INTERVAL '${INTERACTION_RETENTION_DAYS} days'
+           WHERE l.created_at < NOW() - ($1::int * INTERVAL '1 day')
              AND NOT EXISTS (SELECT 1 FROM post_scores ps WHERE ps.post_uri = l.subject_uri)
-           LIMIT $1
+           LIMIT $2
          )`,
-        [BATCH_SIZE]
+        [INTERACTION_RETENTION_DAYS, BATCH_SIZE]
       );
 
       const deleted = result.rowCount ?? 0;
@@ -412,11 +412,11 @@ async function batchDeleteStaleReposts(): Promise<number> {
         `DELETE FROM reposts
          WHERE uri IN (
            SELECT r.uri FROM reposts r
-           WHERE r.created_at < NOW() - INTERVAL '${INTERACTION_RETENTION_DAYS} days'
+           WHERE r.created_at < NOW() - ($1::int * INTERVAL '1 day')
              AND NOT EXISTS (SELECT 1 FROM post_scores ps WHERE ps.post_uri = r.subject_uri)
-           LIMIT $1
+           LIMIT $2
          )`,
-        [BATCH_SIZE]
+        [INTERACTION_RETENTION_DAYS, BATCH_SIZE]
       );
 
       const deleted = result.rowCount ?? 0;
@@ -451,10 +451,10 @@ async function batchDeleteOldFollows(): Promise<number> {
         `DELETE FROM follows
          WHERE uri IN (
            SELECT f.uri FROM follows f
-           WHERE f.created_at < NOW() - INTERVAL '${INTERACTION_RETENTION_DAYS} days'
-           LIMIT $1
+           WHERE f.created_at < NOW() - ($1::int * INTERVAL '1 day')
+           LIMIT $2
          )`,
-        [BATCH_SIZE]
+        [INTERACTION_RETENTION_DAYS, BATCH_SIZE]
       );
 
       const deleted = result.rowCount ?? 0;

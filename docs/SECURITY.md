@@ -8,6 +8,7 @@ This document covers operational and contributor security expectations for this 
 - Browser CORS should use explicit allowlists (`CORS_ALLOWED_ORIGINS`).
 - Proxy trust is explicit via `TRUST_PROXY` (avoid blanket trust in forwarded headers).
 - Public transparency audit output redacts participant identity and sensitive vote payload details.
+- Research exports include only subscribers with explicit `research_consent = TRUE`.
 
 ## Threat model highlights
 
@@ -23,6 +24,7 @@ This document covers operational and contributor security expectations for this 
 - Use Bluesky **app passwords** only; never use account main passwords.
 - Keep database/Redis credentials unique and strong.
 - Rotate `BSKY_APP_PASSWORD`/`BOT_APP_PASSWORD` if leaked.
+- Set a long, random `EXPORT_ANONYMIZATION_SALT` (minimum 32 chars in production).
 
 ## Network and infrastructure
 

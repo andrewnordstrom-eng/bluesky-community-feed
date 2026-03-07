@@ -11,14 +11,36 @@ import { logger } from '../lib/logger.js';
 import { config } from '../config.js';
 
 /**
- * Check if a DID is in the admin list.
+ * Parsed admin DID set — computed once at module load to avoid
+ * re-splitting BOT_ADMIN_DIDS on every request.
  */
-export function isAdmin(did: string): boolean {
-  const adminDids =
+const ADMIN_DIDS: ReadonlySet<string> = (() => {
+  const entries =
     config.BOT_ADMIN_DIDS?.split(',')
       .map((d) => d.trim())
       .filter(Boolean) || [];
-  return adminDids.includes(did);
+
+  // Validate format at startup
+  for (const entry of entries) {
+    if (!entry.startsWith('did:')) {
+      logger.warn({ entry }, 'BOT_ADMIN_DIDS contains entry without did: prefix — ignored');
+    }
+  }
+
+  const validEntries = entries.filter((d) => d.startsWith('did:'));
+
+  if (validEntries.length === 0) {
+    logger.warn('BOT_ADMIN_DIDS is empty or contains no valid DIDs — no admin access possible');
+  }
+
+  return new Set(validEntries);
+})();
+
+/**
+ * Check if a DID is in the admin list.
+ */
+export function isAdmin(did: string): boolean {
+  return ADMIN_DIDS.has(did);
 }
 
 /**

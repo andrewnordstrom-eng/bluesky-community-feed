@@ -70,21 +70,8 @@ describe('debug route access control', () => {
     await app.close();
   });
 
-  it('does not enforce admin auth in development', async () => {
-    const { registerDebugRoutes, requireAdminMock, dbQueryMock } = await loadDebugRoutesForEnv('development');
-    dbQueryMock.mockResolvedValueOnce({
-      rows: [
-        {
-          id: 1,
-          recency_weight: 0.2,
-          engagement_weight: 0.2,
-          bridging_weight: 0.2,
-          source_diversity_weight: 0.2,
-          relevance_weight: 0.2,
-          created_at: '2026-02-09T00:00:00.000Z',
-        },
-      ],
-    });
+  it('also requires admin auth in development (security hardening)', async () => {
+    const { registerDebugRoutes, requireAdminMock } = await loadDebugRoutesForEnv('development');
 
     const app = Fastify();
     registerDebugRoutes(app);
@@ -94,9 +81,9 @@ describe('debug route access control', () => {
       url: '/api/debug/scoring-weights',
     });
 
-    expect(response.statusCode).toBe(200);
-    expect(requireAdminMock).not.toHaveBeenCalled();
-    expect(dbQueryMock).toHaveBeenCalledTimes(1);
+    // Debug routes now require admin auth unconditionally — no environment bypass
+    expect(response.statusCode).toBe(401);
+    expect(requireAdminMock).toHaveBeenCalledTimes(1);
 
     await app.close();
   });

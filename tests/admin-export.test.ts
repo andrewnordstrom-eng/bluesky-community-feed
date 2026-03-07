@@ -93,6 +93,10 @@ describe('export routes', () => {
       expect(bodyStr).not.toContain('did:plc:alice');
       expect(bodyStr).not.toContain('did:plc:bob');
 
+      const voteSql = dbQueryMock.mock.calls[0][0] as string;
+      expect(voteSql).toContain('JOIN subscribers s ON s.did = gv.voter_did');
+      expect(voteSql).toContain('s.research_consent IS TRUE');
+
       // Verify weight data preserved
       expect(body.votes[0].recency_weight).toBe(0.3);
       expect(body.votes[0].include_keywords).toEqual(['bluesky']);
@@ -257,6 +261,10 @@ describe('export routes', () => {
       const body = response.json();
       expect(body.engagement[0].anon_viewer_id).toMatch(/^[0-9a-f]{16}$/);
       expect(JSON.stringify(body)).not.toContain('did:plc:viewer1');
+
+      const engagementSql = dbQueryMock.mock.calls[0][0] as string;
+      expect(engagementSql).toContain('JOIN subscribers s ON s.did = ea.viewer_did');
+      expect(engagementSql).toContain('s.research_consent IS TRUE');
 
       await app.close();
     });

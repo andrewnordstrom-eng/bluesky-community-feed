@@ -41,4 +41,17 @@ describe('route rate-limit policy', () => {
 
     expect(policy).toBeNull();
   });
+
+  it('applies critical limits to MCP transport endpoint', () => {
+    const policy = buildRouteRateLimitConfig(
+      '/mcp',
+      'POST',
+      noopKeyGenerator
+    );
+
+    expect(policy).toMatchObject({
+      max: config.RATE_LIMIT_ADMIN_CRITICAL_MAX,
+      timeWindow: config.RATE_LIMIT_ADMIN_CRITICAL_WINDOW_MS,
+    });
+  });
 });

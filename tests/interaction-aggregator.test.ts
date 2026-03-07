@@ -61,11 +61,11 @@ describe('interaction aggregator', () => {
     // Job 3: Retention cleanup (runs once per day — this is the first run)
     const feedDelete = allSql.filter((s) => s.includes('DELETE FROM feed_requests'));
     expect(feedDelete.length).toBeGreaterThanOrEqual(1);
-    expect(feedDelete[0]).toContain('30 days');
+    expect(feedDelete[0]).toContain("($1::int * INTERVAL '1 day')");
 
     const attrDelete = allSql.filter((s) => s.includes('DELETE FROM engagement_attributions'));
     expect(attrDelete.length).toBeGreaterThanOrEqual(1);
-    expect(attrDelete[0]).toContain('30 days');
+    expect(attrDelete[0]).toContain("($1::int * INTERVAL '1 day')");
   });
 
   it('computes epoch stats when active epoch exists', async () => {

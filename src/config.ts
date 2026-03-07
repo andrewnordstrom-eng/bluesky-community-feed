@@ -3,6 +3,8 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+const INSECURE_EXPORT_SALT_DEFAULT = 'dev-salt-not-for-prod';
+
 const ConfigSchema = z.object({
   // Identity
   FEEDGEN_SERVICE_DID: z.string().startsWith('did:'),
@@ -83,7 +85,27 @@ const ConfigSchema = z.object({
   BOT_PIN_TTL_HOURS: z.coerce.number().default(24),
 
   // Research export
-  EXPORT_ANONYMIZATION_SALT: z.string().min(16).default('dev-salt-not-for-prod'),
+  EXPORT_ANONYMIZATION_SALT: z.string().min(16).default(INSECURE_EXPORT_SALT_DEFAULT),
+}).superRefine((cfg, ctx) => {
+  if (cfg.NODE_ENV !== 'production') {
+    return;
+  }
+
+  if (cfg.EXPORT_ANONYMIZATION_SALT === INSECURE_EXPORT_SALT_DEFAULT) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['EXPORT_ANONYMIZATION_SALT'],
+      message: 'EXPORT_ANONYMIZATION_SALT must be explicitly set in production.',
+    });
+  }
+
+  if (cfg.EXPORT_ANONYMIZATION_SALT.length < 32) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['EXPORT_ANONYMIZATION_SALT'],
+      message: 'EXPORT_ANONYMIZATION_SALT should be at least 32 characters in production.',
+    });
+  }
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

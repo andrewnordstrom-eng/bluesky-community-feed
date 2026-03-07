@@ -25,6 +25,7 @@ import { generateCorrelationId } from '../lib/correlation.js';
 import { AppError, isAppError } from '../lib/errors.js';
 import { redis } from '../db/redis.js';
 import { getAuthenticatedDid } from '../governance/auth.js';
+import { requireAdmin } from '../auth/admin.js';
 
 // Extend FastifyRequest to include correlationId
 declare module 'fastify' {
@@ -41,6 +42,7 @@ export async function createServer() {
   const app = Fastify({
     logger: false, // We use our own pino logger
     trustProxy: parseTrustProxyConfig(config.TRUST_PROXY),
+    bodyLimit: 256 * 1024, // 256 KB — tighter than Fastify's 1 MB default
   });
 
   const allowedOrigins = parseAllowedOrigins();
@@ -84,7 +86,10 @@ export async function createServer() {
   // Actual request validation is handled by Zod safeParse() in each handler.
   app.setValidatorCompiler(() => () => true);
 
-  // OpenAPI documentation via Swagger
+  // OpenAPI documentation via Swagger — gate behind admin auth in production
+  // to prevent reconnaissance of internal API routes and schemas.
+  const isProduction = config.NODE_ENV === 'production';
+
   await app.register(swagger, {
     openapi: {
       info: {
@@ -98,6 +103,9 @@ export async function createServer() {
 
   await app.register(swaggerUi, {
     routePrefix: '/docs',
+    uiHooks: {
+      onRequest: isProduction ? requireAdmin : undefined,
+    },
   });
 
   if (config.RATE_LIMIT_ENABLED) {
@@ -209,10 +217,14 @@ export async function createServer() {
     return reply.status(503).send({ status: 'not ready' });
   });
 
-  // OpenAPI JSON endpoint
-  app.get('/api/openapi.json', { schema: { hide: true } }, async () => {
-    return app.swagger();
-  });
+  // OpenAPI JSON endpoint — gated behind admin auth in production
+  app.get(
+    '/api/openapi.json',
+    { schema: { hide: true }, preHandler: isProduction ? requireAdmin : undefined },
+    async () => {
+      return app.swagger();
+    }
+  );
 
   // Standardized error handler with correlation ID
   app.setErrorHandler((error: Error, request: FastifyRequest, reply: FastifyReply) => {
@@ -353,6 +365,15 @@ export function buildRouteRateLimitConfig(
     return {
       max: config.RATE_LIMIT_INTERACTIONS_MAX,
       timeWindow: config.RATE_LIMIT_INTERACTIONS_WINDOW_MS,
+    };
+  }
+
+  // MCP transport is admin-only and can invoke expensive backend actions.
+  // Use critical admin limits instead of relying on the looser global cap.
+  if (url === '/mcp') {
+    return {
+      max: config.RATE_LIMIT_ADMIN_CRITICAL_MAX,
+      timeWindow: config.RATE_LIMIT_ADMIN_CRITICAL_WINDOW_MS,
     };
   }
 

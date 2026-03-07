@@ -18,13 +18,29 @@ import { redis } from '../../db/redis.js';
 import { logger } from '../../lib/logger.js';
 import { Errors } from '../../lib/errors.js';
 import { verifyFeedRequesterDid } from '../jwt-verifier.js';
+import { config } from '../../config.js';
+import { isParticipantApproved } from '../access-control.js';
 
 const MAX_INTERACTIONS_PER_REQUEST = 100;
+const MAX_URI_LENGTH = 512;
+const MAX_FEED_CONTEXT_LENGTH = 512;
+const INTERACTION_EVENT_PATTERN = /^app\.bsky\.feed\.defs#[a-zA-Z][a-zA-Z0-9]{1,63}$/;
 
 const InteractionSchema = z.object({
-  item: z.string().min(1),
-  event: z.string().min(1),
-  feedContext: z.string().optional(),
+  item: z
+    .string()
+    .trim()
+    .min(1)
+    .max(MAX_URI_LENGTH)
+    .startsWith('at://'),
+  event: z
+    .string()
+    .trim()
+    .regex(
+      INTERACTION_EVENT_PATTERN,
+      'Interaction event must use app.bsky.feed.defs#<EventName> format'
+    ),
+  feedContext: z.string().trim().max(MAX_FEED_CONTEXT_LENGTH).optional(),
 });
 
 const SendInteractionsBodySchema = z.object({
@@ -60,6 +76,14 @@ export function registerSendInteractions(app: FastifyInstance): void {
       );
       if (!requesterDid) {
         throw Errors.UNAUTHORIZED('Valid JWT required');
+      }
+
+      // Private mode: only allow approved participants to submit interactions.
+      if (config.FEED_PRIVATE_MODE) {
+        const approved = await isParticipantApproved(requesterDid);
+        if (!approved) {
+          throw Errors.FORBIDDEN('Private feed mode: approved participants only.');
+        }
       }
 
       // Validate body
