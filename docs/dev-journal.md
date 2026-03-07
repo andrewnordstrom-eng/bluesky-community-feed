@@ -417,3 +417,28 @@ The winkNLP keyword classifier produces false positives because it matches indiv
 
 ### Open questions
 None.
+
+## 2026-03-07 — Feed Tuning: Relevance Weights & UPSERT Fix
+**Branch:** `main`
+**Commits:** `d23fc7d`, `af10bef`
+**Files changed:** `src/scoring/components/relevance.ts`, `tests/topic-relevance.test.ts`, `src/scoring/pipeline.ts`
+
+### What changed
+Lowered `DEFAULT_RELEVANCE_SCORE` from 0.5 to 0.2 so classified posts outrank unclassified ones when community topic preferences are active. Set meaningful topic weights on epoch 2 (decentralized-social: 0.9, dogs-pets: 0.7, open-source: 0.8, etc.) and rebalanced component weights (relevance: 0.35, recency: 0.25, engagement: 0.2, bridging: 0.1, source_diversity: 0.1). Fixed UPSERT bug in pipeline.ts where weight columns were not updated in the `ON CONFLICT` clause, causing stale audit data on re-scored posts.
+
+### Why
+Feed was showing random content because all topic weights were 0.04 (no votes), relevance component had only 10.8% weight, and unclassified posts scored higher (0.5) than classified ones against the near-zero community weights. The backwards incentive meant the classifier was penalizing topical posts.
+
+### Measurements
+- 274 tests pass (7 test expectations updated for new default)
+- Feed top 10 posts: 8/10 are ATproto/decentralized-social, 1 open source (Wine 11.4), 1 high-engagement (cat photo with 651 likes)
+- Relevance component now contributes 0.315 weighted score for decentralized-social posts (was 0.054 before)
+- Transparency endpoint confirms correct weights, topic breakdown, and classification_method
+
+### Decisions & alternatives
+- DEFAULT_RELEVANCE_SCORE = 0.2 (below midpoint) chosen so posts with no topic data don't outrank classified posts. Considered 0.1 but 0.2 still provides some visibility for truly unclassified content.
+- Topic weights set manually via SQL to bootstrap the community governance — will be replaced by actual subscriber votes over time.
+- UPSERT fix: Added weight columns ($8-$12) to ON CONFLICT UPDATE. The scoring computation was already correct (weights computed fresh each run), but stored weight values were stale for audit purposes.
+
+### Open questions
+- Keyword classifier false positives still inflate some posts (matching "developer" in non-tech contexts). The embedding classifier returns empty vectors for these, causing fallback to keyword. May need to trust empty embedding over keyword in future iteration.
