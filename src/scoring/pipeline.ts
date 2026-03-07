@@ -35,6 +35,9 @@ import {
 } from '../governance/content-filter.js';
 import type { ContentRules } from '../governance/governance.types.js';
 import { updateScoringStatus } from '../admin/status-tracker.js';
+import { classifyPostsBatch } from './topics/embedding-classifier.js';
+import { isEmbedderReady } from './topics/embedder.js';
+import type { TopicVector } from './topics/classifier.js';
 
 // Maximum time allowed for a single scoring run (2 minutes)
 const SCORING_TIMEOUT_MS = 120_000;
@@ -476,6 +479,10 @@ async function getPostsForIncrementalScoring(
 /**
  * Score all posts with all 5 components.
  * Also stores decomposed scores to the database (GOLDEN RULE).
+ *
+ * When TOPIC_EMBEDDING_ENABLED=true and the embedding model is loaded,
+ * batch-classifies posts with semantic embeddings before scoring.
+ * Falls back gracefully to winkNLP topic vectors on any failure.
  */
 async function scoreAllPosts(
   posts: PostForScoring[],
@@ -491,13 +498,39 @@ async function scoreAllPosts(
     authorCounts,
   };
 
+  // Tier 2: Batch embedding classification (when enabled)
+  let embeddingVectors: Map<string, TopicVector> | null = null;
+  if (config.TOPIC_EMBEDDING_ENABLED && isEmbedderReady()) {
+    try {
+      const postTexts = posts.map((p) => ({
+        uri: p.uri,
+        text: p.text ?? '',
+      }));
+      embeddingVectors = await classifyPostsBatch(postTexts);
+    } catch (err) {
+      // Graceful degradation: fall back to winkNLP vectors
+      logger.error({ err }, 'Embedding classification failed — falling back to keyword classifier');
+      embeddingVectors = null;
+    }
+  }
+
   for (const post of posts) {
     try {
+      // Override topic vector with embedding-based vector if available
+      let classificationMethod: 'keyword' | 'embedding' = 'keyword';
+      if (embeddingVectors) {
+        const embVector = embeddingVectors.get(post.uri);
+        if (embVector && Object.keys(embVector).length > 0) {
+          post.topicVector = embVector;
+          classificationMethod = 'embedding';
+        }
+      }
+
       const scoredPost = await scorePost(post, epoch, context);
       scored.push(scoredPost);
 
       // Store to database (GOLDEN RULE: all components, weights, and weighted values)
-      await storeScore(scoredPost, epoch, runId);
+      await storeScore(scoredPost, epoch, runId, classificationMethod);
     } catch (err) {
       // Log and continue - don't fail entire pipeline for one post
       logger.error({ err, uri: post.uri }, 'Failed to score post');
@@ -550,11 +583,17 @@ async function scorePost(
 /**
  * Store the decomposed score to the database.
  * GOLDEN RULE: Store raw, weight, AND weighted values for every component.
+ *
+ * @param scoredPost - Post with computed scores
+ * @param epoch - Current governance epoch
+ * @param runId - Unique identifier for this scoring run
+ * @param classificationMethod - "keyword" (winkNLP) or "embedding" (Tier 2 semantic)
  */
 async function storeScore(
   scoredPost: ScoredPost,
   epoch: GovernanceEpoch,
-  runId: string
+  runId: string,
+  classificationMethod: 'keyword' | 'embedding' = 'keyword'
 ): Promise<void> {
   const { uri } = scoredPost;
   const { raw, weights, weighted, total } = scoredPost.score;
@@ -568,14 +607,15 @@ async function storeScore(
       source_diversity_weight, relevance_weight,
       recency_weighted, engagement_weighted, bridging_weighted,
       source_diversity_weighted, relevance_weighted,
-      total_score, component_details
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+      total_score, component_details, classification_method
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
     ON CONFLICT (post_uri, epoch_id) DO UPDATE SET
       recency_score = $3, engagement_score = $4, bridging_score = $5,
       source_diversity_score = $6, relevance_score = $7,
       recency_weighted = $13, engagement_weighted = $14, bridging_weighted = $15,
       source_diversity_weighted = $16, relevance_weighted = $17,
-      total_score = $18, component_details = $19, scored_at = NOW()`,
+      total_score = $18, component_details = $19, classification_method = $20,
+      scored_at = NOW()`,
     [
       uri,
       epoch.id,
@@ -595,7 +635,8 @@ async function storeScore(
       weighted.sourceDiversity,
       weighted.relevance,
       total,
-      JSON.stringify({ run_id: runId }),
+      JSON.stringify({ run_id: runId, classification_method: classificationMethod }),
+      classificationMethod,
     ]
   );
 }

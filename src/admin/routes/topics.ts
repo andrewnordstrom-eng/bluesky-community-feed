@@ -18,8 +18,10 @@ import { db } from '../../db/client.js';
 import { logger } from '../../lib/logger.js';
 import { Errors } from '../../lib/errors.js';
 import { getAdminDid } from '../../auth/admin.js';
-import { loadTaxonomy, invalidateTaxonomyCache } from '../../scoring/topics/taxonomy.js';
+import { loadTaxonomy, invalidateTaxonomyCache, getTopicsWithEmbeddings } from '../../scoring/topics/taxonomy.js';
 import { classifyPost } from '../../scoring/topics/classifier.js';
+import { classifyPostsBatch } from '../../scoring/topics/embedding-classifier.js';
+import { isEmbedderReady } from '../../scoring/topics/embedder.js';
 
 const CreateTopicSchema = z.object({
   slug: z.string().regex(/^[a-z0-9-]+$/).min(2).max(50),
@@ -174,9 +176,25 @@ export function registerTopicRoutes(app: FastifyInstance): void {
 
     // Force fresh taxonomy load to pick up any recent changes
     const taxonomy = await loadTaxonomy();
-    const result = classifyPost(text, taxonomy);
+    const keywordResult = classifyPost(text, taxonomy);
 
-    return reply.send(result);
+    // If embedding classifier is available, include a comparison
+    let embeddingResult = null;
+    if (isEmbedderReady() && getTopicsWithEmbeddings()) {
+      try {
+        const embeddingMap = await classifyPostsBatch([{ uri: '__classify_test__', text }]);
+        embeddingResult = embeddingMap.get('__classify_test__') ?? null;
+      } catch {
+        // Non-fatal: embedding comparison is supplementary
+        embeddingResult = null;
+      }
+    }
+
+    return reply.send({
+      ...keywordResult,
+      embedding: embeddingResult,
+      embedding_available: isEmbedderReady() && getTopicsWithEmbeddings() !== null,
+    });
   });
 
   /**

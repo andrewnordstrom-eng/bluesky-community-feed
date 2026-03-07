@@ -38,6 +38,12 @@ const ConfigSchema = z.object({
   SCORING_FULL_RESCORE_INTERVAL: z.coerce.number().int().min(1).default(6),
   FEED_MAX_POSTS: z.coerce.number().default(1000),
 
+  // Topic embedding classifier
+  /** Enable semantic embedding classifier in scoring pipeline. */
+  TOPIC_EMBEDDING_ENABLED: z.coerce.boolean().default(false),
+  /** Minimum cosine similarity threshold for topic assignment (0.0-1.0). */
+  TOPIC_EMBEDDING_MIN_SIMILARITY: z.coerce.number().min(0).max(1).default(0.25),
+
   // Governance
   GOVERNANCE_MIN_VOTES: z.coerce.number().default(5),
   GOVERNANCE_PERIOD_HOURS: z.coerce.number().default(168),

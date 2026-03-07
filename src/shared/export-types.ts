@@ -41,6 +41,8 @@ export interface ExportScoreRecord {
   relevance_weighted: number;
   total_score: number;
   topic_vector: Record<string, number> | null;
+  /** Whether this score used "keyword" (winkNLP) or "embedding" (Tier 2 semantic) classification. */
+  classification_method: 'keyword' | 'embedding';
   scored_at: string;
 }
 

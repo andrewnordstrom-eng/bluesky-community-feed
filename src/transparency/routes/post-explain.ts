@@ -193,6 +193,7 @@ export function registerPostExplainRoute(app: FastifyInstance): void {
           },
           scored_at: s.scored_at,
           component_details: s.component_details,
+          classification_method: (s.classification_method as 'keyword' | 'embedding') ?? 'keyword',
         };
 
         // Enrich relevance component with per-topic breakdown

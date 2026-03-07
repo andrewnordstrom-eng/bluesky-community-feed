@@ -17,7 +17,8 @@ import {
   startMaintenanceWorkerSupervisor,
   stopMaintenanceWorkerSupervisor,
 } from './maintenance/worker-supervisor.js';
-import { loadTaxonomy } from './scoring/topics/taxonomy.js';
+import { loadTaxonomy, loadTopicEmbeddings } from './scoring/topics/taxonomy.js';
+import { initEmbedder } from './scoring/topics/embedder.js';
 
 async function main() {
   logger.info('Starting Community Feed Generator...');
@@ -56,6 +57,17 @@ async function main() {
     await loadTaxonomy();
   } catch (err) {
     logger.warn({ err }, 'Failed to load topic taxonomy - posts will have empty topic vectors');
+  }
+
+  // 2.6. Initialize embedding classifier (if enabled)
+  if (config.TOPIC_EMBEDDING_ENABLED) {
+    try {
+      await initEmbedder();
+      await loadTopicEmbeddings();
+      logger.info('Embedding classifier initialized');
+    } catch (err) {
+      logger.warn({ err }, 'Embedding classifier init failed — falling back to keyword classifier');
+    }
   }
 
   // 3. Start Jetstream ingestion

@@ -87,7 +87,7 @@ const SCORE_COLUMNS = [
   'source_diversity_weight', 'relevance_weight',
   'recency_weighted', 'engagement_weighted', 'bridging_weighted',
   'source_diversity_weighted', 'relevance_weighted',
-  'total_score', 'topic_vector', 'scored_at',
+  'total_score', 'topic_vector', 'classification_method', 'scored_at',
 ];
 
 const ENGAGEMENT_COLUMNS = [
@@ -152,6 +152,7 @@ function mapScoreRow(row: Record<string, unknown>): ExportScoreRecord {
     relevance_weighted: row.relevance_weighted as number,
     total_score: row.total_score as number,
     topic_vector: (row.topic_vector as Record<string, number>) ?? null,
+    classification_method: (row.classification_method as 'keyword' | 'embedding') ?? 'keyword',
     scored_at: (row.scored_at as Date).toISOString(),
   };
 }
@@ -301,7 +302,7 @@ export function registerExportRoutes(app: FastifyInstance): void {
               ps.source_diversity_weight, ps.relevance_weight,
               ps.recency_weighted, ps.engagement_weighted, ps.bridging_weighted,
               ps.source_diversity_weighted, ps.relevance_weighted,
-              ps.total_score, p.topic_vector, ps.scored_at
+              ps.total_score, p.topic_vector, ps.classification_method, ps.scored_at
        FROM post_scores ps
        LEFT JOIN posts p ON ps.post_uri = p.uri
        WHERE ps.epoch_id = $1
@@ -486,7 +487,7 @@ export function registerExportRoutes(app: FastifyInstance): void {
               ps.source_diversity_weight, ps.relevance_weight,
               ps.recency_weighted, ps.engagement_weighted, ps.bridging_weighted,
               ps.source_diversity_weighted, ps.relevance_weighted,
-              ps.total_score, p.topic_vector, ps.scored_at
+              ps.total_score, p.topic_vector, ps.classification_method, ps.scored_at
        FROM post_scores ps
        LEFT JOIN posts p ON ps.post_uri = p.uri
        WHERE ps.epoch_id = $1 ORDER BY ps.total_score DESC`,

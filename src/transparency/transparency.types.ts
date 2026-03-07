@@ -59,6 +59,8 @@ export interface PostExplanation {
   };
   scored_at: Date;
   component_details: Record<string, unknown> | null;
+  /** Whether this score used "keyword" (winkNLP) or "embedding" (Tier 2 semantic) classification. */
+  classification_method?: 'keyword' | 'embedding';
 }
 
 /**
