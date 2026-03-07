@@ -142,10 +142,18 @@ export function registerParticipantRoutes(app: FastifyInstance): void {
    * DELETE /api/admin/participants/:did
    * Soft-remove a participant (sets removed_at).
    */
+  const DeleteParamSchema = z.object({
+    did: z.string().startsWith('did:', { message: 'Participant identifier must be a DID' }),
+  });
+
   app.delete(
     '/participants/:did',
     async (request: FastifyRequest<{ Params: { did: string } }>, reply: FastifyReply) => {
-      const { did } = request.params;
+      const paramParsed = DeleteParamSchema.safeParse(request.params);
+      if (!paramParsed.success) {
+        throw Errors.VALIDATION_ERROR('Invalid DID format', paramParsed.error.issues);
+      }
+      const { did } = paramParsed.data;
 
       const result = await db.query(
         `UPDATE approved_participants
