@@ -175,6 +175,62 @@ export function PostExplain() {
           </table>
         </section>
 
+        {explanation.components.relevance.topicBreakdown &&
+          Object.keys(explanation.components.relevance.topicBreakdown).length > 0 && (
+          <section className="topics-breakdown-section">
+            <h3>Topic matches</h3>
+            <p className="topics-hint">
+              Shows which topics were detected in this post and their community weight.
+            </p>
+            <table className="topic-table">
+              <thead>
+                <tr>
+                  <th>Topic</th>
+                  <th>Match</th>
+                  <th>Community weight</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(explanation.components.relevance.topicBreakdown!)
+                  .sort(([, a], [, b]) => b.contribution - a.contribution)
+                  .map(([slug, entry]) => {
+                    const name = slug
+                      .split('-')
+                      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+                      .join(' ');
+                    const isAboveNeutral = entry.communityWeight > 0.5;
+                    const isBelowNeutral = entry.communityWeight < 0.5;
+                    return (
+                      <tr key={slug}>
+                        <td className="topic-name-cell">{name}</td>
+                        <td className="topic-match-cell">
+                          {(entry.postScore * 100).toFixed(0)}%
+                        </td>
+                        <td className="topic-weight-cell">
+                          <div className="topic-weight-bar-container">
+                            <div
+                              className={`topic-weight-bar ${
+                                isAboveNeutral ? 'boost' : isBelowNeutral ? 'penalize' : 'neutral'
+                              }`}
+                              style={{
+                                width: `${entry.communityWeight * 100}%`,
+                              }}
+                            />
+                          </div>
+                          <span className={`topic-weight-value ${
+                            isAboveNeutral ? 'boost' : isBelowNeutral ? 'penalize' : ''
+                          }`}>
+                            {(entry.communityWeight * 100).toFixed(0)}%
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </section>
+        )}
+
         <section className="counterfactual-section">
           <h3>Governance impact</h3>
           <div className="counterfactual-content">
@@ -462,6 +518,96 @@ const styles = `
   .score-table tfoot td {
     border-bottom: none;
     font-weight: var(--font-weight-semibold);
+  }
+
+  .topics-breakdown-section {
+    background: var(--bg-card);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-lg);
+    padding: var(--space-6);
+    margin-bottom: var(--space-6);
+  }
+
+  .topics-hint {
+    font-size: var(--text-sm);
+    color: var(--text-secondary);
+    margin: 0 0 var(--space-4) 0;
+  }
+
+  .topic-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--text-sm);
+  }
+
+  .topic-table th {
+    text-align: left;
+    padding: var(--space-2) var(--space-3);
+    color: var(--text-secondary);
+    font-weight: var(--font-weight-medium);
+    border-bottom: 1px solid var(--border-default);
+    font-size: var(--text-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+
+  .topic-table td {
+    padding: var(--space-3);
+    border-bottom: 1px solid rgba(58, 58, 60, 0.5);
+  }
+
+  .topic-name-cell {
+    font-weight: var(--font-weight-medium);
+    color: var(--text-primary);
+  }
+
+  .topic-match-cell {
+    color: var(--text-secondary);
+  }
+
+  .topic-weight-cell {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+  }
+
+  .topic-weight-bar-container {
+    flex: 1;
+    height: 6px;
+    background: var(--border-default);
+    border-radius: var(--radius-full);
+    overflow: hidden;
+  }
+
+  .topic-weight-bar {
+    height: 100%;
+    border-radius: var(--radius-full);
+  }
+
+  .topic-weight-bar.boost {
+    background: var(--status-success);
+  }
+
+  .topic-weight-bar.penalize {
+    background: var(--status-error);
+  }
+
+  .topic-weight-bar.neutral {
+    background: var(--text-secondary);
+  }
+
+  .topic-weight-value {
+    min-width: 36px;
+    text-align: right;
+    font-weight: var(--font-weight-medium);
+  }
+
+  .topic-weight-value.boost {
+    color: var(--status-success);
+  }
+
+  .topic-weight-value.penalize {
+    color: var(--status-error);
   }
 
   .counterfactual-description {
