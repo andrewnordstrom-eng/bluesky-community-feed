@@ -341,7 +341,14 @@ describe('MCP Server', () => {
         expect(toolNames).toContain('list_announcements');
         expect(toolNames).toContain('send_announcement');
 
-        expect(toolNames.length).toBe(23);
+        // Topic tools (5)
+        expect(toolNames).toContain('list_topics');
+        expect(toolNames).toContain('add_topic');
+        expect(toolNames).toContain('update_topic');
+        expect(toolNames).toContain('get_topic_stats');
+        expect(toolNames).toContain('classify_text');
+
+        expect(toolNames.length).toBe(28);
       }
 
       await app.close();

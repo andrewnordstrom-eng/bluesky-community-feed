@@ -11,6 +11,7 @@ import { registerFeedTools } from './feed.js';
 import { registerParticipantTools } from './participants.js';
 import { registerExportTools } from './export.js';
 import { registerAnnounceTools } from './announce.js';
+import { registerTopicTools } from './topics.js';
 
 /** Register all MCP tools on the server. */
 export function registerAllTools(
@@ -24,4 +25,5 @@ export function registerAllTools(
   registerParticipantTools(server, app, token, cookieName);
   registerExportTools(server, app, token, cookieName);
   registerAnnounceTools(server, app, token, cookieName);
+  registerTopicTools(server, app, token, cookieName);
 }
