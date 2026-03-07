@@ -373,3 +373,23 @@ Elevated OpenAPI docs from MEDIUM to HIGH — combined with debug route exposure
 
 ### Open questions
 None.
+
+## 2026-03-07 — Fix stale recency scores in feed ranking
+**Branch:** `dev/fix-stale-recency`
+**Commits:** `79fdfc2`
+**Files changed:** `src/scoring/pipeline.ts`, `src/config.ts`, `.env.example`, `tests/scoring-pipeline-rescore.test.ts`
+
+### What changed
+Added periodic full rescore to the scoring pipeline. The incremental scoring mode only rescored posts with new engagement or no prior score — it never refreshed recency decay. A 10-day-old post with a frozen recency score of 0.86 (should have been ~0.00006) was ranked #1 in the feed. New `SCORING_FULL_RESCORE_INTERVAL` config (default 6) forces a full rescore every 6th run (~30 minutes), ensuring recency decay is applied to all posts at a predictable interval.
+
+### Why
+The incremental scoring query (`getPostsForIncrementalScoring`) uses a UNION ALL of (a) posts never scored and (b) posts with engagement changes since last score. Neither leg captures time-based recency decay. `writeToRedisFromDb` reads stale `total_score` values from `post_scores` and writes them to the Redis feed, so old posts with high initial recency scores permanently dominated the ranking.
+
+### Measurements
+255 tests passing across 54 files. TypeScript compilation clean. At default interval (every 30 min), recency scores are at most 30 minutes stale — with an 18-hour half-life, that's a maximum error of ~2% on the recency component.
+
+### Decisions & alternatives
+Chose periodic full rescore over computing recency at Redis-write time. The alternative (recomputing recency in `writeToRedisFromDb`) would cause stored scores to diverge from served scores, breaking the Golden Rule and making exported research data unreliable. Periodic full rescore keeps stored = served = exported scores consistent.
+
+### Open questions
+None. Server restart needed on VPS to pick up this fix (first run after restart is always full mode).
