@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ScoreRadar } from '../components/ScoreRadar';
+import { TopicWeightChart } from '../components/TopicWeightChart';
 import { DashboardSkeleton } from '../components/Skeleton';
 import { useAuth } from '../contexts/useAuth';
 import { useAdminStatus } from '../hooks/useAdminStatus';
-import { transparencyApi } from '../api/client';
-import type { FeedStatsResponse, AuditLogEntry, EpochResponse } from '../api/client';
+import { transparencyApi, voteApi } from '../api/client';
+import type { FeedStatsResponse, AuditLogEntry, EpochResponse, TopicCatalogResponse } from '../api/client';
 
 interface WeightChange {
   key: keyof EpochResponse['weights'];
@@ -125,6 +126,7 @@ export function Dashboard() {
   const [stats, setStats] = useState<FeedStatsResponse | null>(null);
   const [epochHistory, setEpochHistory] = useState<EpochResponse[]>([]);
   const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([]);
+  const [topicData, setTopicData] = useState<TopicCatalogResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [hasInitialLoad, setHasInitialLoad] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -145,6 +147,14 @@ export function Dashboard() {
       setAuditLog(auditData.entries);
       setEpochHistory(historyData.epochs);
       setError(null);
+
+      // Load topic catalog (public endpoint, no auth)
+      try {
+        const catalog = await voteApi.getTopicCatalog();
+        setTopicData(catalog);
+      } catch {
+        // Topic catalog unavailable — skip
+      }
     } catch (err: unknown) {
       if (!silent || !hasInitialLoad) {
         setError(getErrorMessage(err, 'Failed to load dashboard data'));
@@ -365,6 +375,25 @@ export function Dashboard() {
               </div>
             </section>
 
+            {topicData && topicData.topics.length > 0 && (
+              <section className="topics-section">
+                <div className="section-header">
+                  <h2>Community topic preferences</h2>
+                  <span className="topic-voter-badge">
+                    {topicData.voteCount} topic voter{topicData.voteCount !== 1 ? 's' : ''}
+                  </span>
+                </div>
+                <TopicWeightChart
+                  topics={topicData.topics.map((t) => ({
+                    slug: t.slug,
+                    name: t.name,
+                    weight: t.currentWeight,
+                  }))}
+                  voterCount={topicData.voteCount}
+                />
+              </section>
+            )}
+
             <section className="stats-section">
               <h2>Feed statistics</h2>
               <div className="stats-grid">
@@ -581,6 +610,14 @@ const styles = `
     justify-content: space-between;
     align-items: center;
     margin-bottom: var(--space-5);
+  }
+
+  .topic-voter-badge {
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
+    background: var(--bg-elevated);
+    padding: var(--space-1) var(--space-3);
+    border-radius: var(--radius-full);
   }
 
   section h2 {
