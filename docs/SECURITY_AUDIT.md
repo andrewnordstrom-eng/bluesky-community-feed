@@ -64,9 +64,9 @@ None. All SQL uses parameterized queries. All admin routes enforce `requireAdmin
 - **Status:** ✅ Fixed — commit `47a3e69`
 - **Files:** `src/admin/routes/export.ts` (4 query sites)
 - **Description:** Vote, engagement, score exports, and full-dataset ZIP did not enforce `research_consent`.
-- **Attack scenario:** Admin export includes anonymized records for users who declined consent — IRB/privacy policy violation.
+- **Attack scenario:** Admin export includes anonymized records for users who declined consent — privacy policy violation.
 - **Fix applied:** JOIN `subscribers` and filter `research_consent IS TRUE` at SQL boundary for all export endpoints.
-- **Severity justification:** IRB compliance and privacy policy violation risk.
+- **Severity justification:** Privacy policy violation risk; undermines research-readiness guarantees.
 
 ### [HIGH-06] MCP transport lacked route-specific throttling
 - **Status:** ✅ Fixed — commit `25ce7c8`
