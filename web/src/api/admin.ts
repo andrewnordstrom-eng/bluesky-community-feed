@@ -218,6 +218,27 @@ export interface WeightImpactResponse {
   generatedAt: string;
 }
 
+// Topic types
+export interface AdminTopic {
+  slug: string;
+  name: string;
+  description: string | null;
+  parentSlug: string | null;
+  terms: string[];
+  contextTerms: string[];
+  antiTerms: string[];
+  isActive: boolean;
+  postCount: number;
+  currentWeight: number | null;
+  createdAt: string;
+}
+
+export interface ClassifyResult {
+  vector: Record<string, number>;
+  matchedTopics: string[];
+  tokenCount: number;
+}
+
 // Interaction types
 export interface InteractionOverview {
   today: {
@@ -564,6 +585,45 @@ export const adminApi = {
 
   async removeParticipant(did: string): Promise<{ success: boolean }> {
     const response = await api.delete(`/api/admin/participants/${encodeURIComponent(did)}`);
+    return response.data;
+  },
+
+  // Topic management
+  async getTopics(): Promise<AdminTopic[]> {
+    const response = await api.get('/api/admin/topics');
+    return response.data;
+  },
+
+  async addTopic(data: {
+    slug: string;
+    name: string;
+    description?: string;
+    parentSlug?: string;
+    terms: string[];
+    contextTerms?: string[];
+    antiTerms?: string[];
+  }): Promise<{ success: boolean }> {
+    const response = await api.post('/api/admin/topics', data);
+    return response.data;
+  },
+
+  async updateTopic(slug: string, data: {
+    name?: string;
+    terms?: string[];
+    contextTerms?: string[];
+    antiTerms?: string[];
+  }): Promise<{ success: boolean }> {
+    const response = await api.patch(`/api/admin/topics/${encodeURIComponent(slug)}`, data);
+    return response.data;
+  },
+
+  async deactivateTopic(slug: string): Promise<{ success: boolean }> {
+    const response = await api.delete(`/api/admin/topics/${encodeURIComponent(slug)}`);
+    return response.data;
+  },
+
+  async classifyText(text: string): Promise<ClassifyResult> {
+    const response = await api.post('/api/admin/topics/classify', { text });
     return response.data;
   },
 };

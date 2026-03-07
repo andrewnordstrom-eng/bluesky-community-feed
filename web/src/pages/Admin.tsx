@@ -19,12 +19,13 @@ import { FeedHealth } from '../components/admin/FeedHealth';
 import { AuditLog } from '../components/admin/AuditLog';
 import { InteractionsPanel } from '../components/admin/InteractionsPanel';
 import { ParticipantsPanel } from '../components/admin/ParticipantsPanel';
+import { TopicsPanel } from '../components/admin/TopicsPanel';
 import { TabPanel } from '../components/TabPanel';
 import { useAuth } from '../contexts/useAuth';
 import { useAdminStatus } from '../hooks/useAdminStatus';
 import '../styles/admin.css';
 
-type AdminTab = 'overview' | 'governance' | 'announcements' | 'health' | 'interactions' | 'participants' | 'audit';
+type AdminTab = 'overview' | 'governance' | 'announcements' | 'health' | 'interactions' | 'topics' | 'participants' | 'audit';
 
 export function AdminPage() {
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
@@ -73,6 +74,7 @@ export function AdminPage() {
               { id: 'announcements', label: 'Announcements' },
               { id: 'health', label: 'Feed Health' },
               { id: 'interactions', label: 'Interactions' },
+              { id: 'topics', label: 'Topics' },
               ...(isPrivateMode ? [{ id: 'participants', label: 'Participants' }] : []),
               { id: 'audit', label: 'Audit Log' }
             ].map(tab => (
@@ -102,6 +104,9 @@ export function AdminPage() {
               </TabPanel>
               <TabPanel isActive={activeTab === 'interactions'} tabKey="interactions">
                 <InteractionsPanel />
+              </TabPanel>
+              <TabPanel isActive={activeTab === 'topics'} tabKey="topics">
+                <TopicsPanel />
               </TabPanel>
               {isPrivateMode && (
                 <TabPanel isActive={activeTab === 'participants'} tabKey="participants">
