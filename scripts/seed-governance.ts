@@ -25,10 +25,20 @@ const DEFAULT_WEIGHTS = {
   relevance: 0.10,
 };
 
-/** Safety-net exclude keywords for new epochs. AT Protocol labels handle NSFW; these catch the rest. */
+/**
+ * Safety-net exclude keywords for new epochs.
+ * Layer 1 (AT Protocol self-labels) catches author-labeled NSFW at ingestion.
+ * Layer 2 (adult-content topic with weight 0.0) handles semantic NSFW via embeddings.
+ * This keyword list is Layer 3: a minimal backstop with prefix matching
+ * (e.g., "porn" also matches "pornographic", "kink" matches "kinks").
+ */
 const DEFAULT_CONTENT_RULES = {
   includeKeywords: [] as string[],
-  excludeKeywords: ['spam', 'nsfw', 'onlyfans'],
+  excludeKeywords: [
+    'spam', 'nsfw', 'onlyfans', 'porn', 'hentai', 'xxx',
+    'erotic', 'bdsm', 'fetish', 'kink', 'bondage', 'chastity',
+    'nude', 'nudity',
+  ],
 };
 
 async function seedGovernance(): Promise<void> {

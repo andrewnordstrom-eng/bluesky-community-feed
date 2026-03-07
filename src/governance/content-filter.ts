@@ -27,9 +27,19 @@ function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function getKeywordMatcher(keyword: string): (text: string) => boolean {
+/**
+ * Build a cached keyword matcher function.
+ *
+ * @param keyword - Keyword to match (will be normalized)
+ * @param prefixMatch - When true, drops the trailing word boundary so "kink" matches "kinks"/"kinky".
+ *                      Used for exclude keywords where catching variants is more important than precision.
+ *                      Include keywords always use strict boundaries (prefixMatch=false).
+ * @returns Matcher function that tests a lowercased text string
+ */
+function getKeywordMatcher(keyword: string, prefixMatch?: boolean): (text: string) => boolean {
   const normalizedKeyword = keyword.trim().toLowerCase();
-  const cached = keywordMatcherCache.get(normalizedKeyword);
+  const cacheKey = `${normalizedKeyword}:${prefixMatch ? 'prefix' : 'strict'}`;
+  const cached = keywordMatcherCache.get(cacheKey);
   if (cached) {
     return cached;
   }
@@ -38,7 +48,7 @@ function getKeywordMatcher(keyword: string): (text: string) => boolean {
   // Most governance keywords are normalized ASCII terms and use strict boundaries.
   if (!ASCII_KEYWORD_PATTERN.test(normalizedKeyword)) {
     const matcher = (text: string) => text.includes(normalizedKeyword);
-    keywordMatcherCache.set(normalizedKeyword, matcher);
+    keywordMatcherCache.set(cacheKey, matcher);
     return matcher;
   }
 
@@ -48,22 +58,34 @@ function getKeywordMatcher(keyword: string): (text: string) => boolean {
     .map(escapeRegex)
     .join('[\\s_-]+');
 
+  // Prefix mode: match "kink" → "kinks", "kinky", "kinkier".
+  // Strict mode: exact word boundaries on both sides.
+  const trailingBoundary = prefixMatch ? '' : `(?=$|[^${UNICODE_WORD_CLASS}])`;
   const regex = new RegExp(
-    `(^|[^${UNICODE_WORD_CLASS}])${phrasePattern}(?=$|[^${UNICODE_WORD_CLASS}])`,
+    `(^|[^${UNICODE_WORD_CLASS}])${phrasePattern}${trailingBoundary}`,
     'u'
   );
   const matcher = (text: string) => regex.test(text);
-  keywordMatcherCache.set(normalizedKeyword, matcher);
+  keywordMatcherCache.set(cacheKey, matcher);
   return matcher;
 }
 
-function matchesKeyword(text: string, keyword: string): boolean {
+/**
+ * Test whether lowercased text contains a keyword.
+ *
+ * @param text - Lowercased post text
+ * @param keyword - Keyword to search for
+ * @param prefixMatch - When true, uses prefix matching (e.g., "porn" matches "pornographic").
+ *                      Default false (strict word boundaries).
+ * @returns True if keyword is found in text
+ */
+function matchesKeyword(text: string, keyword: string, prefixMatch?: boolean): boolean {
   const normalizedKeyword = keyword.trim().toLowerCase();
   if (normalizedKeyword.length === 0) {
     return false;
   }
 
-  return getKeywordMatcher(normalizedKeyword)(text);
+  return getKeywordMatcher(normalizedKeyword, prefixMatch)(text);
 }
 
 /**
@@ -195,9 +217,10 @@ export function checkContentRules(
 
   const lowerText = text.toLowerCase();
 
-  // Check excludes first (exclude takes precedence)
+  // Check excludes first (exclude takes precedence).
+  // Prefix matching: "kink" catches "kinks"/"kinky", "porn" catches "pornographic".
   for (const keyword of rules.excludeKeywords) {
-    if (matchesKeyword(lowerText, keyword)) {
+    if (matchesKeyword(lowerText, keyword, true)) {
       return {
         passes: false,
         reason: 'excluded_keyword',
@@ -206,10 +229,11 @@ export function checkContentRules(
     }
   }
 
-  // Check includes (if any are specified, post must match at least one)
+  // Check includes (if any are specified, post must match at least one).
+  // Strict word boundaries: include keywords require exact matches for precision.
   if (rules.includeKeywords.length > 0) {
     for (const keyword of rules.includeKeywords) {
-      if (matchesKeyword(lowerText, keyword)) {
+      if (matchesKeyword(lowerText, keyword, false)) {
         return { passes: true, matchedKeyword: keyword };
       }
     }

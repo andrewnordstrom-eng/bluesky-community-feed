@@ -39,8 +39,9 @@ import { classifyPostsBatch } from './topics/embedding-classifier.js';
 import { isEmbedderReady } from './topics/embedder.js';
 import type { TopicVector } from './topics/classifier.js';
 
-// Maximum time allowed for a single scoring run (2 minutes)
-const SCORING_TIMEOUT_MS = 120_000;
+// Maximum time allowed for a single scoring run (3 minutes).
+// Full rescore with embedding classification for 7k+ posts takes ~144s.
+const SCORING_TIMEOUT_MS = 180_000;
 const SCORING_CANDIDATE_LIMIT = 10_000;
 const SQL_BOUNDARY_KEYWORD_PATTERN = /^[a-z0-9][a-z0-9\s-]*$/;
 

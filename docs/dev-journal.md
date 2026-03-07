@@ -1,5 +1,31 @@
 # Dev Journal
 
+## 2026-03-07 — Feed Audit: Layered NSFW Filtering + Content Quality Fixes
+**Branch:** `dev/content-filter-hardening`
+**Commits:** `7188460`, `7f0e4f2`, `27e8fdb`, `d3610d4`
+**Files changed:** `src/governance/content-filter.ts`, `src/scoring/pipeline.ts`, `scripts/seed-governance.ts`, `tests/content-filter.test.ts`
+
+### What changed
+Implemented three-layer NSFW defense after feed audit found 2 explicit posts leaking through. Layer 1 (AT Protocol self-labels) already existed. Layer 2 adds `adult-content` topic to taxonomy with community weight 0.0 — the embedding classifier handles NSFW semantically, scoring matching posts to relevance 0.0 via existing `scoreRelevance()` formula. Layer 3 expands exclude keywords (3→14 terms) with prefix matching so "kink" catches "kinks"/"kinky" and "porn" catches "pornographic". Pipeline timeout increased from 120s→180s to accommodate embedding-enriched scoring runs (~144s).
+
+### Why
+Posts with explicit sexual content slipped through because authors didn't self-label and the keyword list was too short (only "spam", "nsfw", "onlyfans"). Word boundary regex prevented "kink" from matching "kinks". Rather than playing keyword whack-a-mole, the primary fix leverages existing embedding infrastructure — adding an `adult-content` topic with weight 0.0 lets the semantic classifier bury NSFW content naturally.
+
+### Measurements
+- 286 tests pass (up from 274 — 12 new prefix-matching tests)
+- Build clean, no type errors
+- Pipeline timeout race condition eliminated (180s > ~144s actual)
+
+### Decisions & alternatives
+- Chose embedding-based Layer 2 over Bluesky external labeler API (would add external dependency to scoring hot path). Layer 2 uses zero new code — just a data operation via admin API + taxonomy auto-loader.
+- Prefix matching only for excludes (catch variants) — includes keep strict boundaries (precision matters for topic filtering).
+- "nude" and "nudity" kept as separate exclude keywords — they're different stems (n-u-d-e vs n-u-d-i-t-y), not prefix-related.
+
+### Open questions
+- Need to deploy and test `adult-content` topic embedding quality via classify endpoint (scores > 0.25 threshold).
+- Monitor for false positives on sex ed / reproductive health content (anti-terms should prevent this).
+- Consider Bluesky external labeler subscription as future Layer 4 if embedding approach proves insufficient.
+
 ## 2026-03-06 — Phase 1: Cleanup & Polish
 
 - Removed unused `bullmq` and `@fastify/jwt` dependencies (confirmed zero imports in src/)
