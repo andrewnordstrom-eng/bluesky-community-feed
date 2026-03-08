@@ -511,3 +511,33 @@ The OpenAPI spec was nearly empty — only `feed-skeleton.ts` had proper schemas
 
 ### Open questions
 - Should the static spec be generated in CI and committed to `docs/openapi.json`? Currently manual via `npx tsx scripts/generate-openapi.ts`.
+
+## 2026-03-08 — Governance-Driven Ingestion Gate, Media Filter & Relevance Floor
+**Branch:** `dev/ingestion-gate`
+**Commits:** `979c640`, `511f120`, `5ed2cc5`, `3043e9f`, `2651f11`, `7e0908f`, `bb90526`
+**Files changed:** `src/config.ts`, `src/ingestion/governance-gate.ts` (new), `src/ingestion/handlers/post-handler.ts`, `src/scoring/pipeline.ts`, `src/index.ts`, `tests/governance-gate.test.ts` (new), `tests/governance-gate-integration.test.ts` (new), `tests/relevance-floor.test.ts` (new)
+
+### What changed
+Three-layer content quality system to eliminate off-topic posts from the feed. (1) **Governance gate** at ingestion: rejects posts whose `topicVector × communityWeights` weighted average falls below `INGESTION_MIN_RELEVANCE` (0.10). Same formula as `relevance.ts` but applied as binary pass/reject. Empty topic vectors are rejected (no classification = no community topic match). Fail-open: gate disabled until weights loaded, passes all posts on Redis/DB failure. Weights cached in Redis (5-min TTL) with DB fallback. (2) **Media-without-text gate**: rejects image/video posts with text shorter than `INGESTION_MIN_TEXT_FOR_MEDIA` (10 chars). Runs before topic classification to save CPU. (3) **Relevance floor** in feed output: `writeToRedisFromDb` SQL adds `AND ps.relevance_score >= $4` clause with `FEED_MIN_RELEVANCE` (0.15), excluding low-relevance posts from Redis feed even if they were scored.
+
+Also set community topic weights on VPS production database (epoch 2) and initialized governance gate at startup in `index.ts`.
+
+### Why
+99%+ of ingested posts were irrelevant (furry art, conspiracy theories, NSFW, spam). The topic classifier already ran at ingestion and produced `topic_vector`, and community topic weights existed in `governance_epochs.topic_weights`, but they were never connected at ingestion time. Posts were stored unconditionally, and viral noise dominated the feed ranking.
+
+### Measurements
+- 339 tests pass across 60 files (43 new: 17 governance gate unit + 17 integration + 7 relevance floor + 2 existing governance-gate caching)
+- Governance gate initialized at startup: "Governance gate initialized with topic weights" (topicCount: 26)
+- Health endpoint: OK after deployment
+- Build clean, pre-commit hooks pass on all 7 commits
+
+### Decisions & alternatives
+- Reused exact weighted-average formula from `relevance.ts` for the gate (same code path, same default weight 0.2 for unknown topics). Key difference: empty topicVector = reject at gate (not default 0.2 like scoring).
+- Caching pattern mirrors `content-filter.ts`: Redis GET → parse → DB fallback → cache write → fail-open. 5-minute TTL matches scoring interval.
+- Media gate placed BEFORE topic classification to avoid running winkNLP on posts that will be rejected anyway.
+- Relevance floor implemented in SQL rather than application code — DB handles the filtering, fewer rows transferred.
+- Topic weights stored in `governance_epochs.topic_weights` JSONB (not `topic_catalog.community_weight` column) — discovered during VPS setup that the kickoff's assumed schema was wrong.
+
+### Open questions
+- Feed initially returns 0 posts after deployment until the next scoring cycle runs and repopulates Redis with posts that pass the relevance floor. This is expected transient behavior.
+- Monitor gate rejection rate over 24 hours to calibrate `INGESTION_MIN_RELEVANCE` threshold (0.10 may be too aggressive or too lenient).
