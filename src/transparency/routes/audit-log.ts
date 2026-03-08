@@ -10,8 +10,10 @@
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 import { db } from '../../db/client.js';
 import { logger } from '../../lib/logger.js';
+import { ErrorResponseSchema } from '../../lib/openapi.js';
 import type { AuditLogResponse, AuditLogEntry } from '../transparency.types.js';
 
 const VOTE_ACTIONS = new Set(['vote_cast', 'vote_updated']);
@@ -22,6 +24,9 @@ const AuditLogQuerySchema = z.object({
   action: z.string().optional(),
   epoch_id: z.coerce.number().optional(),
 });
+
+/** JSON Schema for OpenAPI documentation. */
+const AuditLogQueryJsonSchema = zodToJsonSchema(AuditLogQuerySchema, { target: 'openApi3' });
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -64,7 +69,50 @@ function redactDetails(
 }
 
 export function registerAuditLogRoute(app: FastifyInstance): void {
-  app.get('/api/transparency/audit', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/api/transparency/audit', {
+    schema: {
+      tags: ['Transparency'],
+      summary: 'Governance audit log',
+      description:
+        'Returns a paginated, append-only audit log of all governance actions. ' +
+        'Vote details are redacted to preserve voter privacy (shows counts, not specific votes).',
+      querystring: AuditLogQueryJsonSchema,
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            entries: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'integer' },
+                  action: { type: 'string', description: 'Action type (e.g. vote_cast, epoch_created)' },
+                  actor_did: { type: 'string', nullable: true, description: 'Redacted for privacy' },
+                  epoch_id: { type: 'integer', nullable: true },
+                  details: { type: 'object', description: 'Action-specific details (vote details redacted)' },
+                  created_at: { type: 'string', format: 'date-time' },
+                },
+              },
+            },
+            pagination: {
+              type: 'object',
+              properties: {
+                total: { type: 'integer' },
+                limit: { type: 'integer' },
+                offset: { type: 'integer' },
+                has_more: { type: 'boolean' },
+              },
+              required: ['total', 'limit', 'offset', 'has_more'],
+            },
+          },
+          required: ['entries', 'pagination'],
+        },
+        400: ErrorResponseSchema,
+        500: ErrorResponseSchema,
+      },
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const parseResult = AuditLogQuerySchema.safeParse(request.query);
 
     if (!parseResult.success) {
