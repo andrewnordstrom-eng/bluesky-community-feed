@@ -573,6 +573,37 @@ Post-ingestion-gate deployment, feed still showed irrelevant posts. Root cause c
 - Primary Jetstream instance (`15.204.205.x`) was intermittently ETIMEDOUT from VPS — fallback mechanism worked correctly, switching after 5 failures.
 - Legacy posts with empty `{}` topic_vector still score relevance=0.5 (default from relevance.ts). These will age out of the 72h scoring window naturally.
 
+## 2026-03-08 #03 — Feed Quality Fixes: Keyword Poisoning, Embedding Override, Alt Text
+**Branch:** `dev/feed-quality-fixes`
+**Commits:** `e5f82db`, `c018ba0`, `62af733`
+**Files changed:** `scripts/seed-topics.ts`, `tests/topic-classifier.test.ts`, `src/ingestion/handlers/post-handler.ts`, `tests/post-handler-alt-text.test.ts` (new)
+
+### What changed
+Three targeted fixes for feed quality issues identified in audit:
+1. Removed "bluesky" from `decentralized-social` topic terms — was matching every post on the platform and amplifying to 0.9 relevance via weighted average formula.
+2. Disabled embedding classifier override on VPS (`TOPIC_EMBEDDING_ENABLED` commented out, defaults to `false`) — was replacing keyword-based topic vectors at scoring time, undoing governance gate filtering. Discovered `z.coerce.boolean()` treats the string "false" as truthy; must omit the env var entirely for default.
+3. Added alt text extraction from image embeds for topic classification. Alt text is concatenated with post text for the classifier but intentionally NOT used for content keyword filtering or media-without-text gate (those check user-written text only).
+
+### Why
+Post-deployment audit of the governance gate showed the feed was still 90%+ irrelevant content. Root cause analysis traced it to "bluesky" keyword giving every post a weak match that the relevance formula amplified, plus the embedding classifier overriding filtered vectors.
+
+### Measurements
+- 347 tests pass (8 new: 6 alt text handler tests, 2 classifier regression tests)
+- Scoring pipeline: 9s for 2500 posts with keyword-only (vs 53s with embedding — 6x improvement)
+- Post-deployment: 0 new embedding classifications, all recent scores use `keyword` method
+- Relevance distribution: 79.7% low (0.01-0.49), 16.6% medium, 3.6% high
+
+### Decisions & alternatives
+- Removed "bluesky" but did NOT add it to antiTerms — that would suppress genuine protocol discussions mentioning the platform name alongside technical terms.
+- "handle" (AT Protocol username term) identified as the new top false positive. Deferred to next fix — requires either removal from terms, addition to contextTerms (requiring co-occurrence), or a deeper relevance formula fix.
+- Alt text design: deliberately separated from content gates. Image alt text is accessibility metadata, not user-intentional content. A post with no text but detailed alt text should still be rejected by the media-without-text gate.
+- `z.coerce.boolean()` Zod bug: `Boolean("false") === true` in JS. Must comment out the env var instead of setting it to "false". Filed as a tech debt item — should add a custom transform.
+
+### Open questions
+- The relevance formula `weightedSum / scoreSum` is the systemic root cause of false-positive amplification. A single weak keyword match at 0.2 gets amplified to 0.65-0.90 because the weighted average treats it as a 100% match to a high-weight topic. Needs a formula redesign (e.g., minimum match threshold, penalize single-term matches, or cap relevance for low-confidence classifications).
+- "handle" in `decentralized-social` terms causes the same amplification pattern as "bluesky" did. Other common words causing false matches: "code", "fork", "training", "security", "developer" (real estate).
+- Consider requiring minimum 2 primary term matches before a topic qualifies for the relevance formula, or demoting single-match topics from the relevance calculation entirely.
+
 ### Open questions
 - Scoring pipeline still uses per-post DB inserts (10,000 round-trips for full incremental). Batch insert refactor would significantly improve throughput.
 - Jetstream drops ~40k-80k events/minute — expected for firehose volume, but means we miss engagement updates. Acceptable since we score on 5-minute intervals.
