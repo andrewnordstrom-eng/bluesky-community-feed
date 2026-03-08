@@ -24,6 +24,12 @@ import type { ScoringComponent, ScoringContext } from '../component.interface.js
  * when the community has expressed topic preferences. */
 const DEFAULT_RELEVANCE_SCORE = 0.2;
 
+/** Minimum total topic signal (scoreSum) for full confidence.
+ * Below this, relevance is scaled down proportionally.
+ * Prevents single weak keyword matches from getting high relevance.
+ * Set to 0 to disable confidence scaling (original behavior). */
+export const CONFIDENCE_THRESHOLD = 0.5;
+
 /**
  * Calculate topic-weighted relevance score.
  *
@@ -57,8 +63,18 @@ export function scoreRelevance(post: PostForScoring, context: ScoringContext): n
 
   if (scoreSum === 0) return DEFAULT_RELEVANCE_SCORE;
 
-  // Clamp to 0.0-1.0
-  return Math.max(0, Math.min(1, weightedSum / scoreSum));
+  // Base relevance: weighted average of community preferences
+  const baseRelevance = weightedSum / scoreSum;
+
+  // Confidence multiplier: dampen weak classifications.
+  // scoreSum reflects total topic signal strength from the classifier.
+  // A single weak match (scoreSum ≈ 0.2) gets low confidence.
+  // Multiple strong matches (scoreSum > threshold) get full confidence.
+  const confidence = CONFIDENCE_THRESHOLD > 0
+    ? Math.min(1.0, scoreSum / CONFIDENCE_THRESHOLD)
+    : 1.0; // Disabled when threshold = 0
+
+  return Math.max(0, Math.min(1, baseRelevance * confidence));
 }
 
 /** ScoringComponent wrapper for the relevance scorer. */

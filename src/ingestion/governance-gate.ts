@@ -17,6 +17,7 @@ import { redis } from '../db/redis.js';
 import { logger } from '../lib/logger.js';
 import { config } from '../config.js';
 import type { TopicVector } from '../scoring/topics/classifier.js';
+import { CONFIDENCE_THRESHOLD } from '../scoring/components/relevance.js';
 
 /** Redis cache key for topic weights. */
 const CACHE_KEY = 'governance_gate:topic_weights';
@@ -189,7 +190,15 @@ export async function checkGovernanceGate(topicVector: TopicVector): Promise<Gat
     return { passes: false, relevance: 0 };
   }
 
-  const relevance = Math.max(0, Math.min(1, weightedSum / scoreSum));
+  // Base relevance: weighted average (same formula as relevance.ts)
+  const baseRelevance = weightedSum / scoreSum;
+
+  // Confidence multiplier: dampen single weak keyword matches
+  const confidence = CONFIDENCE_THRESHOLD > 0
+    ? Math.min(1.0, scoreSum / CONFIDENCE_THRESHOLD)
+    : 1.0;
+
+  const relevance = Math.max(0, Math.min(1, baseRelevance * confidence));
 
   return {
     passes: relevance >= config.INGESTION_MIN_RELEVANCE,
