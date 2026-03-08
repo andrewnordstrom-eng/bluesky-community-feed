@@ -8,7 +8,6 @@
   <link rel="icon" href="https://corgi.network/favicon.ico" />
   <link rel="apple-touch-icon" href="https://corgi.network/apple-touch-icon.png" />
   <style>
-    /* ── Design tokens (from web/src/styles/tokens.css) ───── */
     :root {
       --bg-app: #161718;
       --bg-card: #1e1f21;
@@ -19,8 +18,6 @@
       --text-secondary: #828689;
       --text-muted: #6b6e70;
       --accent-blue: #1083fe;
-      --accent-blue-hover: #0a74e8;
-      --accent-blue-subtle: rgba(16, 131, 254, 0.15);
       --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     }
 
@@ -33,137 +30,92 @@
       -webkit-font-smoothing: antialiased;
     }
 
-    /* ── Top navigation bar (matches dashboard-header) ──── */
     .top-bar {
       background: var(--bg-card);
       border-bottom: 1px solid var(--border-default);
-      padding: 16px 24px;
+      padding: 0 24px;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
       position: sticky;
       top: 0;
       z-index: 100;
     }
 
-    .top-bar-inner {
-      max-width: 900px;
-      margin: 0 auto;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
+    .top-bar a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 500;
+      transition: color 150ms ease;
     }
+
+    .top-bar a:hover { color: var(--text-primary); }
 
     .top-bar-left {
       display: flex;
       align-items: center;
-      gap: 32px;
+      gap: 8px;
     }
 
-    .top-bar-title {
-      font-size: 20px;
+    .top-bar-left .title {
+      font-size: 15px;
       font-weight: 600;
       color: var(--text-primary);
-      text-decoration: none;
-      white-space: nowrap;
     }
 
-    .top-bar-title:hover {
-      color: var(--text-primary);
+    .top-bar-left .sep {
+      color: var(--text-muted);
+      font-weight: 300;
     }
 
-    .top-bar-nav {
-      display: flex;
-      gap: 4px;
-    }
-
-    .nav-link {
-      padding: 8px 16px;
-      border-radius: 8px;
+    .top-bar-left .subtitle {
       color: var(--text-secondary);
-      font-size: 13px;
-      font-weight: 500;
-      text-decoration: none;
-      transition: all 150ms ease;
-    }
-
-    .nav-link:hover {
-      color: var(--text-primary);
-      background: var(--bg-hover);
-    }
-
-    .nav-link.active {
-      color: var(--accent-blue);
-      background: var(--accent-blue-subtle);
     }
 
     .top-bar-right {
       display: flex;
       align-items: center;
-      gap: 16px;
+      gap: 20px;
     }
 
-    .github-link {
-      display: flex;
+    .top-bar-right .gh {
+      display: inline-flex;
       align-items: center;
-      gap: 6px;
-      font-size: 13px;
-      font-weight: 500;
-      color: var(--text-secondary);
-      text-decoration: none;
-      padding: 8px 16px;
-      border: 1px solid var(--border-default);
-      border-radius: 8px;
-      transition: all 150ms ease;
+      gap: 5px;
     }
 
-    .github-link:hover {
-      background: var(--bg-hover);
-      border-color: var(--border-default);
-      color: var(--text-primary);
-    }
-
-    .github-link svg {
-      width: 16px;
-      height: 16px;
+    .top-bar-right .gh svg {
+      width: 15px;
+      height: 15px;
       fill: currentColor;
     }
 
-    /* ── Redoc container ──────────────────────────────────── */
-    #redoc-container {
-      min-height: calc(100vh - 60px);
-    }
+    #redoc-container { min-height: calc(100vh - 52px); }
 
-    /* ── Mobile adjustments ───────────────────────────────── */
-    @media (max-width: 640px) {
-      .top-bar { padding: 12px 16px; }
-      .top-bar-left { gap: 16px; }
-      .top-bar-title { font-size: 16px; }
-      .top-bar-nav { display: none; }
-      .top-bar-right { gap: 8px; }
+    @media (max-width: 600px) {
+      .top-bar { padding: 0 16px; }
+      .top-bar-left .sep, .top-bar-left .subtitle { display: none; }
     }
   </style>
 </head>
 <body>
-  <!-- Top navigation (matches feed.corgi.network/dashboard header) -->
   <nav class="top-bar">
-    <div class="top-bar-inner">
-      <div class="top-bar-left">
-        <a class="top-bar-title" href="https://feed.corgi.network">Community feed</a>
-        <div class="top-bar-nav">
-          <a class="nav-link" href="https://feed.corgi.network/vote">Vote</a>
-          <a class="nav-link" href="https://feed.corgi.network/dashboard">Dashboard</a>
-          <a class="nav-link" href="https://feed.corgi.network/history">History</a>
-          <a class="nav-link active" href="https://docs.corgi.network">API Docs</a>
-        </div>
-      </div>
-      <div class="top-bar-right">
-        <a class="github-link" href="https://github.com/AndrewNordstrom/bluesky-community-feed" target="_blank" rel="noopener">
-          <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-          GitHub
-        </a>
-      </div>
+    <div class="top-bar-left">
+      <a class="title" href="https://feed.corgi.network/dashboard">Community feed</a>
+      <span class="sep">/</span>
+      <span class="subtitle">API Reference</span>
+    </div>
+    <div class="top-bar-right">
+      <a href="https://feed.corgi.network/dashboard">Dashboard</a>
+      <a class="gh" href="https://github.com/AndrewNordstrom/bluesky-community-feed" target="_blank" rel="noopener">
+        <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
     </div>
   </nav>
 
-  <!-- Redoc API documentation -->
   <div id="redoc-container"></div>
 
   <script src="https://cdn.redoc.ly/redoc/latest/bundles/redoc.standalone.js"></script>
@@ -205,7 +157,7 @@
           },
         },
         sidebar: {
-          width: '280px',
+          width: '260px',
           backgroundColor: '#161718',
           textColor: '#828689',
           activeTextColor: '#f1f3f5',
