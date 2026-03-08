@@ -11,13 +11,69 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { db } from '../../db/client.js';
 import { logger } from '../../lib/logger.js';
+import { adminSecurity, ErrorResponseSchema } from '../../lib/openapi.js';
 
 export function registerInteractionRoutes(app: FastifyInstance): void {
   /**
    * GET /api/admin/interactions/overview
    * Today's live stats, yesterday's stats, and 7-day trend.
    */
-  app.get('/interactions/overview', async (_request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/interactions/overview', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'Interaction overview',
+      description:
+        "Today's live stats, yesterday's pre-aggregated stats, and a 7-day trend of " +
+        'total requests, unique viewers, scroll depth, and returning viewers.',
+      security: adminSecurity,
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            today: {
+              type: 'object',
+              properties: {
+                totalRequests: { type: 'integer' },
+                uniqueViewers: { type: 'integer' },
+                anonymousRequests: { type: 'integer' },
+                avgScrollDepth: { type: 'number' },
+                avgResponseTimeMs: { type: 'number' },
+                returningViewers: { type: 'integer' },
+              },
+            },
+            yesterday: {
+              type: 'object',
+              nullable: true,
+              properties: {
+                totalRequests: { type: 'integer' },
+                uniqueViewers: { type: 'integer' },
+                anonymousRequests: { type: 'integer' },
+                avgScrollDepth: { type: 'number' },
+                returningViewers: { type: 'integer' },
+              },
+            },
+            trend: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  date: { type: 'string', format: 'date' },
+                  totalRequests: { type: 'integer' },
+                  uniqueViewers: { type: 'integer' },
+                  anonymousRequests: { type: 'integer' },
+                  maxScrollDepth: { type: 'integer' },
+                  avgPagesPerSession: { type: 'number' },
+                  returningViewers: { type: 'integer' },
+                },
+              },
+            },
+          },
+          required: ['today', 'trend'],
+        },
+        500: ErrorResponseSchema,
+      },
+    },
+  }, async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
       // Today's live stats (from feed_requests, not yet aggregated)
       const todayResult = await db.query(`
@@ -111,7 +167,33 @@ export function registerInteractionRoutes(app: FastifyInstance): void {
    * GET /api/admin/interactions/scroll-depth
    * Scroll depth histogram by session.
    */
-  app.get('/interactions/scroll-depth', async (_request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/interactions/scroll-depth', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'Scroll depth histogram',
+      description: 'Returns a histogram of scroll depth by session for the last 7 days, bucketed by page count.',
+      security: adminSecurity,
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            histogram: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  bucket: { type: 'string', description: 'Depth bucket label (e.g. "1 page", "2-3 pages")' },
+                  sessionCount: { type: 'integer' },
+                },
+              },
+            },
+          },
+          required: ['histogram'],
+        },
+        500: ErrorResponseSchema,
+      },
+    },
+  }, async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
       const result = await db.query(`
         WITH session_depth AS (
@@ -157,7 +239,47 @@ export function registerInteractionRoutes(app: FastifyInstance): void {
    * GET /api/admin/interactions/engagement
    * Attribution stats: served vs engaged by position bucket.
    */
-  app.get('/interactions/engagement', async (_request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/interactions/engagement', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'Engagement attribution stats',
+      description:
+        'Returns overall engagement attribution stats (served vs engaged, likes, reposts) and ' +
+        'a breakdown by feed position bucket for the last 7 days.',
+      security: adminSecurity,
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            overall: {
+              type: 'object',
+              properties: {
+                totalServed: { type: 'integer' },
+                totalEngaged: { type: 'integer' },
+                engagementRate: { type: 'number' },
+                likes: { type: 'integer' },
+                reposts: { type: 'integer' },
+              },
+            },
+            byPosition: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  bucket: { type: 'string', description: 'Position bucket (e.g. "Top 10", "11-25")' },
+                  served: { type: 'integer' },
+                  engaged: { type: 'integer' },
+                  rate: { type: 'number' },
+                },
+              },
+            },
+          },
+          required: ['overall', 'byPosition'],
+        },
+        500: ErrorResponseSchema,
+      },
+    },
+  }, async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
       // Overall stats
       const overallResult = await db.query(`
@@ -228,7 +350,42 @@ export function registerInteractionRoutes(app: FastifyInstance): void {
    * GET /api/admin/interactions/epoch-comparison
    * Engagement stats across all epochs for chart rendering.
    */
-  app.get('/interactions/epoch-comparison', async (_request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/interactions/epoch-comparison', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'Epoch engagement comparison',
+      description: 'Returns engagement stats across all epochs for chart rendering, including feed loads, viewers, and engagement rates.',
+      security: adminSecurity,
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            epochs: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  epochId: { type: 'integer' },
+                  totalFeedLoads: { type: 'integer' },
+                  uniqueViewers: { type: 'integer' },
+                  avgScrollDepth: { type: 'number', nullable: true },
+                  returningViewerPct: { type: 'number', nullable: true },
+                  engagementRate: { type: 'number', nullable: true },
+                  avgEngagementPosition: { type: 'number', nullable: true },
+                  postsServed: { type: 'integer' },
+                  postsWithEngagement: { type: 'integer' },
+                  computedAt: { type: 'string', format: 'date-time' },
+                  epochStartedAt: { type: 'string', format: 'date-time' },
+                },
+              },
+            },
+          },
+          required: ['epochs'],
+        },
+        500: ErrorResponseSchema,
+      },
+    },
+  }, async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
       const result = await db.query(`
         SELECT
@@ -273,7 +430,43 @@ export function registerInteractionRoutes(app: FastifyInstance): void {
    * GET /api/admin/interactions/keyword-performance
    * Per-keyword engagement rates from current epoch.
    */
-  app.get('/interactions/keyword-performance', async (_request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/interactions/keyword-performance', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'Keyword engagement performance',
+      description:
+        'Returns per-keyword engagement rates from the current active epoch, along with the current keyword rules for context.',
+      security: adminSecurity,
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            keywords: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  keyword: { type: 'string' },
+                  served: { type: 'integer' },
+                  engaged: { type: 'integer' },
+                  rate: { type: 'number' },
+                },
+              },
+            },
+            currentRules: {
+              type: 'object',
+              properties: {
+                includeKeywords: { type: 'array', items: { type: 'string' } },
+                excludeKeywords: { type: 'array', items: { type: 'string' } },
+              },
+            },
+          },
+          required: ['keywords', 'currentRules'],
+        },
+        500: ErrorResponseSchema,
+      },
+    },
+  }, async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
       // Get current epoch's keyword stats from JSONB
       const result = await db.query(`
@@ -324,7 +517,61 @@ export function registerInteractionRoutes(app: FastifyInstance): void {
    * Analytics from the sendInteractions API (requestMore, requestLess, etc.).
    * Shows totals by type, per-epoch breakdown, and top posts by signal ratio.
    */
-  app.get('/interactions/feed-signals', async (_request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/interactions/feed-signals', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'Feed signal analytics',
+      description:
+        'Analytics from the sendInteractions API (requestMore, requestLess). Shows totals by type ' +
+        '(today, yesterday, 7-day), per-epoch breakdown, and top posts by signal ratio.',
+      security: adminSecurity,
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            byType: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  type: { type: 'string' },
+                  today: { type: 'integer' },
+                  yesterday: { type: 'integer' },
+                  last7Days: { type: 'integer' },
+                },
+              },
+            },
+            byEpoch: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  epochId: { type: 'integer' },
+                  type: { type: 'string' },
+                  count: { type: 'integer' },
+                  uniqueUsers: { type: 'integer' },
+                },
+              },
+            },
+            topPosts: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  postUri: { type: 'string' },
+                  requestMore: { type: 'integer' },
+                  requestLess: { type: 'integer' },
+                  totalSignals: { type: 'integer' },
+                },
+              },
+            },
+          },
+          required: ['byType', 'byEpoch', 'topPosts'],
+        },
+        500: ErrorResponseSchema,
+      },
+    },
+  }, async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
       // Total interactions by type: today, yesterday, 7-day
       const byTypeResult = await db.query(`
