@@ -11,8 +11,10 @@
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 import { db } from '../../db/client.js';
 import { logger } from '../../lib/logger.js';
+import { ErrorResponseSchema } from '../../lib/openapi.js';
 import type { CounterfactualResult, CounterfactualPost } from '../transparency.types.js';
 
 // Query params schema - weights must sum to 1.0
@@ -24,6 +26,9 @@ const CounterfactualQuerySchema = z.object({
   relevance: z.coerce.number().min(0).max(1).default(0.2),
   limit: z.coerce.number().min(1).max(500).default(50),
 });
+
+/** JSON Schema for OpenAPI documentation. */
+const CounterfactualQueryJsonSchema = zodToJsonSchema(CounterfactualQuerySchema, { target: 'jsonSchema7' });
 
 interface CurrentScoringRunValue {
   run_id?: unknown;
@@ -55,6 +60,71 @@ async function getCurrentScoringRunScope(): Promise<{ runId: string; epochId: nu
 export function registerCounterfactualRoute(app: FastifyInstance): void {
   app.get(
     '/api/transparency/counterfactual',
+    {
+      schema: {
+        tags: ['Transparency'],
+        summary: 'Counterfactual rankings',
+        description:
+          '"What if the weights were different?" Recalculates rankings using stored raw scores with alternate weights. ' +
+          'Weights must sum to 1.0.',
+        querystring: CounterfactualQueryJsonSchema,
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              alternate_weights: {
+                type: 'object',
+                properties: {
+                  recency: { type: 'number' },
+                  engagement: { type: 'number' },
+                  bridging: { type: 'number' },
+                  source_diversity: { type: 'number' },
+                  relevance: { type: 'number' },
+                },
+              },
+              current_weights: {
+                type: 'object',
+                properties: {
+                  recency: { type: 'number' },
+                  engagement: { type: 'number' },
+                  bridging: { type: 'number' },
+                  source_diversity: { type: 'number' },
+                  relevance: { type: 'number' },
+                },
+              },
+              posts: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    post_uri: { type: 'string' },
+                    original_score: { type: 'number' },
+                    original_rank: { type: 'integer' },
+                    counterfactual_score: { type: 'number' },
+                    counterfactual_rank: { type: 'integer' },
+                    rank_delta: { type: 'integer', description: 'Positive = moved up with alternate weights' },
+                  },
+                },
+              },
+              summary: {
+                type: 'object',
+                properties: {
+                  total_posts: { type: 'integer' },
+                  posts_moved_up: { type: 'integer' },
+                  posts_moved_down: { type: 'integer' },
+                  posts_unchanged: { type: 'integer' },
+                  max_rank_change: { type: 'integer' },
+                  avg_rank_change: { type: 'number' },
+                },
+              },
+            },
+            required: ['alternate_weights', 'current_weights', 'posts', 'summary'],
+          },
+          400: ErrorResponseSchema,
+          500: ErrorResponseSchema,
+        },
+      },
+    },
     async (request: FastifyRequest, reply: FastifyReply) => {
       // Parse and validate query params
       const parseResult = CounterfactualQuerySchema.safeParse(request.query);

@@ -12,6 +12,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { db } from '../../db/client.js';
 import { logger } from '../../lib/logger.js';
+import { ErrorResponseSchema } from '../../lib/openapi.js';
 import type { PostExplanation, TopicBreakdownEntry } from '../transparency.types.js';
 
 interface CurrentScoringRunValue {
@@ -44,6 +45,70 @@ async function getCurrentScoringRunScope(): Promise<{ runId: string; epochId: nu
 export function registerPostExplainRoute(app: FastifyInstance): void {
   app.get(
     '/api/transparency/post/:uri',
+    {
+      schema: {
+        tags: ['Transparency'],
+        summary: 'Explain post ranking',
+        description:
+          'Returns a full breakdown of why a post is ranked where it is: all 5 component scores (raw, weight, weighted), ' +
+          'current rank, and a counterfactual showing what rank it would have with pure engagement sorting.',
+        params: {
+          type: 'object',
+          properties: {
+            uri: { type: 'string', description: 'AT-URI of the post (URL-encoded)' },
+          },
+          required: ['uri'],
+        },
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              post_uri: { type: 'string' },
+              epoch_id: { type: 'integer' },
+              epoch_description: { type: 'string', nullable: true },
+              total_score: { type: 'number' },
+              rank: { type: 'integer' },
+              components: {
+                type: 'object',
+                description: 'All 5 scoring components with raw, weight, and weighted values',
+                additionalProperties: {
+                  type: 'object',
+                  properties: {
+                    raw_score: { type: 'number' },
+                    weight: { type: 'number' },
+                    weighted: { type: 'number' },
+                  },
+                },
+              },
+              governance_weights: {
+                type: 'object',
+                properties: {
+                  recency: { type: 'number' },
+                  engagement: { type: 'number' },
+                  bridging: { type: 'number' },
+                  source_diversity: { type: 'number' },
+                  relevance: { type: 'number' },
+                },
+              },
+              counterfactual: {
+                type: 'object',
+                properties: {
+                  pure_engagement_rank: { type: 'integer' },
+                  community_governed_rank: { type: 'integer' },
+                  difference: { type: 'integer', description: 'Positive = governance boosted this post' },
+                },
+              },
+              scored_at: { type: 'string', format: 'date-time' },
+              classification_method: { type: 'string', enum: ['keyword', 'embedding'] },
+            },
+            required: ['post_uri', 'epoch_id', 'total_score', 'rank', 'components'],
+          },
+          400: ErrorResponseSchema,
+          404: ErrorResponseSchema,
+          500: ErrorResponseSchema,
+        },
+      },
+    },
     async (request: FastifyRequest<{ Params: { uri: string } }>, reply: FastifyReply) => {
       const { uri } = request.params;
       let decodedUri: string;

@@ -6,7 +6,9 @@
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 import { db } from '../../db/client.js';
+import { adminSecurity, ErrorResponseSchema } from '../../lib/openapi.js';
 
 const AuditLogQuerySchema = z.object({
   limit: z.coerce.number().min(1).max(200).optional().default(50),
@@ -14,12 +16,49 @@ const AuditLogQuerySchema = z.object({
   actor: z.string().optional(),
 });
 
+/** JSON Schema for OpenAPI documentation. */
+const AuditLogQueryJsonSchema = zodToJsonSchema(AuditLogQuerySchema, { target: 'jsonSchema7' });
+
 export function registerAuditLogRoutes(app: FastifyInstance): void {
   /**
    * GET /api/admin/audit-log
    * View recent admin/system actions with optional filters
    */
-  app.get('/audit-log', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/audit-log', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'Admin audit log',
+      description:
+        'View recent admin/system governance actions with optional filters by action type or actor DID. ' +
+        'Unlike the transparency audit log, this returns unredacted actor DIDs.',
+      security: adminSecurity,
+      querystring: AuditLogQueryJsonSchema,
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            entries: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'integer' },
+                  action: { type: 'string' },
+                  actor: { type: 'string', nullable: true },
+                  epochId: { type: 'integer', nullable: true },
+                  details: { type: 'object', additionalProperties: true },
+                  timestamp: { type: 'string', format: 'date-time' },
+                },
+              },
+            },
+            total: { type: 'integer' },
+          },
+          required: ['entries', 'total'],
+        },
+        400: ErrorResponseSchema,
+      },
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const parseResult = AuditLogQuerySchema.safeParse(request.query);
     if (!parseResult.success) {
       return reply.status(400).send({

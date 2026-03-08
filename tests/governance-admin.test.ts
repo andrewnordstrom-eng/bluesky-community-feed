@@ -203,6 +203,7 @@ describe('admin governance routes', () => {
 
   it('rejects negative weight override', async () => {
     const app = Fastify();
+    app.setValidatorCompiler(() => () => true);
     registerGovernanceRoutes(app);
 
     const response = await app.inject({

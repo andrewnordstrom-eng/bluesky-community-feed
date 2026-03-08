@@ -22,6 +22,8 @@ import { logger } from '../../lib/logger.js';
 import { anonymizeDid } from '../../lib/anonymize.js';
 import { startCsvStream } from '../../lib/csv-stream.js';
 import { Errors } from '../../lib/errors.js';
+import { zodToJsonSchema } from 'zod-to-json-schema';
+import { adminSecurity, ErrorResponseSchema } from '../../lib/openapi.js';
 import type {
   ExportVoteRecord,
   ExportScoreRecord,
@@ -67,6 +69,60 @@ const AuditQuerySchema = z.object({
 const FullDatasetQuerySchema = z.object({
   epoch_id: EpochIdSchema,
 });
+
+/** JSON Schema conversions for OpenAPI documentation. */
+const VotesQueryJsonSchema = zodToJsonSchema(VotesQuerySchema, { target: 'jsonSchema7' });
+const ScoresQueryJsonSchema = zodToJsonSchema(ScoresQuerySchema, { target: 'jsonSchema7' });
+const EngagementQueryJsonSchema = zodToJsonSchema(EngagementQuerySchema, { target: 'jsonSchema7' });
+const EpochsQueryJsonSchema = zodToJsonSchema(EpochsQuerySchema, { target: 'jsonSchema7' });
+const AuditQueryJsonSchema = zodToJsonSchema(AuditQuerySchema, { target: 'jsonSchema7' });
+const FullDatasetQueryJsonSchema = zodToJsonSchema(FullDatasetQuerySchema, { target: 'jsonSchema7' });
+
+/** Reusable vote record schema fragment. */
+const voteRecordSchema = {
+  type: 'object' as const,
+  properties: {
+    anon_voter_id: { type: 'string' as const },
+    epoch_id: { type: 'integer' as const },
+    recency_weight: { type: 'number' as const, nullable: true },
+    engagement_weight: { type: 'number' as const, nullable: true },
+    bridging_weight: { type: 'number' as const, nullable: true },
+    source_diversity_weight: { type: 'number' as const, nullable: true },
+    relevance_weight: { type: 'number' as const, nullable: true },
+    include_keywords: { type: 'array' as const, items: { type: 'string' as const } },
+    exclude_keywords: { type: 'array' as const, items: { type: 'string' as const } },
+    topic_weight_votes: { type: 'object' as const, additionalProperties: true, nullable: true },
+    voted_at: { type: 'string' as const, format: 'date-time' },
+  },
+};
+
+/** Reusable score record schema fragment. */
+const scoreRecordSchema = {
+  type: 'object' as const,
+  properties: {
+    post_uri: { type: 'string' as const },
+    epoch_id: { type: 'integer' as const },
+    recency_score: { type: 'number' as const },
+    engagement_score: { type: 'number' as const },
+    bridging_score: { type: 'number' as const },
+    source_diversity_score: { type: 'number' as const },
+    relevance_score: { type: 'number' as const },
+    recency_weight: { type: 'number' as const },
+    engagement_weight: { type: 'number' as const },
+    bridging_weight: { type: 'number' as const },
+    source_diversity_weight: { type: 'number' as const },
+    relevance_weight: { type: 'number' as const },
+    recency_weighted: { type: 'number' as const },
+    engagement_weighted: { type: 'number' as const },
+    bridging_weighted: { type: 'number' as const },
+    source_diversity_weighted: { type: 'number' as const },
+    relevance_weighted: { type: 'number' as const },
+    total_score: { type: 'number' as const },
+    topic_vector: { type: 'object' as const, additionalProperties: true, nullable: true },
+    classification_method: { type: 'string' as const, enum: ['keyword', 'embedding'] },
+    scored_at: { type: 'string' as const, format: 'date-time' },
+  },
+};
 
 // ============================================================================
 // Column Constants
@@ -253,7 +309,30 @@ function recordToValues(record: Record<string, unknown>, keys: string[]): (strin
 /** Register research data export routes. */
 export function registerExportRoutes(app: FastifyInstance): void {
   // ── GET /export/votes ──
-  app.get('/export/votes', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/export/votes', {
+    schema: {
+      tags: ['Export'],
+      summary: 'Export anonymized votes',
+      description:
+        'Returns anonymized vote records for a given epoch. Only includes votes from subscribers ' +
+        'with research consent. Supports JSON (default) or CSV format.',
+      security: adminSecurity,
+      querystring: VotesQueryJsonSchema,
+      response: {
+        200: {
+          type: 'object',
+          description: 'JSON response (format=json). CSV format returns text/csv file download.',
+          properties: {
+            epoch_id: { type: 'integer' },
+            total: { type: 'integer' },
+            votes: { type: 'array', items: voteRecordSchema },
+          },
+          required: ['epoch_id', 'total', 'votes'],
+        },
+        400: ErrorResponseSchema,
+      },
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const parsed = VotesQuerySchema.safeParse(request.query);
     if (!parsed.success) {
       throw Errors.VALIDATION_ERROR('Invalid query parameters', parsed.error.flatten());
@@ -287,7 +366,32 @@ export function registerExportRoutes(app: FastifyInstance): void {
   });
 
   // ── GET /export/scores ──
-  app.get('/export/scores', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/export/scores', {
+    schema: {
+      tags: ['Export'],
+      summary: 'Export score decomposition',
+      description:
+        'Returns full score decomposition (raw, weight, weighted per component) for an epoch. ' +
+        'Paginated. Supports JSON (default) or CSV format. Golden Rule: all components stored.',
+      security: adminSecurity,
+      querystring: ScoresQueryJsonSchema,
+      response: {
+        200: {
+          type: 'object',
+          description: 'JSON response (format=json). CSV format returns text/csv file download.',
+          properties: {
+            epoch_id: { type: 'integer' },
+            total: { type: 'integer' },
+            limit: { type: 'integer' },
+            offset: { type: 'integer' },
+            scores: { type: 'array', items: scoreRecordSchema },
+          },
+          required: ['epoch_id', 'total', 'limit', 'offset', 'scores'],
+        },
+        400: ErrorResponseSchema,
+      },
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const parsed = ScoresQuerySchema.safeParse(request.query);
     if (!parsed.success) {
       throw Errors.VALIDATION_ERROR('Invalid query parameters', parsed.error.flatten());
@@ -326,7 +430,44 @@ export function registerExportRoutes(app: FastifyInstance): void {
   });
 
   // ── GET /export/engagement ──
-  app.get('/export/engagement', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/export/engagement', {
+    schema: {
+      tags: ['Export'],
+      summary: 'Export engagement attributions',
+      description:
+        'Returns anonymized engagement attribution data for an epoch. Only includes records ' +
+        'from subscribers with research consent. Supports JSON (default) or CSV format.',
+      security: adminSecurity,
+      querystring: EngagementQueryJsonSchema,
+      response: {
+        200: {
+          type: 'object',
+          description: 'JSON response (format=json). CSV format returns text/csv file download.',
+          properties: {
+            epoch_id: { type: 'integer' },
+            total: { type: 'integer' },
+            engagement: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  post_uri: { type: 'string' },
+                  anon_viewer_id: { type: 'string' },
+                  epoch_id: { type: 'integer' },
+                  engagement_type: { type: 'string', nullable: true },
+                  position_in_feed: { type: 'integer', nullable: true },
+                  served_at: { type: 'string', format: 'date-time' },
+                  engaged_at: { type: 'string', format: 'date-time', nullable: true },
+                },
+              },
+            },
+          },
+          required: ['epoch_id', 'total', 'engagement'],
+        },
+        400: ErrorResponseSchema,
+      },
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const parsed = EngagementQuerySchema.safeParse(request.query);
     if (!parsed.success) {
       throw Errors.VALIDATION_ERROR('Invalid query parameters', parsed.error.flatten());
@@ -359,7 +500,51 @@ export function registerExportRoutes(app: FastifyInstance): void {
   });
 
   // ── GET /export/epochs ──
-  app.get('/export/epochs', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/export/epochs', {
+    schema: {
+      tags: ['Export'],
+      summary: 'Export epoch metadata',
+      description:
+        'Returns metadata for all governance epochs including weights, vote counts, content rules, ' +
+        'and topic weights. Supports JSON (default) or CSV format.',
+      security: adminSecurity,
+      querystring: EpochsQueryJsonSchema,
+      response: {
+        200: {
+          type: 'object',
+          description: 'JSON response (format=json). CSV format returns text/csv file download.',
+          properties: {
+            total: { type: 'integer' },
+            epochs: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'integer' },
+                  status: { type: 'string' },
+                  phase: { type: 'string', nullable: true },
+                  recency_weight: { type: 'number' },
+                  engagement_weight: { type: 'number' },
+                  bridging_weight: { type: 'number' },
+                  source_diversity_weight: { type: 'number' },
+                  relevance_weight: { type: 'number' },
+                  vote_count: { type: 'integer' },
+                  content_rules: { type: 'object', additionalProperties: true, nullable: true },
+                  topic_weights: { type: 'object', additionalProperties: true, nullable: true },
+                  created_at: { type: 'string', format: 'date-time' },
+                  closed_at: { type: 'string', format: 'date-time', nullable: true },
+                  voting_started_at: { type: 'string', format: 'date-time', nullable: true },
+                  voting_closed_at: { type: 'string', format: 'date-time', nullable: true },
+                },
+              },
+            },
+          },
+          required: ['total', 'epochs'],
+        },
+        400: ErrorResponseSchema,
+      },
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const parsed = EpochsQuerySchema.safeParse(request.query);
     if (!parsed.success) {
       throw Errors.VALIDATION_ERROR('Invalid query parameters', parsed.error.flatten());
@@ -391,7 +576,42 @@ export function registerExportRoutes(app: FastifyInstance): void {
   });
 
   // ── GET /export/audit ──
-  app.get('/export/audit', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/export/audit', {
+    schema: {
+      tags: ['Export'],
+      summary: 'Export audit log',
+      description:
+        'Returns anonymized governance audit log entries with optional date range filtering. ' +
+        'DIDs are scrubbed from details. Supports JSON (default) or CSV format.',
+      security: adminSecurity,
+      querystring: AuditQueryJsonSchema,
+      response: {
+        200: {
+          type: 'object',
+          description: 'JSON response (format=json). CSV format returns text/csv file download.',
+          properties: {
+            total: { type: 'integer' },
+            audit: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'integer' },
+                  action: { type: 'string' },
+                  anon_actor_id: { type: 'string', nullable: true },
+                  epoch_id: { type: 'integer', nullable: true },
+                  details: { type: 'object', additionalProperties: true },
+                  created_at: { type: 'string', format: 'date-time' },
+                },
+              },
+            },
+          },
+          required: ['total', 'audit'],
+        },
+        400: ErrorResponseSchema,
+      },
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const parsed = AuditQuerySchema.safeParse(request.query);
     if (!parsed.success) {
       throw Errors.VALIDATION_ERROR('Invalid query parameters', parsed.error.flatten());
@@ -440,7 +660,27 @@ export function registerExportRoutes(app: FastifyInstance): void {
   });
 
   // ── GET /export/full-dataset ──
-  app.get('/export/full-dataset', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/export/full-dataset', {
+    schema: {
+      tags: ['Export'],
+      summary: 'Download full dataset as ZIP',
+      description:
+        'Generates and downloads a ZIP archive containing all anonymized data for an epoch: ' +
+        'votes.csv, scores.csv, engagement.csv, epoch_metadata.json, topics/catalog.json, ' +
+        'and topics/community-weights.json.',
+      security: adminSecurity,
+      querystring: FullDatasetQueryJsonSchema,
+      produces: ['application/zip'],
+      response: {
+        200: {
+          type: 'string',
+          format: 'binary',
+          description: 'ZIP archive containing CSV and JSON files for the epoch',
+        },
+        400: ErrorResponseSchema,
+      },
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const parsed = FullDatasetQuerySchema.safeParse(request.query);
     if (!parsed.success) {
       throw Errors.VALIDATION_ERROR('Invalid query parameters', parsed.error.flatten());

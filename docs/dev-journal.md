@@ -468,3 +468,46 @@ Feed was showing random content because all topic weights were 0.04 (no votes), 
 
 ### Open questions
 - Keyword classifier false positives still inflate some posts (matching "developer" in non-tech contexts). The embedding classifier returns empty vectors for these, causing fallback to keyword. May need to trust empty embedding over keyword in future iteration.
+
+## 2026-03-07 — Complete OpenAPI Documentation for All Routes
+**Branch:** `dev/api-docs`
+**Commits:** `887ad21`–`8dc3e87` (13 commits)
+**Files changed:** 33 files — `src/lib/openapi.ts` (new), `src/feed/server.ts`, 30 route files, `web/public/api-reference.html` (new), `scripts/generate-openapi.ts` (new)
+
+### What changed
+Added full OpenAPI 3.0 schema objects to every route in the codebase. Created `src/lib/openapi.ts` with shared helpers (`ErrorResponseSchema`, `RateLimitResponseSchema`, `governanceSecurity`, `adminSecurity`). Enhanced swagger config with tags, security schemes, and extended API description. Added Redoc reference page and a static spec generator script with `--public-only` flag to strip admin routes.
+
+Route groups documented (12 groups, ~80 routes total):
+1. Health (3 routes)
+2. Feed / AT Protocol (4 routes)
+3. Governance auth (3 routes)
+4. Governance vote + weights (5 routes)
+5. Topics + content-rules + epochs (11 routes)
+6. Polis + research consent (5 routes)
+7. Transparency (4 routes)
+8. Admin status + scheduler (5 routes)
+9. Admin governance + participants + topics (23 routes)
+10. Admin export + interactions + audit (14 routes)
+11. Bot + legal + debug (12 routes)
+12. Redoc page + generator script
+
+### Why
+The OpenAPI spec was nearly empty — only `feed-skeleton.ts` had proper schemas. The `/docs` endpoint existed but showed almost no route documentation. Every route needed `schema` objects for request validation docs, response shapes, tags, summaries, descriptions, and security annotations.
+
+### Measurements
+- 33 files changed, +3181 lines
+- All 185+ tests pass
+- Build clean after every commit (13 consecutive green builds)
+- Pre-commit hook (tsc --noEmit) passed on every commit
+
+### Decisions & alternatives
+- **Schema-only changes**: Never modified handler logic — only added `schema` objects to route registrations.
+- **Two-schema pattern for Zod refinements**: Routes with `.refine()`/`.superRefine()` use inline JSON Schema for OpenAPI (Ajv can't compile Zod effects).
+- **Validator compiler disabled**: `app.setValidatorCompiler(() => () => true)` — schemas are documentation-only, Zod still handles actual validation in handlers.
+- **Reusable schema fragments**: File-level constants for DRY response schemas (e.g., `componentDetailSchema`, `announcementItemSchema`, `legalDocResponseSchema`).
+- **CSV/ZIP routes**: Documented JSON response as primary with notes about alternative formats. ZIP uses `produces: ['application/zip']`.
+- **Redoc over Swagger UI for public docs**: Swagger UI stays at `/docs` (admin-gated), Redoc at `/api-reference.html` loads from the same `/api/openapi.json`.
+- **Static spec generator**: Uses `app.inject()` to fetch spec without external HTTP — clean and testable. `--public-only` strips Admin/Export tagged routes for public consumption.
+
+### Open questions
+- Should the static spec be generated in CI and committed to `docs/openapi.json`? Currently manual via `npx tsx scripts/generate-openapi.ts`.

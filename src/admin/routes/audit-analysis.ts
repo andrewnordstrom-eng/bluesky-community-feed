@@ -6,8 +6,10 @@
 
 import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 import { db } from '../../db/client.js';
 import { redis } from '../../db/redis.js';
+import { adminSecurity, ErrorResponseSchema } from '../../lib/openapi.js';
 import { GovernanceWeights, normalizeWeights } from '../../governance/governance.types.js';
 
 type ComponentKey = keyof GovernanceWeights;
@@ -23,6 +25,9 @@ const COMPONENT_KEYS: ComponentKey[] = [
 const QuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(20),
 });
+
+/** JSON Schema for OpenAPI documentation. */
+const QueryJsonSchema = zodToJsonSchema(QuerySchema, { target: 'jsonSchema7' });
 
 const SENSITIVITY_SAMPLE_SIZE = 100;
 
@@ -266,8 +271,87 @@ async function getCurrentScoringRunScope(): Promise<{ runId: string; epochId: nu
   };
 }
 
+/** Reusable component detail schema fragment. */
+const componentDetailSchema = {
+  type: 'object' as const,
+  properties: {
+    raw: { type: 'number' as const },
+    weighted: { type: 'number' as const },
+  },
+};
+
 export function registerAuditAnalysisRoutes(app: FastifyInstance): void {
-  app.get('/audit/weight-impact', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/audit/weight-impact', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'Weight impact analysis',
+      description:
+        'Performs sensitivity analysis on current governance weights. Shows how the top-N posts ' +
+        'are ranked, which scoring component dominates each, and how ±10% weight shifts would ' +
+        'affect rankings. Uses live feed from Redis + score decomposition from PostgreSQL.',
+      security: adminSecurity,
+      querystring: QueryJsonSchema,
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            currentEpochId: { type: 'integer' },
+            currentWeights: {
+              type: 'object',
+              properties: {
+                recency: { type: 'number' },
+                engagement: { type: 'number' },
+                bridging: { type: 'number' },
+                sourceDiversity: { type: 'number' },
+                relevance: { type: 'number' },
+              },
+            },
+            topPosts: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  uri: { type: 'string' },
+                  textPreview: { type: 'string', nullable: true },
+                  rank: { type: 'integer' },
+                  totalScore: { type: 'number' },
+                  components: {
+                    type: 'object',
+                    properties: {
+                      recency: componentDetailSchema,
+                      engagement: componentDetailSchema,
+                      bridging: componentDetailSchema,
+                      sourceDiversity: componentDetailSchema,
+                      relevance: componentDetailSchema,
+                    },
+                  },
+                  dominantFactor: { type: 'string' },
+                  wouldRankWithEqualWeights: { type: 'integer' },
+                },
+              },
+            },
+            weightSensitivity: {
+              type: 'object',
+              description: 'Per-component sensitivity (±10% shift impact)',
+              additionalProperties: {
+                type: 'object',
+                properties: {
+                  postsAffected: { type: 'integer' },
+                  avgRankChange: { type: 'number' },
+                },
+              },
+            },
+            analyzedPosts: { type: 'integer' },
+            generatedAt: { type: 'string', format: 'date-time' },
+          },
+          required: ['currentEpochId', 'currentWeights', 'topPosts', 'weightSensitivity', 'analyzedPosts', 'generatedAt'],
+        },
+        400: ErrorResponseSchema,
+        404: ErrorResponseSchema,
+        503: ErrorResponseSchema,
+      },
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const parseResult = QuerySchema.safeParse(request.query);
 
     if (!parseResult.success) {

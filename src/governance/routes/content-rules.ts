@@ -9,6 +9,7 @@
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { db } from '../../db/client.js';
+import { ErrorResponseSchema } from '../../lib/openapi.js';
 import { getCurrentContentRules } from '../content-filter.js';
 
 /** Threshold for keyword inclusion (30% of voters) */
@@ -19,7 +20,39 @@ export function registerContentRulesRoute(app: FastifyInstance): void {
    * GET /api/governance/content-rules
    * Returns current content rules and vote statistics for transparency.
    */
-  app.get('/api/governance/content-rules', async (_request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/api/governance/content-rules', {
+    schema: {
+      tags: ['Governance'],
+      summary: 'Get content rules',
+      description:
+        'Returns the current epoch\'s content rules (active keywords) and per-keyword vote statistics. ' +
+        'Keywords require 30% voter support to become active.',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            epoch_id: { type: 'integer', description: 'Active epoch ID' },
+            include_keywords: { type: 'array', items: { type: 'string' }, description: 'Active include keywords (met threshold)' },
+            exclude_keywords: { type: 'array', items: { type: 'string' }, description: 'Active exclude keywords (met threshold)' },
+            include_keyword_votes: {
+              type: 'object',
+              additionalProperties: { type: 'integer' },
+              description: 'Keyword → vote count map for include keywords',
+            },
+            exclude_keyword_votes: {
+              type: 'object',
+              additionalProperties: { type: 'integer' },
+              description: 'Keyword → vote count map for exclude keywords',
+            },
+            total_voters: { type: 'integer', description: 'Number of voters who submitted keyword votes' },
+            threshold: { type: 'integer', description: 'Minimum votes required for keyword activation' },
+          },
+          required: ['epoch_id', 'include_keywords', 'exclude_keywords', 'total_voters', 'threshold'],
+        },
+        500: ErrorResponseSchema,
+      },
+    },
+  }, async (_request: FastifyRequest, reply: FastifyReply) => {
     // Get current epoch
     const epoch = await db.query(
       `SELECT id FROM governance_epochs

@@ -17,6 +17,7 @@ import { logger } from '../../lib/logger.js';
 import { Errors } from '../../lib/errors.js';
 import { invalidateParticipantCache } from '../../feed/access-control.js';
 import { getAuthenticatedDid } from '../../governance/auth.js';
+import { adminSecurity, ErrorResponseSchema } from '../../lib/openapi.js';
 
 const AddParticipantSchema = z
   .object({
@@ -42,7 +43,36 @@ export function registerParticipantRoutes(app: FastifyInstance): void {
    * GET /api/admin/participants
    * List all active (non-removed) participants.
    */
-  app.get('/participants', async (_request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/participants', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'List participants',
+      description: 'Returns all active (non-removed) approved participants for private feed mode.',
+      security: adminSecurity,
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            participants: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  did: { type: 'string' },
+                  handle: { type: 'string', nullable: true },
+                  added_by: { type: 'string' },
+                  notes: { type: 'string', nullable: true },
+                  added_at: { type: 'string', format: 'date-time' },
+                },
+              },
+            },
+            total: { type: 'integer' },
+          },
+          required: ['participants', 'total'],
+        },
+      },
+    },
+  }, async (_request: FastifyRequest, reply: FastifyReply) => {
     const result = await db.query(
       `SELECT did, handle, added_by, notes, added_at
        FROM approved_participants
@@ -60,7 +90,41 @@ export function registerParticipantRoutes(app: FastifyInstance): void {
    * POST /api/admin/participants
    * Add a new approved participant. Accepts DID or Bluesky handle.
    */
-  app.post('/participants', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/participants', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'Add participant',
+      description: 'Adds an approved participant by DID or Bluesky handle. Handles are resolved to DIDs via AT Protocol.',
+      security: adminSecurity,
+      body: {
+        type: 'object',
+        properties: {
+          did: { type: 'string', description: 'DID of participant (provide did or handle)' },
+          handle: { type: 'string', description: 'Bluesky handle (resolved to DID if no did provided)' },
+          notes: { type: 'string', maxLength: 500 },
+        },
+      },
+      response: {
+        201: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            participant: {
+              type: 'object',
+              properties: {
+                did: { type: 'string' },
+                handle: { type: 'string', nullable: true },
+                notes: { type: 'string', nullable: true },
+              },
+            },
+          },
+          required: ['success'],
+        },
+        400: ErrorResponseSchema,
+        409: ErrorResponseSchema,
+      },
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const parseResult = AddParticipantSchema.safeParse(request.body);
     if (!parseResult.success) {
       throw Errors.VALIDATION_ERROR('Must provide did or handle', parseResult.error.issues);
@@ -148,6 +212,32 @@ export function registerParticipantRoutes(app: FastifyInstance): void {
 
   app.delete(
     '/participants/:did',
+    {
+      schema: {
+        tags: ['Admin'],
+        summary: 'Remove participant',
+        description: 'Soft-removes a participant by setting removed_at. Does not delete the record.',
+        security: adminSecurity,
+        params: {
+          type: 'object',
+          properties: {
+            did: { type: 'string', description: 'DID of the participant to remove' },
+          },
+          required: ['did'],
+        },
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              success: { type: 'boolean' },
+            },
+            required: ['success'],
+          },
+          400: ErrorResponseSchema,
+          404: ErrorResponseSchema,
+        },
+      },
+    },
     async (request: FastifyRequest<{ Params: { did: string } }>, reply: FastifyReply) => {
       const paramParsed = DeleteParamSchema.safeParse(request.params);
       if (!paramParsed.success) {

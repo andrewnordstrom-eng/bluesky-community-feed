@@ -7,9 +7,11 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { PoolClient } from 'pg';
 import { z } from 'zod';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 import { db } from '../../db/client.js';
 import { getAdminDid } from '../../auth/admin.js';
 import { logger } from '../../lib/logger.js';
+import { adminSecurity, ErrorResponseSchema } from '../../lib/openapi.js';
 import {
   ContentRules,
   GovernanceWeights,
@@ -88,6 +90,59 @@ const ScheduleVoteSchema = z.object({
   startsAt: z.string().datetime(),
   durationHours: z.coerce.number().int().min(1).max(168).default(72),
 });
+
+/** JSON Schema conversions for request validation in OpenAPI docs. */
+const KeywordActionJsonSchema = zodToJsonSchema(KeywordActionSchema, { target: 'jsonSchema7' });
+const ExtendVotingJsonSchema = zodToJsonSchema(ExtendVotingSchema, { target: 'jsonSchema7' });
+const RoundIdParamsJsonSchema = zodToJsonSchema(RoundIdParamsSchema, { target: 'jsonSchema7' });
+const StartVotingJsonSchema = zodToJsonSchema(StartVotingSchema, { target: 'jsonSchema7' });
+const EndVotingJsonSchema = zodToJsonSchema(EndVotingSchema, { target: 'jsonSchema7' });
+const ApproveResultsJsonSchema = zodToJsonSchema(ApproveResultsSchema, { target: 'jsonSchema7' });
+const ScheduleVoteJsonSchema = zodToJsonSchema(ScheduleVoteSchema, { target: 'jsonSchema7' });
+
+/** Reusable schema fragment for governance weights. */
+const weightsSchema = {
+  type: 'object' as const,
+  properties: {
+    recency: { type: 'number' as const },
+    engagement: { type: 'number' as const },
+    bridging: { type: 'number' as const },
+    sourceDiversity: { type: 'number' as const },
+    relevance: { type: 'number' as const },
+  },
+};
+
+/** Reusable schema fragment for content rules. */
+const contentRulesSchema = {
+  type: 'object' as const,
+  properties: {
+    includeKeywords: { type: 'array' as const, items: { type: 'string' as const } },
+    excludeKeywords: { type: 'array' as const, items: { type: 'string' as const } },
+  },
+};
+
+/** Reusable schema fragment for a governance round object. */
+const roundSchema = {
+  type: 'object' as const,
+  properties: {
+    id: { type: 'integer' as const },
+    status: { type: 'string' as const },
+    phase: { type: 'string' as const, enum: ['running', 'voting', 'results'] },
+    voteCount: { type: 'integer' as const },
+    createdAt: { type: 'string' as const, format: 'date-time' },
+    closedAt: { type: 'string' as const, format: 'date-time', nullable: true },
+    votingEndsAt: { type: 'string' as const, format: 'date-time', nullable: true },
+    votingStartedAt: { type: 'string' as const, format: 'date-time', nullable: true },
+    votingClosedAt: { type: 'string' as const, format: 'date-time', nullable: true },
+    resultsApprovedAt: { type: 'string' as const, format: 'date-time', nullable: true },
+    resultsApprovedBy: { type: 'string' as const, nullable: true },
+    proposedWeights: { ...weightsSchema, nullable: true },
+    proposedContentRules: { ...contentRulesSchema, nullable: true },
+    autoTransition: { type: 'boolean' as const },
+    weights: weightsSchema,
+    contentRules: contentRulesSchema,
+  },
+};
 
 interface GovernanceEpochRow {
   id: number;
@@ -306,7 +361,28 @@ function mapScheduledVote(row: ScheduledVoteRow) {
 }
 
 export function registerGovernanceRoutes(app: FastifyInstance): void {
-  app.get('/governance', async (_request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/governance', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'Governance overview',
+      description: 'Returns a full governance overview: the current round, all recent rounds (up to 30), current weights, content keywords, and voting schedule.',
+      security: adminSecurity,
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            currentRound: { ...roundSchema, nullable: true },
+            rounds: { type: 'array', items: roundSchema },
+            weights: { ...weightsSchema, nullable: true },
+            includeKeywords: { type: 'array', items: { type: 'string' } },
+            excludeKeywords: { type: 'array', items: { type: 'string' } },
+            votingEndsAt: { type: 'string', format: 'date-time', nullable: true },
+            autoTransition: { type: 'boolean' },
+          },
+        },
+      },
+    },
+  }, async (_request: FastifyRequest, reply: FastifyReply) => {
     const roundsResult = await db.query<GovernanceEpochRow & { vote_count: string }>(
       `SELECT
         e.id,
@@ -350,7 +426,29 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
     });
   });
 
-  app.post('/governance/start-voting', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/governance/start-voting', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'Start voting period',
+      description: 'Opens a voting period on the current round. Optionally announces to Bluesky.',
+      security: adminSecurity,
+      body: StartVotingJsonSchema,
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            round: roundSchema,
+          },
+          required: ['success'],
+        },
+        400: ErrorResponseSchema,
+        404: ErrorResponseSchema,
+        409: ErrorResponseSchema,
+        500: ErrorResponseSchema,
+      },
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const adminDid = getAdminDid(request);
     const parseResult = StartVotingSchema.safeParse(request.body ?? {});
 
@@ -445,7 +543,32 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
     }
   });
 
-  app.post('/governance/end-voting', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/governance/end-voting', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'End voting period',
+      description: 'Closes the current voting period, aggregates votes, and moves the round to results phase. Optionally announces to Bluesky.',
+      security: adminSecurity,
+      body: EndVotingJsonSchema,
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            voteCount: { type: 'integer' },
+            proposedWeights: weightsSchema,
+            proposedContentRules: contentRulesSchema,
+            round: roundSchema,
+          },
+          required: ['success'],
+        },
+        400: ErrorResponseSchema,
+        404: ErrorResponseSchema,
+        409: ErrorResponseSchema,
+        500: ErrorResponseSchema,
+      },
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const adminDid = getAdminDid(request);
     const parseResult = EndVotingSchema.safeParse(request.body ?? {});
 
@@ -549,7 +672,32 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
     }
   });
 
-  app.post('/governance/approve-results', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/governance/approve-results', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'Approve voting results',
+      description: 'Approves aggregated voting results, applying the proposed weights and content rules to the active epoch. Triggers a rescore.',
+      security: adminSecurity,
+      body: ApproveResultsJsonSchema,
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            weights: weightsSchema,
+            contentRules: contentRulesSchema,
+            rescoreTriggered: { type: 'boolean' },
+            round: roundSchema,
+          },
+          required: ['success'],
+        },
+        400: ErrorResponseSchema,
+        404: ErrorResponseSchema,
+        409: ErrorResponseSchema,
+        500: ErrorResponseSchema,
+      },
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const adminDid = getAdminDid(request);
     const parseResult = ApproveResultsSchema.safeParse(request.body ?? {});
 
@@ -669,7 +817,27 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
     }
   });
 
-  app.post('/governance/reject-results', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/governance/reject-results', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'Reject voting results',
+      description: 'Rejects the proposed voting results and returns the round to running phase. Weights remain unchanged.',
+      security: adminSecurity,
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            round: roundSchema,
+          },
+          required: ['success'],
+        },
+        404: ErrorResponseSchema,
+        409: ErrorResponseSchema,
+        500: ErrorResponseSchema,
+      },
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const adminDid = getAdminDid(request);
     const client = await db.connect();
 
@@ -734,7 +902,37 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
     }
   });
 
-  app.post('/governance/schedule-vote', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/governance/schedule-vote', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'Schedule a future vote',
+      description: 'Schedules a voting period to start automatically at a future time. Announces the schedule to Bluesky.',
+      security: adminSecurity,
+      body: ScheduleVoteJsonSchema,
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            scheduledVote: {
+              type: 'object',
+              properties: {
+                id: { type: 'integer' },
+                startsAt: { type: 'string', format: 'date-time' },
+                durationHours: { type: 'integer' },
+                announced: { type: 'boolean' },
+                createdBy: { type: 'string' },
+                createdAt: { type: 'string', format: 'date-time' },
+              },
+            },
+          },
+          required: ['success'],
+        },
+        400: ErrorResponseSchema,
+        500: ErrorResponseSchema,
+      },
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const adminDid = getAdminDid(request);
     const parseResult = ScheduleVoteSchema.safeParse(request.body ?? {});
 
@@ -795,7 +993,35 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
     });
   });
 
-  app.get('/governance/schedule', async (_request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/governance/schedule', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'List scheduled votes',
+      description: 'Returns upcoming and recently past scheduled voting periods.',
+      security: adminSecurity,
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            scheduledVotes: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'integer' },
+                  startsAt: { type: 'string', format: 'date-time' },
+                  durationHours: { type: 'integer' },
+                  announced: { type: 'boolean' },
+                  createdBy: { type: 'string' },
+                  createdAt: { type: 'string', format: 'date-time' },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  }, async (_request: FastifyRequest, reply: FastifyReply) => {
     const result = await db.query<ScheduledVoteRow>(
       `SELECT id, starts_at, duration_hours, announced, created_by, created_at
        FROM scheduled_votes
@@ -808,7 +1034,35 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
     });
   });
 
-  app.patch('/governance/content-rules', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.patch('/governance/content-rules', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'Override content rules',
+      description: 'Admin override of include/exclude keyword lists on the current epoch. Triggers a rescore.',
+      security: adminSecurity,
+      body: {
+        type: 'object',
+        properties: {
+          includeKeywords: { type: 'array', items: { type: 'string' } },
+          excludeKeywords: { type: 'array', items: { type: 'string' } },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            rules: contentRulesSchema,
+            rescoreTriggered: { type: 'boolean' },
+          },
+          required: ['success'],
+        },
+        400: ErrorResponseSchema,
+        404: ErrorResponseSchema,
+        500: ErrorResponseSchema,
+      },
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const adminDid = getAdminDid(request);
     const parseResult = ContentRulesPatchSchema.safeParse(request.body);
 
@@ -884,7 +1138,30 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
     }
   });
 
-  app.post('/governance/content-rules/keyword', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/governance/content-rules/keyword', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'Add a keyword',
+      description: 'Adds a single keyword to either the include or exclude list. Triggers a rescore.',
+      security: adminSecurity,
+      body: KeywordActionJsonSchema,
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            rules: contentRulesSchema,
+            rescoreTriggered: { type: 'boolean' },
+          },
+          required: ['success'],
+        },
+        400: ErrorResponseSchema,
+        404: ErrorResponseSchema,
+        409: ErrorResponseSchema,
+        500: ErrorResponseSchema,
+      },
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const adminDid = getAdminDid(request);
     const parseResult = KeywordActionSchema.safeParse(request.body);
 
@@ -990,7 +1267,30 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
     }
   });
 
-  app.delete('/governance/content-rules/keyword', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.delete('/governance/content-rules/keyword', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'Remove a keyword',
+      description: 'Removes a keyword from the include or exclude list. Removing the last include keyword requires confirm=true. Triggers a rescore.',
+      security: adminSecurity,
+      body: KeywordActionJsonSchema,
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            rules: contentRulesSchema,
+            rescoreTriggered: { type: 'boolean' },
+          },
+          required: ['success'],
+        },
+        400: ErrorResponseSchema,
+        404: ErrorResponseSchema,
+        409: ErrorResponseSchema,
+        500: ErrorResponseSchema,
+      },
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const adminDid = getAdminDid(request);
     const parseResult = KeywordActionSchema.safeParse(request.body);
 
@@ -1097,7 +1397,38 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
     }
   });
 
-  app.patch('/governance/weights', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.patch('/governance/weights', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'Override weights',
+      description: 'Admin override of governance weights on the current epoch. Partial updates supported — omitted weights keep their current value. Result is normalized to sum to 1.0. Triggers a rescore.',
+      security: adminSecurity,
+      body: {
+        type: 'object',
+        properties: {
+          recency: { type: 'number', minimum: 0, maximum: 1 },
+          engagement: { type: 'number', minimum: 0, maximum: 1 },
+          bridging: { type: 'number', minimum: 0, maximum: 1 },
+          sourceDiversity: { type: 'number', minimum: 0, maximum: 1 },
+          relevance: { type: 'number', minimum: 0, maximum: 1 },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            weights: weightsSchema,
+            rescoreTriggered: { type: 'boolean' },
+          },
+          required: ['success'],
+        },
+        400: ErrorResponseSchema,
+        404: ErrorResponseSchema,
+        500: ErrorResponseSchema,
+      },
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const adminDid = getAdminDid(request);
     const parseResult = WeightPatchSchema.safeParse(request.body);
 
@@ -1186,7 +1517,29 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
     }
   });
 
-  app.post('/governance/extend-voting', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/governance/extend-voting', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'Extend voting period',
+      description: 'Extends the current voting period by the specified number of hours. Only works while voting is open.',
+      security: adminSecurity,
+      body: ExtendVotingJsonSchema,
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            round: roundSchema,
+          },
+          required: ['success'],
+        },
+        400: ErrorResponseSchema,
+        404: ErrorResponseSchema,
+        409: ErrorResponseSchema,
+        500: ErrorResponseSchema,
+      },
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const adminDid = getAdminDid(request);
     const parseResult = ExtendVotingSchema.safeParse(request.body);
 
@@ -1265,7 +1618,31 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
     }
   });
 
-  app.post('/governance/apply-results', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/governance/apply-results', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'Apply results directly',
+      description: 'Aggregates votes and applies results in a single step, bypassing the approve/reject flow. Triggers a rescore.',
+      security: adminSecurity,
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            voteCount: { type: 'integer' },
+            appliedWeights: { type: 'boolean', description: 'Whether aggregated weights were applied (false if no votes)' },
+            weights: weightsSchema,
+            contentRules: contentRulesSchema,
+            round: roundSchema,
+            rescoreTriggered: { type: 'boolean' },
+          },
+          required: ['success'],
+        },
+        404: ErrorResponseSchema,
+        500: ErrorResponseSchema,
+      },
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const adminDid = getAdminDid(request);
     const client = await db.connect();
 
@@ -1374,7 +1751,59 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
     }
   });
 
-  app.get('/governance/rounds/:id', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/governance/rounds/:id', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'Get round detail',
+      description: 'Returns full detail for a specific governance round including starting/ending weights, vote configurations, duration, and audit trail.',
+      security: adminSecurity,
+      params: RoundIdParamsJsonSchema,
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            round: roundSchema,
+            startingWeights: weightsSchema,
+            endingWeights: weightsSchema,
+            startingRules: contentRulesSchema,
+            endingRules: contentRulesSchema,
+            voteCount: { type: 'integer' },
+            weightConfigurations: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  count: { type: 'integer' },
+                  weights: { ...weightsSchema, nullable: true },
+                },
+              },
+            },
+            duration: {
+              type: 'object',
+              properties: {
+                startedAt: { type: 'string', format: 'date-time' },
+                endedAt: { type: 'string', format: 'date-time', nullable: true },
+                durationMs: { type: 'integer' },
+              },
+            },
+            auditTrail: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  action: { type: 'string' },
+                  details: { type: 'object', additionalProperties: true },
+                  created_at: { type: 'string', format: 'date-time' },
+                },
+              },
+            },
+          },
+        },
+        400: ErrorResponseSchema,
+        404: ErrorResponseSchema,
+      },
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const parseResult = RoundIdParamsSchema.safeParse(request.params);
 
     if (!parseResult.success) {
@@ -1514,7 +1943,33 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
     });
   });
 
-  app.post('/governance/end-round', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/governance/end-round', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'End round and start new one',
+      description: 'Closes the current epoch and creates a new one with current weights carried forward. Use force=true to skip validation checks.',
+      security: adminSecurity,
+      body: {
+        type: 'object',
+        properties: {
+          force: { type: 'boolean', default: false },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            newRoundId: { type: 'integer' },
+          },
+          required: ['success'],
+        },
+        400: ErrorResponseSchema,
+        409: ErrorResponseSchema,
+        500: ErrorResponseSchema,
+      },
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const adminDid = getAdminDid(request);
     const parseResult = z
       .object({ force: z.boolean().optional().default(false) })

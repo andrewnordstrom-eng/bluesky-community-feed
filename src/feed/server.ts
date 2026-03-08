@@ -94,15 +94,64 @@ export async function createServer() {
     openapi: {
       info: {
         title: 'Community Feed API',
-        description: 'Community-governed Bluesky feed generator API',
-        version: '1.0.0',
+        description:
+          'Community-governed Bluesky feed generator where subscribers democratically vote on ranking algorithm weights. ' +
+          'Built on AT Protocol.\n\n' +
+          '## Authentication\n' +
+          '- **Governance endpoints** require a session cookie or bearer token from `POST /api/governance/auth/login`.\n' +
+          '- **Admin endpoints** additionally require the caller\'s DID to be in the `BOT_ADMIN_DIDS` allowlist.\n' +
+          '- **Feed endpoints** are public (called by the Bluesky app). Auth is optional for subscriber tracking.\n' +
+          '- **Transparency endpoints** are public and unauthenticated.',
+        version: '1.1.0',
+        contact: {
+          name: 'Community Feed',
+          url: 'https://github.com/AndrewNordstrom/bluesky-community-feed',
+        },
+        license: { name: 'MIT' },
       },
-      servers: [{ url: `https://${config.FEEDGEN_HOSTNAME}` }],
+      servers: [
+        { url: `https://${config.FEEDGEN_HOSTNAME}`, description: 'Production' },
+      ],
+      tags: [
+        { name: 'Feed', description: 'AT Protocol feed endpoints (called by Bluesky app)' },
+        { name: 'Governance', description: 'Voting, epochs, weights, and community governance' },
+        { name: 'Auth', description: 'Bluesky authentication for governance actions' },
+        { name: 'Topics', description: 'Topic catalog and topic weight voting' },
+        { name: 'Transparency', description: 'Score explanations, feed stats, and audit logs' },
+        { name: 'Admin', description: 'Admin-only endpoints (requires BOT_ADMIN_DIDS)' },
+        { name: 'Export', description: 'Research data export (anonymized, admin-only)' },
+        { name: 'Health', description: 'Server health checks and liveness probes' },
+        { name: 'Bot', description: 'Announcement bot management' },
+        { name: 'Legal', description: 'Legal documents (terms of service, privacy policy)' },
+      ],
+      components: {
+        securitySchemes: {
+          cookieAuth: {
+            type: 'apiKey',
+            in: 'cookie',
+            name: config.GOVERNANCE_SESSION_COOKIE_NAME,
+            description: 'Session cookie from POST /api/governance/auth/login',
+          },
+          bearerAuth: {
+            type: 'http',
+            scheme: 'bearer',
+            description: 'Bearer token from POST /api/governance/auth/login (for CLI/MCP)',
+          },
+        },
+      },
     },
   });
 
   await app.register(swaggerUi, {
     routePrefix: '/docs',
+    uiConfig: {
+      docExpansion: 'list',
+      deepLinking: true,
+      defaultModelsExpandDepth: 3,
+      displayRequestDuration: true,
+      filter: true,
+      tryItOutEnabled: false,
+    },
     uiHooks: {
       onRequest: isProduction ? requireAdmin : undefined,
     },
@@ -196,12 +245,49 @@ export async function createServer() {
   registerMcpRoutes(app);
 
   // Public health check endpoint - redacted status only
-  app.get('/health', async () => {
+  app.get('/health', {
+    schema: {
+      tags: ['Health'],
+      summary: 'Public health check',
+      description: 'Returns a redacted health status (ok or degraded). Does not expose component details.',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            status: { type: 'string', enum: ['ok', 'degraded'], description: 'Overall system health' },
+          },
+          required: ['status'],
+        },
+      },
+    },
+  }, async () => {
     return getPublicHealthStatus();
   });
 
   // Liveness probe - just checks if process is running (k8s liveness)
-  app.get('/health/live', async (_request, reply) => {
+  app.get('/health/live', {
+    schema: {
+      tags: ['Health'],
+      summary: 'Liveness probe',
+      description: 'Returns 200 if the process is running. Used by Kubernetes liveness probes.',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            status: { type: 'string', enum: ['live'], description: 'Process is running' },
+          },
+          required: ['status'],
+        },
+        503: {
+          type: 'object',
+          properties: {
+            status: { type: 'string', enum: ['not live'] },
+          },
+          required: ['status'],
+        },
+      },
+    },
+  }, async (_request, reply) => {
     if (isLive()) {
       return reply.status(200).send({ status: 'live' });
     }
@@ -209,7 +295,29 @@ export async function createServer() {
   });
 
   // Readiness probe - checks if all dependencies are healthy (k8s readiness)
-  app.get('/health/ready', async (_request, reply) => {
+  app.get('/health/ready', {
+    schema: {
+      tags: ['Health'],
+      summary: 'Readiness probe',
+      description: 'Returns 200 if database and Redis are healthy. Used by Kubernetes readiness probes.',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            status: { type: 'string', enum: ['ready'], description: 'All critical dependencies healthy' },
+          },
+          required: ['status'],
+        },
+        503: {
+          type: 'object',
+          properties: {
+            status: { type: 'string', enum: ['not ready'] },
+          },
+          required: ['status'],
+        },
+      },
+    },
+  }, async (_request, reply) => {
     const ready = await isReady();
     if (ready) {
       return reply.status(200).send({ status: 'ready' });

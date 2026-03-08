@@ -13,6 +13,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { db } from '../../db/client.js';
 import { logger } from '../../lib/logger.js';
+import { ErrorResponseSchema } from '../../lib/openapi.js';
 import type { FeedStats } from '../transparency.types.js';
 
 interface CurrentScoringRunValue {
@@ -43,7 +44,69 @@ async function getCurrentScoringRunScope(): Promise<{ runId: string; epochId: nu
 }
 
 export function registerFeedStatsRoute(app: FastifyInstance): void {
-  app.get('/api/transparency/stats', async (_request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/api/transparency/stats', {
+    schema: {
+      tags: ['Transparency'],
+      summary: 'Feed statistics',
+      description:
+        'Returns aggregate statistics for the current feed including epoch weights, scoring metrics ' +
+        '(posts scored, unique authors, avg/median bridging), governance info, and optional Gini coefficient.',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            epoch: {
+              type: 'object',
+              properties: {
+                id: { type: 'integer' },
+                status: { type: 'string' },
+                weights: {
+                  type: 'object',
+                  properties: {
+                    recency: { type: 'number' },
+                    engagement: { type: 'number' },
+                    bridging: { type: 'number' },
+                    source_diversity: { type: 'number' },
+                    relevance: { type: 'number' },
+                  },
+                },
+                created_at: { type: 'string', format: 'date-time' },
+              },
+            },
+            feed_stats: {
+              type: 'object',
+              properties: {
+                total_posts_scored: { type: 'integer' },
+                unique_authors: { type: 'integer' },
+                avg_bridging_score: { type: 'number' },
+                avg_engagement_score: { type: 'number' },
+                median_bridging_score: { type: 'number' },
+                median_total_score: { type: 'number' },
+              },
+            },
+            governance: {
+              type: 'object',
+              properties: {
+                votes_this_epoch: { type: 'integer' },
+              },
+            },
+            metrics: {
+              type: 'object',
+              nullable: true,
+              description: 'Diversity and comparison metrics (available after first scoring run)',
+              properties: {
+                author_gini: { type: 'number', nullable: true, description: 'Author concentration (0=equal, 1=monopoly)' },
+                vs_chronological_overlap: { type: 'number', nullable: true },
+                vs_engagement_overlap: { type: 'number', nullable: true },
+              },
+            },
+          },
+          required: ['epoch', 'feed_stats', 'governance'],
+        },
+        500: ErrorResponseSchema,
+      },
+    },
+  }, async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
       // Get current epoch
       const epochResult = await db.query(

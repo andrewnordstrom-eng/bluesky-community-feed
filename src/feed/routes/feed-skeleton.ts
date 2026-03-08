@@ -13,6 +13,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { randomUUID } from 'crypto';
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
+import { ErrorResponseSchema } from '../../lib/openapi.js';
 import { config } from '../../config.js';
 import { logger } from '../../lib/logger.js';
 import { redis } from '../../db/redis.js';
@@ -82,7 +83,7 @@ const FeedSkeletonRouteSchema = z.object({
 
 /** JSON Schema for Fastify route definition (consumed by @fastify/swagger for OpenAPI). */
 const FeedSkeletonQueryJsonSchema = zodToJsonSchema(FeedSkeletonRouteSchema, {
-  target: 'openApi3',
+  target: 'jsonSchema7',
 });
 
 /** Full validation schema including cursor structure check (used by safeParse in handler). */
@@ -106,7 +107,33 @@ export function registerFeedSkeleton(app: FastifyInstance): void {
     '/xrpc/app.bsky.feed.getFeedSkeleton',
     {
       schema: {
+        tags: ['Feed'],
+        summary: 'Get feed skeleton',
+        description:
+          'Returns a list of post URIs for the community-governed feed. Called by the Bluesky app. ' +
+          'Uses snapshot-based cursors for stable pagination (5-minute TTL).',
         querystring: FeedSkeletonQueryJsonSchema,
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              feed: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    post: { type: 'string', description: 'AT-URI of the post', example: 'at://did:plc:example/app.bsky.feed.post/abc123' },
+                  },
+                  required: ['post'],
+                },
+                description: 'Ordered list of post references',
+              },
+              cursor: { type: 'string', description: 'Pagination cursor for the next page (absent on last page)' },
+            },
+            required: ['feed'],
+          },
+          400: ErrorResponseSchema,
+        },
       },
     },
     async (request: FastifyRequest<{ Querystring: FeedSkeletonQuery }>, reply) => {

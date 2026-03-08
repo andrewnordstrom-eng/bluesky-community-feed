@@ -7,10 +7,12 @@
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 import { db } from '../../db/client.js';
 import { redis } from '../../db/redis.js';
 import { requireAdmin } from '../../auth/admin.js';
 import { config } from '../../config.js';
+import { adminSecurity, ErrorResponseSchema } from '../../lib/openapi.js';
 import {
   checkContentRules,
   filterPosts,
@@ -31,7 +33,61 @@ export function registerDebugRoutes(app: FastifyInstance): void {
    * - Last scoring run timestamp
    * - Sample post scores
    */
-  app.get('/api/debug/feed-health', { preHandler }, async (_request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/api/debug/feed-health', {
+    preHandler,
+    schema: {
+      tags: ['Admin'],
+      summary: 'Feed health debug',
+      description:
+        'Comprehensive feed health check: current epoch, active weights, vote count, subscriber count, ' +
+        'last scoring run, Redis feed size, and sample top-3 post scores with full decomposition.',
+      security: adminSecurity,
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            current_epoch: {
+              type: 'object',
+              properties: {
+                id: { type: 'integer' },
+                status: { type: 'string' },
+                created_at: { type: 'string', format: 'date-time' },
+              },
+            },
+            active_weights: {
+              type: 'object',
+              properties: {
+                recency: { type: 'number' },
+                engagement: { type: 'number' },
+                bridging: { type: 'number' },
+                source_diversity: { type: 'number' },
+                relevance: { type: 'number' },
+              },
+            },
+            votes_this_epoch: { type: 'integer' },
+            subscriber_count: { type: 'integer' },
+            last_scoring_run: { type: 'string', format: 'date-time', nullable: true },
+            feed_size: { type: 'integer' },
+            sample_post_scores: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  uri: { type: 'string' },
+                  total_score: { type: 'number' },
+                  scores: { type: 'object', additionalProperties: true },
+                  weights_used: { type: 'object', additionalProperties: true },
+                  scored_at: { type: 'string', format: 'date-time' },
+                },
+              },
+            },
+            weights_source: { type: 'string' },
+          },
+        },
+        500: ErrorResponseSchema,
+      },
+    },
+  }, async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
       // Get current active epoch
       const epoch = await db.query(
@@ -140,7 +196,38 @@ export function registerDebugRoutes(app: FastifyInstance): void {
    * GET /api/debug/scoring-weights
    * Returns just the current scoring weights (simpler than feed-health).
    */
-  app.get('/api/debug/scoring-weights', { preHandler }, async (_request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/api/debug/scoring-weights', {
+    preHandler,
+    schema: {
+      tags: ['Admin'],
+      summary: 'Current scoring weights',
+      description: 'Returns the current active governance epoch weights used by the scoring pipeline.',
+      security: adminSecurity,
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            epoch_id: { type: 'integer' },
+            weights: {
+              type: 'object',
+              properties: {
+                recency: { type: 'number' },
+                engagement: { type: 'number' },
+                bridging: { type: 'number' },
+                source_diversity: { type: 'number' },
+                relevance: { type: 'number' },
+              },
+            },
+            source: { type: 'string' },
+            last_updated: { type: 'string', format: 'date-time' },
+          },
+          required: ['epoch_id', 'weights', 'source', 'last_updated'],
+        },
+        404: ErrorResponseSchema,
+        500: ErrorResponseSchema,
+      },
+    },
+  }, async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
       const epoch = await db.query(
         `SELECT id, recency_weight, engagement_weight, bridging_weight,
@@ -182,7 +269,32 @@ export function registerDebugRoutes(app: FastifyInstance): void {
    * GET /api/debug/content-rules
    * Returns current active content rules from cache/DB.
    */
-  app.get('/api/debug/content-rules', { preHandler }, async (_request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/api/debug/content-rules', {
+    preHandler,
+    schema: {
+      tags: ['Admin'],
+      summary: 'Active content rules',
+      description: 'Returns the currently active keyword include/exclude content rules from cache or DB.',
+      security: adminSecurity,
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            rules: {
+              type: 'object',
+              properties: {
+                includeKeywords: { type: 'array', items: { type: 'string' } },
+                excludeKeywords: { type: 'array', items: { type: 'string' } },
+              },
+            },
+            hasActiveRules: { type: 'boolean' },
+          },
+          required: ['rules', 'hasActiveRules'],
+        },
+        500: ErrorResponseSchema,
+      },
+    },
+  }, async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
       const rules = await getCurrentContentRules();
       return reply.send({
@@ -209,6 +321,7 @@ export function registerDebugRoutes(app: FastifyInstance): void {
    * - rules: { includeKeywords: string[], excludeKeywords: string[] }
    * - text: string
    */
+  /** JSON Schema for OpenAPI documentation. */
   const TestFilterSchema = z.object({
     rules: z.object({
       includeKeywords: z.array(z.string()).default([]),
@@ -225,7 +338,37 @@ export function registerDebugRoutes(app: FastifyInstance): void {
     text: z.string().optional(),
   });
 
-  app.post('/api/debug/test-content-filter', { preHandler }, async (request: FastifyRequest, reply: FastifyReply) => {
+  const TestFilterJsonSchema = zodToJsonSchema(TestFilterSchema, { target: 'jsonSchema7' });
+
+  app.post('/api/debug/test-content-filter', {
+    preHandler,
+    schema: {
+      tags: ['Admin'],
+      summary: 'Test content filter',
+      description:
+        'Tests content filtering with provided rules against sample posts or a single text string. ' +
+        'Returns which posts pass or are filtered and why.',
+      security: adminSecurity,
+      body: TestFilterJsonSchema,
+      response: {
+        200: {
+          type: 'object',
+          description: 'Result varies by input mode (single text or batch posts)',
+          properties: {
+            text: { type: 'string' },
+            rules: { type: 'object', additionalProperties: true },
+            result: { type: 'object', additionalProperties: true },
+            input_count: { type: 'integer' },
+            passed_count: { type: 'integer' },
+            filtered_count: { type: 'integer' },
+            passed: { type: 'array' },
+            filtered: { type: 'array' },
+          },
+        },
+        400: ErrorResponseSchema,
+      },
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const parseResult = TestFilterSchema.safeParse(request.body);
     if (!parseResult.success) {
       return reply.code(400).send({
