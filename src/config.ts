@@ -81,6 +81,14 @@ const ConfigSchema = z.object({
   // Content filtering
   FILTER_NSFW_LABELS: z.coerce.boolean().default(true),
 
+  // Ingestion gate: reject posts below community relevance threshold
+  INGESTION_GATE_ENABLED: z.coerce.boolean().default(true),
+  INGESTION_MIN_RELEVANCE: z.coerce.number().min(0).max(1).default(0.10),
+  INGESTION_MIN_TEXT_FOR_MEDIA: z.coerce.number().min(0).default(10),
+
+  // Feed output: minimum relevance score to appear in feed
+  FEED_MIN_RELEVANCE: z.coerce.number().min(0).max(1).default(0.15),
+
   // Private feed mode (research gating)
   FEED_PRIVATE_MODE: z.coerce.boolean().default(false),
 

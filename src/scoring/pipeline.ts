@@ -665,9 +665,10 @@ async function writeToRedisFromDb(epochId: number, runId: string): Promise<void>
      WHERE ps.epoch_id = $1
        AND p.deleted = FALSE
        AND p.created_at > $3
+       AND ps.relevance_score >= $4
      ORDER BY ps.total_score DESC
      LIMIT $2`,
-    [epochId, config.FEED_MAX_POSTS, cutoff.toISOString()]
+    [epochId, config.FEED_MAX_POSTS, cutoff.toISOString(), config.FEED_MIN_RELEVANCE]
   );
 
   const topPosts = result.rows;

@@ -11,6 +11,7 @@ import { config } from '../../config.js';
 import { getCurrentContentRules, checkContentRules, hasActiveContentRules } from '../../governance/content-filter.js';
 import { classifyPost, type TopicVector } from '../../scoring/topics/classifier.js';
 import { getTaxonomy } from '../../scoring/topics/taxonomy.js';
+import { checkGovernanceGate, isGovernanceGateReady } from '../governance-gate.js';
 
 /** AT Protocol content labels that indicate NSFW content. */
 const NSFW_LABELS = new Set(['porn', 'sexual', 'graphic-media', 'nudity']);
@@ -76,6 +77,13 @@ export async function handlePost(
     }
   }
 
+  // Media-without-text gate: skip media posts with insufficient text.
+  // Images/videos without meaningful text are usually not on-topic content.
+  if (config.INGESTION_MIN_TEXT_FOR_MEDIA > 0 && hasMedia && (!text || text.trim().length < config.INGESTION_MIN_TEXT_FOR_MEDIA)) {
+    logger.debug({ uri, authorDid }, 'Post skipped: media with insufficient text');
+    return;
+  }
+
   // Pre-ingestion content filtering: skip posts that don't match include keywords.
   // Fail-open: if the filter check fails, insert anyway (cleanup handles it later).
   try {
@@ -104,6 +112,23 @@ export async function handlePost(
     }
   } catch (err) {
     logger.warn({ err, uri }, 'Topic classification failed, proceeding without topics');
+  }
+
+  // Governance relevance gate: reject posts below community relevance threshold.
+  // Fail-open: gate disabled, not ready, or error → post passes through.
+  if (config.INGESTION_GATE_ENABLED && isGovernanceGateReady()) {
+    try {
+      const gateResult = await checkGovernanceGate(topicVector);
+      if (!gateResult.passes) {
+        logger.debug(
+          { uri, relevance: gateResult.relevance, authorDid },
+          'Post rejected by governance gate: below community relevance threshold'
+        );
+        return;
+      }
+    } catch (err) {
+      logger.warn({ err, uri }, 'Governance gate check failed, inserting post anyway');
+    }
   }
 
   try {
