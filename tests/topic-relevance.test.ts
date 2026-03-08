@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { scoreRelevance } from '../src/scoring/components/relevance.js';
+import { scoreRelevance, CONFIDENCE_THRESHOLD } from '../src/scoring/components/relevance.js';
 import type { PostForScoring, GovernanceEpoch } from '../src/scoring/score.types.js';
 import type { ScoringContext } from '../src/scoring/component.interface.js';
 
@@ -146,7 +146,82 @@ describe('scoreRelevance', () => {
     });
     const context = makeContext({ 'software-development': 0.9 });
 
+    // scoreSum = 0.8+0.3 = 0.8, confidence = min(1, 0.8/0.5) = 1.0
     // Both topics default to 0.2: (0.5*0.2 + 0.3*0.2) / (0.5+0.3) = 0.16/0.8 = 0.2
+    // 0.2 × 1.0 = 0.2
     expect(scoreRelevance(post, context)).toBeCloseTo(0.2, 6);
+  });
+});
+
+describe('scoreRelevance confidence scaling', () => {
+  it('dampens single weak match (scoreSum < threshold)', () => {
+    const post = makePost({ 'open-source': 0.2 });
+    const context = makeContext({ 'open-source': 0.85 });
+
+    // baseRelevance = 0.85
+    // confidence = min(1.0, 0.2 / 0.5) = 0.4
+    // relevance = 0.85 × 0.4 = 0.34
+    const score = scoreRelevance(post, context);
+    expect(score).toBeCloseTo(0.34, 2);
+  });
+
+  it('does not dampen strong single match (scoreSum >= threshold)', () => {
+    const post = makePost({ 'open-source': 0.8 });
+    const context = makeContext({ 'open-source': 0.85 });
+
+    // baseRelevance = 0.85
+    // confidence = min(1.0, 0.8 / 0.5) = 1.0
+    // relevance = 0.85 × 1.0 = 0.85
+    const score = scoreRelevance(post, context);
+    expect(score).toBeCloseTo(0.85, 6);
+  });
+
+  it('does not dampen multi-topic matches (scoreSum naturally high)', () => {
+    const post = makePost({ 'software-development': 0.5, 'open-source': 0.4 });
+    const context = makeContext({ 'software-development': 0.8, 'open-source': 0.85 });
+
+    // scoreSum = 0.9, confidence = 1.0
+    // baseRelevance = (0.5*0.8 + 0.4*0.85) / 0.9 = (0.4+0.34)/0.9 = 0.8222
+    // relevance = 0.8222 × 1.0 = 0.8222
+    const score = scoreRelevance(post, context);
+    expect(score).toBeCloseTo(0.8222, 3);
+  });
+
+  it('scales linearly between 0 and threshold', () => {
+    const post = makePost({ 'software-development': 0.1 });
+    const context = makeContext({ 'software-development': 0.8 });
+
+    // baseRelevance = 0.8
+    // confidence = min(1.0, 0.1 / 0.5) = 0.2
+    // relevance = 0.8 × 0.2 = 0.16
+    const score = scoreRelevance(post, context);
+    expect(score).toBeCloseTo(0.16, 6);
+  });
+
+  it('dampens classifier Rule 3 matches (fixed 0.2 score)', () => {
+    // The core bug: a single weak keyword match previously got the full
+    // community weight because the weighted average normalized away confidence
+    const post = makePost({ 'decentralized-social': 0.2 });
+    const context = makeContext({ 'decentralized-social': 0.9 });
+
+    // Before fix: 0.9 (this was THE bug)
+    // After fix: 0.9 × (0.2/0.5) = 0.9 × 0.4 = 0.36
+    const score = scoreRelevance(post, context);
+    expect(score).toBeCloseTo(0.36, 2);
+    expect(score).toBeLessThan(0.5); // Must not be "high relevance"
+  });
+
+  it('does not dampen classifier Rule 4+ matches (dynamic scores)', () => {
+    const post = makePost({ 'decentralized-social': 0.7 });
+    const context = makeContext({ 'decentralized-social': 0.9 });
+
+    // scoreSum = 0.7 > 0.5 threshold → confidence = 1.0
+    // relevance = 0.9 × 1.0 = 0.9
+    const score = scoreRelevance(post, context);
+    expect(score).toBeCloseTo(0.9, 6);
+  });
+
+  it('exports CONFIDENCE_THRESHOLD as 0.5', () => {
+    expect(CONFIDENCE_THRESHOLD).toBe(0.5);
   });
 });

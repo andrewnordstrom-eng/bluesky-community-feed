@@ -608,3 +608,37 @@ Post-deployment audit of the governance gate showed the feed was still 90%+ irre
 - Scoring pipeline still uses per-post DB inserts (10,000 round-trips for full incremental). Batch insert refactor would significantly improve throughput.
 - Jetstream drops ~40k-80k events/minute — expected for firehose volume, but means we miss engagement updates. Acceptable since we score on 5-minute intervals.
 - Legacy posts with default 0.5 relevance still dominate feed until they age out of the 72h window.
+
+## 2026-03-08 #04 — Relevance Confidence Multiplier, Zod Boolean Fix, Ambiguous Terms
+**Branch:** `dev/relevance-confidence`
+**Commits:** `3d70f3b`, `6d2c553`, `5762256`, `b3aef49`
+**Files changed:** `src/config.ts`, `src/scoring/components/relevance.ts`, `src/ingestion/governance-gate.ts`, `scripts/seed-topics.ts`, `tests/config-boolean.test.ts`, `tests/topic-relevance.test.ts`, `tests/governance-gate.test.ts`, `tests/topic-classifier.test.ts`
+
+### What changed
+Three independent fixes in one branch:
+
+1. **Zod boolean coercion bug:** `z.coerce.boolean()` uses JS `Boolean()` which treats any non-empty string as true — including `"false"`. Replaced all 6 boolean env vars with `zodEnvBool()` helper that correctly parses `"true"`/`"1"` as true and everything else as false.
+
+2. **Confidence multiplier on relevance formula:** The weighted-average formula `Σ(postScore × weight) / Σ(postScore)` normalized away the classifier's confidence signal. A single weak keyword match (scoreSum=0.2) produced the same relevance as a strong multi-term match. Fix: multiply baseRelevance by `confidence = min(1.0, scoreSum / 0.5)`. Weak match now scores 0.34 instead of 0.85; strong matches unchanged. Applied to both `relevance.ts` and `governance-gate.ts`.
+
+3. **Ambiguous term removal:** Removed 7 common English words from topic primary terms: "code"/"bug" (software-development), "training"/"model" (ai-machine-learning), "fork" (open-source), "handle" (decentralized-social), "security" (cybersecurity). These caused false-positive topic matches on posts about cooking, sports, employment, etc.
+
+### Why
+Post-deployment audit (entry #03) identified the relevance formula as the systemic root cause of false-positive amplification. The confidence multiplier directly addresses the open question from that session. The Zod boolean bug was discovered during deployment when `TOPIC_EMBEDDING_ENABLED=false` was silently treated as true. The ambiguous terms were the most frequent false-positive triggers identified in feed audits.
+
+### Measurements
+- 371 tests pass (24 new: 13 boolean coercion, 7 relevance confidence, 4 governance gate confidence)
+- Weak match relevance: 0.85 → 0.34 (60% reduction for scoreSum=0.2)
+- Strong match relevance: 0.85 → 0.85 (zero regression for scoreSum≥0.5)
+- Multi-topic matches: unaffected (scoreSum naturally exceeds threshold)
+
+### Decisions & alternatives
+- Chose confidence multiplier over minimum match count — multiplier preserves the continuous nature of scores and is backward-compatible (zero regression for well-classified posts).
+- CONFIDENCE_THRESHOLD=0.5 chosen because the classifier's Rule 3 assigns 0.2 for single weak matches and Rule 4+ assigns 0.5+ for multiple matches. Threshold at 0.5 cleanly separates the two.
+- Exported CONFIDENCE_THRESHOLD from relevance.ts and imported in governance-gate.ts to keep the two formulas in sync from a single constant.
+- Removed ambiguous terms rather than moving them to contextTerms — even as context terms, these words would still contribute to co-occurrence scoring for unrelated posts.
+
+### Open questions
+- CONFIDENCE_THRESHOLD is a hardcoded constant. Could be made configurable via env var if the community needs to tune sensitivity.
+- VPS production DB topic_catalog needs SQL UPDATE to remove the same terms (seed script only affects fresh seeds).
+- After deployment, need to audit top 50 feed posts to verify no more cooking/sports/employment false positives.

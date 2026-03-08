@@ -5,6 +5,24 @@ dotenv.config();
 
 const INSECURE_EXPORT_SALT_DEFAULT = 'dev-salt-not-for-prod';
 
+/**
+ * Zod schema for boolean env vars that correctly handles the string "false".
+ *
+ * `z.coerce.boolean()` uses JavaScript's `Boolean()` constructor, which treats
+ * ANY non-empty string as `true` — including `"false"`. This helper treats
+ * `"true"` and `"1"` as true, everything else (including `"false"`, `"0"`, `""`) as false.
+ */
+function zodEnvBool(defaultValue: boolean) {
+  return z.preprocess(
+    (val) => {
+      if (typeof val === 'boolean') return val;
+      if (typeof val === 'string') return val.toLowerCase() === 'true' || val === '1';
+      return defaultValue;
+    },
+    z.boolean().default(defaultValue),
+  );
+}
+
 const ConfigSchema = z.object({
   // Identity
   FEEDGEN_SERVICE_DID: z.string().startsWith('did:'),
@@ -42,7 +60,7 @@ const ConfigSchema = z.object({
 
   // Topic embedding classifier
   /** Enable semantic embedding classifier in scoring pipeline. */
-  TOPIC_EMBEDDING_ENABLED: z.coerce.boolean().default(false),
+  TOPIC_EMBEDDING_ENABLED: zodEnvBool(false),
   /** Minimum cosine similarity threshold for topic assignment (0.0-1.0). */
   TOPIC_EMBEDDING_MIN_SIMILARITY: z.coerce.number().min(0).max(1).default(0.25),
 
@@ -66,7 +84,7 @@ const ConfigSchema = z.object({
     .default('lax'),
 
   // API rate limiting
-  RATE_LIMIT_ENABLED: z.coerce.boolean().default(true),
+  RATE_LIMIT_ENABLED: zodEnvBool(true),
   RATE_LIMIT_GLOBAL_MAX: z.coerce.number().default(200),
   RATE_LIMIT_GLOBAL_WINDOW_MS: z.coerce.number().default(60_000),
   RATE_LIMIT_LOGIN_MAX: z.coerce.number().default(10),
@@ -81,10 +99,10 @@ const ConfigSchema = z.object({
   RATE_LIMIT_INTERACTIONS_WINDOW_MS: z.coerce.number().default(60_000),
 
   // Content filtering
-  FILTER_NSFW_LABELS: z.coerce.boolean().default(true),
+  FILTER_NSFW_LABELS: zodEnvBool(true),
 
   // Ingestion gate: reject posts below community relevance threshold
-  INGESTION_GATE_ENABLED: z.coerce.boolean().default(true),
+  INGESTION_GATE_ENABLED: zodEnvBool(true),
   INGESTION_MIN_RELEVANCE: z.coerce.number().min(0).max(1).default(0.10),
   INGESTION_MIN_TEXT_FOR_MEDIA: z.coerce.number().min(0).default(10),
 
@@ -104,10 +122,10 @@ const ConfigSchema = z.object({
   FEED_MIN_RELEVANCE: z.coerce.number().min(0).max(1).default(0.15),
 
   // Private feed mode (research gating)
-  FEED_PRIVATE_MODE: z.coerce.boolean().default(false),
+  FEED_PRIVATE_MODE: zodEnvBool(false),
 
   // Bot (optional)
-  BOT_ENABLED: z.coerce.boolean().default(false),
+  BOT_ENABLED: zodEnvBool(false),
   BOT_HANDLE: z.string().optional(),
   BOT_APP_PASSWORD: z.string().optional(),
   BOT_ADMIN_DIDS: z.string().optional().default(''),

@@ -29,7 +29,7 @@ const TOPICS: TopicSeed[] = [
     description: 'Programming, coding, developer tools, and software engineering',
     parentSlug: null,
     terms: [
-      'programming', 'coding', 'software', 'developer', 'code', 'bug', 'debug',
+      'programming', 'coding', 'software', 'developer', 'debug',
       'refactor', 'git', 'github', 'gitlab', 'pull request', 'merge', 'commit',
       'IDE', 'vscode', 'compiler', 'interpreter', 'algorithm', 'data structure',
       'API', 'SDK', 'framework', 'library', 'dependency', 'package manager',
@@ -47,7 +47,7 @@ const TOPICS: TopicSeed[] = [
     parentSlug: null,
     terms: [
       'AI', 'artificial intelligence', 'machine learning', 'deep learning', 'neural network',
-      'LLM', 'GPT', 'transformer', 'training', 'inference', 'model', 'fine-tune',
+      'LLM', 'GPT', 'transformer', 'inference', 'fine-tune',
       'prompt engineering', 'embedding', 'vector', 'classification', 'NLP',
       'computer vision', 'reinforcement learning', 'generative', 'diffusion',
     ],
@@ -66,7 +66,7 @@ const TOPICS: TopicSeed[] = [
     terms: [
       'open source', 'FOSS', 'OSS', 'free software', 'MIT license', 'GPL',
       'Apache license', 'BSD', 'copyleft', 'permissive license', 'maintainer',
-      'contributor', 'upstream', 'downstream', 'fork', 'community project',
+      'contributor', 'upstream', 'downstream', 'community project',
     ],
     contextTerms: [
       'github', 'gitlab', 'sourceforge', 'contribution', 'issue tracker',
@@ -82,7 +82,7 @@ const TOPICS: TopicSeed[] = [
     terms: [
       'atproto', 'AT Protocol', 'fediverse', 'mastodon', 'activitypub',
       'decentralized', 'federation', 'PDS', 'relay', 'appview', 'firehose',
-      'DID', 'handle', 'custom feed', 'labeler', 'moderation service',
+      'DID', 'custom feed', 'labeler', 'moderation service',
       'self-hosting', 'nostr', 'threads federation',
     ],
     contextTerms: [
@@ -131,7 +131,7 @@ const TOPICS: TopicSeed[] = [
     description: 'Security, privacy, encryption, vulnerabilities, and infosec',
     parentSlug: null,
     terms: [
-      'cybersecurity', 'security', 'privacy', 'encryption', 'vulnerability',
+      'cybersecurity', 'privacy', 'encryption', 'vulnerability',
       'CVE', 'exploit', 'malware', 'ransomware', 'phishing', 'firewall',
       'penetration testing', 'pentest', 'zero-day', 'patch', 'infosec',
       'OWASP', 'authentication', 'authorization', 'MFA', 'SSO',
