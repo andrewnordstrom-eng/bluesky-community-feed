@@ -37,7 +37,7 @@ interface PostRecord {
     parent?: { uri: string };
   };
   embed?: {
-    images?: unknown[];
+    images?: Array<{ alt?: string; image?: unknown; aspectRatio?: unknown }>;
     video?: unknown;
   };
   labels?: {
@@ -63,6 +63,21 @@ export async function handlePost(
 
   // Check for media
   const hasMedia = !!(postRecord.embed?.images?.length || postRecord.embed?.video);
+
+  // Extract alt text from image embeds for topic classification.
+  // Alt text is accessibility metadata — used for classification only,
+  // NOT for content filtering or media gating (those check user-written text).
+  const altTexts: string[] = [];
+  if (postRecord.embed?.images && Array.isArray(postRecord.embed.images)) {
+    for (const img of postRecord.embed.images) {
+      if (img && typeof img === 'object' && 'alt' in img) {
+        const alt = (img as { alt?: string }).alt;
+        if (alt && alt.trim().length > 0) {
+          altTexts.push(alt.trim());
+        }
+      }
+    }
+  }
 
   // Pre-ingestion NSFW label filtering: skip posts with AT Protocol content labels.
   // Fail-open: if the check fails, continue to keyword filtering / insertion.
@@ -107,7 +122,8 @@ export async function handlePost(
   try {
     const taxonomy = getTaxonomy();
     if (taxonomy.length > 0) {
-      const result = classifyPost(text ?? '', taxonomy);
+      const classificationText = [text ?? '', ...altTexts].filter(Boolean).join(' ');
+      const result = classifyPost(classificationText, taxonomy);
       topicVector = result.vector;
     }
   } catch (err) {

@@ -80,7 +80,7 @@ const TOPICS: TopicSeed[] = [
     description: 'Bluesky, AT Protocol, fediverse, Mastodon, and decentralized networks',
     parentSlug: null,
     terms: [
-      'bluesky', 'atproto', 'AT Protocol', 'fediverse', 'mastodon', 'activitypub',
+      'atproto', 'AT Protocol', 'fediverse', 'mastodon', 'activitypub',
       'decentralized', 'federation', 'PDS', 'relay', 'appview', 'firehose',
       'DID', 'handle', 'custom feed', 'labeler', 'moderation service',
       'self-hosting', 'nostr', 'threads federation',

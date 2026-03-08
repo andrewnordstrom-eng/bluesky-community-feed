@@ -80,7 +80,7 @@ const testTaxonomy: Topic[] = [
     description: null,
     parentSlug: null,
     terms: [
-      'bluesky', 'atproto', 'AT Protocol', 'fediverse', 'mastodon', 'activitypub',
+      'atproto', 'AT Protocol', 'fediverse', 'mastodon', 'activitypub',
       'decentralized', 'federation', 'PDS', 'relay', 'appview', 'firehose',
       'DID', 'handle', 'custom feed', 'labeler', 'moderation service',
       'self-hosting', 'nostr', 'threads federation',
@@ -148,6 +148,26 @@ describe('topic classifier', () => {
       );
       expect(result.matchedTopics).toContain('decentralized-social');
       expect(result.vector['decentralized-social']).toBeGreaterThan(0);
+    });
+
+    it('does NOT classify a casual bluesky mention as decentralized-social', () => {
+      const result = classifyPost(
+        'Just posted on bluesky for the first time',
+        testTaxonomy
+      );
+      // "bluesky" is no longer a primary term — casual platform mentions
+      // should not be classified as decentralized social technology
+      expect(result.matchedTopics).not.toContain('decentralized-social');
+    });
+
+    it('classifies AT Protocol specifics without mentioning bluesky', () => {
+      const result = classifyPost(
+        'Setting up my own PDS and connecting to the firehose relay',
+        testTaxonomy
+      );
+      // PDS, firehose, relay = 3 primary hits → strong match (Rule 5: bonus)
+      expect(result.matchedTopics).toContain('decentralized-social');
+      expect(result.vector['decentralized-social']).toBeGreaterThan(0.5);
     });
   });
 
