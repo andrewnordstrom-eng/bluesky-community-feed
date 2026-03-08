@@ -10,6 +10,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { db } from '../../db/client.js';
 import { logger } from '../../lib/logger.js';
+import { ErrorResponseSchema } from '../../lib/openapi.js';
 
 /** Default weight for topics with no community votes. */
 const DEFAULT_TOPIC_WEIGHT = 0.5;
@@ -25,7 +26,39 @@ export function registerTopicRoutes(app: FastifyInstance): void {
    * Public endpoint - no auth required.
    * Returns all active topics with their current community-voted weights.
    */
-  app.get('/api/governance/topics', async (_request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/api/governance/topics', {
+    schema: {
+      tags: ['Topics'],
+      summary: 'List active topics',
+      description:
+        'Returns all active topics from the topic catalog with their current community-voted weights. ' +
+        'Public endpoint — no authentication required.',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            topics: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  slug: { type: 'string', description: 'Unique topic identifier' },
+                  name: { type: 'string', description: 'Display name' },
+                  description: { type: 'string', nullable: true },
+                  parentSlug: { type: 'string', nullable: true, description: 'Parent topic slug for hierarchy' },
+                  currentWeight: { type: 'number', description: 'Community-voted weight (0.0-1.0, default 0.5)' },
+                },
+              },
+            },
+            epochId: { type: 'integer', nullable: true, description: 'Active epoch ID' },
+            voteCount: { type: 'integer', description: 'Number of topic weight voters this epoch' },
+          },
+          required: ['topics', 'voteCount'],
+        },
+        500: ErrorResponseSchema,
+      },
+    },
+  }, async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
       // Get current epoch's topic weights
       const epochResult = await db.query(
