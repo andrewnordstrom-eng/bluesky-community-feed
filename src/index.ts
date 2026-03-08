@@ -19,6 +19,7 @@ import {
 } from './maintenance/worker-supervisor.js';
 import { loadTaxonomy, loadTopicEmbeddings } from './scoring/topics/taxonomy.js';
 import { initEmbedder } from './scoring/topics/embedder.js';
+import { loadGovernanceGateWeights } from './ingestion/governance-gate.js';
 
 async function main() {
   logger.info('Starting Community Feed Generator...');
@@ -67,6 +68,15 @@ async function main() {
       logger.info('Embedding classifier initialized');
     } catch (err) {
       logger.warn({ err }, 'Embedding classifier init failed — falling back to keyword classifier');
+    }
+  }
+
+  // 2.7. Initialize governance gate weights (fail-open: gate disabled if load fails)
+  if (config.INGESTION_GATE_ENABLED) {
+    try {
+      await loadGovernanceGateWeights();
+    } catch (err) {
+      logger.warn({ err }, 'Failed to load governance gate weights — gate will be disabled until next cache refresh');
     }
   }
 
