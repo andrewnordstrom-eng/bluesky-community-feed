@@ -7,7 +7,9 @@
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 import { db } from '../../db/client.js';
+import { ErrorResponseSchema } from '../../lib/openapi.js';
 import { toEpochInfo } from '../governance.types.js';
 
 const HistoryQuerySchema = z.object({
@@ -19,12 +21,49 @@ const CompareQuerySchema = z.object({
   epoch2: z.coerce.number().int().positive(),
 });
 
+/** JSON Schemas for OpenAPI documentation (no effects — safe for Ajv). */
+const HistoryQueryJsonSchema = zodToJsonSchema(HistoryQuerySchema, { target: 'openApi3' });
+const CompareQueryJsonSchema = zodToJsonSchema(CompareQuerySchema, { target: 'openApi3' });
+
+/** Reusable weights object schema for responses. */
+const weightsObjectSchema = {
+  type: 'object' as const,
+  properties: {
+    recency: { type: 'number' as const },
+    engagement: { type: 'number' as const },
+    bridging: { type: 'number' as const },
+    sourceDiversity: { type: 'number' as const },
+    relevance: { type: 'number' as const },
+  },
+};
+
 export function registerWeightsRoute(app: FastifyInstance): void {
   /**
    * GET /api/governance/weights
    * Returns the current active epoch's weights.
    */
-  app.get('/api/governance/weights', async (_request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/api/governance/weights', {
+    schema: {
+      tags: ['Governance'],
+      summary: 'Get current weights',
+      description: 'Returns the active epoch\'s governance weights, vote count, and metadata.',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            epoch_id: { type: 'integer', description: 'Active epoch ID' },
+            status: { type: 'string', description: 'Epoch status' },
+            weights: weightsObjectSchema,
+            vote_count: { type: 'integer', description: 'Number of votes in this epoch' },
+            created_at: { type: 'string', format: 'date-time' },
+            description: { type: 'string', nullable: true },
+          },
+          required: ['epoch_id', 'status', 'weights', 'vote_count'],
+        },
+        404: ErrorResponseSchema,
+      },
+    },
+  }, async (_request: FastifyRequest, reply: FastifyReply) => {
     const result = await db.query(
       `SELECT * FROM governance_epochs
        WHERE status = 'active'
@@ -60,7 +99,39 @@ export function registerWeightsRoute(app: FastifyInstance): void {
    * GET /api/governance/weights/history
    * Returns all epochs with their weights (for timeline visualization).
    */
-  app.get('/api/governance/weights/history', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/api/governance/weights/history', {
+    schema: {
+      tags: ['Governance'],
+      summary: 'Weight history',
+      description: 'Returns all epochs with their weights, ordered newest first. Useful for timeline visualization of governance changes.',
+      querystring: HistoryQueryJsonSchema,
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            epochs: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  epoch_id: { type: 'integer' },
+                  status: { type: 'string' },
+                  weights: weightsObjectSchema,
+                  vote_count: { type: 'integer' },
+                  created_at: { type: 'string', format: 'date-time' },
+                  closed_at: { type: 'string', format: 'date-time', nullable: true },
+                  description: { type: 'string', nullable: true },
+                },
+              },
+            },
+            total: { type: 'integer', description: 'Number of epochs returned' },
+          },
+          required: ['epochs', 'total'],
+        },
+        400: ErrorResponseSchema,
+      },
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const parseResult = HistoryQuerySchema.safeParse(request.query);
     if (!parseResult.success) {
       return reply.code(400).send({
@@ -111,7 +182,51 @@ export function registerWeightsRoute(app: FastifyInstance): void {
    * GET /api/governance/weights/compare
    * Compare weights between two epochs.
    */
-  app.get('/api/governance/weights/compare', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/api/governance/weights/compare', {
+    schema: {
+      tags: ['Governance'],
+      summary: 'Compare epoch weights',
+      description: 'Compare weights between two epochs, showing the difference for each component.',
+      querystring: CompareQueryJsonSchema,
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            epoch1: {
+              type: 'object',
+              properties: {
+                id: { type: 'integer' },
+                weights: weightsObjectSchema,
+                status: { type: 'string' },
+              },
+            },
+            epoch2: {
+              type: 'object',
+              properties: {
+                id: { type: 'integer' },
+                weights: weightsObjectSchema,
+                status: { type: 'string' },
+              },
+            },
+            difference: {
+              type: 'object',
+              description: 'Weight differences (epoch2 − epoch1)',
+              properties: {
+                recency: { type: 'number' },
+                engagement: { type: 'number' },
+                bridging: { type: 'number' },
+                sourceDiversity: { type: 'number' },
+                relevance: { type: 'number' },
+              },
+            },
+          },
+          required: ['epoch1', 'epoch2', 'difference'],
+        },
+        400: ErrorResponseSchema,
+        404: ErrorResponseSchema,
+      },
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const parseResult = CompareQuerySchema.safeParse(request.query);
     if (!parseResult.success) {
       return reply.code(400).send({

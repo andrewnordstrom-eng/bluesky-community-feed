@@ -17,6 +17,7 @@ import { config } from '../../config.js';
 import { GOVERNANCE_WEIGHT_VOTE_FIELDS, VOTABLE_WEIGHT_PARAMS } from '../../config/votable-params.js';
 import { logger } from '../../lib/logger.js';
 import { Errors } from '../../lib/errors.js';
+import { ErrorResponseSchema, RateLimitResponseSchema, governanceSecurity } from '../../lib/openapi.js';
 import { getAuthenticatedDid, SessionStoreUnavailableError } from '../auth.js';
 import { isParticipantApproved } from '../../feed/access-control.js';
 import {
@@ -95,7 +96,67 @@ export function registerVoteRoute(app: FastifyInstance): void {
    * POST /api/governance/vote
    * Submit or update a vote for the current epoch.
    */
-  app.post('/api/governance/vote', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/api/governance/vote', {
+    schema: {
+      tags: ['Governance'],
+      summary: 'Submit or update a vote',
+      description:
+        'Cast or update your vote for the current epoch. You can vote on algorithm weights, ' +
+        'content keywords, topic weights, or any combination. Weights must sum to 1.0. Requires authentication and active subscription.',
+      security: governanceSecurity,
+      body: {
+        type: 'object',
+        properties: {
+          recency: { type: 'number', minimum: 0, maximum: 1, description: 'Weight for recency component' },
+          engagement: { type: 'number', minimum: 0, maximum: 1, description: 'Weight for engagement component' },
+          bridging: { type: 'number', minimum: 0, maximum: 1, description: 'Weight for bridging component' },
+          source_diversity: { type: 'number', minimum: 0, maximum: 1, description: 'Weight for source diversity component' },
+          relevance: { type: 'number', minimum: 0, maximum: 1, description: 'Weight for relevance component' },
+          include_keywords: { type: 'array', items: { type: 'string', maxLength: 50 }, maxItems: 20, description: 'Keywords to boost in feed' },
+          exclude_keywords: { type: 'array', items: { type: 'string', maxLength: 50 }, maxItems: 20, description: 'Keywords to filter from feed' },
+          topic_weights: { type: 'object', additionalProperties: { type: 'number', minimum: 0, maximum: 1 }, description: 'Topic slug → weight mapping' },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            epoch_id: { type: 'integer', description: 'Epoch the vote was recorded for' },
+            weights: {
+              type: 'object',
+              nullable: true,
+              properties: {
+                recency: { type: 'number' },
+                engagement: { type: 'number' },
+                bridging: { type: 'number' },
+                sourceDiversity: { type: 'number' },
+                relevance: { type: 'number' },
+              },
+              description: 'Normalized weights (null if keyword-only vote)',
+            },
+            content_vote: {
+              type: 'object',
+              properties: {
+                includeKeywords: { type: 'array', items: { type: 'string' } },
+                excludeKeywords: { type: 'array', items: { type: 'string' } },
+              },
+            },
+            topicWeights: { type: 'object', nullable: true, additionalProperties: { type: 'number' } },
+            is_update: { type: 'boolean', description: 'True if this updated an existing vote' },
+            message: { type: 'string' },
+          },
+          required: ['success', 'epoch_id', 'message'],
+        },
+        400: ErrorResponseSchema,
+        401: ErrorResponseSchema,
+        403: ErrorResponseSchema,
+        409: ErrorResponseSchema,
+        429: RateLimitResponseSchema,
+        503: ErrorResponseSchema,
+      },
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     // 1. Authenticate voter
     let voterDid: string | null;
     try {
@@ -313,7 +374,53 @@ export function registerVoteRoute(app: FastifyInstance): void {
    * GET /api/governance/vote
    * Get the current user's vote for the active epoch.
    */
-  app.get('/api/governance/vote', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/api/governance/vote', {
+    schema: {
+      tags: ['Governance'],
+      summary: 'Get your current vote',
+      description:
+        'Returns the authenticated user\'s vote for the current active epoch, including weights, keywords, and topic weights.',
+      security: governanceSecurity,
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            vote: {
+              type: 'object',
+              nullable: true,
+              properties: {
+                recency: { type: 'number' },
+                engagement: { type: 'number' },
+                bridging: { type: 'number' },
+                sourceDiversity: { type: 'number' },
+                relevance: { type: 'number' },
+              },
+              description: 'Current weight votes (null if no vote cast)',
+            },
+            contentVote: {
+              type: 'object',
+              nullable: true,
+              properties: {
+                includeKeywords: { type: 'array', items: { type: 'string' } },
+                excludeKeywords: { type: 'array', items: { type: 'string' } },
+              },
+              description: 'Current keyword votes',
+            },
+            topicWeights: {
+              type: 'object',
+              nullable: true,
+              additionalProperties: { type: 'number' },
+              description: 'Current topic weight votes',
+            },
+            voted_at: { type: 'string', format: 'date-time', nullable: true, description: 'When the vote was last cast or updated' },
+            epoch_id: { type: 'integer', nullable: true, description: 'Active epoch ID' },
+          },
+        },
+        401: ErrorResponseSchema,
+        503: ErrorResponseSchema,
+      },
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     let voterDid: string | null;
     try {
       voterDid = await getAuthenticatedDid(request);
