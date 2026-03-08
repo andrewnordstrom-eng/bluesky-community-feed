@@ -23,7 +23,28 @@ export function registerPolisRoute(app: FastifyInstance): void {
    * Returns Polis conversation info if configured.
    * Currently a placeholder for future integration.
    */
-  app.get('/api/governance/polis', async (_request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/api/governance/polis', {
+    schema: {
+      tags: ['Governance'],
+      summary: 'Polis conversation info',
+      description: 'Returns Polis conversation info if configured. Currently a placeholder for future deliberation integration.',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            enabled: { type: 'boolean' },
+            conversationId: { type: 'string' },
+            embedUrl: { type: 'string' },
+            description: { type: 'string' },
+            status: { type: 'string' },
+            message: { type: 'string' },
+            documentation: { type: 'string' },
+          },
+          required: ['enabled'],
+        },
+      },
+    },
+  }, async (_request: FastifyRequest, reply: FastifyReply) => {
     const polisConversationId = config.POLIS_CONVERSATION_ID;
 
     if (!polisConversationId) {
@@ -48,7 +69,33 @@ export function registerPolisRoute(app: FastifyInstance): void {
    * GET /api/governance/polis/status
    * Check Polis integration status.
    */
-  app.get('/api/governance/polis/status', async (_request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/api/governance/polis/status', {
+    schema: {
+      tags: ['Governance'],
+      summary: 'Polis integration status',
+      description: 'Returns the current status of the Polis integration roadmap and planned features.',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            integration: { type: 'string', description: 'Overall integration status' },
+            features: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  name: { type: 'string' },
+                  status: { type: 'string' },
+                  description: { type: 'string' },
+                },
+              },
+            },
+          },
+          required: ['integration', 'features'],
+        },
+      },
+    },
+  }, async (_request: FastifyRequest, reply: FastifyReply) => {
     return reply.send({
       integration: 'planned',
       features: [

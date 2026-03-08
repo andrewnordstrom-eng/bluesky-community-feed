@@ -10,7 +10,9 @@
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 import { db } from '../../db/client.js';
+import { ErrorResponseSchema, governanceSecurity } from '../../lib/openapi.js';
 import { getAuthenticatedDid } from '../auth.js';
 import { logger } from '../../lib/logger.js';
 
@@ -20,12 +22,34 @@ const consentBodySchema = z.object({
   consent: z.boolean(),
 });
 
+/** JSON Schema for OpenAPI documentation. */
+const consentBodyJsonSchema = zodToJsonSchema(consentBodySchema, { target: 'openApi3' });
+
 export function registerResearchConsentRoute(app: FastifyInstance): void {
   /**
    * GET /api/governance/research-consent
    * Returns the current research consent status for the authenticated user.
    */
-  app.get('/api/governance/research-consent', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/api/governance/research-consent', {
+    schema: {
+      tags: ['Governance'],
+      summary: 'Get research consent status',
+      description: 'Returns the authenticated user\'s current research consent status. Research consent is separate from TOS — declining does not restrict governance access.',
+      security: governanceSecurity,
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            consent: { type: 'boolean', nullable: true, description: 'Current consent status' },
+            consentedAt: { type: 'string', format: 'date-time', nullable: true },
+            consentVersion: { type: 'string', nullable: true },
+          },
+        },
+        401: ErrorResponseSchema,
+        404: ErrorResponseSchema,
+      },
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const did = await getAuthenticatedDid(request);
     if (!did) {
       return reply.code(401).send({
@@ -59,7 +83,26 @@ export function registerResearchConsentRoute(app: FastifyInstance): void {
    * POST /api/governance/research-consent
    * Record the user's research consent decision.
    */
-  app.post('/api/governance/research-consent', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/api/governance/research-consent', {
+    schema: {
+      tags: ['Governance'],
+      summary: 'Record research consent',
+      description: 'Record or update the user\'s research consent decision. Consent changes are logged to the audit trail.',
+      security: governanceSecurity,
+      body: consentBodyJsonSchema,
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+          },
+          required: ['success'],
+        },
+        400: ErrorResponseSchema,
+        401: ErrorResponseSchema,
+      },
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const did = await getAuthenticatedDid(request);
     if (!did) {
       return reply.code(401).send({
