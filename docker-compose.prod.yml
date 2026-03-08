@@ -2,6 +2,7 @@ services:
   postgres:
     image: postgres:16
     container_name: bluesky-feed-postgres
+    shm_size: 256m
     environment:
       POSTGRES_USER: feed
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}

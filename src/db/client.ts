@@ -6,10 +6,10 @@ const { Pool } = pg;
 
 export const db = new Pool({
   connectionString: config.DATABASE_URL,
-  max: 20,
+  max: config.DB_POOL_MAX,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000,
-  statement_timeout: 10000, // 10 second max per query (prevents runaway queries)
+  statement_timeout: config.DB_STATEMENT_TIMEOUT,
 });
 
 db.on('error', (err) => {

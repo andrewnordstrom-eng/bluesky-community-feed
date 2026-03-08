@@ -29,8 +29,8 @@ const WANTED_COLLECTIONS = [
 const CURSOR_SAVE_INTERVAL = 1000; // Save cursor every N events
 const MAX_RECONNECT_DELAY = 60_000; // 60 seconds max backoff
 const FALLBACK_THRESHOLD = 5; // Switch to fallback after N consecutive failures
-const MAX_CONCURRENT_EVENTS = 10; // Limit concurrent DB operations to leave pool room for API
-const MAX_PENDING_EVENTS = 5_000; // Bounded queue to avoid unbounded memory growth on spikes
+const MAX_CONCURRENT_EVENTS = config.JETSTREAM_MAX_CONCURRENT;
+const MAX_PENDING_EVENTS = config.JETSTREAM_MAX_PENDING;
 
 // Concurrency control — prevents ingestion from starving the DB pool
 let activeEventCount = 0;

@@ -86,6 +86,18 @@ const ConfigSchema = z.object({
   INGESTION_MIN_RELEVANCE: z.coerce.number().min(0).max(1).default(0.10),
   INGESTION_MIN_TEXT_FOR_MEDIA: z.coerce.number().min(0).default(10),
 
+  // Jetstream throughput tuning
+  /** Max concurrent DB operations for event processing. Too low = queue saturation death loop. */
+  JETSTREAM_MAX_CONCURRENT: z.coerce.number().min(1).default(50),
+  /** Max pending events in backpressure queue before triggering reconnect. */
+  JETSTREAM_MAX_PENDING: z.coerce.number().min(100).default(10_000),
+
+  // Database pool tuning
+  /** Max connections in the PostgreSQL connection pool. */
+  DB_POOL_MAX: z.coerce.number().min(5).default(50),
+  /** Statement timeout in milliseconds (prevents runaway queries). */
+  DB_STATEMENT_TIMEOUT: z.coerce.number().min(1000).default(30_000),
+
   // Feed output: minimum relevance score to appear in feed
   FEED_MIN_RELEVANCE: z.coerce.number().min(0).max(1).default(0.15),
 
