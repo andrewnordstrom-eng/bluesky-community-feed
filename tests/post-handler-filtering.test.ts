@@ -163,14 +163,15 @@ describe('post handler content filtering', () => {
   });
 });
 
-describe('like handler is not affected by content filtering', () => {
+describe('like handler is not affected by content keyword filtering', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     dbQueryMock.mockResolvedValue({ rows: [], rowCount: 1 });
   });
 
-  it('records likes regardless of content filter state', async () => {
-    // Even with strict include keywords, likes should always be recorded
+  it('attempts like insert regardless of content filter keywords', async () => {
+    // Content keyword filters (include/exclude) only affect posts, not likes.
+    // Likes are filtered at the SQL level by post existence (WHERE EXISTS).
     redisGetMock.mockResolvedValue(
       JSON.stringify({
         includeKeywords: ['bluesky'],
@@ -187,7 +188,7 @@ describe('like handler is not affected by content filtering', () => {
       }
     );
 
-    // Should have called INSERT INTO likes
+    // Should have called INSERT INTO likes (SQL-level WHERE EXISTS handles filtering)
     const likeCalls = dbQueryMock.mock.calls.filter(
       (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('INSERT INTO likes')
     );

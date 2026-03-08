@@ -32,10 +32,12 @@ export async function handleLike(
   const createdAt = likeRecord.createdAt ?? new Date().toISOString();
 
   try {
-    // UPSERT like record
+    // Insert like only if the referenced post exists in our system.
+    // This filters out the vast majority of firehose likes (for posts we don't track).
     const result = await db.query(
       `INSERT INTO likes (uri, author_did, subject_uri, created_at)
-       VALUES ($1, $2, $3, $4)
+       SELECT $1, $2, $3, $4
+       WHERE EXISTS (SELECT 1 FROM posts WHERE uri = $3)
        ON CONFLICT (uri) DO NOTHING
        RETURNING uri`,
       [uri, authorDid, subjectUri, createdAt]
