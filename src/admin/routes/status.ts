@@ -8,6 +8,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { db } from '../../db/client.js';
 import { redis } from '../../db/redis.js';
 import { config } from '../../config.js';
+import { adminSecurity } from '../../lib/openapi.js';
 import { getCurrentContentRules } from '../../governance/content-filter.js';
 
 export function registerStatusRoutes(app: FastifyInstance): void {
@@ -15,7 +16,24 @@ export function registerStatusRoutes(app: FastifyInstance): void {
    * GET /api/admin/ping
    * Simple test endpoint
    */
-  app.get('/ping', async (_request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/ping', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'Ping',
+      description: 'Simple admin test endpoint. Returns timestamp.',
+      security: adminSecurity,
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            pong: { type: 'boolean' },
+            timestamp: { type: 'string', format: 'date-time' },
+          },
+          required: ['pong', 'timestamp'],
+        },
+      },
+    },
+  }, async (_request: FastifyRequest, reply: FastifyReply) => {
     return reply.send({ pong: true, timestamp: new Date().toISOString() });
   });
 
@@ -23,7 +41,63 @@ export function registerStatusRoutes(app: FastifyInstance): void {
    * GET /api/admin/status
    * Returns admin status check and system overview
    */
-  app.get('/status', async (_request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/status', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'System status',
+      description: 'Returns a full system overview for the admin dashboard: epoch state, feed stats, scoring info, content rules, and subscriber count.',
+      security: adminSecurity,
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            isAdmin: { type: 'boolean' },
+            feedPrivateMode: { type: 'boolean' },
+            system: {
+              type: 'object',
+              properties: {
+                currentEpoch: {
+                  type: 'object',
+                  nullable: true,
+                  properties: {
+                    id: { type: 'integer' },
+                    status: { type: 'string' },
+                    phase: { type: 'string' },
+                    votingOpen: { type: 'boolean' },
+                    votingEndsAt: { type: 'string', format: 'date-time', nullable: true },
+                    autoTransition: { type: 'boolean' },
+                    voteCount: { type: 'integer' },
+                    weights: { type: 'object' },
+                    contentRules: { type: 'object' },
+                    createdAt: { type: 'string', format: 'date-time' },
+                  },
+                },
+                feed: {
+                  type: 'object',
+                  properties: {
+                    totalPosts: { type: 'integer' },
+                    postsLast24h: { type: 'integer' },
+                    scoredPosts: { type: 'integer' },
+                    lastScoringRun: { type: 'string', format: 'date-time', nullable: true },
+                    lastScoringDuration: { type: 'number', nullable: true, description: 'Duration in seconds' },
+                    subscriberCount: { type: 'integer' },
+                  },
+                },
+                contentRules: {
+                  type: 'object',
+                  properties: {
+                    includeKeywords: { type: 'array', items: { type: 'string' } },
+                    excludeKeywords: { type: 'array', items: { type: 'string' } },
+                  },
+                },
+              },
+            },
+          },
+          required: ['isAdmin', 'system'],
+        },
+      },
+    },
+  }, async (_request: FastifyRequest, reply: FastifyReply) => {
     // Get current epoch
     const epochResult = await db.query(`
       SELECT
