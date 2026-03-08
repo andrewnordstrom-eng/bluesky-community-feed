@@ -71,12 +71,12 @@ const FullDatasetQuerySchema = z.object({
 });
 
 /** JSON Schema conversions for OpenAPI documentation. */
-const VotesQueryJsonSchema = zodToJsonSchema(VotesQuerySchema, { target: 'openApi3' });
-const ScoresQueryJsonSchema = zodToJsonSchema(ScoresQuerySchema, { target: 'openApi3' });
-const EngagementQueryJsonSchema = zodToJsonSchema(EngagementQuerySchema, { target: 'openApi3' });
-const EpochsQueryJsonSchema = zodToJsonSchema(EpochsQuerySchema, { target: 'openApi3' });
-const AuditQueryJsonSchema = zodToJsonSchema(AuditQuerySchema, { target: 'openApi3' });
-const FullDatasetQueryJsonSchema = zodToJsonSchema(FullDatasetQuerySchema, { target: 'openApi3' });
+const VotesQueryJsonSchema = zodToJsonSchema(VotesQuerySchema, { target: 'jsonSchema7' });
+const ScoresQueryJsonSchema = zodToJsonSchema(ScoresQuerySchema, { target: 'jsonSchema7' });
+const EngagementQueryJsonSchema = zodToJsonSchema(EngagementQuerySchema, { target: 'jsonSchema7' });
+const EpochsQueryJsonSchema = zodToJsonSchema(EpochsQuerySchema, { target: 'jsonSchema7' });
+const AuditQueryJsonSchema = zodToJsonSchema(AuditQuerySchema, { target: 'jsonSchema7' });
+const FullDatasetQueryJsonSchema = zodToJsonSchema(FullDatasetQuerySchema, { target: 'jsonSchema7' });
 
 /** Reusable vote record schema fragment. */
 const voteRecordSchema = {
@@ -91,7 +91,7 @@ const voteRecordSchema = {
     relevance_weight: { type: 'number' as const, nullable: true },
     include_keywords: { type: 'array' as const, items: { type: 'string' as const } },
     exclude_keywords: { type: 'array' as const, items: { type: 'string' as const } },
-    topic_weight_votes: { type: 'object' as const, nullable: true },
+    topic_weight_votes: { type: 'object' as const, additionalProperties: true, nullable: true },
     voted_at: { type: 'string' as const, format: 'date-time' },
   },
 };
@@ -118,7 +118,7 @@ const scoreRecordSchema = {
     source_diversity_weighted: { type: 'number' as const },
     relevance_weighted: { type: 'number' as const },
     total_score: { type: 'number' as const },
-    topic_vector: { type: 'object' as const, nullable: true },
+    topic_vector: { type: 'object' as const, additionalProperties: true, nullable: true },
     classification_method: { type: 'string' as const, enum: ['keyword', 'embedding'] },
     scored_at: { type: 'string' as const, format: 'date-time' },
   },
@@ -529,8 +529,8 @@ export function registerExportRoutes(app: FastifyInstance): void {
                   source_diversity_weight: { type: 'number' },
                   relevance_weight: { type: 'number' },
                   vote_count: { type: 'integer' },
-                  content_rules: { type: 'object', nullable: true },
-                  topic_weights: { type: 'object', nullable: true },
+                  content_rules: { type: 'object', additionalProperties: true, nullable: true },
+                  topic_weights: { type: 'object', additionalProperties: true, nullable: true },
                   created_at: { type: 'string', format: 'date-time' },
                   closed_at: { type: 'string', format: 'date-time', nullable: true },
                   voting_started_at: { type: 'string', format: 'date-time', nullable: true },
@@ -600,7 +600,7 @@ export function registerExportRoutes(app: FastifyInstance): void {
                   action: { type: 'string' },
                   anon_actor_id: { type: 'string', nullable: true },
                   epoch_id: { type: 'integer', nullable: true },
-                  details: { type: 'object' },
+                  details: { type: 'object', additionalProperties: true },
                   created_at: { type: 'string', format: 'date-time' },
                 },
               },

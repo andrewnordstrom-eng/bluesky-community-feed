@@ -49,9 +49,9 @@ const ClassifyTextSchema = z.object({
 });
 
 /** JSON Schema conversions for request bodies. */
-const CreateTopicJsonSchema = zodToJsonSchema(CreateTopicSchema, { target: 'openApi3' });
-const UpdateTopicJsonSchema = zodToJsonSchema(UpdateTopicSchema, { target: 'openApi3' });
-const ClassifyTextJsonSchema = zodToJsonSchema(ClassifyTextSchema, { target: 'openApi3' });
+const CreateTopicJsonSchema = zodToJsonSchema(CreateTopicSchema, { target: 'jsonSchema7' });
+const UpdateTopicJsonSchema = zodToJsonSchema(UpdateTopicSchema, { target: 'jsonSchema7' });
+const ClassifyTextJsonSchema = zodToJsonSchema(ClassifyTextSchema, { target: 'jsonSchema7' });
 
 /** Reusable topic item schema fragment. */
 const topicItemSchema = {
@@ -430,7 +430,7 @@ export function registerTopicRoutes(app: FastifyInstance): void {
             type: 'object',
             properties: {
               success: { type: 'boolean' },
-              topic: { type: 'object' },
+              topic: { type: 'object', additionalProperties: true },
             },
             required: ['success'],
           },

@@ -56,6 +56,7 @@ describe('audit log redaction', () => {
       });
 
     const app = Fastify();
+    app.setValidatorCompiler(() => () => true);
     registerAuditLogRoute(app);
 
     const response = await app.inject({

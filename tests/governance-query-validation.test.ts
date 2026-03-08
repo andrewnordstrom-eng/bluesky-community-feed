@@ -21,6 +21,7 @@ describe('governance route query validation', () => {
 
   it('returns 400 for invalid weights history limit', async () => {
     const app = Fastify();
+    app.setValidatorCompiler(() => () => true);
     registerWeightsRoute(app);
 
     const response = await app.inject({
@@ -37,6 +38,7 @@ describe('governance route query validation', () => {
 
   it('returns 400 when compare endpoint receives same epoch ids', async () => {
     const app = Fastify();
+    app.setValidatorCompiler(() => () => true);
     registerWeightsRoute(app);
 
     const response = await app.inject({
@@ -53,6 +55,7 @@ describe('governance route query validation', () => {
 
   it('returns 400 for invalid epochs list status', async () => {
     const app = Fastify();
+    app.setValidatorCompiler(() => () => true);
     registerEpochsRoute(app);
 
     const response = await app.inject({
@@ -69,6 +72,7 @@ describe('governance route query validation', () => {
 
   it('returns 400 for invalid epoch id parameter', async () => {
     const app = Fastify();
+    app.setValidatorCompiler(() => () => true);
     registerEpochsRoute(app);
 
     const response = await app.inject({

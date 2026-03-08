@@ -10,10 +10,19 @@ import type { z } from 'zod';
 
 /**
  * Convert a Zod schema to JSON Schema for Fastify route decoration.
- * Uses openApi3 target for compatibility with @fastify/swagger.
+ * Uses jsonSchema7 target for Ajv compatibility (Fastify 5 compiles
+ * querystring/body schemas with Ajv Draft 7). The $schema property
+ * is stripped to avoid confusing Fastify's internal schema handling.
  */
 export function zodToOpenApi<T extends z.ZodType>(schema: T) {
-  return zodToJsonSchema(schema, { target: 'openApi3' });
+  const result = zodToJsonSchema(schema, { target: 'jsonSchema7' });
+
+  if (typeof result === 'object' && result !== null && '$schema' in result) {
+    const { $schema: _, ...rest } = result;
+    return rest;
+  }
+
+  return result;
 }
 
 /**

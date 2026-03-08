@@ -27,7 +27,7 @@ const QuerySchema = z.object({
 });
 
 /** JSON Schema for OpenAPI documentation. */
-const QueryJsonSchema = zodToJsonSchema(QuerySchema, { target: 'openApi3' });
+const QueryJsonSchema = zodToJsonSchema(QuerySchema, { target: 'jsonSchema7' });
 
 const SENSITIVITY_SAMPLE_SIZE = 100;
 

@@ -28,7 +28,7 @@ const ManualAnnouncementSchema = z.object({
 });
 
 /** JSON Schema for OpenAPI documentation. */
-const ManualAnnouncementJsonSchema = zodToJsonSchema(ManualAnnouncementSchema, { target: 'openApi3' });
+const ManualAnnouncementJsonSchema = zodToJsonSchema(ManualAnnouncementSchema, { target: 'jsonSchema7' });
 
 /** Reusable announcement item schema fragment. */
 const announcementItemSchema = {
@@ -60,7 +60,7 @@ export function registerAnnounceRoute(app: FastifyInstance): void {
           properties: {
             enabled: { type: 'boolean' },
             botDid: { type: 'string', nullable: true },
-            pinned: { type: 'object', nullable: true },
+            pinned: { type: 'object', additionalProperties: true, nullable: true },
             retryQueueLength: { type: 'integer' },
           },
           required: ['enabled', 'retryQueueLength'],

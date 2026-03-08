@@ -22,8 +22,8 @@ const CompareQuerySchema = z.object({
 });
 
 /** JSON Schemas for OpenAPI documentation (no effects — safe for Ajv). */
-const HistoryQueryJsonSchema = zodToJsonSchema(HistoryQuerySchema, { target: 'openApi3' });
-const CompareQueryJsonSchema = zodToJsonSchema(CompareQuerySchema, { target: 'openApi3' });
+const HistoryQueryJsonSchema = zodToJsonSchema(HistoryQuerySchema, { target: 'jsonSchema7' });
+const CompareQueryJsonSchema = zodToJsonSchema(CompareQuerySchema, { target: 'jsonSchema7' });
 
 /** Reusable weights object schema for responses. */
 const weightsObjectSchema = {

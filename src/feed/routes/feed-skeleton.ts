@@ -83,7 +83,7 @@ const FeedSkeletonRouteSchema = z.object({
 
 /** JSON Schema for Fastify route definition (consumed by @fastify/swagger for OpenAPI). */
 const FeedSkeletonQueryJsonSchema = zodToJsonSchema(FeedSkeletonRouteSchema, {
-  target: 'openApi3',
+  target: 'jsonSchema7',
 });
 
 /** Full validation schema including cursor structure check (used by safeParse in handler). */

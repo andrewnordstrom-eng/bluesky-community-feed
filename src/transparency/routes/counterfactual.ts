@@ -28,7 +28,7 @@ const CounterfactualQuerySchema = z.object({
 });
 
 /** JSON Schema for OpenAPI documentation. */
-const CounterfactualQueryJsonSchema = zodToJsonSchema(CounterfactualQuerySchema, { target: 'openApi3' });
+const CounterfactualQueryJsonSchema = zodToJsonSchema(CounterfactualQuerySchema, { target: 'jsonSchema7' });
 
 interface CurrentScoringRunValue {
   run_id?: unknown;

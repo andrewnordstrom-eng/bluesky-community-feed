@@ -40,10 +40,10 @@ const EpochListQueryJsonSchema = zodToJsonSchema(
     limit: z.coerce.number().int().min(1).max(100).default(50),
     status: z.enum(['active', 'voting', 'closed']).optional(),
   }),
-  { target: 'openApi3' }
+  { target: 'jsonSchema7' }
 );
 
-const EpochIdParamsJsonSchema = zodToJsonSchema(EpochIdParamsSchema, { target: 'openApi3' });
+const EpochIdParamsJsonSchema = zodToJsonSchema(EpochIdParamsSchema, { target: 'jsonSchema7' });
 
 /** Reusable epoch response shape for weights + content rules. */
 const weightsSchema = {

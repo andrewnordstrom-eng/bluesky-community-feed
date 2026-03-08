@@ -17,7 +17,7 @@ const AuditLogQuerySchema = z.object({
 });
 
 /** JSON Schema for OpenAPI documentation. */
-const AuditLogQueryJsonSchema = zodToJsonSchema(AuditLogQuerySchema, { target: 'openApi3' });
+const AuditLogQueryJsonSchema = zodToJsonSchema(AuditLogQuerySchema, { target: 'jsonSchema7' });
 
 export function registerAuditLogRoutes(app: FastifyInstance): void {
   /**
@@ -46,7 +46,7 @@ export function registerAuditLogRoutes(app: FastifyInstance): void {
                   action: { type: 'string' },
                   actor: { type: 'string', nullable: true },
                   epochId: { type: 'integer', nullable: true },
-                  details: { type: 'object' },
+                  details: { type: 'object', additionalProperties: true },
                   timestamp: { type: 'string', format: 'date-time' },
                 },
               },

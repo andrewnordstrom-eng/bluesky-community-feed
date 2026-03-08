@@ -75,8 +75,8 @@ export function registerDebugRoutes(app: FastifyInstance): void {
                 properties: {
                   uri: { type: 'string' },
                   total_score: { type: 'number' },
-                  scores: { type: 'object' },
-                  weights_used: { type: 'object' },
+                  scores: { type: 'object', additionalProperties: true },
+                  weights_used: { type: 'object', additionalProperties: true },
                   scored_at: { type: 'string', format: 'date-time' },
                 },
               },
@@ -338,7 +338,7 @@ export function registerDebugRoutes(app: FastifyInstance): void {
     text: z.string().optional(),
   });
 
-  const TestFilterJsonSchema = zodToJsonSchema(TestFilterSchema, { target: 'openApi3' });
+  const TestFilterJsonSchema = zodToJsonSchema(TestFilterSchema, { target: 'jsonSchema7' });
 
   app.post('/api/debug/test-content-filter', {
     preHandler,
@@ -356,8 +356,8 @@ export function registerDebugRoutes(app: FastifyInstance): void {
           description: 'Result varies by input mode (single text or batch posts)',
           properties: {
             text: { type: 'string' },
-            rules: { type: 'object' },
-            result: { type: 'object' },
+            rules: { type: 'object', additionalProperties: true },
+            result: { type: 'object', additionalProperties: true },
             input_count: { type: 'integer' },
             passed_count: { type: 'integer' },
             filtered_count: { type: 'integer' },

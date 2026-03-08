@@ -23,7 +23,7 @@ const consentBodySchema = z.object({
 });
 
 /** JSON Schema for OpenAPI documentation. */
-const consentBodyJsonSchema = zodToJsonSchema(consentBodySchema, { target: 'openApi3' });
+const consentBodyJsonSchema = zodToJsonSchema(consentBodySchema, { target: 'jsonSchema7' });
 
 export function registerResearchConsentRoute(app: FastifyInstance): void {
   /**

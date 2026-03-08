@@ -92,13 +92,13 @@ const ScheduleVoteSchema = z.object({
 });
 
 /** JSON Schema conversions for request validation in OpenAPI docs. */
-const KeywordActionJsonSchema = zodToJsonSchema(KeywordActionSchema, { target: 'openApi3' });
-const ExtendVotingJsonSchema = zodToJsonSchema(ExtendVotingSchema, { target: 'openApi3' });
-const RoundIdParamsJsonSchema = zodToJsonSchema(RoundIdParamsSchema, { target: 'openApi3' });
-const StartVotingJsonSchema = zodToJsonSchema(StartVotingSchema, { target: 'openApi3' });
-const EndVotingJsonSchema = zodToJsonSchema(EndVotingSchema, { target: 'openApi3' });
-const ApproveResultsJsonSchema = zodToJsonSchema(ApproveResultsSchema, { target: 'openApi3' });
-const ScheduleVoteJsonSchema = zodToJsonSchema(ScheduleVoteSchema, { target: 'openApi3' });
+const KeywordActionJsonSchema = zodToJsonSchema(KeywordActionSchema, { target: 'jsonSchema7' });
+const ExtendVotingJsonSchema = zodToJsonSchema(ExtendVotingSchema, { target: 'jsonSchema7' });
+const RoundIdParamsJsonSchema = zodToJsonSchema(RoundIdParamsSchema, { target: 'jsonSchema7' });
+const StartVotingJsonSchema = zodToJsonSchema(StartVotingSchema, { target: 'jsonSchema7' });
+const EndVotingJsonSchema = zodToJsonSchema(EndVotingSchema, { target: 'jsonSchema7' });
+const ApproveResultsJsonSchema = zodToJsonSchema(ApproveResultsSchema, { target: 'jsonSchema7' });
+const ScheduleVoteJsonSchema = zodToJsonSchema(ScheduleVoteSchema, { target: 'jsonSchema7' });
 
 /** Reusable schema fragment for governance weights. */
 const weightsSchema = {
@@ -1792,7 +1792,7 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
                 type: 'object',
                 properties: {
                   action: { type: 'string' },
-                  details: { type: 'object' },
+                  details: { type: 'object', additionalProperties: true },
                   created_at: { type: 'string', format: 'date-time' },
                 },
               },

@@ -53,7 +53,7 @@ const SendInteractionsBodySchema = z.object({
 
 /** JSON Schema for Fastify route definition (consumed by @fastify/swagger for OpenAPI). */
 const SendInteractionsBodyJsonSchema = zodToJsonSchema(SendInteractionsBodySchema, {
-  target: 'openApi3',
+  target: 'jsonSchema7',
 });
 
 /**
