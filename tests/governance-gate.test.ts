@@ -206,6 +206,52 @@ describe('governance gate fail-open behavior', () => {
   });
 });
 
+describe('governance gate confidence scaling', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    redisSetMock.mockResolvedValue('OK');
+  });
+
+  it('dampens relevance for single weak match (scoreSum < 0.5)', async () => {
+    setRedisWeights(COMMUNITY_WEIGHTS);
+    // Single weak keyword match: scoreSum = 0.2, confidence = 0.2/0.5 = 0.4
+    const result = await checkGovernanceGate({ 'software-development': 0.2 });
+
+    // baseRelevance = 0.80, confidence = 0.4, relevance = 0.80 × 0.4 = 0.32
+    expect(result.passes).toBe(true); // 0.32 >= 0.10 threshold
+    expect(result.relevance).toBeCloseTo(0.32, 2);
+  });
+
+  it('does not dampen strong matches (scoreSum >= 0.5)', async () => {
+    setRedisWeights(COMMUNITY_WEIGHTS);
+    const result = await checkGovernanceGate({ 'software-development': 0.8 });
+
+    // scoreSum = 0.8, confidence = 1.0, relevance = 0.80 × 1.0 = 0.80
+    expect(result.passes).toBe(true);
+    expect(result.relevance).toBeCloseTo(0.8, 6);
+  });
+
+  it('weak match to penalized topic is rejected after dampening', async () => {
+    setRedisWeights(COMMUNITY_WEIGHTS);
+    // politics-governance weight = 0.05, scoreSum = 0.2
+    // baseRelevance = 0.05, confidence = 0.4, relevance = 0.05 × 0.4 = 0.02
+    const result = await checkGovernanceGate({ 'politics-governance': 0.2 });
+
+    expect(result.passes).toBe(false); // 0.02 < 0.10 threshold
+    expect(result.relevance).toBeCloseTo(0.02, 2);
+  });
+
+  it('still passes weak match when community weight is very high', async () => {
+    setRedisWeights(COMMUNITY_WEIGHTS);
+    // decentralized-social weight = 0.90, scoreSum = 0.2
+    // baseRelevance = 0.90, confidence = 0.4, relevance = 0.90 × 0.4 = 0.36
+    const result = await checkGovernanceGate({ 'decentralized-social': 0.2 });
+
+    expect(result.passes).toBe(true); // 0.36 >= 0.10
+    expect(result.relevance).toBeCloseTo(0.36, 2);
+  });
+});
+
 describe('governance gate weight caching', () => {
   beforeEach(() => {
     vi.clearAllMocks();
