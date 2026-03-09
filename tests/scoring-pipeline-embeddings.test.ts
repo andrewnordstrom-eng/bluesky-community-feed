@@ -1,9 +1,9 @@
 /**
- * Scoring Pipeline Embedding Integration Tests
+ * Scoring Pipeline — No Embedding Override Tests
  *
- * Verifies that the scoring pipeline correctly integrates the embedding
- * classifier when TOPIC_EMBEDDING_ENABLED=true, falls back gracefully
- * when disabled or on failure, and stores classification_method.
+ * Verifies that the scoring pipeline does NOT re-classify posts at
+ * scoring time. Topic vectors are determined at ingestion time and
+ * the pipeline uses them as-is.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -20,8 +20,6 @@ const {
   getCurrentContentRulesMock,
   hasActiveContentRulesMock,
   updateScoringStatusMock,
-  classifyPostsBatchMock,
-  isEmbedderReadyMock,
   configMock,
 } = vi.hoisted(() => ({
   dbQueryMock: vi.fn(),
@@ -33,14 +31,12 @@ const {
   getCurrentContentRulesMock: vi.fn(),
   hasActiveContentRulesMock: vi.fn(),
   updateScoringStatusMock: vi.fn(),
-  classifyPostsBatchMock: vi.fn(),
-  isEmbedderReadyMock: vi.fn(),
   configMock: {
     SCORING_WINDOW_HOURS: 48,
     FEED_MAX_POSTS: 300,
     SCORING_FULL_RESCORE_INTERVAL: 6,
     TOPIC_EMBEDDING_ENABLED: false,
-    TOPIC_EMBEDDING_MIN_SIMILARITY: 0.25,
+    TOPIC_EMBEDDING_MIN_SIMILARITY: 0.35,
   },
 }));
 
@@ -60,14 +56,6 @@ vi.mock('../src/governance/content-filter.js', () => ({
 
 vi.mock('../src/admin/status-tracker.js', () => ({
   updateScoringStatus: updateScoringStatusMock,
-}));
-
-vi.mock('../src/scoring/topics/embedding-classifier.js', () => ({
-  classifyPostsBatch: classifyPostsBatchMock,
-}));
-
-vi.mock('../src/scoring/topics/embedder.js', () => ({
-  isEmbedderReady: isEmbedderReadyMock,
 }));
 
 vi.mock('../src/config.js', () => ({
@@ -103,18 +91,17 @@ function setupDefaultMocks() {
   });
   hasActiveContentRulesMock.mockReturnValue(false);
   updateScoringStatusMock.mockResolvedValue(undefined);
-  isEmbedderReadyMock.mockReturnValue(false);
 }
 
 function makeEpochRow(id = 1) {
   return buildEpochRow({ id });
 }
 
-function makePostRow(uri: string, text = 'hello world') {
+function makePostRow(uri: string, text = 'hello world', topicVector: Record<string, number> = { general: 0.5 }) {
   return buildPostRow({
     uri,
     text,
-    topic_vector: { general: 0.5 },
+    topic_vector: topicVector,
     like_count: 1,
     repost_count: 0,
     reply_count: 0,
@@ -123,10 +110,9 @@ function makePostRow(uri: string, text = 'hello world') {
 
 /**
  * Set up mocks for a pipeline run that processes one post.
- * Returns helpers to inspect the storeScore call.
  */
-function setupSinglePostRun(epochId = 1) {
-  const postRow = makePostRow('at://did:plc:test/app.bsky.feed.post/1', 'test post about technology');
+function setupSinglePostRun(epochId = 1, topicVector: Record<string, number> = { general: 0.5 }) {
+  const postRow = makePostRow('at://did:plc:test/app.bsky.feed.post/1', 'test post about technology', topicVector);
   const epochRow = makeEpochRow(epochId);
 
   dbQueryMock
@@ -137,9 +123,8 @@ function setupSinglePostRun(epochId = 1) {
     .mockResolvedValueOnce({ rows: [] });            // updateCurrentRunScope
 }
 
-/** Extract the classification_method from the storeScore INSERT call ($20). */
+/** Extract the topic_vector passed to storeScore via the scored post. */
 function getStoredClassificationMethod(): string | undefined {
-  // The storeScore call is the 3rd db.query call (index 2)
   for (const call of dbQueryMock.mock.calls) {
     const sql = String(call[0]);
     if (sql.includes('INSERT INTO post_scores')) {
@@ -151,129 +136,73 @@ function getStoredClassificationMethod(): string | undefined {
   return undefined;
 }
 
-/** Extract classification_method from component_details JSON ($19). */
-function getStoredComponentDetails(): Record<string, unknown> | undefined {
-  for (const call of dbQueryMock.mock.calls) {
-    const sql = String(call[0]);
-    if (sql.includes('INSERT INTO post_scores')) {
-      const params = call[1] as unknown[];
-      // component_details is $19 (index 18)
-      return JSON.parse(params[18] as string);
-    }
-  }
-  return undefined;
-}
-
-describe('scoring pipeline embedding integration', () => {
+describe('scoring pipeline does not override topic vectors', () => {
   beforeEach(() => {
     __resetPipelineState();
     vi.clearAllMocks();
     setupDefaultMocks();
-    // Reset config to defaults
-    configMock.TOPIC_EMBEDDING_ENABLED = false;
   });
 
-  it('uses keyword classification when TOPIC_EMBEDDING_ENABLED=false', async () => {
-    configMock.TOPIC_EMBEDDING_ENABLED = false;
-    setupSinglePostRun();
+  it('uses stored topic vector without modification', async () => {
+    const originalVector = { 'software-development': 0.85, 'open-source': 0.4 };
+    setupSinglePostRun(1, originalVector);
 
     await runScoringPipeline();
 
-    // Should NOT call the embedding classifier
-    expect(classifyPostsBatchMock).not.toHaveBeenCalled();
-
-    // classification_method should be "keyword"
+    // The pipeline should store classification_method as 'keyword'
+    // since it no longer re-classifies at scoring time
     const method = getStoredClassificationMethod();
     expect(method).toBe('keyword');
   });
 
-  it('uses keyword classification when embedder is not ready', async () => {
+  it('TOPIC_EMBEDDING_ENABLED has no effect on scoring behavior', async () => {
     configMock.TOPIC_EMBEDDING_ENABLED = true;
-    isEmbedderReadyMock.mockReturnValue(false);
     setupSinglePostRun();
 
-    await runScoringPipeline();
-
-    // Should NOT call the embedding classifier (embedder not ready)
-    expect(classifyPostsBatchMock).not.toHaveBeenCalled();
-
-    const method = getStoredClassificationMethod();
-    expect(method).toBe('keyword');
-  });
-
-  it('uses embedding classification when enabled and ready', async () => {
-    configMock.TOPIC_EMBEDDING_ENABLED = true;
-    isEmbedderReadyMock.mockReturnValue(true);
-
-    const embeddingResult = new Map([
-      ['at://did:plc:test/app.bsky.feed.post/1', { technology: 0.85 }],
-    ]);
-    classifyPostsBatchMock.mockResolvedValue(embeddingResult);
-    setupSinglePostRun();
-
-    await runScoringPipeline();
-
-    // Should call the embedding classifier
-    expect(classifyPostsBatchMock).toHaveBeenCalledTimes(1);
-
-    // classification_method should be "embedding"
-    const method = getStoredClassificationMethod();
-    expect(method).toBe('embedding');
-
-    // component_details should include classification_method
-    const details = getStoredComponentDetails();
-    expect(details?.classification_method).toBe('embedding');
-  });
-
-  it('falls back to keyword on embedding failure', async () => {
-    configMock.TOPIC_EMBEDDING_ENABLED = true;
-    isEmbedderReadyMock.mockReturnValue(true);
-
-    classifyPostsBatchMock.mockRejectedValue(new Error('ONNX runtime error'));
-    setupSinglePostRun();
-
-    // Should NOT throw — graceful degradation
+    // Pipeline should complete without calling any embedding functions
     await expect(runScoringPipeline()).resolves.not.toThrow();
 
-    // classification_method should be "keyword" (fallback)
     const method = getStoredClassificationMethod();
     expect(method).toBe('keyword');
   });
 
-  it('falls back to keyword when embedding returns empty vector for post', async () => {
-    configMock.TOPIC_EMBEDDING_ENABLED = true;
-    isEmbedderReadyMock.mockReturnValue(true);
-
-    // Embedding returns empty vector (no topics matched)
-    const embeddingResult = new Map([
-      ['at://did:plc:test/app.bsky.feed.post/1', {}],
-    ]);
-    classifyPostsBatchMock.mockResolvedValue(embeddingResult);
-    setupSinglePostRun();
+  it('posts with keyword vectors score correctly', async () => {
+    setupSinglePostRun(1, { 'ai-machine-learning': 0.7 });
 
     await runScoringPipeline();
 
-    // Empty embedding vector means fallback to keyword
+    // Should have stored a score
+    const storeCall = dbQueryMock.mock.calls.find(
+      (c: unknown[]) => String(c[0]).includes('INSERT INTO post_scores')
+    );
+    expect(storeCall).toBeDefined();
+  });
+
+  it('posts with embedding-style vectors score correctly', async () => {
+    // Embedding vectors look the same as keyword vectors (both are TopicVector)
+    // Just different values — embeddings tend to have cosine similarity values
+    setupSinglePostRun(1, { 'software-development': 0.62, 'devops-infrastructure': 0.38 });
+
+    await runScoringPipeline();
+
+    const storeCall = dbQueryMock.mock.calls.find(
+      (c: unknown[]) => String(c[0]).includes('INSERT INTO post_scores')
+    );
+    expect(storeCall).toBeDefined();
+  });
+
+  it('classification_method is always keyword at scoring time', async () => {
+    configMock.TOPIC_EMBEDDING_ENABLED = true;
+    setupSinglePostRun(1, { 'cybersecurity': 0.9 });
+
+    await runScoringPipeline();
+
+    // Even with embedding enabled, the pipeline never re-classifies
     const method = getStoredClassificationMethod();
     expect(method).toBe('keyword');
   });
 
-  it('stores classification_method in component_details JSON', async () => {
-    configMock.TOPIC_EMBEDDING_ENABLED = false;
-    setupSinglePostRun();
-
-    await runScoringPipeline();
-
-    const details = getStoredComponentDetails();
-    expect(details).toBeDefined();
-    expect(details?.classification_method).toBe('keyword');
-    expect(details?.run_id).toBeDefined();
-  });
-
-  it('still completes scoring run when no posts to score', async () => {
-    configMock.TOPIC_EMBEDDING_ENABLED = true;
-    isEmbedderReadyMock.mockReturnValue(true);
-
+  it('completes scoring run when no posts to score', async () => {
     dbQueryMock
       .mockResolvedValueOnce({ rows: [makeEpochRow()] }) // getActiveEpoch
       .mockResolvedValueOnce({ rows: [] })                // getPostsForScoring (empty)
@@ -281,10 +210,5 @@ describe('scoring pipeline embedding integration', () => {
       .mockResolvedValueOnce({ rows: [] });               // updateCurrentRunScope
 
     await expect(runScoringPipeline()).resolves.not.toThrow();
-
-    // Should NOT call embedding classifier with empty post list
-    // (the classifier IS called with empty array, but returns empty map)
-    // OR it's not called at all because posts array is empty
-    // Either way, pipeline should complete successfully
   });
 });

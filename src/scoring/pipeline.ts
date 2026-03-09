@@ -35,9 +35,6 @@ import {
 } from '../governance/content-filter.js';
 import type { ContentRules } from '../governance/governance.types.js';
 import { updateScoringStatus } from '../admin/status-tracker.js';
-import { classifyPostsBatch } from './topics/embedding-classifier.js';
-import { isEmbedderReady } from './topics/embedder.js';
-import type { TopicVector } from './topics/classifier.js';
 
 // Maximum time allowed for a single scoring run.
 const SCORING_TIMEOUT_MS = config.SCORING_TIMEOUT_MS;
@@ -498,33 +495,12 @@ async function scoreAllPosts(
     authorCounts,
   };
 
-  // Tier 2: Batch embedding classification (when enabled)
-  let embeddingVectors: Map<string, TopicVector> | null = null;
-  if (config.TOPIC_EMBEDDING_ENABLED && isEmbedderReady()) {
-    try {
-      const postTexts = posts.map((p) => ({
-        uri: p.uri,
-        text: p.text ?? '',
-      }));
-      embeddingVectors = await classifyPostsBatch(postTexts);
-    } catch (err) {
-      // Graceful degradation: fall back to winkNLP vectors
-      logger.error({ err }, 'Embedding classification failed — falling back to keyword classifier');
-      embeddingVectors = null;
-    }
-  }
-
   for (const post of posts) {
     try {
-      // Override topic vector with embedding-based vector if available
-      let classificationMethod: 'keyword' | 'embedding' = 'keyword';
-      if (embeddingVectors) {
-        const embVector = embeddingVectors.get(post.uri);
-        if (embVector && Object.keys(embVector).length > 0) {
-          post.topicVector = embVector;
-          classificationMethod = 'embedding';
-        }
-      }
+      // Classification is now determined at ingestion time and stored in the
+      // post's topic_vector. The pipeline reads the stored vector as-is —
+      // no runtime re-classification or override.
+      const classificationMethod: 'keyword' | 'embedding' = 'keyword';
 
       const scoredPost = await scorePost(post, epoch, context);
       scored.push(scoredPost);
