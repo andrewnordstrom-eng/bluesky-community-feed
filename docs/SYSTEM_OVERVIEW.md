@@ -45,7 +45,7 @@ A Bluesky custom feed where **subscribers democratically vote on algorithm param
 
 ### Data Flow Steps
 
-1. **Jetstream WebSocket** → Ingests all public Bluesky posts, likes, reposts, follows into PostgreSQL
+1. **Jetstream WebSocket** → Ingests public Bluesky posts (with keyword + embedding topic classification), likes, reposts, follows into PostgreSQL
 2. **Scoring Pipeline** (every 5 minutes) → Calculates 5 component scores per post, applies governance weights, stores full decomposition
 3. **Top 1000 posts** → Pushed to Redis sorted set (`feed:current`)
 4. **getFeedSkeleton** → Bluesky app requests feed, we read from Redis and return post URIs
@@ -63,7 +63,7 @@ Each component returns a normalized **0.0 to 1.0** score:
 | **Engagement** | Likes, reposts, replies | Log-scaled: `log10(likes×1 + reposts×2 + replies×3 + 1)` |
 | **Bridging** | Cross-bubble appeal | Jaccard distance of engager follower sets |
 | **Source Diversity** | Prevent author domination | Gini coefficient penalty for concentration |
-| **Relevance** | Topic matching | **Placeholder (0.5)** - upgrade path to embeddings |
+| **Relevance** | Topic matching | Weighted average of post topic vector × community topic weights (governance-driven) |
 
 ### Final Score Calculation
 
@@ -169,7 +169,7 @@ The React frontend provides:
 
 1. **All of Bluesky**: Currently ingests everything, not scoped to topic/community
 2. **No Moderation Layer**: Relies on Bluesky's own moderation
-3. **Relevance Placeholder**: Returns 0.5 for all posts (no semantic understanding yet)
+3. **Relevance**: Uses keyword + embedding classification at ingestion time; governance weights determine per-topic relevance at scoring time
 4. **Single Feed**: One governance epoch affects one feed
 
 ---
@@ -223,6 +223,7 @@ FEED_HOSTNAME=feed.yourdomain.com
 | Path | Purpose |
 |------|---------|
 | `src/ingestion/jetstream.ts` | WebSocket connection to Bluesky firehose |
+| `src/ingestion/embedding-gate.ts` | Single-post embedding classifier (at ingestion time) |
 | `src/scoring/pipeline.ts` | 5-component scoring and Redis population |
 | `src/feed/routes/feed-skeleton.ts` | AT Protocol feed endpoint |
 | `src/governance/routes/vote.ts` | Vote submission API |

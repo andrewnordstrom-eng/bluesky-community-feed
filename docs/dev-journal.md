@@ -642,3 +642,29 @@ Post-deployment audit (entry #03) identified the relevance formula as the system
 - CONFIDENCE_THRESHOLD is a hardcoded constant. Could be made configurable via env var if the community needs to tune sensitivity.
 - VPS production DB topic_catalog needs SQL UPDATE to remove the same terms (seed script only affects fresh seeds).
 - After deployment, need to audit top 50 feed posts to verify no more cooking/sports/employment false positives.
+
+## 2026-03-09 #01 — Move Embedding Classifier to Ingestion Time
+**Branch:** `dev/embedding-at-ingestion`
+**Commits:** `4b179b6`, `28ee672`, `689712a`, `e743288`, `539f5e7`
+**Files changed:** `src/ingestion/embedding-gate.ts` (new), `src/ingestion/handlers/post-handler.ts`, `src/scoring/pipeline.ts`, `src/config.ts`, `tests/embedding-ingestion.test.ts` (new), `tests/scoring-pipeline-embeddings.test.ts`
+
+### What changed
+Moved the embedding-based topic classifier from scoring time (every 5 min in the pipeline) to ingestion time (after the governance gate). The pipeline no longer re-classifies posts — it reads the stored topic vector as-is. Created `embedding-gate.ts` with a single-post classifier that wraps the existing `embedTexts()` and `cosineSimilarity()` infrastructure. Raised `TOPIC_EMBEDDING_MIN_SIMILARITY` default from 0.25 to 0.35.
+
+### Why
+The pipeline's batch embedding override was causing re-inflation: posts that entered the DB with `{}` (correctly rejected by the governance gate) got re-classified at scoring time and suddenly had topic vectors that passed the relevance floor. Also, embedding 2,500 posts at ~20ms each took ~50 seconds per pipeline run — half the runtime for no benefit since keyword vectors were already stored.
+
+### Measurements
+- 379 tests pass (9 new embedding-ingestion tests, rewrote 6 pipeline-no-override tests)
+- Embedding at ingestion costs ~20ms/post × ~12 posts/sec = 240ms/sec total (0.5% of 50-slot capacity)
+- Pipeline should drop from ~50s to ~9s per run (no batch embedding step)
+
+### Decisions & alternatives
+- Single-post `classifyPostByEmbedding()` wrapper over `embedTexts([text])` rather than adapting the batch classifier — keeps the ingestion path simple and avoids batch overhead for single posts.
+- Fail-open design: if embedder is not ready or classification fails, keyword vector is stored. If embedding produces empty vector but keywords had matches, keyword vector is kept.
+- Threshold raised to 0.35 because posts already passed the keyword gate, so the embedding should confirm/refine, not add noise.
+- Kept the batch `embedding-classifier.ts` module intact — it may be useful for future batch re-classification scripts.
+
+### Open questions
+- `classification_method` stored in `post_scores` is always `'keyword'` at scoring time now. Could add a `classification_method` column to `posts` table to track whether ingestion used keyword or embedding classification.
+- Need to deploy with `TOPIC_EMBEDDING_ENABLED=true` on VPS and verify word-sense disambiguation works in practice (e.g., "fork in the road" vs "fork the repository").
