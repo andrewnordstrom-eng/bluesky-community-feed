@@ -3,6 +3,10 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
+  "description": "Frontend dashboard for the community-governed Bluesky feed generator",
+  "homepage": "https://feed.corgi.network",
+  "author": "Andrew Nordstrom",
+  "license": "MIT",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

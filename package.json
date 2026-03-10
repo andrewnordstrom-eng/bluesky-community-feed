@@ -64,5 +64,20 @@
   },
   "engines": {
     "node": ">=20.0.0"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AndrewNordstrom/bluesky-community-feed.git"
+  },
+  "homepage": "https://feed.corgi.network",
+  "author": "Andrew Nordstrom",
+  "license": "MIT",
+  "keywords": [
+    "bluesky",
+    "atproto",
+    "feed-generator",
+    "community-governance",
+    "algorithmic-transparency",
+    "typescript"
+  ]
 }
