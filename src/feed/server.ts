@@ -50,13 +50,9 @@ export async function createServer() {
   // Register CORS for cross-origin requests
   await app.register(cors, {
     credentials: true,
-    origin: (origin, cb) => {
-      if (!origin) {
-        cb(null, true);
-        return;
-      }
-
-      cb(null, allowedOrigins.has(origin));
+    origin: (origin: string | undefined) => {
+      if (!origin) return true;
+      return allowedOrigins.has(origin);
     },
   });
 
