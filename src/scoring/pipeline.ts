@@ -350,6 +350,7 @@ async function getPostsForScoring(contentRules: ContentRules): Promise<PostForSc
   const result = await db.query(
     `SELECT p.uri, p.cid, p.author_did, p.text, p.reply_root, p.reply_parent,
             p.langs, p.has_media, p.created_at, p.topic_vector,
+            p.classification_method,
             COALESCE(pe.like_count, 0) as like_count,
             COALESCE(pe.repost_count, 0) as repost_count,
             COALESCE(pe.reply_count, 0) as reply_count
@@ -437,6 +438,7 @@ async function getPostsForIncrementalScoring(
     `(
       SELECT p.uri, p.cid, p.author_did, p.text, p.reply_root, p.reply_parent,
              p.langs, p.has_media, p.created_at, p.topic_vector,
+             p.classification_method,
              COALESCE(pe.like_count, 0) as like_count,
              COALESCE(pe.repost_count, 0) as repost_count,
              COALESCE(pe.reply_count, 0) as reply_count
@@ -454,6 +456,7 @@ async function getPostsForIncrementalScoring(
     (
       SELECT p.uri, p.cid, p.author_did, p.text, p.reply_root, p.reply_parent,
              p.langs, p.has_media, p.created_at, p.topic_vector,
+             p.classification_method,
              COALESCE(pe.like_count, 0) as like_count,
              COALESCE(pe.repost_count, 0) as repost_count,
              COALESCE(pe.reply_count, 0) as reply_count
@@ -497,10 +500,9 @@ async function scoreAllPosts(
 
   for (const post of posts) {
     try {
-      // Classification is now determined at ingestion time and stored in the
-      // post's topic_vector. The pipeline reads the stored vector as-is —
-      // no runtime re-classification or override.
-      const classificationMethod: 'keyword' | 'embedding' = 'keyword';
+      // Classification method is determined at ingestion time and stored on
+      // the posts row. The pipeline reads it as-is — no runtime override.
+      const classificationMethod = post.classificationMethod === 'embedding' ? 'embedding' : 'keyword';
 
       const scoredPost = await scorePost(post, epoch, context);
       scored.push(scoredPost);

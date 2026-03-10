@@ -81,6 +81,8 @@ export interface PostForScoring {
   replyCount: number;
   /** Topic classification vector from ingestion. Slug → confidence (0.0-1.0). */
   topicVector?: Record<string, number>;
+  /** Which classifier produced the topic_vector: winkNLP keywords or Transformers.js embeddings. */
+  classificationMethod?: 'keyword' | 'embedding';
 }
 
 /**
@@ -121,5 +123,6 @@ export function toPostForScoring(row: Record<string, unknown>): PostForScoring {
     repostCount: (row.repost_count as number) ?? 0,
     replyCount: (row.reply_count as number) ?? 0,
     topicVector: (row.topic_vector as Record<string, number>) ?? {},
+    classificationMethod: (row.classification_method as string) === 'embedding' ? 'embedding' : 'keyword',
   };
 }

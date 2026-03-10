@@ -92,6 +92,7 @@ export function buildPostRow(overrides?: Record<string, unknown>) {
     like_count: 1,
     repost_count: 0,
     reply_count: 0,
+    classification_method: 'keyword',
     ...overrides,
   };
 }

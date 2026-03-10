@@ -1,9 +1,9 @@
 /**
- * Scoring Pipeline — No Embedding Override Tests
+ * Scoring Pipeline — Classification Method Tracking Tests
  *
- * Verifies that the scoring pipeline does NOT re-classify posts at
- * scoring time. Topic vectors are determined at ingestion time and
- * the pipeline uses them as-is.
+ * Verifies that the scoring pipeline reads classification_method from
+ * the posts table and passes it through to post_scores, rather than
+ * hardcoding 'keyword' for every post.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -97,7 +97,12 @@ function makeEpochRow(id = 1) {
   return buildEpochRow({ id });
 }
 
-function makePostRow(uri: string, text = 'hello world', topicVector: Record<string, number> = { general: 0.5 }) {
+function makePostRow(
+  uri: string,
+  text = 'hello world',
+  topicVector: Record<string, number> = { general: 0.5 },
+  classificationMethod: 'keyword' | 'embedding' = 'keyword',
+) {
   return buildPostRow({
     uri,
     text,
@@ -105,14 +110,24 @@ function makePostRow(uri: string, text = 'hello world', topicVector: Record<stri
     like_count: 1,
     repost_count: 0,
     reply_count: 0,
+    classification_method: classificationMethod,
   });
 }
 
 /**
  * Set up mocks for a pipeline run that processes one post.
  */
-function setupSinglePostRun(epochId = 1, topicVector: Record<string, number> = { general: 0.5 }) {
-  const postRow = makePostRow('at://did:plc:test/app.bsky.feed.post/1', 'test post about technology', topicVector);
+function setupSinglePostRun(
+  epochId = 1,
+  topicVector: Record<string, number> = { general: 0.5 },
+  classificationMethod: 'keyword' | 'embedding' = 'keyword',
+) {
+  const postRow = makePostRow(
+    'at://did:plc:test/app.bsky.feed.post/1',
+    'test post about technology',
+    topicVector,
+    classificationMethod,
+  );
   const epochRow = makeEpochRow(epochId);
 
   dbQueryMock
@@ -123,7 +138,7 @@ function setupSinglePostRun(epochId = 1, topicVector: Record<string, number> = {
     .mockResolvedValueOnce({ rows: [] });            // updateCurrentRunScope
 }
 
-/** Extract the topic_vector passed to storeScore via the scored post. */
+/** Extract the classification_method stored in post_scores via storeScore. */
 function getStoredClassificationMethod(): string | undefined {
   for (const call of dbQueryMock.mock.calls) {
     const sql = String(call[0]);
@@ -136,28 +151,58 @@ function getStoredClassificationMethod(): string | undefined {
   return undefined;
 }
 
-describe('scoring pipeline does not override topic vectors', () => {
+describe('scoring pipeline classification method tracking', () => {
   beforeEach(() => {
     __resetPipelineState();
     vi.clearAllMocks();
     setupDefaultMocks();
   });
 
-  it('uses stored topic vector without modification', async () => {
-    const originalVector = { 'software-development': 0.85, 'open-source': 0.4 };
-    setupSinglePostRun(1, originalVector);
+  it('reads classification_method from post row (keyword)', async () => {
+    setupSinglePostRun(1, { 'software-development': 0.85 }, 'keyword');
 
     await runScoringPipeline();
 
-    // The pipeline should store classification_method as 'keyword'
-    // since it no longer re-classifies at scoring time
+    const method = getStoredClassificationMethod();
+    expect(method).toBe('keyword');
+  });
+
+  it('reads classification_method from post row (embedding)', async () => {
+    setupSinglePostRun(1, { 'ai-machine-learning': 0.52 }, 'embedding');
+
+    await runScoringPipeline();
+
+    const method = getStoredClassificationMethod();
+    expect(method).toBe('embedding');
+  });
+
+  it('defaults to keyword when classification_method is null', async () => {
+    const postRow = buildPostRow({
+      uri: 'at://did:plc:test/app.bsky.feed.post/1',
+      text: 'test post',
+      topic_vector: { general: 0.5 },
+      like_count: 1,
+      repost_count: 0,
+      reply_count: 0,
+      classification_method: null,
+    });
+
+    dbQueryMock
+      .mockResolvedValueOnce({ rows: [makeEpochRow()] })
+      .mockResolvedValueOnce({ rows: [postRow] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await runScoringPipeline();
+
     const method = getStoredClassificationMethod();
     expect(method).toBe('keyword');
   });
 
   it('TOPIC_EMBEDDING_ENABLED has no effect on scoring behavior', async () => {
     configMock.TOPIC_EMBEDDING_ENABLED = true;
-    setupSinglePostRun();
+    setupSinglePostRun(1, { general: 0.5 }, 'keyword');
 
     // Pipeline should complete without calling any embedding functions
     await expect(runScoringPipeline()).resolves.not.toThrow();
@@ -171,7 +216,6 @@ describe('scoring pipeline does not override topic vectors', () => {
 
     await runScoringPipeline();
 
-    // Should have stored a score
     const storeCall = dbQueryMock.mock.calls.find(
       (c: unknown[]) => String(c[0]).includes('INSERT INTO post_scores')
     );
@@ -179,9 +223,7 @@ describe('scoring pipeline does not override topic vectors', () => {
   });
 
   it('posts with embedding-style vectors score correctly', async () => {
-    // Embedding vectors look the same as keyword vectors (both are TopicVector)
-    // Just different values — embeddings tend to have cosine similarity values
-    setupSinglePostRun(1, { 'software-development': 0.62, 'devops-infrastructure': 0.38 });
+    setupSinglePostRun(1, { 'software-development': 0.62, 'devops-infrastructure': 0.38 }, 'embedding');
 
     await runScoringPipeline();
 
@@ -189,17 +231,7 @@ describe('scoring pipeline does not override topic vectors', () => {
       (c: unknown[]) => String(c[0]).includes('INSERT INTO post_scores')
     );
     expect(storeCall).toBeDefined();
-  });
-
-  it('classification_method is always keyword at scoring time', async () => {
-    configMock.TOPIC_EMBEDDING_ENABLED = true;
-    setupSinglePostRun(1, { 'cybersecurity': 0.9 });
-
-    await runScoringPipeline();
-
-    // Even with embedding enabled, the pipeline never re-classifies
-    const method = getStoredClassificationMethod();
-    expect(method).toBe('keyword');
+    expect(getStoredClassificationMethod()).toBe('embedding');
   });
 
   it('completes scoring run when no posts to score', async () => {

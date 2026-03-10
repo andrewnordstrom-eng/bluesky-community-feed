@@ -136,6 +136,7 @@ export async function handlePost(
 
   // Classify post topics (fail-open: empty vector on error)
   let topicVector: TopicVector = {};
+  let classificationMethod: 'keyword' | 'embedding' = 'keyword';
   try {
     const taxonomy = getTaxonomy();
     if (taxonomy.length > 0) {
@@ -175,6 +176,7 @@ export async function handlePost(
       const embResult = await classifyPostByEmbedding(classificationText);
       if (embResult && Object.keys(embResult.vector).length > 0) {
         topicVector = embResult.vector;
+        classificationMethod = 'embedding';
       }
       // If embedding produces empty vector but keywords had matches,
       // keep the keyword vector. The post already passed the governance gate
@@ -187,10 +189,10 @@ export async function handlePost(
   try {
     // UPSERT post - ON CONFLICT DO NOTHING handles duplicates
     await db.query(
-      `INSERT INTO posts (uri, cid, author_did, text, reply_root, reply_parent, langs, has_media, created_at, topic_vector, embed_url)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      `INSERT INTO posts (uri, cid, author_did, text, reply_root, reply_parent, langs, has_media, created_at, topic_vector, embed_url, classification_method)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        ON CONFLICT (uri) DO NOTHING`,
-      [uri, cid, authorDid, text, replyRoot, replyParent, langs, hasMedia, createdAt, JSON.stringify(topicVector), embedUrl]
+      [uri, cid, authorDid, text, replyRoot, replyParent, langs, hasMedia, createdAt, JSON.stringify(topicVector), embedUrl, classificationMethod]
     );
 
     // Initialize engagement counters - UPSERT pattern
