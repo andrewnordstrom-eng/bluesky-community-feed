@@ -705,7 +705,7 @@ After merging `dev/embedding-at-ingestion` to main, the VPS was deployed but emb
 - Some keyword false positives persist in recent posts (VTuber schedules → "mobile-development") but they score low and don't reach the top of the feed.
 - The `backfill-embeddings.ts` script works and could be reused if a future batch reclassification is needed.
 
-## 2026-03-10 #01 — URL Deduplication for Feed Output
+## 2026-03-09 #03 — URL Deduplication for Feed Output
 **Branch:** `dev/url-dedup`
 **Commits:** `0da2c49`, `4a20862`, `a727c19`, `b25f588`
 **Files changed:** `src/db/migrations/019_posts_embed_url.sql`, `src/ingestion/handlers/post-handler.ts`, `src/config.ts`, `src/scoring/pipeline.ts`, `tests/url-dedup.test.ts`, `tests/post-handler-embed-url.test.ts`
@@ -728,3 +728,25 @@ When a story goes viral, 15+ posts sharing the same link flood the feed. Each is
 ### Open questions
 - Decay multipliers and text threshold could be added to the governance parameter registry for community tuning.
 - Old posts without `embed_url` (ingested before migration) pass through unpenalized — they age out naturally within 72 hours.
+
+## 2026-03-09 #04 — Fix classification_method tracking (always showed 'keyword')
+**Branch:** `dev/classification-method-tracking`
+**Commits:** `c54f809`, `32d0b80`, `1f6f722`, `71643c6`, `4b9b507`
+**Files changed:** `src/db/migrations/020_posts_classification_method.sql`, `src/ingestion/handlers/post-handler.ts`, `src/scoring/score.types.ts`, `src/scoring/pipeline.ts`, `tests/scoring-pipeline-embeddings.test.ts`, `tests/post-handler-classification-method.test.ts`, `tests/helpers/fixtures.ts`
+
+### What changed
+Added `classification_method` column to the `posts` table so ingestion records whether a post was classified by keyword (winkNLP) or embedding (Transformers.js). The scoring pipeline now reads this value from the post row instead of hardcoding `'keyword'`. Added migration, updated post-handler INSERT to pass the method as $12, updated all 3 SELECT queries in pipeline.ts, and ran a backfill on 65,465 existing posts with embedding-style topic vectors.
+
+### Why
+The `classification_method` column in `post_scores` always showed `'keyword'` because `pipeline.ts` line 503 hardcoded `const classificationMethod: 'keyword' | 'embedding' = 'keyword'`. The embedder was running and producing cosine-similarity topic vectors (~20% of posts), but this was invisible in the data. The sprint report showed "0% Embedding Classified" despite the model being loaded and active.
+
+### Measurements
+402 tests passing across 66 files (+7 new tests). After deploy: 19.1% of newly ingested posts correctly show `classification_method = 'embedding'`. Backfill updated 65,465 historical posts. post_scores now shows both 'keyword' (99.8%) and 'embedding' (0.2%) — the low embedding % in scores is because incremental scoring only processes recent posts; the ratio will converge as more posts are scored.
+
+### Decisions & alternatives
+- Backfill heuristic: keyword vectors produce exactly 0.2 and 1.0 values, embedding vectors produce cosine similarity values (0.35-0.99). Used regex on `topic_vector::text` matching `0.[3-9]` to identify embedding-classified posts. Verified with sample queries.
+- Added column with `DEFAULT 'keyword'` so existing posts get a safe default without a data rewrite.
+- Migration ran via `docker exec psql` instead of `npm run migrate` because `tsx` is a dev dependency not on the VPS PATH.
+
+### Open questions
+- The backfill only catches posts with non-standard values (0.35-0.99). Posts where the embedding agreed with keyword results (producing similar 0.2/1.0 values) remain marked as keyword. This is a minor inaccuracy affecting a small number of posts.
