@@ -633,8 +633,14 @@ async function writeToRedisFromDb(epochId: number, runId: string): Promise<void>
   const cutoffMs = config.SCORING_WINDOW_HOURS * 60 * 60 * 1000;
   const cutoff = new Date(Date.now() - cutoffMs);
 
-  const result = await db.query<{ post_uri: string; total_score: number }>(
-    `SELECT ps.post_uri, ps.total_score
+  const result = await db.query<{
+    post_uri: string;
+    total_score: number;
+    embed_url: string | null;
+    text_length: number;
+  }>(
+    `SELECT ps.post_uri, ps.total_score, p.embed_url,
+            COALESCE(LENGTH(p.text), 0) as text_length
      FROM post_scores ps
      INNER JOIN posts p ON p.uri = ps.post_uri
      WHERE ps.epoch_id = $1
@@ -646,7 +652,45 @@ async function writeToRedisFromDb(epochId: number, runId: string): Promise<void>
     [epochId, config.FEED_MAX_POSTS, cutoff.toISOString(), config.FEED_MIN_RELEVANCE]
   );
 
-  const topPosts = result.rows;
+  // URL deduplication: penalize reshares of the same external link.
+  // Posts are already sorted by total_score DESC, so the highest-scored post
+  // sharing a URL gets full score and later duplicates get decayed.
+  let topPosts: Array<{ post_uri: string; total_score: number }>;
+
+  if (config.FEED_DEDUP_ENABLED) {
+    const DEDUP_DECAY = [1.0, 0.7, 0.5, 0.3];
+    const urlCounts = new Map<string, number>();
+
+    const dedupedPosts = result.rows.map(post => {
+      // No URL or substantial original text → no penalty
+      if (!post.embed_url || post.text_length >= config.FEED_DEDUP_MIN_TEXT) {
+        return { post_uri: post.post_uri, total_score: post.total_score };
+      }
+
+      const count = urlCounts.get(post.embed_url) ?? 0;
+      urlCounts.set(post.embed_url, count + 1);
+
+      const decayIndex = Math.min(count, DEDUP_DECAY.length - 1);
+      const adjustedScore = post.total_score * DEDUP_DECAY[decayIndex];
+
+      return { post_uri: post.post_uri, total_score: adjustedScore };
+    });
+
+    // Re-sort after dedup adjustment (order may have changed)
+    dedupedPosts.sort((a, b) => b.total_score - a.total_score);
+
+    const dedupedUrls = [...urlCounts.entries()].filter(([, c]) => c > 1).length;
+    if (dedupedUrls > 0) {
+      logger.info({ dedupedUrls, totalUrls: urlCounts.size }, 'URL dedup applied');
+    }
+
+    topPosts = dedupedPosts;
+  } else {
+    topPosts = result.rows.map(post => ({
+      post_uri: post.post_uri,
+      total_score: post.total_score,
+    }));
+  }
 
   // Use Redis pipeline for atomic batch write
   const pipeline = redis.pipeline();

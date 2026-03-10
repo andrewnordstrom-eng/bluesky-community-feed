@@ -124,6 +124,12 @@ const ConfigSchema = z.object({
   // Private feed mode (research gating)
   FEED_PRIVATE_MODE: zodEnvBool(false),
 
+  // URL deduplication: penalize reshares of the same external link
+  /** Enable URL-based reshare deduplication in feed output. */
+  FEED_DEDUP_ENABLED: zodEnvBool(true),
+  /** Minimum original text length (chars) to skip dedup penalty. Posts with this much text are treated as original commentary. */
+  FEED_DEDUP_MIN_TEXT: z.coerce.number().min(0).default(200),
+
   // Bot (optional)
   BOT_ENABLED: zodEnvBool(false),
   BOT_HANDLE: z.string().optional(),
