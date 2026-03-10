@@ -39,8 +39,14 @@ interface PostRecord {
     parent?: { uri: string };
   };
   embed?: {
+    $type?: string;
     images?: Array<{ alt?: string; image?: unknown; aspectRatio?: unknown }>;
     video?: unknown;
+    external?: { uri?: string; title?: string; description?: string };
+    media?: {
+      $type?: string;
+      external?: { uri?: string; title?: string; description?: string };
+    };
   };
   labels?: {
     values?: Array<{ val: string }>;
@@ -65,6 +71,15 @@ export async function handlePost(
 
   // Check for media
   const hasMedia = !!(postRecord.embed?.images?.length || postRecord.embed?.video);
+
+  // Extract external embed URL for deduplication.
+  // Only extract from external link embeds — NOT from quote-post references (embed.record.uri).
+  let embedUrl: string | null = null;
+  if (postRecord.embed?.external?.uri) {
+    embedUrl = postRecord.embed.external.uri;
+  } else if (postRecord.embed?.media?.external?.uri) {
+    embedUrl = postRecord.embed.media.external.uri;
+  }
 
   // Extract alt text from image embeds for topic classification.
   // Alt text is accessibility metadata — used for classification only,
@@ -172,10 +187,10 @@ export async function handlePost(
   try {
     // UPSERT post - ON CONFLICT DO NOTHING handles duplicates
     await db.query(
-      `INSERT INTO posts (uri, cid, author_did, text, reply_root, reply_parent, langs, has_media, created_at, topic_vector)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `INSERT INTO posts (uri, cid, author_did, text, reply_root, reply_parent, langs, has_media, created_at, topic_vector, embed_url)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        ON CONFLICT (uri) DO NOTHING`,
-      [uri, cid, authorDid, text, replyRoot, replyParent, langs, hasMedia, createdAt, JSON.stringify(topicVector)]
+      [uri, cid, authorDid, text, replyRoot, replyParent, langs, hasMedia, createdAt, JSON.stringify(topicVector), embedUrl]
     );
 
     // Initialize engagement counters - UPSERT pattern
