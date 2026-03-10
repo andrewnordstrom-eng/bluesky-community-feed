@@ -668,3 +668,63 @@ The pipeline's batch embedding override was causing re-inflation: posts that ent
 ### Open questions
 - `classification_method` stored in `post_scores` is always `'keyword'` at scoring time now. Could add a `classification_method` column to `posts` table to track whether ingestion used keyword or embedding classification.
 - Need to deploy with `TOPIC_EMBEDDING_ENABLED=true` on VPS and verify word-sense disambiguation works in practice (e.g., "fork in the road" vs "fork the repository").
+
+## 2026-03-09 #02 — VPS Embedding Deployment + Old Post Purge
+**Branch:** `main`
+**Commits:** `faa4041` (backfill script), `f5b4ced` (docs), `e7860aa` (merge)
+**Files changed:** `scripts/backfill-embeddings.ts` (new), `docs/dev-journal.md`, `docs/SYSTEM_OVERVIEW.md`
+
+### What changed
+Three-part VPS deployment to activate embedding classification and clean up stale posts:
+
+1. **Enabled embeddings on VPS**: Set `TOPIC_EMBEDDING_ENABLED=true` and `TOPIC_EMBEDDING_MIN_SIMILARITY=0.35` in production `.env`. Restarted service — embedder initialized with 26 topic embeddings (all-MiniLM-L6-v2, 601ms model load). New posts immediately started getting embedding-classified topic vectors (e.g., `art-creative: 0.36` vs keyword-only `0.2`).
+
+2. **Attempted batch backfill** (abandoned): Created `scripts/backfill-embeddings.ts` to re-classify 188K existing posts. Script ran for ~12 minutes processing 25,200 posts (~19% replacement rate) before being killed — too slow at 33 posts/s (~100 min total).
+
+3. **Soft-deleted old posts instead**: Batch soft-deleted ~948K posts older than 2 hours (`UPDATE posts SET deleted = TRUE` in 10K–50K batches). This left only ~22K recent posts that were properly embedding-classified at ingestion. VACUUM ANALYZE reclaimed space. Feed temporarily smaller but 100% accurately classified.
+
+### Why
+After merging `dev/embedding-at-ingestion` to main, the VPS was deployed but embedding was disabled (`TOPIC_EMBEDDING_ENABLED` commented out). Feed was serving the same keyword-classified posts as before. Rather than spending 100 minutes re-embedding 188K old posts, purging them and letting the feed rebuild from properly classified new posts was 10x faster.
+
+### Measurements
+- Pre-purge: 981K total posts, 189K with topics, feed dominated by keyword false positives
+- Post-purge: 22K active posts, embedding classifier running on all new ingestion
+- Backfill script: 25,200/188,385 processed before abort (4,862 replaced at 19% rate)
+- Soft-delete: 95 batches, ~948K rows, 4 deadlock retries (scoring pipeline contention)
+- Feed top 25: mostly genuine tech/AI content (was: soldiers→education, fashion→space false positives)
+- Scoring pipeline: 1,904 posts in 17s (down from 2,500 in 41s pre-purge)
+
+### Decisions & alternatives
+- **Soft delete over hard delete**: CLAUDE.md Critical Rule #3 — `deleted=TRUE` preserves data integrity and audit trail.
+- **Purge over backfill**: 10x faster (2 min vs 100 min). The 19% backfill replacement rate meant 81% of posts would keep their keyword vectors anyway — not worth the time.
+- **2-hour cutoff**: Conservative enough to keep recently ingested (properly classified) posts while removing the bulk of keyword-only classified content.
+- **Deadlock retry**: Scoring pipeline running concurrently caused 4 deadlocks — retry-on-deadlock loop handled gracefully.
+
+### Open questions
+- Feed will be smaller for ~24 hours as new posts accumulate. Monitor feed size via `ZCARD feed:current`.
+- Some keyword false positives persist in recent posts (VTuber schedules → "mobile-development") but they score low and don't reach the top of the feed.
+- The `backfill-embeddings.ts` script works and could be reused if a future batch reclassification is needed.
+
+## 2026-03-10 #01 — URL Deduplication for Feed Output
+**Branch:** `dev/url-dedup`
+**Commits:** `0da2c49`, `4a20862`, `a727c19`, `b25f588`
+**Files changed:** `src/db/migrations/019_posts_embed_url.sql`, `src/ingestion/handlers/post-handler.ts`, `src/config.ts`, `src/scoring/pipeline.ts`, `tests/url-dedup.test.ts`, `tests/post-handler-embed-url.test.ts`
+
+### What changed
+Added URL-based reshare deduplication to the feed output pipeline. When multiple posts share the same external embed URL, a decay multiplier is applied: 1st post gets full score, 2nd 0.7×, 3rd 0.5×, 4th+ 0.3×. Posts with 200+ chars of original text bypass the penalty (treated as original commentary). The external embed URL is extracted at ingestion time from `app.bsky.embed.external` and `app.bsky.embed.recordWithMedia` nested external — quote-post references (`embed.record.uri`) are excluded.
+
+### Why
+When a story goes viral, 15+ posts sharing the same link flood the feed. Each is by a different author (source diversity = 1.0), all match the same topic, and engagement is high. The feed becomes a wall of the same story repeated. This dedup step preserves the top post + posts with original analysis while penalizing low-effort reshares.
+
+### Measurements
+16 new tests (10 dedup, 6 embed extraction), 395 total tests passing across 65 files. Build clean.
+
+### Decisions & alternatives
+- Decay multipliers [1.0, 0.7, 0.5, 0.3] chosen as moderate — aggressive enough to push 4th+ reshares down, gentle enough to keep 2nd/3rd visible if they have good scores.
+- 200-char text threshold for "original commentary" bypass — short enough to catch most quote-tweet analysis, long enough to exclude "wow big news" reactions.
+- Dedup applied in `writeToRedisFromDb` (post-scoring) rather than at ingestion or in scoring components — keeps scoring pure and makes the feature easy to disable via `FEED_DEDUP_ENABLED`.
+- Re-sort after dedup is necessary because a high-scored duplicate can drop below a lower-scored unique post.
+
+### Open questions
+- Decay multipliers and text threshold could be added to the governance parameter registry for community tuning.
+- Old posts without `embed_url` (ingested before migration) pass through unpenalized — they age out naturally within 72 hours.
