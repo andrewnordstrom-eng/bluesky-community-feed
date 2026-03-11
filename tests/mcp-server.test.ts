@@ -281,7 +281,7 @@ describe('MCP Server', () => {
   });
 
   describe('tool listing', () => {
-    it('lists all 23 registered tools', async () => {
+    it('lists all 30 registered tools', async () => {
       setupValidAuth();
 
       const app = createTestApp();
@@ -348,7 +348,11 @@ describe('MCP Server', () => {
         expect(toolNames).toContain('get_topic_stats');
         expect(toolNames).toContain('classify_text');
 
-        expect(toolNames.length).toBe(28);
+        // Report tools (2)
+        expect(toolNames).toContain('generate_feed_report');
+        expect(toolNames).toContain('get_feed_snapshot');
+
+        expect(toolNames.length).toBe(30);
       }
 
       await app.close();
