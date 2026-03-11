@@ -772,3 +772,25 @@ Dry-run verified VPS connectivity and data extraction (1000 posts, 910 unique au
 
 ### Open questions
 - None. Script is tested and working.
+
+## 2026-03-11 #02 — MCP Report Generation & Feed Snapshot Tools
+**Branch:** `dev/mcp-report-tool`
+**Commits:** `33af231`
+**Files changed:** `src/mcp/tools/report.ts`, `src/mcp/tools/index.ts`, `tests/mcp-server.test.ts`
+
+### What changed
+Added two MCP tools: `generate_feed_report` wraps `scripts/generate-report.py` via `execFile` with 120s timeout, exposing report generation to any MCP client. `get_feed_snapshot` combines `/api/admin/status` and `/api/admin/feed-health` into a single JSON response for quick metric checks without generating a full docx.
+
+### Why
+The report script was created in the previous entry but could only be triggered from the command line. MCP tools let Claude Code, the CLI, and the admin dashboard trigger report generation with natural language.
+
+### Measurements
+402 tests pass across 66 files. MCP tool count: 28 to 30. TypeScript compiles clean. Pre-commit hook passes.
+
+### Decisions & alternatives
+- `generate_feed_report` uses `execFile` (first usage in the codebase) because there's no admin route wrapping the Python script. All other MCP tools delegate via `app.inject()`.
+- Script path resolved via `fileURLToPath(import.meta.url)` for ESM compatibility.
+- `get_feed_snapshot` merges two inject responses into a single JSON object rather than requiring two separate tool calls.
+
+### Open questions
+- None.
