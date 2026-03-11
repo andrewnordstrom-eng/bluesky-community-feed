@@ -42,3 +42,29 @@ Create the sockets directory: `mkdir -p ~/.ssh/sockets`
 | `ops/status` | `ops/status` | Full system health overview |
 | `ops/feed-check` | `ops/feed-check 30` | Audit top N posts in the feed |
 | `ops/deploy` | `ops/deploy` | Pull, build, migrate, restart |
+| `scripts/generate-report.py` | `python3 scripts/generate-report.py` | Generate feed quality analysis report |
+
+## Report Generation
+
+Generate a styled .docx feed quality report with charts, tables, and scoring analysis.
+
+```bash
+# Full report from live VPS data (default)
+python3 scripts/generate-report.py
+
+# Dry run — verify VPS connectivity, print data summary, skip docx
+python3 scripts/generate-report.py --dry-run
+
+# Generate from a local CSV (offline / testing)
+python3 scripts/generate-report.py --csv /tmp/feed-data.csv
+
+# Custom output path
+python3 scripts/generate-report.py --output reports/sprint-data-analysis-mar15.docx
+
+# Custom date label
+python3 scripts/generate-report.py --date "March 15, 2026"
+```
+
+**Dependencies:** Python 3.12+, pandas, matplotlib, python-docx (all pre-installed).
+
+**Output:** 6-page report covering executive summary, topic distribution, score composition, classification & diversity, engagement profile, and sample posts.
