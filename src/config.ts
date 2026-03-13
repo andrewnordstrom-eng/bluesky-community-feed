@@ -107,8 +107,8 @@ const ConfigSchema = z.object({
   INGESTION_MIN_TEXT_FOR_MEDIA: z.coerce.number().min(0).default(10),
 
   // Jetstream throughput tuning
-  /** Max concurrent DB operations for event processing. Too low = queue saturation death loop. */
-  JETSTREAM_MAX_CONCURRENT: z.coerce.number().min(1).default(50),
+  /** Max concurrent DB operations for event processing. Keep below DB_POOL_MAX to leave headroom for HTTP handlers. */
+  JETSTREAM_MAX_CONCURRENT: z.coerce.number().min(1).default(20),
   /** Max pending events in backpressure queue before triggering reconnect. */
   JETSTREAM_MAX_PENDING: z.coerce.number().min(100).default(10_000),
 

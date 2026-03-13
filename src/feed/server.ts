@@ -48,9 +48,11 @@ export async function createServer() {
   const allowedOrigins = parseAllowedOrigins();
 
   // Register CORS for cross-origin requests
+  // NOTE: @fastify/cors v11 requires origin functions to be async or callback-style.
+  // Sync functions that return a boolean are silently ignored, causing requests to hang.
   await app.register(cors, {
     credentials: true,
-    origin: (origin: string | undefined) => {
+    origin: async (origin: string | undefined) => {
       if (!origin) return true;
       return allowedOrigins.has(origin);
     },

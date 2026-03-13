@@ -794,3 +794,30 @@ The report script was created in the previous entry but could only be triggered 
 
 ### Open questions
 - None.
+
+## 2026-03-13 #01 — Fix: Feed Down — CORS async + did:plc + concurrency tuning
+**Branch:** `dev/fix-cors-hang`
+**Commits:** (pending)
+**Files changed:** `src/feed/server.ts`, `src/config.ts`, VPS `.env`
+
+### What changed
+Fixed three-layer production outage: (1) `@fastify/cors` v11 CORS origin function was synchronous — v11 requires async or callback-style functions, sync return values are silently ignored causing all HTTP requests to hang indefinitely. Added `async` keyword. (2) Changed `FEEDGEN_SERVICE_DID` from `did:web:feed.corgi.network` to `did:plc:amzyknmm4auxijvykyfgznw2` per Critical Rule #6 — `did:web` requires server reachability for resolution, `did:plc` resolves via PLC directory independently. (3) Reduced `JETSTREAM_MAX_CONCURRENT` default from 50 to 20 to leave DB pool headroom for HTTP handlers.
+
+### Why
+Bluesky app showed "could not resolve identity: did:web:feed.corgi.network" — the server accepted TCP connections but never sent HTTP responses. Root cause: `@fastify/cors@11.2.0` changed the origin function contract from v10. Functions with fewer than 2 arguments are no longer treated as sync-return; the plugin waits for a callback that never arrives. The `did:web` dependency on server availability made the CORS hang fatal to feed resolution.
+
+### Measurements
+- Before fix: 0% HTTP response rate (TCP connect, zero bytes returned, 100% timeout)
+- After fix: all endpoints respond (<50ms for health, <200ms for feed skeleton)
+- Scoring pipeline: 15.2s for 2500 posts (normal)
+- Jetstream catch-up: reconnect-on-saturation cycling (expected after downtime, self-healing)
+
+### Decisions & alternatives
+- **CORS fix**: `async (origin) => ...` chosen over callback-style `(origin, cb) => cb(null, ...)` for readability. Both work with @fastify/cors v11. Could also pin @fastify/cors to v10, but upgrading the call convention is the correct forward-compatible fix.
+- **did:plc over did:web**: One-way door decision per Critical Rule #6. `did:plc` resolves via PLC directory without hitting our server, eliminating a circular dependency (server must be up for Bluesky to verify server identity).
+- **JETSTREAM_MAX_CONCURRENT 20 vs 50**: 20 leaves 30 DB pool connections for HTTP handlers. With 50 concurrent ingestion handlers matching a 50-connection pool, HTTP requests could starve during high firehose throughput.
+- **Diagnostic approach**: Progressive binary search isolated the hanging plugin from 10+ route groups and 6 plugins. Testing matrix: static values pass, sync functions hang, async functions pass, callback functions pass. Root cause confirmed in <30 minutes of targeted testing.
+
+### Open questions
+- Pre-existing `ajv` dependency issue causes 25 test file failures (missing `json-schema-draft-07.json` in ajv@8.18.0). Unrelated to this fix, needs separate investigation.
+- Feed record may need re-publishing with `npm run publish-feed` if Bluesky still caches old `did:web` reference.
