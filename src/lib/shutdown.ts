@@ -2,7 +2,7 @@
  * Graceful Shutdown Module
  *
  * Handles clean shutdown of all system components with a timeout.
- * Order: HTTP server → Scoring → Jetstream → Epoch Scheduler → Maintenance Worker Supervisor → Cleanup → Interaction Logger → Interaction Aggregator → Database → Redis
+ * Order: Watchdog → HTTP server → Scoring → Jetstream → Epoch Scheduler → Maintenance Worker Supervisor → Cleanup → Interaction Logger → Interaction Aggregator → Database → Redis
  */
 
 import type { FastifyInstance } from 'fastify';
@@ -19,6 +19,7 @@ export interface ShutdownDependencies {
   stopJetstream: () => Promise<void>;
   stopEpochScheduler?: () => void;
   stopMaintenanceWorkerSupervisor?: () => Promise<void>;
+  stopWatchdog?: () => void;
   stopCleanup?: () => Promise<void>;
   stopInteractionLogger?: () => Promise<void>;
   stopInteractionAggregator?: () => Promise<void>;
@@ -47,6 +48,11 @@ export async function gracefulShutdown(deps: ShutdownDependencies): Promise<void
   }, SHUTDOWN_TIMEOUT_MS);
 
   try {
+    // 0. Stop watchdog heartbeat (prevent systemd kill during shutdown)
+    if (deps.stopWatchdog) {
+      deps.stopWatchdog();
+    }
+
     // 1. Stop accepting new HTTP requests (drain existing)
     logger.info('Closing HTTP server...');
     await deps.server.close();

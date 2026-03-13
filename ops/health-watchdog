@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# External health watchdog — belt-and-suspenders alongside in-process watchdog.
+#
+# Checks /health/ready up to 3 times with 10s gaps.
+# If all 3 fail, restarts bluesky-feed via systemctl.
+#
+# Intended to run as a systemd timer (health-watchdog.timer) every 5 minutes.
+# Logs all actions to syslog via logger(1).
+#
+# Usage: ops/health-watchdog
+set -euo pipefail
+
+SERVICE="bluesky-feed"
+HEALTH_URL="http://localhost:3001/health/ready"
+MAX_RETRIES=3
+RETRY_DELAY=10
+TAG="health-watchdog"
+
+log_info()  { logger -t "$TAG" -p user.info  "$1"; }
+log_warn()  { logger -t "$TAG" -p user.warning "$1"; }
+log_err()   { logger -t "$TAG" -p user.err "$1"; }
+
+# Check if the service is even running
+if ! systemctl is-active --quiet "$SERVICE"; then
+  log_warn "$SERVICE is not active — skipping health check (systemd will handle restart)"
+  exit 0
+fi
+
+# Try health check with retries
+failures=0
+for attempt in $(seq 1 "$MAX_RETRIES"); do
+  if curl -sf --max-time 5 "$HEALTH_URL" > /dev/null 2>&1; then
+    log_info "Health check passed (attempt $attempt/$MAX_RETRIES)"
+    exit 0
+  fi
+  failures=$((failures + 1))
+  log_warn "Health check failed (attempt $attempt/$MAX_RETRIES)"
+  if [ "$attempt" -lt "$MAX_RETRIES" ]; then
+    sleep "$RETRY_DELAY"
+  fi
+done
+
+# All retries exhausted — restart the service
+log_err "Health check failed $failures/$MAX_RETRIES times — restarting $SERVICE"
+systemctl restart "$SERVICE"
+log_info "$SERVICE restarted by health watchdog"

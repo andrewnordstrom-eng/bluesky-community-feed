@@ -1,0 +1,21 @@
+# Health watchdog timer — runs the health check every 5 minutes.
+#
+# Install:
+#   cp ops/health-watchdog.timer /etc/systemd/system/
+#   systemctl daemon-reload
+#   systemctl enable --now health-watchdog.timer
+#
+# Verify:
+#   systemctl list-timers health-watchdog.timer
+#   journalctl -t health-watchdog --since "1 hour ago"
+
+[Unit]
+Description=Bluesky Feed Health Watchdog Timer
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

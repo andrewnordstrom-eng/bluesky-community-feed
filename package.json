@@ -79,5 +79,8 @@
     "community-governance",
     "algorithmic-transparency",
     "typescript"
-  ]
+  ],
+  "overrides": {
+    "ajv": "8.17.1"
+  }
 }

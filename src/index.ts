@@ -20,6 +20,7 @@ import {
 import { loadTaxonomy, loadTopicEmbeddings } from './scoring/topics/taxonomy.js';
 import { initEmbedder } from './scoring/topics/embedder.js';
 import { loadGovernanceGateWeights } from './ingestion/governance-gate.js';
+import { sdNotifyReady, startWatchdog, stopWatchdog } from './lib/watchdog.js';
 
 async function main() {
   logger.info('Starting Community Feed Generator...');
@@ -48,6 +49,9 @@ async function main() {
       { port: config.FEEDGEN_PORT, host: config.FEEDGEN_LISTENHOST },
       'Feed generator server started'
     );
+
+    // Tell systemd we're ready (Type=notify). No-op outside systemd.
+    sdNotifyReady();
   } catch (err) {
     logger.fatal({ err }, 'Failed to start HTTP server');
     process.exit(1);
@@ -152,20 +156,26 @@ async function main() {
     process.exit(1);
   }
 
-  // 7. Register graceful shutdown handlers
+  // 7. Start systemd watchdog heartbeat (no-op outside systemd).
+  // Sends WATCHDOG=1 every 30s only when DB + Redis are healthy.
+  // If both are down for >60s, systemd kills and restarts us.
+  startWatchdog();
+
+  // 8. Register graceful shutdown handlers
   registerShutdownHandlers({
     server: app,
     stopScoring,
     stopJetstream,
     stopEpochScheduler,
     stopMaintenanceWorkerSupervisor,
+    stopWatchdog,
     // Kept for backwards compatibility in shutdown flow.
     stopCleanup,
     stopInteractionLogger,
     stopInteractionAggregator,
   });
 
-  // 8. Log startup complete
+  // 9. Log startup complete
   logger.info({
     serviceDid: config.FEEDGEN_SERVICE_DID,
     publisherDid: config.FEEDGEN_PUBLISHER_DID,

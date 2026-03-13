@@ -37,3 +37,75 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: node cli/dist/index.js feed health --direct --json
+
+      - name: Check public endpoint
+        run: |
+          if curl -sf --max-time 10 https://feed.corgi.network/health/live > /dev/null 2>&1; then
+            echo "Public health endpoint OK"
+          else
+            echo "Public health endpoint unreachable"
+            exit 1
+          fi
+
+      - name: Ping health monitor on success
+        if: success()
+        env:
+          HC_URL: ${{ secrets.HEALTHCHECK_PING_URL }}
+        run: |
+          if [ -n "${HC_URL:-}" ]; then
+            curl -fsS "${HC_URL}" || true
+          fi
+
+      - name: Alert health monitor on failure
+        if: failure()
+        env:
+          HC_URL: ${{ secrets.HEALTHCHECK_PING_URL }}
+        run: |
+          if [ -n "${HC_URL:-}" ]; then
+            curl -fsS "${HC_URL}/fail" || true
+          fi
+
+      - name: Create GitHub issue on failure
+        if: failure()
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            const today = new Date().toISOString().split('T')[0];
+            const title = 'Feed Health Alert - ' + today;
+
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'incident',
+              per_page: 10,
+            });
+
+            const alreadyOpen = existing.data.some(i => i.title === title);
+            if (alreadyOpen) {
+              console.log('Issue already exists for today, skipping');
+              return;
+            }
+
+            const runUrl = [
+              context.serverUrl,
+              context.repo.owner,
+              context.repo.repo,
+              'actions/runs',
+              context.runId,
+            ].join('/');
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body: [
+                'The daily health check workflow failed.',
+                '',
+                '**Run:** ' + runUrl,
+                '**Time:** ' + new Date().toISOString(),
+                '',
+                'Check the workflow logs for details.',
+              ].join('\n'),
+              labels: ['incident'],
+            });

@@ -1,0 +1,13 @@
+# Health watchdog oneshot service — runs the health check script.
+# Triggered by health-watchdog.timer every 5 minutes.
+#
+# Install: cp ops/health-watchdog.service /etc/systemd/system/
+
+[Unit]
+Description=Bluesky Feed Health Watchdog
+After=bluesky-feed.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/bluesky-feed/ops/health-watchdog
+TimeoutStartSec=120

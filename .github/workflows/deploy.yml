@@ -17,8 +17,15 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
+          script_stop: true
+          command_timeout: 10m
           script: |
+            set -euo pipefail
             cd /opt/bluesky-feed
+
+            # Save current commit for rollback
+            PREV_COMMIT=$(git rev-parse HEAD)
+
             git pull origin main
             npm ci --ignore-scripts
             npm audit --audit-level=high
@@ -29,3 +36,49 @@ jobs:
             cd cli && npm ci && npx tsc
             cd ..
             sudo systemctl restart bluesky-feed
+
+            # Post-deploy health verification (3 retries, 10s apart)
+            echo "Waiting 10s for startup..."
+            sleep 10
+            HEALTHY=false
+            for i in 1 2 3; do
+              if curl -sf --max-time 5 http://localhost:3001/health/ready > /dev/null 2>&1; then
+                echo "Health check passed (attempt $i/3)"
+                HEALTHY=true
+                break
+              fi
+              echo "Health check failed (attempt $i/3)"
+              sleep 10
+            done
+
+            if [ "$HEALTHY" = "false" ]; then
+              echo "DEPLOY FAILED: service unhealthy after restart"
+              echo "Rolling back to $PREV_COMMIT..."
+              git checkout "$PREV_COMMIT"
+              npm run build
+              sudo systemctl restart bluesky-feed
+              sleep 5
+              echo "Rollback complete. Current health:"
+              curl -s http://localhost:3001/health || echo "Still unhealthy after rollback"
+              exit 1
+            fi
+
+            echo "Deploy successful"
+
+      - name: Ping health monitor on success
+        if: success()
+        env:
+          HC_URL: ${{ secrets.HEALTHCHECK_PING_URL }}
+        run: |
+          if [ -n "${HC_URL:-}" ]; then
+            curl -fsS "${HC_URL}" || true
+          fi
+
+      - name: Alert on deploy failure
+        if: failure()
+        env:
+          HC_URL: ${{ secrets.HEALTHCHECK_PING_URL }}
+        run: |
+          if [ -n "${HC_URL:-}" ]; then
+            curl -fsS "${HC_URL}/fail" || true
+          fi

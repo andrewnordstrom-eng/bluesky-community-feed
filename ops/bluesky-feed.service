@@ -1,0 +1,71 @@
+# Community Feed Generator — systemd unit file
+#
+# Install: cp ops/bluesky-feed.service /etc/systemd/system/ && systemctl daemon-reload
+# Enable:  systemctl enable bluesky-feed
+# Start:   systemctl start bluesky-feed
+# Logs:    journalctl -u bluesky-feed -f
+
+[Unit]
+Description=Community Feed Generator (Bluesky)
+Documentation=https://github.com/corgi-network/bluesky-feed
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=notify
+NotifyAccess=main
+
+# Working directory and environment
+WorkingDirectory=/opt/bluesky-feed
+EnvironmentFile=/opt/bluesky-feed/.env
+Environment=NODE_ENV=production
+Environment=NODE_OPTIONS=--max-old-space-size=896
+
+# Start the application (sends READY=1 via sd_notify after listen())
+ExecStart=/usr/bin/node dist/index.js
+
+# Watchdog: process must send WATCHDOG=1 every 60s or systemd kills it.
+# The app sends heartbeats every 30s (half of WatchdogSec) only when
+# database AND Redis health checks pass. If dependencies are down for
+# >60s the process is killed and restarted automatically.
+WatchdogSec=60
+
+# Restart policy: auto-restart on crash or watchdog timeout.
+# RestartSec adds a 5s delay to avoid rapid restart loops.
+Restart=on-failure
+RestartSec=5
+
+# Crash loop protection: if the service fails 5 times in 5 minutes,
+# stop trying. Manual intervention is needed at that point.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# Memory limits (cgroup v2): cap before OOM killer strikes.
+# MemoryHigh is a soft limit that triggers throttling.
+# MemoryMax is a hard limit that triggers OOM kill.
+# NODE_OPTIONS --max-old-space-size=896 keeps V8 heap below MemoryMax.
+MemoryHigh=768M
+MemoryMax=1G
+
+# Graceful shutdown: SIGTERM triggers the app's shutdown handler,
+# which drains HTTP, saves Jetstream cursor, closes DB/Redis.
+# 30s matches the app's SHUTDOWN_TIMEOUT_MS.
+TimeoutStopSec=35
+KillSignal=SIGTERM
+KillMode=mixed
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/bluesky-feed
+PrivateTmp=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bluesky-feed
+
+[Install]
+WantedBy=multi-user.target
