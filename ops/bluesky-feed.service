@@ -12,6 +12,12 @@ After=network-online.target docker.service
 Wants=network-online.target
 Requires=docker.service
 
+# Crash loop protection: if the service fails 5 times in 5 minutes,
+# stop trying. Manual intervention is needed at that point.
+# NOTE: These MUST be in [Unit], not [Service] (systemd v229+).
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
 [Service]
 Type=notify
 NotifyAccess=main
@@ -35,11 +41,6 @@ WatchdogSec=60
 # RestartSec adds a 5s delay to avoid rapid restart loops.
 Restart=on-failure
 RestartSec=5
-
-# Crash loop protection: if the service fails 5 times in 5 minutes,
-# stop trying. Manual intervention is needed at that point.
-StartLimitIntervalSec=300
-StartLimitBurst=5
 
 # Memory limits (cgroup v2): cap before OOM killer strikes.
 # MemoryHigh is a soft limit that triggers throttling.

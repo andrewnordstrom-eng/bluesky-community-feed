@@ -55,6 +55,7 @@ jobs:
               echo "DEPLOY FAILED: service unhealthy after restart"
               echo "Rolling back to $PREV_COMMIT..."
               git checkout "$PREV_COMMIT"
+              npm ci --ignore-scripts
               npm run build
               sudo systemctl restart bluesky-feed
               sleep 5
