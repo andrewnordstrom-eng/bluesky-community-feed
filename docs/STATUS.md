@@ -36,8 +36,8 @@ Votes are aggregated via trimmed mean each epoch. The architecture supports maki
 
 ### 4. Admin toolkit (4 interfaces)
 - **Web dashboard** — visual management of epochs, topics, participants, feed health
-- **CLI** — `npm run cli -- topics:list`, `scoring:trigger`, `export:votes`, etc.
-- **MCP server** — 28 tools for natural-language admin via Claude or any MCP client
+- **CLI** — `npm run cli -- topics list`, `feed rescore`, `export votes --epoch 1 --format csv`, etc.
+- **MCP server** — 30 tools for natural-language admin via Claude or any MCP client
 - **REST API** — full CRUD on everything, Zod-validated, audit-logged
 
 ### 5. Research infrastructure

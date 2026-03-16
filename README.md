@@ -1,6 +1,8 @@
 # Community-Governed Bluesky Feed
 
 [![Deploy](https://github.com/AndrewNordstrom/bluesky-community-feed/actions/workflows/deploy.yml/badge.svg)](https://github.com/AndrewNordstrom/bluesky-community-feed/actions/workflows/deploy.yml)
+[![CI](https://github.com/AndrewNordstrom/bluesky-community-feed/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AndrewNordstrom/bluesky-community-feed/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/AndrewNordstrom/bluesky-community-feed/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/AndrewNordstrom/bluesky-community-feed/actions/workflows/codeql.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Node >= 20](https://img.shields.io/badge/Node-%3E%3D20-339933)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6)](https://www.typescriptlang.org/)
@@ -8,6 +10,8 @@
 A production Bluesky custom feed where subscribers democratically vote on ranking weights and content rules. The backend applies those decisions in a transparent, auditable scoring pipeline. Every ranking decision is decomposed, stored, and explainable.
 
 > **Research question:** Can communities meaningfully govern their own recommendation algorithms?
+
+![Governance dashboard screenshot](docs/screenshots/dashboard.png)
 
 ---
 
@@ -54,7 +58,7 @@ A production Bluesky custom feed where subscribers democratically vote on rankin
 **Admin & Tooling**
 - Admin dashboard: governance controls, feed health, interactions, audit log
 - CLI tool (`feed-cli`): full admin operations from any terminal, no VPS access required
-- MCP server: 23 admin tools via Streamable HTTP for natural-language feed management
+- MCP server: Streamable HTTP admin tools for natural-language feed management
 - OpenAPI documentation at `/docs`
 - Research data export: votes, scores, engagement, epochs, audit log (CSV/JSON)
 
@@ -74,7 +78,7 @@ A production Bluesky custom feed where subscribers democratically vote on rankin
 ```text
 ┌─────────────────────────────────────────────────────────────┐
 │                        INTERFACES                           │
-│  Web Dashboard  │  CLI (feed-cli)  │  MCP Server (23 tools) │
+│  Web Dashboard  │  CLI (feed-cli)  │      MCP Server         │
 └────────┬────────┴────────┬─────────┴────────┬───────────────┘
          │                 │                  │
          ▼                 ▼                  ▼
@@ -168,6 +172,19 @@ cd web && npm audit --audit-level=moderate
 curl http://localhost:3000/health  # {"status":"ok"}
 ```
 
+### Quick Smoke Test
+
+```bash
+# 1) Service health should return {"status":"ok"}
+curl -sS http://localhost:3000/health
+
+# 2) Feed describe should return a DID and feed URI payload
+curl -sS http://localhost:3000/xrpc/app.bsky.feed.describeFeedGenerator
+
+# 3) Direct CLI read against local DB should return JSON (epoch may be null on fresh DB)
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/community_feed" npm run cli -- --direct --json epoch status
+```
+
 ---
 
 ## Scoring Formula
@@ -212,7 +229,7 @@ All 15 numeric values (5× raw, weight, weighted) are persisted per post per epo
 - `/api/admin/export/*` — Research data export (votes, scores, engagement, epochs, audit)
 
 **MCP Server**
-- `POST /mcp` — Streamable HTTP endpoint, 23 admin tools for programmatic management
+- `POST /mcp` — Streamable HTTP endpoint for programmatic admin tooling
 
 </details>
 
@@ -222,13 +239,13 @@ All 15 numeric values (5× raw, weight, weighted) are persisted per post per epo
 Full admin operations from any terminal. Authenticates via the same session system as the web dashboard — no VPS credentials required.
 
 ```bash
-npm run cli -- login --handle your-handle.bsky.social
-npm run cli -- epoch:status
-npm run cli -- votes:summary
-npm run cli -- feed:stats
-npm run cli -- export:votes --epoch 1-5 --anonymize --format csv
-npm run cli -- topics:list
-npm run cli -- announce "Voting opens tomorrow"
+npm run cli -- login your-handle.bsky.social xxxx-xxxx-xxxx-xxxx
+npm run cli -- epoch status
+npm run cli -- votes summary --epoch 1
+npm run cli -- feed health
+npm run cli -- export votes --epoch 1 --format csv
+npm run cli -- topics list
+npm run cli -- announce send "Voting opens tomorrow"
 ```
 
 See `npm run cli -- --help` for all commands.
@@ -245,6 +262,9 @@ See `npm run cli -- --help` for all commands.
 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Production deployment guide |
 | [`docs/OPS_RUNBOOK.md`](docs/OPS_RUNBOOK.md) | Operations and troubleshooting |
 | [`docs/SECURITY.md`](docs/SECURITY.md) | Security model and threat analysis |
+| [`ROADMAP.md`](ROADMAP.md) | Product and engineering roadmap |
+| [`RELEASING.md`](RELEASING.md) | Semantic versioning and release process |
+| [`docs/ISSUE_TRIAGE.md`](docs/ISSUE_TRIAGE.md) | Issue labels, triage, and newcomer flow |
 | [`docs/MCP_SETUP.md`](docs/MCP_SETUP.md) | MCP server connection guide |
 | [`docs/STABILITY_TEST.md`](docs/STABILITY_TEST.md) | Stability and load testing |
 | [`docs/dev-journal.md`](docs/dev-journal.md) | Development log with decisions |

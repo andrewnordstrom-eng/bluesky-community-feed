@@ -10,6 +10,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - Community topic weight voting (boost/penalize topics via governance)
 - Bluesky content label filtering (replaces keyword-based NSFW exclusion)
 - Topic taxonomy with co-occurrence disambiguation
+- Hardened PR CI workflow (`backend-verify`, `frontend-verify`, `report-scripts-verify`)
+- CodeQL scanning workflow and branch-protection-required check integration
+- Offline report fixture data + pinned Python report requirements for reproducible script validation
+- Roadmap, release policy, and issue triage policy docs
+
+### Changed
+- README command examples and tooling descriptions updated to match current CLI and MCP behavior
+- PR template and contributing checklist now enforce changelog and security/audit validation gates
 
 ## [1.1.0] — 2026-03-06
 

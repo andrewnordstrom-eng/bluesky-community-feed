@@ -23,9 +23,10 @@ npm run migrate
 ## Useful Commands
 
 - Build backend: `npm run build`
-- Run backend tests: `npm test`
+- Run backend tests: `npm test -- --run`
 - Build frontend: `cd web && npm run build`
 - Run frontend dev server: `cd web && npm run dev`
+- Full local gate: `npm run verify`
 
 ## Project Structure
 
@@ -43,6 +44,8 @@ npm run migrate
 - Add or update tests for behavior changes
 - Avoid adding external API calls in feed serving paths
 - Keep changes scoped and easy to review
+- Follow issue label policy in [`docs/ISSUE_TRIAGE.md`](docs/ISSUE_TRIAGE.md)
+- Follow release/changelog policy in [`RELEASING.md`](RELEASING.md)
 
 ## Adding A Votable Weight
 
@@ -60,5 +63,6 @@ npm run migrate
 - `MPLCONFIGDIR=/tmp python3 scripts/generate-report-pdf.py --csv tests/fixtures/report/report-sample.csv --epoch-json tests/fixtures/report/epoch-sample.json --dry-run` passes
 - `npm audit --audit-level=moderate` passes
 - `cd web && npm audit --audit-level=moderate` passes
+- `CHANGELOG.md` updated for user/operator-visible changes
 - Migrations included for schema changes
 - Notes included for operational or rollout impact
