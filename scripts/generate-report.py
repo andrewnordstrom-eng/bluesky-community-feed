@@ -857,7 +857,7 @@ def build_title_page(doc, date_label, epoch):
     epoch_id = epoch.get("id", "?")
 
     title = doc.add_paragraph(style="Title")
-    run = title.add_run(f"Feed Quality Analysis")
+    run = title.add_run("Feed Quality Analysis")
     run.font.name = FONT
 
     # Date subtitle
@@ -964,7 +964,7 @@ def build_executive_summary(doc, df, epoch, stats):
     )
 
 
-def build_methodology_block(doc, epoch, stats, date_label):
+def build_methodology_block(doc, epoch, stats):
     """Data freshness and methodology disclosure block."""
     styled_heading(doc, "Methodology & Data Freshness", level=2)
 
@@ -984,13 +984,13 @@ def build_methodology_block(doc, epoch, stats, date_label):
     gen_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
     lines = [
-        f"Scope: Top 1,000 scored posts from the active governance epoch.",
+        "Scope: Top 1,000 scored posts from the active governance epoch.",
         f"Epoch: {epoch_id} (created {created_at}).",
         f"Database: {total_posts} total indexed posts, {scored_count} scored this epoch, "
         f"{last_24h} ingested in last 24 hours.",
         f"Generated: {gen_time}.",
-        f"Note: Engagement metrics (likes, reposts, replies) reflect counts at time of "
-        f"data extraction and may differ from current values.",
+        "Note: Engagement metrics (likes, reposts, replies) reflect counts at time of "
+        "data extraction and may differ from current values.",
     ]
 
     p = cell.paragraphs[0]
@@ -1447,7 +1447,7 @@ def main():
     build_executive_summary(doc, df, epoch, stats)
 
     # --- Methodology ---
-    build_methodology_block(doc, epoch, stats, date_label)
+    build_methodology_block(doc, epoch, stats)
 
     # --- Topic Weights (if available) ---
     topic_weights = epoch.get("topic_weights")

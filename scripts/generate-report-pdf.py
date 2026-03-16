@@ -27,7 +27,7 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import pandas as pd
@@ -1005,24 +1005,26 @@ def render_pdf_with_playwright(
 
     with sync_playwright() as p:
         browser = p.chromium.launch()
-        page = browser.new_page()
-        page.set_content(html_content, wait_until="networkidle")
-        page.pdf(
-            path=output_pdf,
-            format="Letter",
-            print_background=True,
-            display_header_footer=True,
-            header_template=header_template,
-            footer_template=footer_template,
-            margin={
-                "top": "0.75in",
-                "bottom": "0.70in",
-                "left": "0.55in",
-                "right": "0.55in",
-            },
-            prefer_css_page_size=False,
-        )
-        browser.close()
+        try:
+            page = browser.new_page()
+            page.set_content(html_content, wait_until="networkidle")
+            page.pdf(
+                path=output_pdf,
+                format="Letter",
+                print_background=True,
+                display_header_footer=True,
+                header_template=header_template,
+                footer_template=footer_template,
+                margin={
+                    "top": "0.75in",
+                    "bottom": "0.70in",
+                    "left": "0.55in",
+                    "right": "0.55in",
+                },
+                prefer_css_page_size=False,
+            )
+        finally:
+            browser.close()
 
 
 def print_dry_run(df: pd.DataFrame, epoch: dict[str, Any], stats: dict[str, Any]) -> None:
@@ -1076,8 +1078,9 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    date_label = args.date or datetime.now().strftime("%B %d, %Y")
-    date_slug = datetime.now().strftime("%b%d").lower()
+    now_utc = datetime.now(timezone.utc)
+    date_label = args.date or now_utc.strftime("%B %d, %Y")
+    date_slug = now_utc.strftime("%b%d").lower()
     output_path = args.output or f"reports/sprint-data-analysis-{date_slug}.pdf"
 
     if args.csv:
