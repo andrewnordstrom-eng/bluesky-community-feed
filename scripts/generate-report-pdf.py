@@ -31,6 +31,7 @@ from datetime import datetime
 from typing import Any
 
 import pandas as pd
+from report_utils import format_int
 
 # Keep matplotlib cache writable in restricted environments.
 os.environ.setdefault("MPLCONFIGDIR", "/tmp")
@@ -148,15 +149,6 @@ SELECT row_to_json(s) FROM (
 # Data Helpers
 # ---------------------------------------------------------------------------
 
-
-def format_int(value: Any) -> str:
-    """Format integer-like values with thousands separators."""
-    try:
-        return f"{int(value):,}"
-    except (TypeError, ValueError):
-        return str(value)
-
-
 def format_float(value: Any, precision: int = 3) -> str:
     """Format float safely with configurable precision."""
     try:
@@ -204,12 +196,21 @@ def fetch_from_vps() -> tuple[pd.DataFrame, dict[str, Any], dict[str, Any]]:
         f'&& docker exec bluesky-feed-postgres psql -U feed -d bluesky_feed -t -A -c "{STATS_SQL}"'
     )
     print("Connecting to VPS and pulling data...")
-    result = subprocess.run(
-        ["ssh", "corgi-vps", combined_cmd],
-        capture_output=True,
-        text=True,
-        timeout=90,
-    )
+    try:
+        result = subprocess.run(
+            ["ssh", "corgi-vps", combined_cmd],
+            capture_output=True,
+            text=True,
+            timeout=90,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        print(
+            f"SSH command timed out after {exc.timeout} seconds while pulling report data.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     if result.returncode != 0:
         print(f"SSH failed (exit {result.returncode}):", file=sys.stderr)
         print(result.stderr, file=sys.stderr)
@@ -246,16 +247,38 @@ def load_from_csv(
     csv_path: str, epoch_json_path: str | None = None
 ) -> tuple[pd.DataFrame, dict[str, Any], dict[str, Any]]:
     """Load report data from local files for offline generation."""
-    df = pd.read_csv(csv_path)
+    try:
+        df = pd.read_csv(csv_path)
+    except FileNotFoundError:
+        print(f"CSV file not found: {csv_path}", file=sys.stderr)
+        sys.exit(1)
+    except pd.errors.ParserError as exc:
+        print(f"Failed to parse CSV '{csv_path}': {exc}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as exc:  # noqa: BLE001
+        print(f"Failed to load CSV '{csv_path}': {exc}", file=sys.stderr)
+        sys.exit(1)
+
     epoch: dict[str, Any] = {}
     stats: dict[str, Any] = {
         "total_posts": len(df),
         "last_24h": 0,
         "scored_count": len(df),
     }
-    if epoch_json_path and os.path.exists(epoch_json_path):
-        with open(epoch_json_path, encoding="utf-8") as f:
-            epoch = json.load(f)
+    if epoch_json_path:
+        try:
+            with open(epoch_json_path, encoding="utf-8") as f:
+                epoch = json.load(f)
+        except FileNotFoundError:
+            print(f"Epoch JSON file not found: {epoch_json_path}", file=sys.stderr)
+            sys.exit(1)
+        except json.JSONDecodeError as exc:
+            print(f"Failed to parse epoch JSON '{epoch_json_path}': {exc}", file=sys.stderr)
+            sys.exit(1)
+        except Exception as exc:  # noqa: BLE001
+            print(f"Failed to load epoch JSON '{epoch_json_path}': {exc}", file=sys.stderr)
+            sys.exit(1)
+
     return df, epoch, stats
 
 
@@ -1065,6 +1088,27 @@ def main() -> None:
 
     if len(df) == 0:
         print("No data returned. Check VPS connectivity and epoch state.", file=sys.stderr)
+        sys.exit(1)
+
+    required_columns = {
+        "topics",
+        "author_did",
+        "total_score",
+        "classification_method",
+        "relevance_score",
+        "likes",
+        "reposts",
+        "replies",
+        *SCORE_COMPONENTS,
+        *WEIGHT_COLUMNS,
+    }
+    missing_columns = sorted(required_columns - set(df.columns))
+    if missing_columns:
+        print(
+            "Missing required columns in data: "
+            + ", ".join(missing_columns),
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     df["primary_topic"] = df["topics"].apply(extract_primary_topic)

@@ -22,7 +22,7 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 import matplotlib
 matplotlib.use("Agg")  # Non-interactive backend
@@ -36,6 +36,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Inches, Pt, RGBColor, Twips
+from report_utils import format_int
 
 # ---------------------------------------------------------------------------
 # Constants & Design Tokens
@@ -196,7 +197,7 @@ def load_from_csv(csv_path, epoch_json_path=None):
     epoch = {}
     stats = {"total_posts": len(df), "last_24h": 0, "scored_count": len(df)}
     if epoch_json_path and os.path.exists(epoch_json_path):
-        with open(epoch_json_path) as f:
+        with open(epoch_json_path, encoding="utf-8") as f:
             epoch = json.load(f)
     return df, epoch, stats
 
@@ -742,14 +743,6 @@ def add_callout_box(doc, bullets, label="Key Takeaways"):
         wrapper.paragraph_format.space_after = Pt(12)
 
 
-def format_int(value):
-    """Format integer-like values with thousands separators."""
-    try:
-        return f"{int(value):,}"
-    except (TypeError, ValueError):
-        return str(value)
-
-
 def add_styled_table(doc, headers, rows, col_widths=None, numeric_cols=None):
     """Add a formatted table with accent header, subtle borders, and cell padding."""
     table = doc.add_table(rows=1 + len(rows), cols=len(headers))
@@ -881,7 +874,7 @@ def build_title_page(doc, date_label, epoch):
     run.font.size = BODY_SIZE
 
 
-def build_executive_summary(doc, df, epoch, stats, date_label):
+def build_executive_summary(doc, df, epoch, stats):
     """Executive summary with key metrics and governance state."""
     styled_heading(doc, "Executive Summary")
 
@@ -988,7 +981,7 @@ def build_methodology_block(doc, epoch, stats, date_label):
     total_posts = format_int(stats.get("total_posts", "?"))
     scored_count = format_int(stats.get("scored_count", "?"))
     last_24h = format_int(stats.get("last_24h", "?"))
-    gen_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    gen_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
     lines = [
         f"Scope: Top 1,000 scored posts from the active governance epoch.",
@@ -1451,7 +1444,7 @@ def main():
     doc.add_page_break()
 
     # --- Executive Summary ---
-    build_executive_summary(doc, df, epoch, stats, date_label)
+    build_executive_summary(doc, df, epoch, stats)
 
     # --- Methodology ---
     build_methodology_block(doc, epoch, stats, date_label)
