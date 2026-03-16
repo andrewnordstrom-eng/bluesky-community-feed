@@ -19,6 +19,8 @@
     "cli:build": "cd cli && tsc",
     "seed-topics": "tsx scripts/seed-topics.ts",
     "backfill-topics": "tsx scripts/backfill-topics.ts",
+    "report:pdf": "python3 scripts/generate-report-pdf.py",
+    "build:mcp-local": "cd src/mcp-local && npx tsc -p tsconfig.json",
     "prepare": "husky"
   },
   "dependencies": {
