@@ -32,6 +32,9 @@ jobs:
       - name: Install CLI dependencies
         run: cd cli && npm ci
 
+      - name: Prepare backend test env
+        run: cp .env.example .env
+
       - name: Build backend
         run: npm run build
 
