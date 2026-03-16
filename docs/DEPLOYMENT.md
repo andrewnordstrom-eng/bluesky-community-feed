@@ -107,6 +107,13 @@ This creates/updates the `app.bsky.feed.generator/community-gov` record.
 
 ## 9. Configure systemd
 
+Create a dedicated service account and grant app directory ownership:
+
+```bash
+sudo useradd --system --home /opt/bluesky-community-feed --shell /usr/sbin/nologin bluesky-feed || true
+sudo chown -R bluesky-feed:bluesky-feed /opt/bluesky-community-feed
+```
+
 Create `/etc/systemd/system/bluesky-feed.service`:
 
 ```ini
@@ -116,9 +123,11 @@ After=network.target postgresql.service redis-server.service
 
 [Service]
 Type=simple
-User=root
+User=bluesky-feed
+Group=bluesky-feed
 WorkingDirectory=/opt/bluesky-community-feed
 Environment=NODE_ENV=production
+EnvironmentFile=/opt/bluesky-community-feed/.env
 ExecStart=/usr/bin/node dist/index.js
 Restart=on-failure
 RestartSec=10

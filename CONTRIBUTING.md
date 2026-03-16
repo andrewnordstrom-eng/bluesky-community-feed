@@ -54,8 +54,11 @@ npm run migrate
 
 ## Pull Request Checklist
 
-- `npm run build` passes
-- `npm test` passes
-- `cd web && npm run build` passes (when frontend changes)
+- `npm run verify` passes
+- `python3 -m py_compile scripts/generate-report.py scripts/generate-report-pdf.py scripts/report_utils.py` passes
+- `MPLCONFIGDIR=/tmp python3 scripts/generate-report.py --csv tests/fixtures/report/report-sample.csv --epoch-json tests/fixtures/report/epoch-sample.json --dry-run` passes
+- `MPLCONFIGDIR=/tmp python3 scripts/generate-report-pdf.py --csv tests/fixtures/report/report-sample.csv --epoch-json tests/fixtures/report/epoch-sample.json --dry-run` passes
+- `npm audit --audit-level=moderate` passes
+- `cd web && npm audit --audit-level=moderate` passes
 - Migrations included for schema changes
 - Notes included for operational or rollout impact

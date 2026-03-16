@@ -41,6 +41,7 @@
   "overrides": {
     "eslint-plugin-react-hooks": {
       "eslint": "$eslint"
-    }
+    },
+    "flatted": "3.4.1"
   }
 }

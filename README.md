@@ -59,10 +59,11 @@ A production Bluesky custom feed where subscribers democratically vote on rankin
 - Research data export: votes, scores, engagement, epochs, audit log (CSV/JSON)
 
 **Engineering**
-- 185+ tests (unit, integration, stress) with CI enforcement
+- 400+ automated tests (unit, integration, stress) with PR-gated CI
 - Modular scoring component interface (plug in new algorithms without touching the pipeline)
 - Pre-commit hooks (husky + lint-staged + tsc)
 - Dependabot for automated dependency updates
+- CodeQL + npm audit gates on pull requests
 - Shared types between frontend and backend (compile-time contract)
 - Code generators for new scoring components and routes
 
@@ -158,9 +159,12 @@ cd web && npm run dev
 ### Verify
 
 ```bash
-npm run build              # TypeScript compiles
-npm test -- --run          # All tests pass
-cd web && npm run build    # Frontend compiles
+npm run verify
+python3 -m py_compile scripts/generate-report.py scripts/generate-report-pdf.py scripts/report_utils.py
+MPLCONFIGDIR=/tmp python3 scripts/generate-report.py --csv tests/fixtures/report/report-sample.csv --epoch-json tests/fixtures/report/epoch-sample.json --dry-run
+MPLCONFIGDIR=/tmp python3 scripts/generate-report-pdf.py --csv tests/fixtures/report/report-sample.csv --epoch-json tests/fixtures/report/epoch-sample.json --dry-run
+npm audit --audit-level=moderate
+cd web && npm audit --audit-level=moderate
 curl http://localhost:3000/health  # {"status":"ok"}
 ```
 

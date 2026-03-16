@@ -34,9 +34,11 @@ WORKDIR /app
 # Set production environment
 ENV NODE_ENV=production
 
-# Install only production dependencies
+# Install only production dependencies.
+# Ignore lifecycle scripts in runtime image so dev-only `prepare` hooks (Husky)
+# do not run when devDependencies are intentionally omitted.
 COPY package*.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 
 # Copy built application from builder stage
 COPY --from=builder /app/dist ./dist

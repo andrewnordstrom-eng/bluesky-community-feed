@@ -21,6 +21,7 @@
     "backfill-topics": "tsx scripts/backfill-topics.ts",
     "report:pdf": "python3 scripts/generate-report-pdf.py",
     "build:mcp-local": "cd src/mcp-local && npx tsc -p tsconfig.json",
+    "verify": "npm run build && npm test -- --run && npm run cli:build && npm run build:mcp-local && cd web && npm run lint && npm run build",
     "prepare": "husky"
   },
   "dependencies": {
@@ -38,7 +39,7 @@
     "@modelcontextprotocol/sdk": "^1.27.1",
     "archiver": "^7.0.1",
     "dotenv": "^16.4.0",
-    "fastify": "^5.0.0",
+    "fastify": "^5.8.2",
     "ioredis": "^5.10.0",
     "node-cron": "^4.2.1",
     "pg": "^8.13.0",
@@ -83,6 +84,8 @@
     "typescript"
   ],
   "overrides": {
-    "ajv": "8.17.1"
+    "ajv": "8.18.0",
+    "hono": "4.12.8",
+    "tar": "7.5.11"
   }
 }

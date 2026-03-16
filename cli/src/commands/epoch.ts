@@ -8,6 +8,40 @@ import type { Command } from 'commander';
 import { resolveConfig } from '../config.js';
 import { apiGet, apiPost } from '../http.js';
 import { printJson, printSummary, printTable, printError } from '../output.js';
+import { getDirectEpochStatus, type EpochStatusData } from '../direct.js';
+
+interface ApiAdminStatusResponse {
+  feedPrivateMode?: boolean;
+  system?: {
+    currentEpoch?: {
+      id?: number;
+      status?: string;
+      phase?: string;
+      weights?: Record<string, number>;
+    } | null;
+    feed?: {
+      subscriberCount?: number;
+    };
+  };
+}
+
+async function getApiEpochStatus(config: ReturnType<typeof resolveConfig>): Promise<EpochStatusData> {
+  const data = await apiGet<ApiAdminStatusResponse>('/api/admin/status', config);
+  const currentEpoch = data.system?.currentEpoch ?? null;
+
+  return {
+    epoch: currentEpoch
+      ? {
+          id: Number(currentEpoch.id ?? 0),
+          phase: currentEpoch.phase ?? currentEpoch.status ?? 'N/A',
+          weights: currentEpoch.weights ?? {},
+        }
+      : null,
+    feedPrivateMode: data.feedPrivateMode ?? false,
+    scoringRunning: null,
+    subscriberCount: data.system?.feed?.subscriberCount ?? 0,
+  };
+}
 
 /** Register epoch commands on the program. */
 export function registerEpochCommands(program: Command): void {
@@ -22,21 +56,25 @@ export function registerEpochCommands(program: Command): void {
     .action(async () => {
       try {
         const config = resolveConfig(program.opts());
-        const data = await apiGet<Record<string, unknown>>(
-          '/api/admin/status',
-          config
-        );
+        let data: EpochStatusData;
+        if (config.direct) {
+          if (!config.databaseUrl) {
+            throw new Error('Direct mode requires DATABASE_URL');
+          }
+          data = await getDirectEpochStatus(config.databaseUrl);
+        } else {
+          data = await getApiEpochStatus(config);
+        }
 
         if (config.json) {
           printJson(data);
         } else {
-          const epoch = data.epoch as Record<string, unknown> | undefined;
           printSummary([
-            ['Epoch ID', epoch?.id ?? 'N/A'],
-            ['Phase', epoch?.phase ?? 'N/A'],
-            ['Weights', JSON.stringify(epoch?.weights ?? {})],
+            ['Epoch ID', data.epoch?.id ?? 'N/A'],
+            ['Phase', data.epoch?.phase ?? 'N/A'],
+            ['Weights', JSON.stringify(data.epoch?.weights ?? {})],
             ['Feed Private Mode', data.feedPrivateMode ?? false],
-            ['Scoring Running', data.scoringRunning ?? false],
+            ['Scoring Running', data.scoringRunning ?? 'N/A'],
             ['Subscriber Count', data.subscriberCount ?? 0],
           ]);
         }

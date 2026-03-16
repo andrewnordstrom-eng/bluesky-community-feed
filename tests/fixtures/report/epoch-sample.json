@@ -1,0 +1,16 @@
+{
+  "id": 42,
+  "status": "active",
+  "recency_weight": 0.2,
+  "engagement_weight": 0.2,
+  "bridging_weight": 0.2,
+  "source_diversity_weight": 0.2,
+  "relevance_weight": 0.2,
+  "vote_count": 37,
+  "topic_weights": {
+    "ai-machine-learning": 0.52,
+    "decentralized-social": 0.30,
+    "open-source": 0.18
+  },
+  "created_at": "2026-03-15T00:00:00Z"
+}

@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  backend-verify:
+    name: backend-verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install backend dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Install CLI dependencies
+        run: cd cli && npm ci
+
+      - name: Build backend
+        run: npm run build
+
+      - name: Run backend tests
+        run: npm test -- --run
+
+      - name: Build CLI
+        run: npm run cli:build
+
+      - name: Build local MCP server
+        run: npm run build:mcp-local
+
+      - name: Security audit (backend)
+        run: npm audit --audit-level=moderate
+
+  frontend-verify:
+    name: frontend-verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install frontend dependencies
+        run: cd web && npm ci
+
+      - name: Lint frontend
+        run: cd web && npm run lint
+
+      - name: Build frontend
+        run: cd web && npm run build
+
+      - name: Security audit (frontend)
+        run: cd web && npm audit --audit-level=moderate
+
+  report-scripts-verify:
+    name: report-scripts-verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install report dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r scripts/requirements-report.txt
+
+      - name: Compile report scripts
+        run: |
+          python3 -m py_compile \
+            scripts/generate-report.py \
+            scripts/generate-report-pdf.py \
+            scripts/report_utils.py
+
+      - name: Verify DOCX report script (offline dry-run)
+        run: |
+          MPLCONFIGDIR=/tmp python3 scripts/generate-report.py \
+            --csv tests/fixtures/report/report-sample.csv \
+            --epoch-json tests/fixtures/report/epoch-sample.json \
+            --dry-run
+
+      - name: Verify PDF report script (offline dry-run)
+        run: |
+          MPLCONFIGDIR=/tmp python3 scripts/generate-report-pdf.py \
+            --csv tests/fixtures/report/report-sample.csv \
+            --epoch-json tests/fixtures/report/epoch-sample.json \
+            --dry-run

@@ -271,20 +271,25 @@ export function InteractionsPanel() {
 /**
  * Summary cards row with today vs yesterday comparison.
  */
+type DeltaProps = {
+  current: number;
+  previous: number | undefined;
+};
+
+function Delta({ current, previous }: DeltaProps) {
+  if (previous === undefined || previous === 0) return null;
+  const pct = ((current - previous) / previous) * 100;
+  const color = pct >= 0 ? '#10b981' : '#ef4444';
+  const arrow = pct >= 0 ? '▲' : '▼';
+  return (
+    <span style={{ fontSize: '0.75rem', color, marginLeft: '0.4rem' }}>
+      {arrow} {Math.abs(pct).toFixed(0)}%
+    </span>
+  );
+}
+
 function SummaryCards({ overview }: { overview: InteractionOverview }) {
   const { today, yesterday } = overview;
-
-  function Delta({ current, previous }: { current: number; previous: number | undefined }) {
-    if (previous === undefined || previous === 0) return null;
-    const pct = ((current - previous) / previous) * 100;
-    const color = pct >= 0 ? '#10b981' : '#ef4444';
-    const arrow = pct >= 0 ? '▲' : '▼';
-    return (
-      <span style={{ fontSize: '0.75rem', color, marginLeft: '0.4rem' }}>
-        {arrow} {Math.abs(pct).toFixed(0)}%
-      </span>
-    );
-  }
 
   return (
     <div className="stats-grid">

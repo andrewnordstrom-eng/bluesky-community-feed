@@ -1,0 +1,13 @@
+# Default owner for all files
+* @AndrewNordstrom
+
+# Core backend and feed logic
+/src/ @AndrewNordstrom
+/tests/ @AndrewNordstrom
+
+# Frontend
+/web/ @AndrewNordstrom
+
+# Infra, deployment, and governance docs
+/.github/ @AndrewNordstrom
+/docs/ @AndrewNordstrom

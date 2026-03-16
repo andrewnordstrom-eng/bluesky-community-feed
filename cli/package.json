@@ -11,7 +11,8 @@
     "dev": "tsx src/index.ts"
   },
   "dependencies": {
-    "commander": "^12.0.0"
+    "commander": "^12.0.0",
+    "pg": "^8.13.0"
   },
   "devDependencies": {
     "tsx": "^4.19.0",
