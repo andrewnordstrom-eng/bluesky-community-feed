@@ -45,6 +45,12 @@ jobs:
             if [ -f .env ]; then
               ENV_BACKUP="$(mktemp /tmp/bluesky-feed-env-backup.XXXXXX)"
               cp .env "${ENV_BACKUP}"
+              if ! cmp -s .env "${ENV_BACKUP}"; then
+                echo "Failed to verify .env backup integrity"
+                rm -f "${ENV_BACKUP}"
+                ENV_BACKUP=""
+                exit 1
+              fi
             fi
             trap restore_env_file EXIT
             if [ ! -f .env.example ]; then
