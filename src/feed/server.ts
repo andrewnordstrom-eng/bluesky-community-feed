@@ -103,7 +103,7 @@ export async function createServer() {
         version: '1.1.0',
         contact: {
           name: 'Community Feed',
-          url: 'https://github.com/AndrewNordstrom/bluesky-community-feed',
+          url: 'https://github.com/andrewnordstrom-eng/bluesky-community-feed',
         },
         license: { name: 'MIT' },
       },

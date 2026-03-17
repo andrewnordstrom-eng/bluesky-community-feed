@@ -46,7 +46,7 @@ CREATE DATABASE community_feed OWNER feeduser;
 
 ```bash
 cd /opt
-sudo git clone https://github.com/AndrewNordstrom/bluesky-community-feed.git
+sudo git clone https://github.com/andrewnordstrom-eng/bluesky-community-feed.git
 sudo chown -R "$USER":"$USER" /opt/bluesky-community-feed
 cd /opt/bluesky-community-feed
 ```
@@ -225,10 +225,16 @@ location / {
 
 Required GitHub Actions secrets:
 
+- Add these as repository-level secrets in the transferred org repo:
+  `Settings -> Secrets and variables -> Actions` for
+  `andrewnordstrom-eng/bluesky-community-feed`.
 - `VPS_HOST`
 - `VPS_USER`
 - `VPS_SSH_KEY`
 - `VPS_SSH_HOST_KEY` (recommended host-key pin for strict SSH verification)
+- `DATABASE_URL` (required by `daily-health.yml` and `weekly-export.yml`)
+- `EXPORT_ANONYMIZATION_SALT` (required by `weekly-export.yml`)
+- `HEALTHCHECK_PING_URL` (optional, used by deploy and daily health monitor pings)
 
 On each `main` push that changes `docs/docs-site/**`, the workflow uploads the docs bundle to the VPS and verifies that live `https://docs.corgi.network/` and `/openapi.json` hashes match the repository artifacts.
 
