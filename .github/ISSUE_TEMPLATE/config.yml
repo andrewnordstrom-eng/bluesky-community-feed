@@ -1,11 +1,11 @@
 blank_issues_enabled: true
 contact_links:
   - name: Support Guide
-    url: https://github.com/AndrewNordstrom/bluesky-community-feed/blob/main/SUPPORT.md
+    url: https://github.com/andrewnordstrom-eng/bluesky-community-feed/blob/main/SUPPORT.md
     about: Troubleshooting and support expectations
   - name: Documentation
-    url: https://github.com/AndrewNordstrom/bluesky-community-feed/tree/main/docs
+    url: https://github.com/andrewnordstrom-eng/bluesky-community-feed/tree/main/docs
     about: Check existing docs before opening an issue
   - name: Security Vulnerability (Private)
-    url: https://github.com/AndrewNordstrom/bluesky-community-feed/security/advisories/new
+    url: https://github.com/andrewnordstrom-eng/bluesky-community-feed/security/advisories/new
     about: Report vulnerabilities privately through GitHub Security Advisories
