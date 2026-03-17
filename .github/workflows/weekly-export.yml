@@ -114,8 +114,17 @@ jobs:
             exit 1
           fi
 
-          node cli/dist/index.js --server http://localhost:3001 --quiet export votes --epoch=current --format=csv > "$REMOTE_EXPORT_DIR/votes.csv"
-          node cli/dist/index.js --server http://localhost:3001 --quiet export scores --epoch=current --format=csv > "$REMOTE_EXPORT_DIR/scores.csv"
+          EPOCH_ID="$(
+            curl -fsS http://localhost:3001/api/governance/epochs/current \
+              | node -e 'const fs = require("fs"); const data = JSON.parse(fs.readFileSync(0, "utf8")); if (!Number.isInteger(data?.id)) { process.exit(1); } process.stdout.write(String(data.id));'
+          )"
+          if [ -z "$EPOCH_ID" ]; then
+            echo "Could not resolve current epoch ID from local governance API." >&2
+            exit 1
+          fi
+
+          node cli/dist/index.js --server http://localhost:3001 --quiet export votes --epoch="$EPOCH_ID" --format=csv > "$REMOTE_EXPORT_DIR/votes.csv"
+          node cli/dist/index.js --server http://localhost:3001 --quiet export scores --epoch="$EPOCH_ID" --format=csv > "$REMOTE_EXPORT_DIR/scores.csv"
           node cli/dist/index.js --server http://localhost:3001 --quiet logout || true
           EOF
 
