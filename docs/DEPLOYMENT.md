@@ -228,6 +228,7 @@ Required GitHub Actions secrets:
 - `VPS_HOST`
 - `VPS_USER`
 - `VPS_SSH_KEY`
+- `VPS_SSH_HOST_KEY` (recommended host-key pin for strict SSH verification)
 
 On each `main` push that changes `docs/docs-site/**`, the workflow uploads the docs bundle to the VPS and verifies that live `https://docs.corgi.network/` and `/openapi.json` hashes match the repository artifacts.
 

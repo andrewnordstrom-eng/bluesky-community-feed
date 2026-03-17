@@ -28,24 +28,34 @@ jobs:
 
       - name: Validate docs artifacts
         run: |
+          set -euo pipefail
           test -s docs/docs-site/index.html
           test -s docs/docs-site/openapi.json
+          # Sanity thresholds to catch truncated artifacts before deployment.
+          [ "$(wc -c < docs/docs-site/index.html)" -ge 1500 ]
+          [ "$(wc -c < docs/docs-site/openapi.json)" -ge 10000 ]
+          jq -e '.openapi and .info.title and (.paths | type == "object")' docs/docs-site/openapi.json > /dev/null
 
       - name: Configure SSH access
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_SSH_HOST_KEY: ${{ secrets.VPS_SSH_HOST_KEY }}
         run: |
           set -euo pipefail
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
           printf '%s\n' "${VPS_SSH_KEY}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H "${VPS_HOST}" >> ~/.ssh/known_hosts
+          if [ -n "${VPS_SSH_HOST_KEY:-}" ]; then
+            printf '%s\n' "${VPS_SSH_HOST_KEY}" > ~/.ssh/known_hosts
+          else
+            ssh-keyscan -H "${VPS_HOST}" >> ~/.ssh/known_hosts
+          fi
           chmod 644 ~/.ssh/known_hosts
           # Fail fast if connection/auth is invalid.
-          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes "${VPS_USER}@${VPS_HOST}" 'echo "SSH connection OK"'
+          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 "${VPS_USER}@${VPS_HOST}" 'echo "SSH connection OK"'
 
       - name: Publish docs bundle to VPS
         env:
@@ -54,8 +64,8 @@ jobs:
         run: |
           set -euo pipefail
           tar -C docs/docs-site -czf /tmp/corgi-docs.tgz .
-          scp -i ~/.ssh/id_ed25519 /tmp/corgi-docs.tgz "${VPS_USER}@${VPS_HOST}:/tmp/corgi-docs.tgz"
-          ssh -i ~/.ssh/id_ed25519 "${VPS_USER}@${VPS_HOST}" '
+          scp -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes -o ConnectTimeout=10 /tmp/corgi-docs.tgz "${VPS_USER}@${VPS_HOST}:/tmp/corgi-docs.tgz"
+          ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes -o ConnectTimeout=10 "${VPS_USER}@${VPS_HOST}" '
             set -euo pipefail
             DEPLOY_DIR="$(mktemp -d /tmp/corgi-docs-deploy.XXXXXX)"
             cleanup() {
@@ -82,14 +92,35 @@ jobs:
           ACTUAL_INDEX_SHA=""
           ACTUAL_OPENAPI_SHA=""
           for attempt in 1 2 3 4 5; do
-            ACTUAL_INDEX_SHA="$(curl -fsSL --max-time 10 https://docs.corgi.network/ | sha256sum | awk '{print $1}')"
-            ACTUAL_OPENAPI_SHA="$(curl -fsSL --max-time 10 https://docs.corgi.network/openapi.json | sha256sum | awk '{print $1}')"
+            INDEX_TMP="$(mktemp /tmp/corgi-docs-index.XXXXXX)"
+            OPENAPI_TMP="$(mktemp /tmp/corgi-docs-openapi.XXXXXX)"
+            if ! curl -fsSL --max-time 10 --connect-timeout 5 https://docs.corgi.network/ -o "${INDEX_TMP}"; then
+              echo "Attempt ${attempt}/5: failed to fetch docs homepage."
+              rm -f "${INDEX_TMP}" "${OPENAPI_TMP}"
+              sleep $((attempt * 2))
+              continue
+            fi
+            if ! curl -fsSL --max-time 10 --connect-timeout 5 https://docs.corgi.network/openapi.json -o "${OPENAPI_TMP}"; then
+              echo "Attempt ${attempt}/5: failed to fetch docs OpenAPI JSON."
+              rm -f "${INDEX_TMP}" "${OPENAPI_TMP}"
+              sleep $((attempt * 2))
+              continue
+            fi
+            if ! jq -e '.openapi and .info.title and (.paths | type == "object")' "${OPENAPI_TMP}" > /dev/null; then
+              echo "Attempt ${attempt}/5: live OpenAPI JSON failed schema sanity check."
+              rm -f "${INDEX_TMP}" "${OPENAPI_TMP}"
+              sleep $((attempt * 2))
+              continue
+            fi
+            ACTUAL_INDEX_SHA="$(sha256sum "${INDEX_TMP}" | awk '{print $1}')"
+            ACTUAL_OPENAPI_SHA="$(sha256sum "${OPENAPI_TMP}" | awk '{print $1}')"
+            rm -f "${INDEX_TMP}" "${OPENAPI_TMP}"
             if [ "${ACTUAL_INDEX_SHA}" = "${EXPECTED_INDEX_SHA}" ] && [ "${ACTUAL_OPENAPI_SHA}" = "${EXPECTED_OPENAPI_SHA}" ]; then
               echo "Live docs match repo artifacts."
               exit 0
             fi
-            echo "Attempt ${attempt}/5: docs hash mismatch, retrying in 3s..."
-            sleep 3
+            echo "Attempt ${attempt}/5: docs hash mismatch, retrying..."
+            sleep $((attempt * 2))
           done
           echo "Live docs hash verification failed."
           echo "Expected index:  ${EXPECTED_INDEX_SHA}"
