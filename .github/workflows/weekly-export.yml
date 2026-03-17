@@ -75,8 +75,58 @@ jobs:
           set -euo pipefail
           REMOTE_EXPORT_DIR="/tmp/weekly-export-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
 
-          ssh $SSH_STRICT_OPTS "${VPS_USER}@${VPS_HOST}" \
-            "set -euo pipefail; rm -rf ${REMOTE_EXPORT_DIR}; mkdir -p ${REMOTE_EXPORT_DIR}; cd /opt/bluesky-feed; BOT_HANDLE=\$(grep '^BOT_HANDLE=' .env | cut -d= -f2-); BOT_APP_PASSWORD=\$(grep '^BOT_APP_PASSWORD=' .env | cut -d= -f2-); if [ -z \"\${BOT_HANDLE}\" ] || [ -z \"\${BOT_APP_PASSWORD}\" ]; then echo 'Missing BOT_HANDLE or BOT_APP_PASSWORD in /opt/bluesky-feed/.env'; exit 1; fi; node cli/dist/index.js --server http://localhost:3001 --quiet login \"\${BOT_HANDLE}\" \"\${BOT_APP_PASSWORD}\"; node cli/dist/index.js --server http://localhost:3001 --quiet export votes --epoch=current --format=csv > ${REMOTE_EXPORT_DIR}/votes.csv; node cli/dist/index.js --server http://localhost:3001 --quiet export scores --epoch=current --format=csv > ${REMOTE_EXPORT_DIR}/scores.csv; node cli/dist/index.js --server http://localhost:3001 --quiet logout || true"
+          ssh $SSH_STRICT_OPTS "${VPS_USER}@${VPS_HOST}" "REMOTE_EXPORT_DIR='${REMOTE_EXPORT_DIR}' bash -s" <<'EOF'
+          set -euo pipefail
+
+          get_env_value() {
+            local key="$1"
+            local value
+            value="$(grep -E "^${key}=" .env | head -n 1 | cut -d= -f2- || true)"
+            value="${value%$'\r'}"
+            value="$(printf '%s' "$value" | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")"
+            printf '%s' "$value"
+          }
+
+          cd /opt/bluesky-feed
+          rm -rf "$REMOTE_EXPORT_DIR"
+          mkdir -p "$REMOTE_EXPORT_DIR"
+
+          BOT_HANDLE="$(get_env_value BOT_HANDLE)"
+          BOT_APP_PASSWORD="$(get_env_value BOT_APP_PASSWORD)"
+          BSKY_IDENTIFIER="$(get_env_value BSKY_IDENTIFIER)"
+          BSKY_APP_PASSWORD="$(get_env_value BSKY_APP_PASSWORD)"
+
+          login_ok=0
+          if [ -n "$BOT_HANDLE" ] && [ -n "$BOT_APP_PASSWORD" ]; then
+            if node cli/dist/index.js --server http://localhost:3001 --quiet login "$BOT_HANDLE" "$BOT_APP_PASSWORD"; then
+              login_ok=1
+            fi
+          fi
+
+          if [ "$login_ok" -eq 0 ] && [ -n "$BSKY_IDENTIFIER" ] && [ -n "$BSKY_APP_PASSWORD" ]; then
+            if node cli/dist/index.js --server http://localhost:3001 --quiet login "$BSKY_IDENTIFIER" "$BSKY_APP_PASSWORD"; then
+              login_ok=1
+            fi
+          fi
+
+          if [ "$login_ok" -eq 0 ]; then
+            echo "No valid export credentials found in /opt/bluesky-feed/.env (tried BOT_* and BSKY_*)." >&2
+            exit 1
+          fi
+
+          EPOCH_ID="$(
+            curl -fsS http://localhost:3001/api/governance/epochs/current \
+              | node -e 'const fs = require("fs"); const data = JSON.parse(fs.readFileSync(0, "utf8")); if (!Number.isInteger(data?.id)) { process.exit(1); } process.stdout.write(String(data.id));'
+          )"
+          if [ -z "$EPOCH_ID" ]; then
+            echo "Could not resolve current epoch ID from local governance API." >&2
+            exit 1
+          fi
+
+          node cli/dist/index.js --server http://localhost:3001 --quiet export votes --epoch="$EPOCH_ID" --format=csv > "$REMOTE_EXPORT_DIR/votes.csv"
+          node cli/dist/index.js --server http://localhost:3001 --quiet export scores --epoch="$EPOCH_ID" --format=csv > "$REMOTE_EXPORT_DIR/scores.csv"
+          node cli/dist/index.js --server http://localhost:3001 --quiet logout || true
+          EOF
 
           mkdir -p data/exports
           scp $SSH_STRICT_OPTS "${VPS_USER}@${VPS_HOST}:${REMOTE_EXPORT_DIR}/votes.csv" data/exports/votes.csv
