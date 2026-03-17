@@ -239,3 +239,4 @@ On each `main` push that changes `docs/docs-site/**`, the workflow uploads the d
 - Rotate app passwords and admin DID list as needed.
 - Watch `/health` and systemd logs.
 - Use `docs/OPS_RUNBOOK.md` for day-2 operations, retention, alerting, and incident response.
+- After any repo/org transfer, run the "Post-Transfer Validation (Manual Dispatch)" section in `docs/OPS_RUNBOOK.md`.

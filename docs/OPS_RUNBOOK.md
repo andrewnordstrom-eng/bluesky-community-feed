@@ -50,6 +50,70 @@ sudo systemctl restart bluesky-feed
 sudo systemctl is-active bluesky-feed
 ```
 
+## Post-Transfer Validation (Manual Dispatch)
+
+Use this after repository ownership transfer and for recurring manual verification.
+This project intentionally uses a deploy-only model for ongoing checks (no extra scheduled smoke workflow).
+
+Set the repo target once:
+
+```bash
+REPO="andrewnordstrom-eng/bluesky-community-feed"
+```
+
+### 1) Verify required repository secrets
+
+```bash
+gh secret list --repo "$REPO"
+```
+
+Expected required names:
+- `VPS_HOST`
+- `VPS_USER`
+- `VPS_SSH_KEY`
+- `DATABASE_URL`
+- `EXPORT_ANONYMIZATION_SALT`
+
+### 2) Trigger and watch required workflows on `main`
+
+```bash
+# CI
+gh workflow run "CI" --repo "$REPO" --ref main
+gh run watch "$(gh run list --repo "$REPO" --workflow "CI" --branch main --limit 1 --json databaseId --jq '.[0].databaseId')" --repo "$REPO" --exit-status
+
+# Deploy Docs
+gh workflow run "Deploy Docs" --repo "$REPO" --ref main
+gh run watch "$(gh run list --repo "$REPO" --workflow "Deploy Docs" --branch main --limit 1 --json databaseId --jq '.[0].databaseId')" --repo "$REPO" --exit-status
+
+# Deploy to VPS
+gh workflow run "Deploy to VPS" --repo "$REPO" --ref main
+gh run watch "$(gh run list --repo "$REPO" --workflow "Deploy to VPS" --branch main --limit 1 --json databaseId --jq '.[0].databaseId')" --repo "$REPO" --exit-status
+
+# Daily Health Check
+gh workflow run "Daily Health Check" --repo "$REPO" --ref main
+gh run watch "$(gh run list --repo "$REPO" --workflow "Daily Health Check" --branch main --limit 1 --json databaseId --jq '.[0].databaseId')" --repo "$REPO" --exit-status
+
+# Weekly Research Export
+gh workflow run "Weekly Research Export" --repo "$REPO" --ref main
+gh run watch "$(gh run list --repo "$REPO" --workflow "Weekly Research Export" --branch main --limit 1 --json databaseId --jq '.[0].databaseId')" --repo "$REPO" --exit-status
+```
+
+Expected pass criteria:
+- Each workflow concludes with `success`.
+- `Daily Health Check` creates no incident issue when the run passes.
+- `Weekly Research Export` uploads the expected CSV artifacts.
+
+### 3) Validate live runtime endpoints
+
+```bash
+curl -sS https://feed.corgi.network/health
+curl -sSI https://docs.corgi.network/
+```
+
+Expected:
+- feed health returns `{"status":"ok"}`.
+- docs endpoint returns `200`.
+
 ### Post-deploy smoke test
 
 ```bash
