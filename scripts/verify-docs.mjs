@@ -12,6 +12,29 @@ const repoRoot = path.resolve(__dirname, '..');
 const FRESHNESS_CONFIG_PATH = path.join(repoRoot, 'docs', 'freshness.json');
 const MCP_SETUP_PATH = path.join(repoRoot, 'docs', 'MCP_SETUP.md');
 const MCP_TOOL_SOURCE_DIR = path.join(repoRoot, 'src', 'mcp', 'tools');
+const OLD_REPO_PATTERNS = [
+  /github\.com\/AndrewNordstrom\/bluesky-community-feed/,
+  /\bAndrewNordstrom\/bluesky-community-feed\b/,
+];
+const REPO_GUARD_SCAN_PATHS = [
+  'README.md',
+  'SUPPORT.md',
+  'SECURITY.md',
+  'CODE_OF_CONDUCT.md',
+  'docs',
+  '.github/ISSUE_TEMPLATE/config.yml',
+];
+const REPO_GUARD_EXCLUDES = new Set([
+  'docs/dev-journal.md',
+  'docs/SECURITY_AUDIT.md',
+]);
+const REPO_GUARD_EXTENSIONS = new Set([
+  '.md',
+  '.json',
+  '.html',
+  '.yml',
+  '.yaml',
+]);
 
 const LINK_REGEX = /!?\[[^\]]*]\(([^)]+)\)/g;
 const NPM_RUN_REGEX = /\bnpm run ([a-zA-Z0-9:_-]+)\b/g;
@@ -50,6 +73,25 @@ function walkMarkdownFiles(rootDir) {
   return files;
 }
 
+function walkTextFiles(rootDir, extensions) {
+  const files = [];
+  const queue = [rootDir];
+  while (queue.length > 0) {
+    const current = queue.pop();
+    if (!current) continue;
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      const fullPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === 'dist') continue;
+        queue.push(fullPath);
+      } else if (entry.isFile() && extensions.has(path.extname(entry.name).toLowerCase())) {
+        files.push(fullPath);
+      }
+    }
+  }
+  return files;
+}
+
 function collectMarkdownFiles(scanPaths) {
   const out = new Set();
   for (const relPath of scanPaths) {
@@ -63,6 +105,25 @@ function collectMarkdownFiles(scanPaths) {
       continue;
     }
     if (stats.isFile() && absPath.endsWith('.md')) {
+      out.add(absPath);
+    }
+  }
+  return Array.from(out);
+}
+
+function collectTextFiles(scanPaths, extensions) {
+  const out = new Set();
+  for (const relPath of scanPaths) {
+    const absPath = path.join(repoRoot, relPath);
+    if (!existsSync(absPath)) continue;
+    const stats = statSync(absPath);
+    if (stats.isDirectory()) {
+      for (const file of walkTextFiles(absPath, extensions)) {
+        out.add(file);
+      }
+      continue;
+    }
+    if (stats.isFile() && extensions.has(path.extname(absPath).toLowerCase())) {
       out.add(absPath);
     }
   }
@@ -241,6 +302,18 @@ function validateCiHasDocsVerify(ciPath, problems) {
   }
 }
 
+function validateLegacyRepoReferences(files, problems) {
+  for (const file of files) {
+    const rel = relative(file);
+    if (REPO_GUARD_EXCLUDES.has(rel)) continue;
+    const content = readFileSync(file, 'utf8');
+    const hasLegacyReference = OLD_REPO_PATTERNS.some(pattern => pattern.test(content));
+    if (hasLegacyReference) {
+      problems.push(`legacy repo URL reference found: ${rel}`);
+    }
+  }
+}
+
 function main() {
   const problems = [];
 
@@ -254,6 +327,7 @@ function main() {
     ? config.scanPaths
     : DEFAULT_SCAN_PATHS;
   const markdownFiles = collectMarkdownFiles(scanPaths);
+  const repoGuardFiles = collectTextFiles(REPO_GUARD_SCAN_PATHS, REPO_GUARD_EXTENSIONS);
   const ignoreSet = new Set((config.ignoreFilesForLint ?? []).map(p => String(p)));
 
   validateFreshness(config, problems);
@@ -262,6 +336,7 @@ function main() {
   validateDeprecatedPatterns(markdownFiles, ignoreSet, problems);
   validateMcpToolCount(problems);
   validateCiHasDocsVerify(path.join(repoRoot, '.github', 'workflows', 'ci.yml'), problems);
+  validateLegacyRepoReferences(repoGuardFiles, problems);
 
   if (problems.length > 0) {
     console.error('Docs verification failed:');
