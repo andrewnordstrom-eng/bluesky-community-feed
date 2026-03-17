@@ -1,9 +1,9 @@
 # Community-Governed Bluesky Feed
 
-[![Deploy](https://github.com/AndrewNordstrom/bluesky-community-feed/actions/workflows/deploy.yml/badge.svg)](https://github.com/AndrewNordstrom/bluesky-community-feed/actions/workflows/deploy.yml)
-[![Deploy Docs](https://github.com/AndrewNordstrom/bluesky-community-feed/actions/workflows/deploy-docs.yml/badge.svg)](https://github.com/AndrewNordstrom/bluesky-community-feed/actions/workflows/deploy-docs.yml)
-[![CI](https://github.com/AndrewNordstrom/bluesky-community-feed/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AndrewNordstrom/bluesky-community-feed/actions/workflows/ci.yml)
-[![CodeQL](https://github.com/AndrewNordstrom/bluesky-community-feed/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/AndrewNordstrom/bluesky-community-feed/actions/workflows/codeql.yml)
+[![Deploy](https://github.com/andrewnordstrom-eng/bluesky-community-feed/actions/workflows/deploy.yml/badge.svg)](https://github.com/andrewnordstrom-eng/bluesky-community-feed/actions/workflows/deploy.yml)
+[![Deploy Docs](https://github.com/andrewnordstrom-eng/bluesky-community-feed/actions/workflows/deploy-docs.yml/badge.svg)](https://github.com/andrewnordstrom-eng/bluesky-community-feed/actions/workflows/deploy-docs.yml)
+[![CI](https://github.com/andrewnordstrom-eng/bluesky-community-feed/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/andrewnordstrom-eng/bluesky-community-feed/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/andrewnordstrom-eng/bluesky-community-feed/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/andrewnordstrom-eng/bluesky-community-feed/actions/workflows/codeql.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Node >= 20](https://img.shields.io/badge/Node-%3E%3D20-339933)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6)](https://www.typescriptlang.org/)
@@ -136,7 +136,7 @@ A production Bluesky custom feed where subscribers democratically vote on rankin
 ### Setup
 
 ```bash
-git clone https://github.com/AndrewNordstrom/bluesky-community-feed.git
+git clone https://github.com/andrewnordstrom-eng/bluesky-community-feed.git
 cd bluesky-community-feed
 
 # Install dependencies

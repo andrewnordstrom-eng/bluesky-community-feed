@@ -10,9 +10,9 @@ Thanks for using the Community-Governed Bluesky Feed project.
    - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for production setup
    - [docs/STABILITY_TEST.md](docs/STABILITY_TEST.md) for load/stress guidance
 2. If you found a bug, open a GitHub issue with the bug template:
-   - [New bug report](https://github.com/AndrewNordstrom/bluesky-community-feed/issues/new?template=bug_report.yml)
+   - [New bug report](https://github.com/andrewnordstrom-eng/bluesky-community-feed/issues/new?template=bug_report.yml)
 3. If you want a new feature, open a feature request:
-   - [New feature request](https://github.com/AndrewNordstrom/bluesky-community-feed/issues/new?template=feature_request.yml)
+   - [New feature request](https://github.com/andrewnordstrom-eng/bluesky-community-feed/issues/new?template=feature_request.yml)
 
 ## What to Include in Support Requests
 
@@ -26,7 +26,7 @@ Thanks for using the Community-Governed Bluesky Feed project.
 
 Do not post security vulnerabilities in public issues.
 Use private reporting via [SECURITY.md](SECURITY.md):
-- https://github.com/AndrewNordstrom/bluesky-community-feed/security/advisories/new
+- https://github.com/andrewnordstrom-eng/bluesky-community-feed/security/advisories/new
 
 ## Response Expectations
 

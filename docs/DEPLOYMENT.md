@@ -46,7 +46,7 @@ CREATE DATABASE community_feed OWNER feeduser;
 
 ```bash
 cd /opt
-sudo git clone https://github.com/AndrewNordstrom/bluesky-community-feed.git
+sudo git clone https://github.com/andrewnordstrom-eng/bluesky-community-feed.git
 sudo chown -R "$USER":"$USER" /opt/bluesky-community-feed
 cd /opt/bluesky-community-feed
 ```
