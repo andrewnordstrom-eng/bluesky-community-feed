@@ -74,16 +74,14 @@ jobs:
           ssh $SSH_STRICT_OPTS "${VPS_USER}@${VPS_HOST}" \
             "cd /opt/bluesky-feed && DATABASE_URL=${DB_Q} node cli/dist/index.js epoch status --direct --json"
 
-      - name: Check feed health on VPS
+      - name: Check local service health on VPS
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
         run: |
           set -euo pipefail
-          DB_Q=$(printf '%q' "$DATABASE_URL")
           ssh $SSH_STRICT_OPTS "${VPS_USER}@${VPS_HOST}" \
-            "cd /opt/bluesky-feed && DATABASE_URL=${DB_Q} node cli/dist/index.js feed health --direct --json"
+            "curl -sf --max-time 10 http://localhost:3001/health/ready > /dev/null"
 
       - name: Check public endpoint
         run: |
