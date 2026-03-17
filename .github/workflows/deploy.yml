@@ -46,12 +46,12 @@ jobs:
               ENV_BACKUP="$(mktemp /tmp/bluesky-feed-env-backup.XXXXXX)"
               cp .env "${ENV_BACKUP}"
             fi
+            trap restore_env_file EXIT
             if [ ! -f .env.example ]; then
               echo ".env.example is missing; cannot run deterministic deploy tests"
               exit 1
             fi
             cp .env.example .env
-            trap restore_env_file EXIT
             npm run test -- --reporter=verbose --run
             restore_env_file
             trap - EXIT
