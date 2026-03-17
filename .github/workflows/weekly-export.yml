@@ -20,6 +20,9 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           EXPORT_ANONYMIZATION_SALT: ${{ secrets.EXPORT_ANONYMIZATION_SALT }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
         run: |
           missing=0
           if [ -z "${DATABASE_URL:-}" ]; then
@@ -30,39 +33,59 @@ jobs:
             echo "::error title=Missing secret::Required repository secret EXPORT_ANONYMIZATION_SALT is not set. Add it in Settings -> Secrets and variables -> Actions."
             missing=1
           fi
+          if [ -z "${VPS_HOST:-}" ]; then
+            echo "::error title=Missing secret::Required repository secret VPS_HOST is not set. Add it in Settings -> Secrets and variables -> Actions."
+            missing=1
+          fi
+          if [ -z "${VPS_USER:-}" ]; then
+            echo "::error title=Missing secret::Required repository secret VPS_USER is not set. Add it in Settings -> Secrets and variables -> Actions."
+            missing=1
+          fi
+          if [ -z "${VPS_SSH_KEY:-}" ]; then
+            echo "::error title=Missing secret::Required repository secret VPS_SSH_KEY is not set. Add it in Settings -> Secrets and variables -> Actions."
+            missing=1
+          fi
           if [ "$missing" -ne 0 ]; then
             exit 1
           fi
 
-      - name: Setup Node.js
-        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
-        with:
-          node-version: '20'
-          cache: 'npm'
+      - name: Configure SSH access
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_SSH_HOST_KEY: ${{ secrets.VPS_SSH_HOST_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "${VPS_SSH_KEY}" > "$HOME/.ssh/id_ed25519"
+          chmod 600 "$HOME/.ssh/id_ed25519"
+          if [ -n "${VPS_SSH_HOST_KEY:-}" ]; then
+            printf '%s\n' "${VPS_SSH_HOST_KEY}" > "$HOME/.ssh/known_hosts"
+            chmod 644 "$HOME/.ssh/known_hosts"
+            echo "SSH_STRICT_OPTS=-o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts" >> "$GITHUB_ENV"
+          else
+            echo "SSH_STRICT_OPTS=-o StrictHostKeyChecking=accept-new" >> "$GITHUB_ENV"
+          fi
 
-      - name: Install server dependencies
-        run: npm ci --ignore-scripts
-
-      - name: Install CLI dependencies
-        run: cd cli && npm ci
-
-      - name: Build CLI
-        run: cd cli && npx tsc
-
-      - name: Export votes CSV
+      - name: Export CSVs on VPS and copy artifacts
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           EXPORT_ANONYMIZATION_SALT: ${{ secrets.EXPORT_ANONYMIZATION_SALT }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
         run: |
+          set -euo pipefail
+          DB_Q=$(printf '%q' "$DATABASE_URL")
+          SALT_Q=$(printf '%q' "$EXPORT_ANONYMIZATION_SALT")
+          REMOTE_EXPORT_DIR="/tmp/weekly-export-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+          ssh $SSH_STRICT_OPTS "${VPS_USER}@${VPS_HOST}" \
+            "set -euo pipefail; rm -rf ${REMOTE_EXPORT_DIR}; mkdir -p ${REMOTE_EXPORT_DIR}; cd /opt/bluesky-feed; DATABASE_URL=${DB_Q} EXPORT_ANONYMIZATION_SALT=${SALT_Q} node cli/dist/index.js export votes --epoch=current --format=csv --direct > ${REMOTE_EXPORT_DIR}/votes.csv; DATABASE_URL=${DB_Q} EXPORT_ANONYMIZATION_SALT=${SALT_Q} node cli/dist/index.js export scores --epoch=current --format=csv --direct > ${REMOTE_EXPORT_DIR}/scores.csv"
+
           mkdir -p data/exports
-          node cli/dist/index.js export votes --epoch=current --format=csv --direct > data/exports/votes.csv
-
-      - name: Export scores CSV
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          EXPORT_ANONYMIZATION_SALT: ${{ secrets.EXPORT_ANONYMIZATION_SALT }}
-        run: |
-          node cli/dist/index.js export scores --epoch=current --format=csv --direct > data/exports/scores.csv
+          scp $SSH_STRICT_OPTS "${VPS_USER}@${VPS_HOST}:${REMOTE_EXPORT_DIR}/votes.csv" data/exports/votes.csv
+          scp $SSH_STRICT_OPTS "${VPS_USER}@${VPS_HOST}:${REMOTE_EXPORT_DIR}/scores.csv" data/exports/scores.csv
+          ssh $SSH_STRICT_OPTS "${VPS_USER}@${VPS_HOST}" "rm -rf ${REMOTE_EXPORT_DIR}"
 
       - name: Upload exports
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0

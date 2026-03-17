@@ -20,36 +20,70 @@ jobs:
       - name: Validate required secrets
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
         run: |
+          missing=0
           if [ -z "${DATABASE_URL:-}" ]; then
             echo "::error title=Missing secret::Required repository secret DATABASE_URL is not set. Add it in Settings -> Secrets and variables -> Actions."
+            missing=1
+          fi
+          if [ -z "${VPS_HOST:-}" ]; then
+            echo "::error title=Missing secret::Required repository secret VPS_HOST is not set. Add it in Settings -> Secrets and variables -> Actions."
+            missing=1
+          fi
+          if [ -z "${VPS_USER:-}" ]; then
+            echo "::error title=Missing secret::Required repository secret VPS_USER is not set. Add it in Settings -> Secrets and variables -> Actions."
+            missing=1
+          fi
+          if [ -z "${VPS_SSH_KEY:-}" ]; then
+            echo "::error title=Missing secret::Required repository secret VPS_SSH_KEY is not set. Add it in Settings -> Secrets and variables -> Actions."
+            missing=1
+          fi
+          if [ "$missing" -ne 0 ]; then
             exit 1
           fi
 
-      - name: Setup Node.js
-        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
-        with:
-          node-version: '20'
-          cache: 'npm'
+      - name: Configure SSH access
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_SSH_HOST_KEY: ${{ secrets.VPS_SSH_HOST_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "${VPS_SSH_KEY}" > "$HOME/.ssh/id_ed25519"
+          chmod 600 "$HOME/.ssh/id_ed25519"
+          if [ -n "${VPS_SSH_HOST_KEY:-}" ]; then
+            printf '%s\n' "${VPS_SSH_HOST_KEY}" > "$HOME/.ssh/known_hosts"
+            chmod 644 "$HOME/.ssh/known_hosts"
+            echo "SSH_STRICT_OPTS=-o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts" >> "$GITHUB_ENV"
+          else
+            echo "SSH_STRICT_OPTS=-o StrictHostKeyChecking=accept-new" >> "$GITHUB_ENV"
+          fi
 
-      - name: Install server dependencies
-        run: npm ci --ignore-scripts
-
-      - name: Install CLI dependencies
-        run: cd cli && npm ci
-
-      - name: Build CLI
-        run: cd cli && npx tsc
-
-      - name: Check epoch status
+      - name: Check epoch status on VPS
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: node cli/dist/index.js epoch status --direct --json
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -euo pipefail
+          DB_Q=$(printf '%q' "$DATABASE_URL")
+          ssh $SSH_STRICT_OPTS "${VPS_USER}@${VPS_HOST}" \
+            "cd /opt/bluesky-feed && DATABASE_URL=${DB_Q} node cli/dist/index.js epoch status --direct --json"
 
-      - name: Check feed health
+      - name: Check feed health on VPS
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: node cli/dist/index.js feed health --direct --json
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -euo pipefail
+          DB_Q=$(printf '%q' "$DATABASE_URL")
+          ssh $SSH_STRICT_OPTS "${VPS_USER}@${VPS_HOST}" \
+            "cd /opt/bluesky-feed && DATABASE_URL=${DB_Q} node cli/dist/index.js feed health --direct --json"
 
       - name: Check public endpoint
         run: |
