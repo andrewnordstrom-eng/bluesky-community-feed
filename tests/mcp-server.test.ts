@@ -110,9 +110,9 @@ function createTestApp() {
     participants: [{ did: 'did:plc:user1', handle: 'user1.bsky.social' }],
   }));
 
-  app.post('/api/admin/participants', async (request) => ({
+  app.post('/api/admin/participants', async () => ({
     success: true,
-    ...(request.body as object),
+    did: 'did:plc:added-participant',
   }));
 
   registerMcpRoutes(app);
