@@ -1,0 +1,15 @@
+name: quality-gate
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  quality-gate:
+    uses: andrewnordstrom-eng/.github/.github/workflows/quality-gate.yml@main
+    secrets: inherit

@@ -1,0 +1,15 @@
+name: stale-triage
+
+on:
+  schedule:
+    - cron: '0 15 * * 1'
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale-triage:
+    uses: andrewnordstrom-eng/.github/.github/workflows/stale-triage.yml@main
+    secrets: inherit

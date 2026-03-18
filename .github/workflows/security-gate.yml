@@ -1,0 +1,16 @@
+name: security-gate
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  security-gate:
+    uses: andrewnordstrom-eng/.github/.github/workflows/security-gate.yml@main
+    secrets: inherit
