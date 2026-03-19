@@ -1,0 +1,14 @@
+name: issue-intake-triage
+
+on:
+  issues:
+    types: [opened, edited, reopened]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  issue-intake-triage:
+    uses: andrewnordstrom-eng/.github/.github/workflows/issue-intake-triage.yml@main
+    secrets: inherit
