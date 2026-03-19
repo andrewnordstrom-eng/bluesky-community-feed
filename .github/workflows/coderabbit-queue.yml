@@ -1,0 +1,14 @@
+name: coderabbit-queue
+
+on:
+  pull_request_target:
+    types: [opened, reopened, ready_for_review, synchronize, labeled, unlabeled, converted_to_draft, closed]
+
+permissions:
+  pull-requests: write
+  issues: write
+
+jobs:
+  coderabbit-queue:
+    uses: andrewnordstrom-eng/.github/.github/workflows/coderabbit-queue.yml@main
+    secrets: inherit
