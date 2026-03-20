@@ -1,0 +1,14 @@
+name: issue-to-linear
+
+on:
+  issues:
+    types: [opened, reopened]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  issue-to-linear:
+    uses: andrewnordstrom-eng/.github/.github/workflows/issue-to-linear.yml@main
+    secrets: inherit
