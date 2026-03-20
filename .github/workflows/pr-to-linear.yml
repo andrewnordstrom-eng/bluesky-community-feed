@@ -11,4 +11,5 @@ permissions:
 jobs:
   pr-to-linear:
     uses: andrewnordstrom-eng/.github/.github/workflows/pr-to-linear.yml@main
-    secrets: inherit
+    secrets:
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
