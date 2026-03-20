@@ -1,7 +1,7 @@
 name: pr-to-linear
 
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, reopened]
 
 permissions:
