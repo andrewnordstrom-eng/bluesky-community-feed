@@ -10,12 +10,4 @@ permissions:
 
 jobs:
   dependabot-automerge:
-    if: github.event.pull_request.user.login == 'dependabot[bot]'
     uses: andrewnordstrom-eng/.github-public/.github/workflows/dependabot-automerge.yml@ed97e9febd99c0e70f55ce64b57db46dd5aded8b
-
-  dependabot-automerge-skip:
-    if: github.event.pull_request.user.login != 'dependabot[bot]'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Skip for non-Dependabot PRs
-        run: echo "Not a Dependabot PR; skipping automerge."

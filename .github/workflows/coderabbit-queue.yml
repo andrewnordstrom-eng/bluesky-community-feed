@@ -10,9 +10,4 @@ permissions:
 
 jobs:
   coderabbit-queue:
-    if: >-
-      github.event.pull_request.head.repo.fork == false &&
-      (github.event.pull_request.author_association == 'OWNER' ||
-       github.event.pull_request.author_association == 'MEMBER' ||
-       github.event.pull_request.author_association == 'COLLABORATOR')
     uses: andrewnordstrom-eng/.github-public/.github/workflows/coderabbit-queue.yml@ed97e9febd99c0e70f55ce64b57db46dd5aded8b
