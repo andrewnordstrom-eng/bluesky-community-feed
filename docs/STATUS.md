@@ -37,7 +37,7 @@ Votes are aggregated via trimmed mean each epoch. The architecture supports maki
 ### 4. Admin toolkit (4 interfaces)
 - **Web dashboard** — visual management of epochs, topics, participants, feed health
 - **CLI** — `npm run cli -- topics list`, `feed rescore`, `export votes --epoch 1 --format csv`, etc.
-- **MCP server** — 30 tools for natural-language admin via Claude or any MCP client
+- **MCP server** — 30 tools for natural-language admin via any MCP-compatible client
 - **REST API** — full CRUD on everything, Zod-validated, audit-logged
 
 ### 5. Research infrastructure
@@ -70,10 +70,8 @@ Bluesky posts flow in via Jetstream WebSocket → classified by winkNLP at inges
 ## For Developers Joining
 
 Read these files in order:
-1. `CLAUDE.md` — Project rules and key file paths
-2. `AGENTS.md` — Architecture overview for AI coding agents
-3. `docs/SYSTEM_OVERVIEW.md` — Detailed system walkthrough
-4. `docs/dev-journal.md` — Chronological record of every change with rationale
+1. `docs/SYSTEM_OVERVIEW.md` — Detailed system walkthrough
+2. `docs/dev-journal.md` — Chronological record of every change with rationale
 
 The full test suite: `npm run build && npm test -- --run` (400+ tests, should all pass)
 

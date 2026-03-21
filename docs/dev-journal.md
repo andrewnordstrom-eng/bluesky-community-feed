@@ -695,7 +695,7 @@ After merging `dev/embedding-at-ingestion` to main, the VPS was deployed but emb
 - Scoring pipeline: 1,904 posts in 17s (down from 2,500 in 41s pre-purge)
 
 ### Decisions & alternatives
-- **Soft delete over hard delete**: CLAUDE.md Critical Rule #3 — `deleted=TRUE` preserves data integrity and audit trail.
+- **Soft delete over hard delete**: `deleted=TRUE` preserves data integrity and audit trail.
 - **Purge over backfill**: 10x faster (2 min vs 100 min). The 19% backfill replacement rate meant 81% of posts would keep their keyword vectors anyway — not worth the time.
 - **2-hour cutoff**: Conservative enough to keep recently ingested (properly classified) posts while removing the bulk of keyword-only classified content.
 - **Deadlock retry**: Scoring pipeline running concurrently caused 4 deadlocks — retry-on-deadlock loop handled gracefully.
@@ -757,7 +757,7 @@ The `classification_method` column in `post_scores` always showed `'keyword'` be
 **Files changed:** `scripts/generate-report.py`, `ops/README.md`
 
 ### What changed
-Added `scripts/generate-report.py` — a reusable Python script that SSHs to the VPS, pulls scoring data (top 1000 posts, active epoch weights, system stats) in a single call, and generates a 6-page .docx report with matplotlib charts and styled tables. Supports `--dry-run`, `--csv` for offline mode, `--date` for custom labels, and `--output` for custom paths. Added usage docs to `ops/README.md` and a context line to `CLAUDE.md`.
+Added `scripts/generate-report.py` — a reusable Python script that SSHs to the VPS, pulls scoring data (top 1000 posts, active epoch weights, system stats) in a single call, and generates a 6-page .docx report with matplotlib charts and styled tables. Supports `--dry-run`, `--csv` for offline mode, `--date` for custom labels, and `--output` for custom paths. Added usage docs to `ops/README.md`.
 
 ### Why
 The feed data analysis report had been generated twice before, each time by writing a throwaway Python script in `/tmp/`. Each session reinvented the format, producing inconsistent charts, tables, and styling. This permanent script ensures every future report uses identical structure and presentation.
@@ -782,7 +782,7 @@ Dry-run verified VPS connectivity and data extraction (1000 posts, 910 unique au
 Added two MCP tools: `generate_feed_report` wraps `scripts/generate-report.py` via `execFile` with 120s timeout, exposing report generation to any MCP client. `get_feed_snapshot` combines `/api/admin/status` and `/api/admin/feed-health` into a single JSON response for quick metric checks without generating a full docx.
 
 ### Why
-The report script was created in the previous entry but could only be triggered from the command line. MCP tools let Claude Code, the CLI, and the admin dashboard trigger report generation with natural language.
+The report script was created in the previous entry but could only be triggered from the command line. MCP tools let the CLI and the admin dashboard trigger report generation with natural language.
 
 ### Measurements
 402 tests pass across 66 files. MCP tool count: 28 to 30. TypeScript compiles clean. Pre-commit hook passes.
