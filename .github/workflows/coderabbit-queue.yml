@@ -10,5 +10,9 @@ permissions:
 
 jobs:
   coderabbit-queue:
-    uses: andrewnordstrom-eng/.github/.github/workflows/coderabbit-queue.yml@main
-    secrets: inherit
+    if: >-
+      github.event.pull_request.head.repo.fork == false &&
+      (github.event.pull_request.author_association == 'OWNER' ||
+       github.event.pull_request.author_association == 'MEMBER' ||
+       github.event.pull_request.author_association == 'COLLABORATOR')
+    uses: andrewnordstrom-eng/.github-public/.github/workflows/coderabbit-queue.yml@3c607b1f39d2cf8d6dac6029115ad99964109401

@@ -10,5 +10,4 @@ permissions:
 
 jobs:
   issue-intake-triage:
-    uses: andrewnordstrom-eng/.github/.github/workflows/issue-intake-triage.yml@main
-    secrets: inherit
+    uses: andrewnordstrom-eng/.github-public/.github/workflows/issue-intake-triage.yml@3c607b1f39d2cf8d6dac6029115ad99964109401

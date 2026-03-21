@@ -11,5 +11,6 @@ permissions:
 
 jobs:
   linear-state-sync:
-    uses: andrewnordstrom-eng/.github/.github/workflows/linear-state-sync.yml@main
-    secrets: inherit
+    uses: andrewnordstrom-eng/.github-public/.github/workflows/linear-state-sync.yml@3c607b1f39d2cf8d6dac6029115ad99964109401
+    secrets:
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY_PUBLIC }}
