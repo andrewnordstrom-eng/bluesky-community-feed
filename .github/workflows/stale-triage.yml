@@ -11,5 +11,4 @@ permissions:
 
 jobs:
   stale-triage:
-    uses: andrewnordstrom-eng/.github/.github/workflows/stale-triage.yml@main
-    secrets: inherit
+    uses: andrewnordstrom-eng/.github-public/.github/workflows/stale-triage.yml@3aaa6ed6e1feef3410e1c5bbdbfa669d43ca39db

@@ -11,5 +11,4 @@ permissions:
 
 jobs:
   quality-gate:
-    uses: andrewnordstrom-eng/.github/.github/workflows/quality-gate.yml@main
-    secrets: inherit
+    uses: andrewnordstrom-eng/.github-public/.github/workflows/quality-gate.yml@3aaa6ed6e1feef3410e1c5bbdbfa669d43ca39db

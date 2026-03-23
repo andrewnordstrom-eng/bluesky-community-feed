@@ -1,0 +1,16 @@
+name: pr-to-linear
+
+on:
+  pull_request:
+    types: [opened, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  pr-to-linear:
+    uses: andrewnordstrom-eng/.github-public/.github/workflows/pr-to-linear.yml@3aaa6ed6e1feef3410e1c5bbdbfa669d43ca39db
+    secrets:
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY_PUBLIC }}

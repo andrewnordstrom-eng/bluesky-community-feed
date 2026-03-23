@@ -12,5 +12,4 @@ permissions:
 
 jobs:
   security-gate:
-    uses: andrewnordstrom-eng/.github/.github/workflows/security-gate.yml@main
-    secrets: inherit
+    uses: andrewnordstrom-eng/.github-public/.github/workflows/security-gate.yml@3aaa6ed6e1feef3410e1c5bbdbfa669d43ca39db

@@ -1,0 +1,15 @@
+name: issue-to-linear
+
+on:
+  issues:
+    types: [opened, reopened]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  issue-to-linear:
+    uses: andrewnordstrom-eng/.github-public/.github/workflows/issue-to-linear.yml@3aaa6ed6e1feef3410e1c5bbdbfa669d43ca39db
+    secrets:
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY_PUBLIC }}
