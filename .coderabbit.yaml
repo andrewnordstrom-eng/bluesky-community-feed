@@ -4,7 +4,7 @@ language: "en-US"
 
 reviews:
   auto_review:
-    enabled: false
+    enabled: true
     labels:
       - "coderabbit:active"
       - "!coderabbit:hold"
