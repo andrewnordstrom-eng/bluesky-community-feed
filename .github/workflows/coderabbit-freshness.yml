@@ -3,6 +3,7 @@ name: coderabbit-freshness
 on:
   pull_request:
     types: [opened, reopened, synchronize, ready_for_review, labeled, unlabeled]
+  status:
 
 permissions:
   contents: read
@@ -12,4 +13,4 @@ permissions:
 
 jobs:
   coderabbit-freshness:
-    uses: andrewnordstrom-eng/.github-public/.github/workflows/coderabbit-freshness.yml@fa7477dd2602391ca874ae2497ac3b4d34243453
+    uses: andrewnordstrom-eng/.github-public/.github/workflows/coderabbit-freshness.yml@ccdf7323b6d7b28612d5904deb4c5b585938cf47
