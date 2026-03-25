@@ -29,7 +29,7 @@
     "@atproto/api": "^0.19.3",
     "@atproto/crypto": "^0.4.0",
     "@atproto/identity": "^0.4.12",
-    "@atproto/xrpc-server": "^0.6.0",
+    "@atproto/xrpc-server": "^0.10.17",
     "@fastify/cors": "^11.2.0",
     "@fastify/helmet": "^13.0.2",
     "@fastify/rate-limit": "^10.3.0",
