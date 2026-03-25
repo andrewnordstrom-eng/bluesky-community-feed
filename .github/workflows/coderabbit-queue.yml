@@ -2,7 +2,7 @@ name: coderabbit-queue
 
 on:
   pull_request:
-    types: [opened, reopened, ready_for_review, synchronize, labeled, unlabeled, converted_to_draft, closed]
+    types: [opened, reopened, ready_for_review, labeled, unlabeled, converted_to_draft, closed]
 
 permissions:
   contents: read
