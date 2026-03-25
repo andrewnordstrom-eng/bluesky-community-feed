@@ -5,9 +5,6 @@ language: "en-US"
 reviews:
   auto_review:
     enabled: true
-    labels:
-      - "coderabbit:active"
-      - "!coderabbit:hold"
     auto_incremental_review: false
     auto_pause_after_reviewed_commits: 1
     drafts: false
