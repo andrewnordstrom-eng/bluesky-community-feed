@@ -11,6 +11,6 @@ permissions:
 
 jobs:
   pr-to-linear:
-    uses: andrewnordstrom-eng/.github-public/.github/workflows/pr-to-linear.yml@3aaa6ed6e1feef3410e1c5bbdbfa669d43ca39db
+    uses: andrewnordstrom-eng/.github-public/.github/workflows/pr-to-linear.yml@3eb398cf25fba2dd97a05508678fe48b0b4e0532
     secrets:
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY_PUBLIC }}
