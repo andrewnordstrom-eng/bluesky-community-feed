@@ -10,6 +10,11 @@ import {
   stopInteractionAggregator,
   isInteractionAggregatorRunning,
 } from './interaction-aggregator.js';
+import {
+  startDiskMonitor,
+  stopDiskMonitor,
+  isDiskMonitorRunning,
+} from './disk-monitor.js';
 
 const START_RETRY_ATTEMPTS = 3;
 const START_RETRY_DELAY_MS = 5_000;
@@ -58,6 +63,12 @@ const defaultWorkers: ManagedWorker[] = [
     start: startInteractionAggregator,
     stop: stopInteractionAggregator,
     isRunning: isInteractionAggregatorRunning,
+  },
+  {
+    name: 'disk-monitor',
+    start: startDiskMonitor,
+    stop: stopDiskMonitor,
+    isRunning: isDiskMonitorRunning,
   },
 ];
 

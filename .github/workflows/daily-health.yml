@@ -74,6 +74,21 @@ jobs:
           ssh $SSH_STRICT_OPTS "${VPS_USER}@${VPS_HOST}" \
             "cd /opt/bluesky-feed && DATABASE_URL=${DB_Q} node cli/dist/index.js epoch status --direct --json"
 
+      - name: Check VPS disk space
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -euo pipefail
+          DISK_PCT=$(ssh $SSH_STRICT_OPTS "${VPS_USER}@${VPS_HOST}" "df / --output=pcent | tail -1 | tr -d ' %'")
+          echo "Disk usage: ${DISK_PCT}%"
+          if [ "$DISK_PCT" -ge 90 ]; then
+            echo "::error::VPS disk at ${DISK_PCT}% — critical"
+            exit 1
+          elif [ "$DISK_PCT" -ge 85 ]; then
+            echo "::warning::VPS disk at ${DISK_PCT}% — approaching critical"
+          fi
+
       - name: Check local service health on VPS
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
@@ -82,6 +97,27 @@ jobs:
           set -euo pipefail
           ssh $SSH_STRICT_OPTS "${VPS_USER}@${VPS_HOST}" \
             "curl -sf --max-time 10 http://localhost:3001/health/ready > /dev/null"
+
+      - name: Check feed freshness
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -euo pipefail
+          UPDATED=$(ssh $SSH_STRICT_OPTS "${VPS_USER}@${VPS_HOST}" \
+            "docker exec bluesky-feed-redis redis-cli GET feed:updated_at 2>/dev/null || echo ''")
+          if [ -z "$UPDATED" ] || [ "$UPDATED" = "(nil)" ]; then
+            echo "::warning::Feed updated_at not found in Redis"
+          else
+            echo "Feed last updated: $UPDATED"
+            UPDATED_EPOCH=$(date -d "$UPDATED" +%s 2>/dev/null || echo 0)
+            NOW_EPOCH=$(date +%s)
+            AGE_MIN=$(( (NOW_EPOCH - UPDATED_EPOCH) / 60 ))
+            if [ "$UPDATED_EPOCH" -gt 0 ] && [ "$AGE_MIN" -gt 30 ]; then
+              echo "::error::Feed is ${AGE_MIN} minutes stale"
+              exit 1
+            fi
+          fi
 
       - name: Check public endpoint
         run: |
