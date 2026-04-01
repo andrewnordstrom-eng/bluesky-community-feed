@@ -83,10 +83,10 @@ jobs:
           DISK_PCT=$(ssh $SSH_STRICT_OPTS "${VPS_USER}@${VPS_HOST}" "df / --output=pcent | tail -1 | tr -d ' %'")
           echo "Disk usage: ${DISK_PCT}%"
           if [ "$DISK_PCT" -ge 90 ]; then
-            echo "::error::VPS disk at ${DISK_PCT}% — critical"
+            echo "::error::VPS disk at ${DISK_PCT}% — critical (matches DISK_CRITICAL_PERCENT)"
             exit 1
-          elif [ "$DISK_PCT" -ge 85 ]; then
-            echo "::warning::VPS disk at ${DISK_PCT}% — approaching critical"
+          elif [ "$DISK_PCT" -ge 80 ]; then
+            echo "::warning::VPS disk at ${DISK_PCT}% — warning (matches DISK_WARNING_PERCENT)"
           fi
 
       - name: Check local service health on VPS

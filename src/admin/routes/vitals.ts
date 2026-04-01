@@ -52,7 +52,7 @@ export function registerVitalsRoutes(app: FastifyInstance): void {
          FROM pg_stat_user_tables ORDER BY pg_total_relation_size(relid) DESC LIMIT 10`
       ),
       safeQuery<{ wal_bytes: string }>(
-        `SELECT pg_wal_lsn_diff(pg_current_wal_lsn(), '0/0') as wal_bytes`
+        `SELECT COALESCE(SUM(size), 0) as wal_bytes FROM pg_ls_waldir()`
       ),
       redis.zcard('feed:current').catch(() => 0),
       redis.get('feed:updated_at').catch(() => null),
@@ -172,10 +172,10 @@ export function registerVitalsRoutes(app: FastifyInstance): void {
 
       scoring: scoringRun
         ? {
-            last_run_at: (scoringRun.value as Record<string, unknown>).timestamp ?? null,
-            duration_ms: (scoringRun.value as Record<string, unknown>).duration_ms ?? null,
-            posts_scored: (scoringRun.value as Record<string, unknown>).posts_scored ?? null,
-            posts_filtered: (scoringRun.value as Record<string, unknown>).posts_filtered ?? null,
+            last_run_at: getStatusField(scoringRun.value, 'timestamp'),
+            duration_ms: getStatusField(scoringRun.value, 'duration_ms'),
+            posts_scored: getStatusField(scoringRun.value, 'posts_scored'),
+            posts_filtered: getStatusField(scoringRun.value, 'posts_filtered'),
             is_running: healthStatus.components.scoring.is_running,
           }
         : { is_running: false, last_run_at: null },
@@ -217,6 +217,16 @@ export function registerVitalsRoutes(app: FastifyInstance): void {
 
     return reply.send(vitals);
   });
+}
+
+/**
+ * Safely extract a field from a system_status JSON value.
+ */
+function getStatusField(value: Record<string, unknown>, key: string): unknown {
+  if (value && typeof value === 'object' && key in value) {
+    return value[key];
+  }
+  return null;
 }
 
 /**

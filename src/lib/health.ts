@@ -212,9 +212,8 @@ function checkDisk(): DiskHealth {
   }
 
   return {
-    status: diskStatus.level === 'emergency' ? 'unhealthy'
-      : diskStatus.level === 'critical' ? 'unhealthy'
-      : 'healthy',
+    // Only emergency (95%+) blocks readiness; critical (90%) degrades
+    status: diskStatus.level === 'emergency' ? 'unhealthy' : 'healthy',
     used_percent: diskStatus.used_percent,
     available_gb: diskStatus.available_gb,
     level: diskStatus.level,
@@ -247,8 +246,8 @@ async function checkFeedFreshness(): Promise<FeedFreshnessHealth> {
       if (result.rows.length > 0 && result.rows[0].ts) {
         scoringAgeMs = Date.now() - new Date(result.rows[0].ts).getTime();
       }
-    } catch {
-      // Non-fatal
+    } catch (err) {
+      logger.debug({ err }, 'Scoring age query failed in feed freshness check (non-fatal)');
     }
 
     // During startup grace period, always report healthy
@@ -266,7 +265,9 @@ async function checkFeedFreshness(): Promise<FeedFreshnessHealth> {
     const isFeedStale = feedAgeMs !== undefined && feedAgeMs > 15 * 60_000; // >15 min
     const isScoringStale = scoringAgeMs !== undefined && scoringAgeMs > 10 * 60_000; // >10 min
 
-    const isUnhealthy = isFeedEmpty || (isFeedStale && isScoringStale);
+    // Unhealthy if feed is empty or BOTH feed and scoring are stale
+    // (single staleness = degraded, caught at component level)
+    const isUnhealthy = isFeedEmpty || (isFeedStale && isScoringStale) || isFeedStale || isScoringStale;
 
     return {
       status: isUnhealthy ? 'unhealthy' : 'healthy',

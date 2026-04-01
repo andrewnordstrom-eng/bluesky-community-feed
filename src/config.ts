@@ -145,6 +145,22 @@ const ConfigSchema = z.object({
   // Research export
   EXPORT_ANONYMIZATION_SALT: z.string().min(16).default(INSECURE_EXPORT_SALT_DEFAULT),
 }).superRefine((cfg, ctx) => {
+  // Validate disk threshold ordering
+  if (cfg.DISK_WARNING_PERCENT >= cfg.DISK_CRITICAL_PERCENT) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['DISK_WARNING_PERCENT'],
+      message: `DISK_WARNING_PERCENT (${cfg.DISK_WARNING_PERCENT}) must be less than DISK_CRITICAL_PERCENT (${cfg.DISK_CRITICAL_PERCENT})`,
+    });
+  }
+  if (cfg.DISK_CRITICAL_PERCENT >= cfg.DISK_EMERGENCY_PERCENT) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['DISK_CRITICAL_PERCENT'],
+      message: `DISK_CRITICAL_PERCENT (${cfg.DISK_CRITICAL_PERCENT}) must be less than DISK_EMERGENCY_PERCENT (${cfg.DISK_EMERGENCY_PERCENT})`,
+    });
+  }
+
   if (cfg.NODE_ENV !== 'production') {
     return;
   }

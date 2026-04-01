@@ -347,7 +347,7 @@ async function checkEngagementTrends(): Promise<void> {
     const currentRate = parseFloat(current_rate);
     const avgRate = parseFloat(avg_7d_rate);
 
-    if (avgRate === 0) return;
+    if (!Number.isFinite(currentRate) || !Number.isFinite(avgRate) || avgRate === 0) return;
 
     const dropPercent = ((avgRate - currentRate) / avgRate) * 100;
 
@@ -387,7 +387,9 @@ async function checkEngagementTrends(): Promise<void> {
         // Clear alert
         await db.query(
           `DELETE FROM system_status WHERE key = 'engagement_alert'`
-        ).catch(() => {});
+        ).catch((err: unknown) => {
+          logger.warn({ err }, 'Failed to clear engagement alert from system_status');
+        });
       }
     }
   } catch (err) {

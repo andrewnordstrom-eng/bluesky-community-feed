@@ -35,6 +35,7 @@ let isShuttingDown = false;
 let isChecking = false;
 let lastStatus: DiskStatus | null = null;
 let consecutiveCriticalChecks = 0;
+let isVacuumRunning = false;
 
 /**
  * Get current disk status using fs.statfs (no shell needed).
@@ -94,8 +95,14 @@ async function truncateJournald(): Promise<void> {
 /**
  * Run VACUUM FULL on tables to return space to the OS.
  * This takes ACCESS EXCLUSIVE locks — only runs at emergency threshold.
+ * Guarded to prevent concurrent runs with cleanup.ts VACUUM.
  */
 async function runEmergencyVacuumFull(): Promise<void> {
+  if (isVacuumRunning) {
+    logger.warn('Emergency VACUUM FULL skipped — already running');
+    return;
+  }
+  isVacuumRunning = true;
   const tables = ['follows', 'reposts', 'likes', 'posts'];
   let client;
 
@@ -138,6 +145,7 @@ async function runEmergencyVacuumFull(): Promise<void> {
   } catch (err) {
     logger.error({ err }, 'Emergency VACUUM FULL failed');
   } finally {
+    isVacuumRunning = false;
     if (client) {
       await client.query("SET statement_timeout = '10s'").catch(() => {});
       client.release();
@@ -146,19 +154,20 @@ async function runEmergencyVacuumFull(): Promise<void> {
 }
 
 /**
- * Check WAL size and run CHECKPOINT if too large.
+ * Check WAL directory size and run CHECKPOINT if too large.
+ * Uses pg_ls_waldir() to get actual on-disk WAL size (not cumulative LSN position).
  */
 async function checkWalSize(): Promise<void> {
   let client;
   try {
     client = await db.connect();
     const result = await client.query(
-      `SELECT pg_wal_lsn_diff(pg_current_wal_lsn(), '0/0') as wal_bytes`
+      `SELECT COALESCE(SUM(size), 0) as wal_bytes FROM pg_ls_waldir()`
     );
     const walMb = Math.round(Number(result.rows[0].wal_bytes) / (1024 * 1024));
 
     if (walMb > 500) {
-      logger.warn({ wal_size_mb: walMb }, 'WAL size exceeds 500MB — running CHECKPOINT');
+      logger.warn({ wal_size_mb: walMb }, 'WAL directory exceeds 500MB — running CHECKPOINT');
       await client.query('CHECKPOINT');
       logger.info('WAL CHECKPOINT complete');
     }
@@ -200,10 +209,13 @@ async function runDiskCheck(): Promise<void> {
       consecutiveCriticalChecks++;
       logger.error(
         { used_percent: lastStatus.used_percent, available_gb: lastStatus.available_gb, consecutive: consecutiveCriticalChecks },
-        'EMERGENCY: Disk usage critical — running VACUUM FULL + cleanup'
+        'EMERGENCY: Disk usage critical — running cleanup then VACUUM FULL'
       );
 
+      // Run cleanup first and wait for it to finish (frees rows for VACUUM FULL)
       await triggerManualCleanup();
+      // Small delay to let cleanup's VACUUM ANALYZE finish before we take exclusive locks
+      await new Promise((resolve) => setTimeout(resolve, 5000));
       await truncateJournald();
       await runEmergencyVacuumFull();
     } else if (lastStatus.level === 'critical') {

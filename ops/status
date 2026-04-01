@@ -56,7 +56,8 @@ print(f\"Scoring: running={s.get('is_running', False)}, last={s.get('last_run_at
 
 # Feed
 f = v.get('feed', {})
-freshness = f'{f[\"freshness_ms\"] // 1000}s ago' if f.get('freshness_ms') else 'unknown'
+fm = f.get('freshness_ms')
+freshness = f'{fm // 1000}s ago' if fm is not None and fm is not False else 'unknown'
 print(f\"Feed: {f.get('count', '?')} posts, {freshness}, dead ratio: {f.get('dead_content_ratio', '?')}\")
 
 # Subscribers
