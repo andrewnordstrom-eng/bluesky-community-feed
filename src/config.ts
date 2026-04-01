@@ -137,9 +137,30 @@ const ConfigSchema = z.object({
   BOT_ADMIN_DIDS: z.string().optional().default(''),
   BOT_PIN_TTL_HOURS: z.coerce.number().default(24),
 
+  // Disk monitoring thresholds (percentage)
+  DISK_WARNING_PERCENT: z.coerce.number().min(50).max(100).default(80),
+  DISK_CRITICAL_PERCENT: z.coerce.number().min(50).max(100).default(90),
+  DISK_EMERGENCY_PERCENT: z.coerce.number().min(50).max(100).default(95),
+
   // Research export
   EXPORT_ANONYMIZATION_SALT: z.string().min(16).default(INSECURE_EXPORT_SALT_DEFAULT),
 }).superRefine((cfg, ctx) => {
+  // Validate disk threshold ordering
+  if (cfg.DISK_WARNING_PERCENT >= cfg.DISK_CRITICAL_PERCENT) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['DISK_WARNING_PERCENT'],
+      message: `DISK_WARNING_PERCENT (${cfg.DISK_WARNING_PERCENT}) must be less than DISK_CRITICAL_PERCENT (${cfg.DISK_CRITICAL_PERCENT})`,
+    });
+  }
+  if (cfg.DISK_CRITICAL_PERCENT >= cfg.DISK_EMERGENCY_PERCENT) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['DISK_CRITICAL_PERCENT'],
+      message: `DISK_CRITICAL_PERCENT (${cfg.DISK_CRITICAL_PERCENT}) must be less than DISK_EMERGENCY_PERCENT (${cfg.DISK_EMERGENCY_PERCENT})`,
+    });
+  }
+
   if (cfg.NODE_ENV !== 'production') {
     return;
   }

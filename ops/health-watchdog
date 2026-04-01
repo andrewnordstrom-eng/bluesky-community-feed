@@ -15,10 +15,25 @@ HEALTH_URL="http://localhost:3001/health/ready"
 MAX_RETRIES=3
 RETRY_DELAY=10
 TAG="health-watchdog"
+DISK_WARN_PCT=80
+DISK_CRIT_PCT=90
 
 log_info()  { logger -t "$TAG" -p user.info  "$1"; }
 log_warn()  { logger -t "$TAG" -p user.warning "$1"; }
 log_err()   { logger -t "$TAG" -p user.err "$1"; }
+
+# ── Disk space check (runs even if service is down) ──
+DISK_PCT=$(df / --output=pcent | tail -1 | tr -d ' %')
+
+if [ "$DISK_PCT" -ge "$DISK_CRIT_PCT" ]; then
+  log_err "Disk at ${DISK_PCT}% — running emergency cleanup"
+  journalctl --vacuum-size=500M 2>/dev/null || true
+  docker exec bluesky-feed-postgres psql -U feed -d bluesky_feed -c "CHECKPOINT" 2>/dev/null || true
+  # Trigger aggressive cleanup if Node process is running
+  curl -sf -X POST --max-time 10 http://localhost:3001/api/admin/trigger-cleanup 2>/dev/null || true
+elif [ "$DISK_PCT" -ge "$DISK_WARN_PCT" ]; then
+  log_warn "Disk at ${DISK_PCT}% — approaching critical"
+fi
 
 # Check if the service is even running
 if ! systemctl is-active --quiet "$SERVICE"; then

@@ -1,38 +1,107 @@
 #!/usr/bin/env bash
 # Quick system status overview
+# Tries the vitals API first, falls back to manual checks.
 # Usage: ops/status
 set -euo pipefail
+
+VITALS_URL="http://localhost:3001/api/admin/vitals"
+ADMIN_DID="${ADMIN_DID:-}"
 
 echo "=== Service ==="
 systemctl is-active bluesky-feed 2>/dev/null || echo "NOT RUNNING"
 
-echo ""
-echo "=== Health ==="
-curl -sS http://localhost:3001/health 2>/dev/null | python3 -m json.tool 2>/dev/null || echo "Health endpoint unreachable"
+# Try vitals endpoint first (requires admin auth header)
+VITALS=""
+if [ -n "$ADMIN_DID" ]; then
+  VITALS=$(curl -sS --max-time 5 -H "X-Admin-DID: $ADMIN_DID" "$VITALS_URL" 2>/dev/null || true)
+fi
 
-echo ""
-echo "=== Disk ==="
-df -h / | tail -1
+if [ -n "$VITALS" ] && echo "$VITALS" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null; then
+  # Vitals endpoint available — formatted output
+  echo ""
+  echo "=== Vitals (from API) ==="
+  echo "$VITALS" | python3 -c "
+import sys, json
+v = json.load(sys.stdin)
 
-echo ""
-echo "=== Memory ==="
-free -h | grep Mem
+# Overall
+print(f\"Overall: {v['overall']}\")
 
-echo ""
-echo "=== DB Stats ==="
-docker exec bluesky-feed-postgres psql -U feed -d bluesky_feed -t -A -c "
-SELECT 'posts: ' || COUNT(*) FROM posts WHERE deleted=FALSE AND created_at > NOW()-INTERVAL '72h'
-UNION ALL
-SELECT 'scored: ' || COUNT(*) FROM post_scores WHERE epoch_id=(SELECT id FROM governance_epochs WHERE status='active' ORDER BY id DESC LIMIT 1)
-UNION ALL
-SELECT 'feed size: ' || (SELECT COUNT(*) FROM (SELECT 1) x WHERE EXISTS (SELECT 1))
+# Disk
+d = v.get('disk')
+if d:
+    level_icon = {'ok': '✓', 'warning': '⚠', 'critical': '✗', 'emergency': '🔥'}.get(d['level'], '?')
+    print(f\"Disk: {level_icon} {d['used_percent']}% used ({d['available_gb']}GB free / {d['total_gb']}GB total)\")
+
+# Database
+db = v.get('database', {})
+if db.get('size_mb'):
+    print(f\"DB: {db['size_mb']}MB (WAL: {db.get('wal_size_mb', '?')}MB, latency: {db.get('latency_ms', '?')}ms)\")
+    if db.get('table_sizes'):
+        for t in db['table_sizes'][:5]:
+            print(f\"  {t['table']}: {t['size_mb']}MB\")
+
+# Redis
+r = v.get('redis', {})
+print(f\"Redis: {r.get('memory_used_mb', '?')}MB / {r.get('memory_max_mb', 'unlimited')}MB, feed: {r.get('feed_size', '?')} posts\")
+
+# Ingestion
+ing = v.get('ingestion', {})
+status = '✓ connected' if ing.get('connected') else '✗ disconnected'
+print(f\"Ingestion: {status}, {ing.get('events_last_5min', '?')} events/5min\")
+
+# Scoring
+s = v.get('scoring', {})
+print(f\"Scoring: running={s.get('is_running', False)}, last={s.get('last_run_at', 'never')}, duration={s.get('duration_ms', '?')}ms\")
+
+# Feed
+f = v.get('feed', {})
+fm = f.get('freshness_ms')
+freshness = f'{fm // 1000}s ago' if fm is not None and fm is not False else 'unknown'
+print(f\"Feed: {f.get('count', '?')} posts, {freshness}, dead ratio: {f.get('dead_content_ratio', '?')}\")
+
+# Subscribers
+sub = v.get('subscribers')
+if sub:
+    print(f\"Subscribers: {sub['total']} total, {sub['active_24h']} active 24h, {sub['active_7d']} active 7d\")
+
+# Engagement
+eng = v.get('engagement', {})
+if eng.get('alert'):
+    print(f\"⚠ Engagement Alert: {eng['alert']}\")
+
+print(f\"\nCollected in {v.get('collection_ms', '?')}ms\")
 "
+else
+  # Fallback: manual checks
+  echo ""
+  echo "=== Health ==="
+  curl -sS http://localhost:3001/health 2>/dev/null | python3 -m json.tool 2>/dev/null || echo "Health endpoint unreachable"
 
-echo ""
-echo "=== Redis Feed ==="
-docker exec bluesky-feed-redis redis-cli ZCARD feed:current
-docker exec bluesky-feed-redis redis-cli GET feed:updated_at
+  echo ""
+  echo "=== Disk ==="
+  df -h / | tail -1
 
-echo ""
-echo "=== Last Scoring ==="
-journalctl -u bluesky-feed --since "15 minutes ago" --no-pager 2>/dev/null | grep -i "scoring pipeline complete" | tail -1 || echo "No recent scoring run found"
+  echo ""
+  echo "=== Memory ==="
+  free -h | grep Mem
+
+  echo ""
+  echo "=== DB Stats ==="
+  docker exec bluesky-feed-postgres psql -U feed -d bluesky_feed -t -A -c "
+  SELECT 'posts: ' || COUNT(*) FROM posts WHERE deleted=FALSE AND created_at > NOW()-INTERVAL '72h'
+  UNION ALL
+  SELECT 'scored: ' || COUNT(*) FROM post_scores WHERE epoch_id=(SELECT id FROM governance_epochs WHERE status='active' ORDER BY id DESC LIMIT 1)
+  UNION ALL
+  SELECT 'feed size: ' || (SELECT COUNT(*) FROM (SELECT 1) x WHERE EXISTS (SELECT 1))
+  "
+
+  echo ""
+  echo "=== Redis Feed ==="
+  docker exec bluesky-feed-redis redis-cli ZCARD feed:current
+  docker exec bluesky-feed-redis redis-cli GET feed:updated_at
+
+  echo ""
+  echo "=== Last Scoring ==="
+  journalctl -u bluesky-feed --since "15 minutes ago" --no-pager 2>/dev/null | grep -i "scoring pipeline complete" | tail -1 || echo "No recent scoring run found"
+fi

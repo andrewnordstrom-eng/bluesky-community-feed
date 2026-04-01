@@ -6,7 +6,8 @@ import { startScoring, stopScoring, isScoringInProgress } from './scoring/schedu
 import { getLastScoringRunAt } from './scoring/pipeline.js';
 import { runStartupChecks } from './lib/startup-checks.js';
 import { registerShutdownHandlers } from './lib/shutdown.js';
-import { registerJetstreamHealth, registerScoringHealth, JetstreamHealth, ScoringHealth } from './lib/health.js';
+import { registerJetstreamHealth, registerScoringHealth, registerDiskHealth, JetstreamHealth, ScoringHealth } from './lib/health.js';
+import { getDiskStatus } from './maintenance/disk-monitor.js';
 import { registerBotRoutes } from './bot/server.js';
 import { initializeBot } from './bot/agent.js';
 import { startEpochScheduler, stopEpochScheduler } from './scheduler/epoch-scheduler.js';
@@ -159,6 +160,9 @@ async function main() {
     logger.fatal({ err }, 'Failed to start maintenance worker supervisor');
     process.exit(1);
   }
+
+  // 6.10. Register disk health check (disk-monitor is now running via supervisor)
+  registerDiskHealth(getDiskStatus);
 
   // 7. Register graceful shutdown handlers
   registerShutdownHandlers({

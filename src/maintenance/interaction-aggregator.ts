@@ -111,6 +111,9 @@ async function runAllJobs(): Promise<void> {
   // Job 2: Epoch engagement stats
   await computeEpochStats();
 
+  // Job 2.5: Engagement trend alerting
+  await checkEngagementTrends();
+
   // Job 3: Retention cleanup (once per day)
   const today = new Date().toISOString().split('T')[0];
   if (lastRetentionDate !== today) {
@@ -300,6 +303,97 @@ async function computeEpochStats(): Promise<void> {
     logger.debug({ epochId }, 'Epoch engagement stats computed');
   } catch (err) {
     logger.error({ err }, 'Epoch engagement stats computation failed');
+  }
+}
+
+// ── Job 2.5: Engagement Trend Alerting ─────────────────────────
+
+let consecutiveTrendDrops = 0;
+
+async function checkEngagementTrends(): Promise<void> {
+  try {
+    // Compare most recent engagement rate to 7-day average
+    const result = await db.query(`
+      WITH recent AS (
+        SELECT engagement_rate
+        FROM epoch_engagement_stats
+        WHERE computed_at > NOW() - INTERVAL '24 hours'
+        ORDER BY computed_at DESC
+        LIMIT 1
+      ),
+      avg_7d AS (
+        SELECT AVG(engagement_rate) as avg_rate, COUNT(*) as sample_count
+        FROM epoch_engagement_stats
+        WHERE computed_at > NOW() - INTERVAL '7 days'
+          AND computed_at <= NOW() - INTERVAL '24 hours'
+      )
+      SELECT
+        r.engagement_rate as current_rate,
+        a.avg_rate as avg_7d_rate,
+        a.sample_count
+      FROM recent r, avg_7d a
+    `);
+
+    if (result.rows.length === 0 || !result.rows[0].avg_7d_rate) {
+      // Not enough data yet
+      return;
+    }
+
+    const { current_rate, avg_7d_rate, sample_count } = result.rows[0];
+
+    // Need at least 3 data points for meaningful comparison
+    if (parseInt(sample_count) < 3) return;
+
+    const currentRate = parseFloat(current_rate);
+    const avgRate = parseFloat(avg_7d_rate);
+
+    if (!Number.isFinite(currentRate) || !Number.isFinite(avgRate) || avgRate === 0) return;
+
+    const dropPercent = ((avgRate - currentRate) / avgRate) * 100;
+
+    if (dropPercent > 50) {
+      consecutiveTrendDrops++;
+
+      if (consecutiveTrendDrops >= 2) {
+        logger.warn(
+          {
+            current_rate: currentRate,
+            avg_7d_rate: avgRate,
+            drop_percent: Math.round(dropPercent),
+            consecutive_drops: consecutiveTrendDrops,
+          },
+          'Engagement rate dropped >50% vs 7-day average for 2+ consecutive checks'
+        );
+
+        // Store alert in system_status
+        await db.query(
+          `INSERT INTO system_status (key, value, updated_at)
+           VALUES ('engagement_alert', $1::jsonb, NOW())
+           ON CONFLICT (key) DO UPDATE SET value = $1::jsonb, updated_at = NOW()`,
+          [JSON.stringify({
+            type: 'engagement_drop',
+            current_rate: currentRate,
+            avg_7d_rate: avgRate,
+            drop_percent: Math.round(dropPercent),
+            consecutive_drops: consecutiveTrendDrops,
+            detected_at: new Date().toISOString(),
+          })]
+        );
+      }
+    } else {
+      // Reset counter if engagement recovered
+      if (consecutiveTrendDrops > 0) {
+        consecutiveTrendDrops = 0;
+        // Clear alert
+        await db.query(
+          `DELETE FROM system_status WHERE key = 'engagement_alert'`
+        ).catch((err: unknown) => {
+          logger.warn({ err }, 'Failed to clear engagement alert from system_status');
+        });
+      }
+    }
+  } catch (err) {
+    logger.warn({ err }, 'Engagement trend check failed (non-fatal)');
   }
 }
 

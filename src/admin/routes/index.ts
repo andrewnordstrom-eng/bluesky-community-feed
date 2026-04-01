@@ -20,6 +20,7 @@ import { registerInteractionRoutes } from './interactions.js';
 import { registerParticipantRoutes } from './participants.js';
 import { registerExportRoutes } from './export.js';
 import { registerTopicRoutes } from './topics.js';
+import { registerVitalsRoutes } from './vitals.js';
 import { logger } from '../../lib/logger.js';
 
 export function registerAdminRoutes(app: FastifyInstance): void {
@@ -42,6 +43,7 @@ export function registerAdminRoutes(app: FastifyInstance): void {
       registerParticipantRoutes(adminApp);
       registerExportRoutes(adminApp);
       registerTopicRoutes(adminApp);
+      registerVitalsRoutes(adminApp);
 
       logger.info('Admin routes registered');
     },
