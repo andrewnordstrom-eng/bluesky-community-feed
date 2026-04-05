@@ -1,0 +1,16 @@
+name: coderabbit-thread-check
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, ready_for_review]
+  pull_request_review:
+    types: [submitted, edited, dismissed]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  coderabbit-thread-check:
+    uses: andrewnordstrom-eng/.github/.github/workflows/coderabbit-thread-check.yml@9cb11ac65e0c9ad0a261a0b2fecec4df19f0d38b
