@@ -11,6 +11,7 @@ const repoRoot = path.resolve(__dirname, '..');
 
 const FRESHNESS_CONFIG_PATH = path.join(repoRoot, 'docs', 'freshness.json');
 const MCP_SETUP_PATH = path.join(repoRoot, 'docs', 'MCP_SETUP.md');
+const REPO_CONTRACT_PATH = path.join(repoRoot, 'docs', 'agent', 'REPO_CONTRACT.md');
 const MCP_TOOL_SOURCE_DIR = path.join(repoRoot, 'src', 'mcp', 'tools');
 const OLD_REPO_PATTERNS = [
   /github\.com\/AndrewNordstrom\/bluesky-community-feed/,
@@ -53,6 +54,20 @@ const DEFAULT_SCAN_PATHS = [
   'docs',
   '.github/PULL_REQUEST_TEMPLATE.md',
 ];
+
+const EXPECTED_REPO_CONTRACT_HEADINGS = [
+  '## 1. What This Repo Is',
+  '## 2. Why It Exists',
+  '## 3. System Shape',
+  '## 4. Key Files and Directories',
+  '## 5. Build / Test / Run Commands',
+  '## 6. Deploy and Rollback Notes',
+  '## 7. Linked Deeper Docs',
+  '## 8. Known Gotchas',
+  '## 9. Where to Get Live State',
+];
+
+const ALLOWED_DOC_COMPLIANCE_STATUS = new Set(['Exists', 'Missing']);
 
 function walkMarkdownFiles(rootDir) {
   const files = [];
@@ -314,6 +329,111 @@ function validateLegacyRepoReferences(files, problems) {
   }
 }
 
+function parseMarkdownTableRow(line) {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith('|') || !trimmed.endsWith('|')) {
+    return null;
+  }
+
+  return trimmed
+    .slice(1, -1)
+    .split('|')
+    .map(cell => cell.trim());
+}
+
+function stripInlineCode(value) {
+  return value.replace(/^`+|`+$/g, '').trim();
+}
+
+function validateRepoContract(problems) {
+  if (!existsSync(REPO_CONTRACT_PATH)) {
+    problems.push('docs/agent/REPO_CONTRACT.md not found');
+    return;
+  }
+
+  const content = readFileSync(REPO_CONTRACT_PATH, 'utf8');
+  const headings = content.match(/^##\s+.+$/gm) ?? [];
+
+  if (headings.length !== EXPECTED_REPO_CONTRACT_HEADINGS.length) {
+    problems.push(
+      `repo contract heading count mismatch: expected ${EXPECTED_REPO_CONTRACT_HEADINGS.length}, found ${headings.length}`
+    );
+  }
+
+  EXPECTED_REPO_CONTRACT_HEADINGS.forEach((heading, index) => {
+    if (headings[index] !== heading) {
+      problems.push(
+        `repo contract heading mismatch at section ${index + 1}: expected "${heading}", found "${headings[index] ?? 'missing'}"`
+      );
+    }
+  });
+
+  const trackerMatch = content.match(
+    /^###\s+Doc Compliance Tracker.*$(?:\n+|\r\n+)([\s\S]*?)(?=^##\s|\Z)/m,
+  );
+
+  if (!trackerMatch) {
+    problems.push('repo contract missing "### Doc Compliance Tracker" subsection');
+    return;
+  }
+
+  const trackerLines = trackerMatch[1]
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+    .filter(line => line.startsWith('|'));
+
+  if (trackerLines.length < 3) {
+    problems.push('repo contract doc compliance tracker table is missing rows');
+    return;
+  }
+
+  const headerCells = parseMarkdownTableRow(trackerLines[0]);
+  const separatorCells = parseMarkdownTableRow(trackerLines[1]);
+
+  if (!headerCells || !separatorCells) {
+    problems.push('repo contract doc compliance tracker table is malformed');
+    return;
+  }
+
+  const expectedHeaders = ['Required Doc', 'Canonical Path', 'Status', 'Notes'];
+  expectedHeaders.forEach((expectedHeader, index) => {
+    if (headerCells[index] !== expectedHeader) {
+      problems.push(
+        `repo contract doc compliance header mismatch at column ${index + 1}: expected "${expectedHeader}", found "${headerCells[index] ?? 'missing'}"`
+      );
+    }
+  });
+
+  trackerLines.slice(2).forEach((line, index) => {
+    const row = parseMarkdownTableRow(line);
+    if (!row || row.length < 4) {
+      problems.push(`repo contract doc compliance row ${index + 1} is malformed`);
+      return;
+    }
+
+    const canonicalPath = stripInlineCode(row[1]);
+    const status = row[2];
+
+    if (!ALLOWED_DOC_COMPLIANCE_STATUS.has(status)) {
+      problems.push(
+        `repo contract doc compliance row ${index + 1} has invalid status "${status}"; expected Exists or Missing`
+      );
+    }
+
+    if (!canonicalPath) {
+      problems.push(`repo contract doc compliance row ${index + 1} is missing canonical path`);
+      return;
+    }
+
+    if (status === 'Exists' && !existsSync(path.join(repoRoot, canonicalPath))) {
+      problems.push(
+        `repo contract doc compliance row ${index + 1} marks "${canonicalPath}" as Exists, but the file is missing`
+      );
+    }
+  });
+}
+
 function main() {
   const problems = [];
 
@@ -337,6 +457,7 @@ function main() {
   validateMcpToolCount(problems);
   validateCiHasDocsVerify(path.join(repoRoot, '.github', 'workflows', 'ci.yml'), problems);
   validateLegacyRepoReferences(repoGuardFiles, problems);
+  validateRepoContract(problems);
 
   if (problems.length > 0) {
     console.error('Docs verification failed:');
