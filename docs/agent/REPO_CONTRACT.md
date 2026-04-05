@@ -1,7 +1,13 @@
 # Repo Contract -- bluesky-community-feed
 
+Status: canonical repo contract
+Owner: bluesky-feed
+Service class: production_service
+Contract version: 2
+Last updated: 2026-04-05
+Last verified: 2026-04-05
+
 > Canonical reference for any human or tooling operating in this repo.
-> Service class: `production_service`
 
 ---
 
@@ -18,6 +24,7 @@ This is the first governance-weighted custom feed on AT Protocol.
 **API docs:** `https://docs.corgi.network`
 **Repo:** `andrewnordstrom-eng/bluesky-community-feed`
 **Linear project:** `https://linear.app/andrewnord/project/bluesky-corgi-8f5a0fc7a693`
+**ChatPRD:** `https://app.chatprd.ai/chat/5d8a99e4-5871-4118-b3cb-77024ee37421?doc=60435cf8-353b-4548-bc95-c358cc8cfbb6`
 
 ---
 

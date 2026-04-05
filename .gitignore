@@ -46,6 +46,10 @@ coverage/
 # TypeScript cache
 *.tsbuildinfo
 
+# Tool caches and generated hooks
+.ruff_cache/
+.husky/_/
+
 # CLI build output
 cli/dist/
 
