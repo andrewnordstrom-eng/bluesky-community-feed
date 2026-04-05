@@ -16,4 +16,4 @@ permissions:
 
 jobs:
   coderabbit-freshness:
-    uses: andrewnordstrom-eng/.github/.github/workflows/coderabbit-freshness.yml@3c9178c05f597977363d673b8f7e4e1ef4625286
+    uses: andrewnordstrom-eng/.github/.github/workflows/coderabbit-freshness.yml@8b68c0663d4a7cd72bdf6051a5cff65f9ff46188
