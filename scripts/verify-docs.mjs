@@ -446,10 +446,19 @@ function validateRepoContract(problems) {
       return;
     }
 
-    if (status === 'Exists' && !existsSync(resolvedCanonicalPath)) {
-      problems.push(
-        `repo contract doc compliance row ${index + 1} marks "${canonicalPath}" as Exists, but the file is missing`
-      );
+    if (status === 'Exists') {
+      if (!existsSync(resolvedCanonicalPath)) {
+        problems.push(
+          `repo contract doc compliance row ${index + 1} marks "${canonicalPath}" as Exists, but the file is missing`
+        );
+        return;
+      }
+
+      if (!statSync(resolvedCanonicalPath).isFile()) {
+        problems.push(
+          `repo contract doc compliance row ${index + 1} marks "${canonicalPath}" as Exists, but it is not a file`
+        );
+      }
     }
   });
 }
