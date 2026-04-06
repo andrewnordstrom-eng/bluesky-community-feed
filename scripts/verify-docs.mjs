@@ -345,6 +345,45 @@ function stripInlineCode(value) {
   return value.replace(/^`+|`+$/g, '').trim();
 }
 
+export function collectTopLevelHeadings(content) {
+  const headings = [];
+  let inFence = false;
+  for (const rawLine of content.split('\n')) {
+    const line = rawLine.replace(/\r$/, '');
+    if (/^(```|~~~)/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (!inFence && /^##\s+.+$/.test(line)) {
+      headings.push(line);
+    }
+  }
+  return headings;
+}
+
+export function findNextTopLevelHeadingIndex(lines, startIndex = 0) {
+  let inFence = false;
+  for (let i = startIndex; i < lines.length; i += 1) {
+    const line = lines[i].replace(/\r$/, '');
+    if (/^(```|~~~)/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (!inFence && /^##\s+/.test(line)) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+export function isMarkdownSeparatorRow(cells, expectedLength) {
+  return (
+    Array.isArray(cells) &&
+    cells.length === expectedLength &&
+    cells.every(cell => /^:?-{3,}:?$/.test(cell))
+  );
+}
+
 function validateRepoContract(problems) {
   if (!existsSync(REPO_CONTRACT_PATH)) {
     problems.push('docs/agent/REPO_CONTRACT.md not found');
@@ -352,7 +391,7 @@ function validateRepoContract(problems) {
   }
 
   const content = readFileSync(REPO_CONTRACT_PATH, 'utf8');
-  const headings = content.match(/^##\s+.+$/gm) ?? [];
+  const headings = collectTopLevelHeadings(content);
 
   if (headings.length !== EXPECTED_REPO_CONTRACT_HEADINGS.length) {
     problems.push(
@@ -376,9 +415,7 @@ function validateRepoContract(problems) {
 
   const trackerSection = content.slice(trackerHeadingIndex);
   const trackerSectionLines = trackerSection.split('\n');
-  const nextTopLevelHeadingIndex = trackerSectionLines.findIndex(
-    (line, index) => index > 0 && /^##\s+/.test(line),
-  );
+  const nextTopLevelHeadingIndex = findNextTopLevelHeadingIndex(trackerSectionLines, 1);
   const trackerBodyLines =
     nextTopLevelHeadingIndex === -1
       ? trackerSectionLines.slice(1)
@@ -403,6 +440,11 @@ function validateRepoContract(problems) {
   }
 
   const expectedHeaders = ['Required Doc', 'Canonical Path', 'Status', 'Notes'];
+  if (!isMarkdownSeparatorRow(separatorCells, expectedHeaders.length)) {
+    problems.push('repo contract doc compliance tracker separator row is malformed');
+    return;
+  }
+
   expectedHeaders.forEach((expectedHeader, index) => {
     if (headerCells[index] !== expectedHeader) {
       problems.push(
@@ -501,4 +543,6 @@ function main() {
   console.log(`Docs verification passed (${freshnessDocs} tracked docs, ${markdownCount} markdown files scanned).`);
 }
 
-main();
+if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
+  main();
+}

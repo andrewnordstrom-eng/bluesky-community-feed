@@ -3,10 +3,11 @@ name: coderabbit-freshness
 on:
   pull_request:
     branches: [main]
-    types: [opened, reopened, synchronize, ready_for_review]
-  status: {}
-  check_suite:
-    types: [completed]
+    types: [opened, reopened, synchronize, ready_for_review, labeled, unlabeled]
+  pull_request_review:
+    types: [submitted, edited, dismissed]
+  pull_request_review_thread:
+    types: [resolved, unresolved]
 
 permissions:
   contents: read
@@ -46,52 +47,9 @@ jobs:
             };
 
             const resolvePullRequest = async () => {
-              if (payload.pull_request) {
-                return payload.pull_request;
-              }
-
-              const statusContext = ((payload.context || payload.check_run?.name || "").trim().toLowerCase());
-              const codeRabbitSignal =
-                statusContext.includes("coderabbit") ||
-                ((payload.check_suite?.app?.slug || "").trim().toLowerCase() === "coderabbitai") ||
-                ((payload.check_run?.app?.slug || "").trim().toLowerCase() === "coderabbitai");
-              if (!codeRabbitSignal) {
-                core.info("[coderabbit-freshness:skip_non_coderabbit_event] Event is not a CodeRabbit signal.");
-                return null;
-              }
-
-              const eventSha = (
-                payload.sha ||
-                payload.check_suite?.head_sha ||
-                payload.check_run?.head_sha ||
-                ""
-              ).trim();
-              if (!eventSha) {
-                core.info("[coderabbit-freshness:skip_missing_sha] No event SHA found for non-PR trigger.");
-                return null;
-              }
-
-              let prNumber = null;
-              const attachedPrs = payload.check_suite?.pull_requests || payload.check_run?.pull_requests || [];
-              const openAttached = attachedPrs.find((item) => typeof item?.number === "number");
-              if (openAttached) {
-                prNumber = openAttached.number;
-              } else {
-                const associated = await github.rest.repos.listPullRequestsAssociatedWithCommit({
-                  owner,
-                  repo,
-                  commit_sha: eventSha,
-                });
-                const openPr = (associated.data || []).find(
-                  (item) => ((item.state || "").trim().toLowerCase() === "open")
-                );
-                if (openPr) {
-                  prNumber = openPr.number;
-                }
-              }
-
+              const prNumber = payload.pull_request?.number;
               if (!prNumber) {
-                core.info("[coderabbit-freshness:skip_no_open_pr] No open PR is associated with this CodeRabbit signal.");
+                core.info("[coderabbit-freshness:skip_non_pr_event] No pull_request found in event payload.");
                 return null;
               }
 
@@ -187,10 +145,14 @@ jobs:
                 failWithAction("CodeRabbit status is 'Review skipped'");
                 return;
               }
-              if (state === "pending" && ageMinutes > staleMinutes) {
-                failWithAction(
-                  `CodeRabbit status is pending stale (${ageMinutes}m old; SLA ${staleMinutes}m)`
-                );
+              if (state === "pending") {
+                if (ageMinutes > staleMinutes) {
+                  failWithAction(
+                    `CodeRabbit status is pending stale (${ageMinutes}m old; SLA ${staleMinutes}m)`
+                  );
+                } else {
+                  failWithAction(`CodeRabbit status is still pending (${ageMinutes}m old)`);
+                }
                 return;
               }
               if (lagFromHeadMinutes > staleMinutes) {
@@ -199,7 +161,7 @@ jobs:
                 );
                 return;
               }
-              if (!["success", "pending"].includes(state)) {
+              if (state !== "success") {
                 failWithAction(`CodeRabbit status state is ${state || "unknown"}`);
                 return;
               }
@@ -285,6 +247,7 @@ jobs:
               );
               return;
             }
-            core.notice(
-              `[coderabbit-freshness:ok_pending] CodeRabbit check-suite is ${suiteStatus}; age ${suiteAgeMinutes}m; lag vs head ${suiteLagFromHeadMinutes}m.`
+            failWithAction(
+              `CodeRabbit check-suite is still ${suiteStatus} (${suiteAgeMinutes}m old)`
             );
+            return;

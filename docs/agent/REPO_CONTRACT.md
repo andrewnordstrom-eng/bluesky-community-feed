@@ -177,9 +177,9 @@ npm run cli -- --help
 ```
 
 **Pre-commit hooks** (installed via `husky` + `lint-staged`):
-- TypeScript type-check on staged files
-- Git identity email verification
-- Linear key in commit message
+- `.husky/pre-commit` runs `npx lint-staged`
+- `lint-staged.config.js` currently type-checks staged TypeScript files via `tsc --noEmit`
+- There is no local `.husky/commit-msg` hook; Linear key and identity enforcement happen in CI / org policy checks
 
 ---
 
@@ -250,7 +250,8 @@ docker compose -f docker-compose.prod.yml ps
 | `weekly-export.yml` | Cron (weekly) | Anonymized research data export |
 | `docs-freshness.yml` | Cron | Doc staleness detection |
 
-See `docs/OPS_RUNBOOK.md` for full operational procedures.
+See `docs/OPERABILITY.md`, `docs/runbooks/operator-quickstart.md`, and
+`docs/runbooks/incident-response.md` for the canonical operational procedures.
 
 ---
 
@@ -258,9 +259,15 @@ See `docs/OPS_RUNBOOK.md` for full operational procedures.
 
 | Document | Path |
 |----------|------|
-| System overview / architecture | `docs/SYSTEM_OVERVIEW.md` |
+| Architecture | `docs/ARCHITECTURE.md` |
+| Operability / release procedures | `docs/OPERABILITY.md` |
+| Operator quickstart | `docs/runbooks/operator-quickstart.md` |
+| Incident response | `docs/runbooks/incident-response.md` |
+| ADR index | `docs/adr/README.md` |
+| Product requirements / strategy | `docs/PRD.md` |
+| Legacy system overview | `docs/SYSTEM_OVERVIEW.md` |
 | Deployment guide | `docs/DEPLOYMENT.md` |
-| Operations runbook | `docs/OPS_RUNBOOK.md` |
+| Legacy operations runbook | `docs/OPS_RUNBOOK.md` |
 | Security model and audit | `docs/SECURITY.md`, `docs/SECURITY_AUDIT.md` |
 | Stability and load testing | `docs/STABILITY_TEST.md` |
 | MCP setup guide | `docs/MCP_SETUP.md` |
