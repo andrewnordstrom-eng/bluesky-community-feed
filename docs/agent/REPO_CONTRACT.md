@@ -4,8 +4,8 @@ Status: canonical repo contract
 Owner: bluesky-feed
 Service class: production_service
 Contract version: 2
-Last updated: 2026-04-05
-Last verified: 2026-04-05
+Last updated: 2026-04-06
+Last verified: 2026-04-06
 
 > Canonical reference for any human or tooling operating in this repo.
 
@@ -305,7 +305,8 @@ See `docs/OPERABILITY.md`, `docs/runbooks/operator-quickstart.md`, and
 
 2. **Linear key required everywhere.** Branch names must follow
    `dev/<LINEAR-KEY>-<slug>`. PR titles must include `[KEY]`. Commit messages
-   must contain a Linear key. Enforced by pre-commit hooks and CI.
+   must contain a Linear key. Enforcement happens in org-policy / CI checks and
+   any local hook configuration that may be installed by the workspace.
 
 3. **Two install targets.** Backend and frontend have separate `node_modules`.
    Run `npm install` at repo root AND `cd web && npm install` for the frontend.

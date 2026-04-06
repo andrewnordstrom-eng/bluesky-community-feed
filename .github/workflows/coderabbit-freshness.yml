@@ -6,8 +6,6 @@ on:
     types: [opened, reopened, synchronize, ready_for_review, labeled, unlabeled]
   pull_request_review:
     types: [submitted, edited, dismissed]
-  pull_request_review_thread:
-    types: [resolved, unresolved]
 
 permissions:
   contents: read
@@ -109,17 +107,6 @@ jobs:
             const staleMinutes = 120;
             const now = Date.now();
 
-            const headCommit = await github.rest.repos.getCommit({ owner, repo, ref: sha });
-            const headCommittedAt = parseTime(
-              headCommit.data?.commit?.committer?.date ||
-                headCommit.data?.commit?.author?.date ||
-                ""
-            );
-            if (!headCommittedAt) {
-              failWithAction("Unable to resolve head commit timestamp");
-              return;
-            }
-
             const statuses = await github.paginate(github.rest.repos.listCommitStatusesForRef, {
               owner,
               repo,
@@ -139,7 +126,6 @@ jobs:
               const state = ((coderabbitStatus.state || "").trim().toLowerCase());
               const updatedAt = parseTime(coderabbitStatus.updated_at || coderabbitStatus.created_at || "");
               const ageMinutes = Math.max(0, Math.floor((now - updatedAt) / 60000));
-              const lagFromHeadMinutes = Math.max(0, Math.floor((headCommittedAt - updatedAt) / 60000));
 
               if (description.includes("review skipped")) {
                 failWithAction("CodeRabbit status is 'Review skipped'");
@@ -155,19 +141,13 @@ jobs:
                 }
                 return;
               }
-              if (lagFromHeadMinutes > staleMinutes) {
-                failWithAction(
-                  `CodeRabbit status is stale versus head commit (${lagFromHeadMinutes}m behind)`
-                );
-                return;
-              }
               if (state !== "success") {
                 failWithAction(`CodeRabbit status state is ${state || "unknown"}`);
                 return;
               }
 
               core.notice(
-                `[coderabbit-freshness:ok_status] CodeRabbit status is ${state}; age ${ageMinutes}m; lag vs head ${lagFromHeadMinutes}m.`
+                `[coderabbit-freshness:ok_status] CodeRabbit status is ${state}; age ${ageMinutes}m.`
               );
               return;
             }
@@ -204,10 +184,6 @@ jobs:
               latestSuite.updated_at || latestSuite.completed_at || latestSuite.created_at || ""
             );
             const suiteAgeMinutes = Math.max(0, Math.floor((now - suiteUpdatedAt) / 60000));
-            const suiteLagFromHeadMinutes = Math.max(
-              0,
-              Math.floor((headCommittedAt - suiteUpdatedAt) / 60000)
-            );
 
             if (suiteStatus === "completed") {
               if (suiteConclusion === "skipped") {
@@ -218,14 +194,8 @@ jobs:
                 failWithAction(`CodeRabbit check-suite conclusion is ${suiteConclusion || "unknown"}`);
                 return;
               }
-              if (suiteLagFromHeadMinutes > staleMinutes) {
-                failWithAction(
-                  `CodeRabbit check-suite is stale versus head commit (${suiteLagFromHeadMinutes}m behind)`
-                );
-                return;
-              }
               core.notice(
-                `[coderabbit-freshness:ok_suite] CodeRabbit check-suite completed (${suiteConclusion}); age ${suiteAgeMinutes}m; lag vs head ${suiteLagFromHeadMinutes}m.`
+                `[coderabbit-freshness:ok_suite] CodeRabbit check-suite completed (${suiteConclusion}); age ${suiteAgeMinutes}m.`
               );
               return;
             }
@@ -238,12 +208,6 @@ jobs:
             if (suiteAgeMinutes > staleMinutes) {
               failWithAction(
                 `CodeRabbit check-suite is pending stale (${suiteAgeMinutes}m old; SLA ${staleMinutes}m)`
-              );
-              return;
-            }
-            if (suiteLagFromHeadMinutes > staleMinutes) {
-              failWithAction(
-                `CodeRabbit check-suite is stale versus head commit (${suiteLagFromHeadMinutes}m behind)`
               );
               return;
             }

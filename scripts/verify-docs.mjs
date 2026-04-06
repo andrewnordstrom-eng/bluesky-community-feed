@@ -363,6 +363,13 @@ export function collectTopLevelHeadings(content) {
 
 export function findNextTopLevelHeadingIndex(lines, startIndex = 0) {
   let inFence = false;
+  for (let i = 0; i < startIndex; i += 1) {
+    const line = lines[i].replace(/\r$/, '');
+    if (/^(```|~~~)/.test(line)) {
+      inFence = !inFence;
+    }
+  }
+
   for (let i = startIndex; i < lines.length; i += 1) {
     const line = lines[i].replace(/\r$/, '');
     if (/^(```|~~~)/.test(line)) {
@@ -370,6 +377,21 @@ export function findNextTopLevelHeadingIndex(lines, startIndex = 0) {
       continue;
     }
     if (!inFence && /^##\s+/.test(line)) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+export function findHeadingLineIndex(lines, headingRegex) {
+  let inFence = false;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i].replace(/\r$/, '');
+    if (/^(```|~~~)/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (!inFence && headingRegex.test(line)) {
       return i;
     }
   }
@@ -391,6 +413,7 @@ function validateRepoContract(problems) {
   }
 
   const content = readFileSync(REPO_CONTRACT_PATH, 'utf8');
+  const lines = content.split('\n');
   const headings = collectTopLevelHeadings(content);
 
   if (headings.length !== EXPECTED_REPO_CONTRACT_HEADINGS.length) {
@@ -407,19 +430,17 @@ function validateRepoContract(problems) {
     }
   });
 
-  const trackerHeadingIndex = content.indexOf('### Doc Compliance Tracker');
+  const trackerHeadingIndex = findHeadingLineIndex(lines, /^###\s+Doc Compliance Tracker\b/);
   if (trackerHeadingIndex === -1) {
     problems.push('repo contract missing "### Doc Compliance Tracker" subsection');
     return;
   }
 
-  const trackerSection = content.slice(trackerHeadingIndex);
-  const trackerSectionLines = trackerSection.split('\n');
-  const nextTopLevelHeadingIndex = findNextTopLevelHeadingIndex(trackerSectionLines, 1);
+  const nextTopLevelHeadingIndex = findNextTopLevelHeadingIndex(lines, trackerHeadingIndex + 1);
   const trackerBodyLines =
     nextTopLevelHeadingIndex === -1
-      ? trackerSectionLines.slice(1)
-      : trackerSectionLines.slice(1, nextTopLevelHeadingIndex);
+      ? lines.slice(trackerHeadingIndex + 1)
+      : lines.slice(trackerHeadingIndex + 1, nextTopLevelHeadingIndex);
 
   const trackerLines = trackerBodyLines
     .map(line => line.trim())
@@ -440,6 +461,12 @@ function validateRepoContract(problems) {
   }
 
   const expectedHeaders = ['Required Doc', 'Canonical Path', 'Status', 'Notes'];
+  if (headerCells.length !== expectedHeaders.length) {
+    problems.push(
+      `repo contract doc compliance header column count mismatch: expected ${expectedHeaders.length}, found ${headerCells.length}`
+    );
+    return;
+  }
   if (!isMarkdownSeparatorRow(separatorCells, expectedHeaders.length)) {
     problems.push('repo contract doc compliance tracker separator row is malformed');
     return;
