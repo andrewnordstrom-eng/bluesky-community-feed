@@ -338,7 +338,9 @@ See `docs/OPS_RUNBOOK.md` for full operational procedures.
     workflows from that private repo cannot be relied on here, so
     `coderabbit-freshness` and `coderabbit-thread-check` are intentionally
     implemented locally in `.github/workflows/` rather than inherited by
-    reference.
+    reference. Keep `.coderabbit.yaml` `reviews.auto_review.auto_incremental_review`
+    enabled so the freshness gate receives a fresh non-skipped CodeRabbit signal
+    on the latest push.
 
 ---
 
