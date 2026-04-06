@@ -3,10 +3,9 @@ name: coderabbit-freshness
 on:
   pull_request:
     branches: [main]
-    types: [opened, reopened, synchronize, ready_for_review]
-  status: {}
-  check_suite:
-    types: [completed]
+    types: [opened, reopened, synchronize, ready_for_review, labeled, unlabeled]
+  pull_request_review:
+    types: [submitted, edited, dismissed]
 
 permissions:
   contents: read
@@ -16,4 +15,203 @@ permissions:
 
 jobs:
   coderabbit-freshness:
-    uses: andrewnordstrom-eng/.github/.github/workflows/coderabbit-freshness.yml@8b68c0663d4a7cd72bdf6051a5cff65f9ff46188
+    runs-on: ubuntu-latest
+    concurrency:
+      group: coderabbit-freshness-${{ github.repository }}-${{ github.event.pull_request.number || github.sha || github.run_id }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      checks: read
+      pull-requests: read
+      statuses: read
+    steps:
+      - name: Enforce fresh non-skipped CodeRabbit signal on human PRs
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const payload = context.payload || {};
+
+            const parseTime = (value) => {
+              const ts = Date.parse(value || "");
+              return Number.isFinite(ts) ? ts : 0;
+            };
+
+            const failWithAction = (reason) => {
+              core.setFailed(
+                `[coderabbit-freshness:fail] ${reason}. Next action: run "@coderabbitai review" on this PR and wait for a fresh CodeRabbit update. Temporary bypass requires label "coderabbit:exempt" with audit note.`
+              );
+            };
+
+            const resolvePullRequest = async () => {
+              const prNumber = payload.pull_request?.number;
+              if (!prNumber) {
+                core.info("[coderabbit-freshness:skip_non_pr_event] No pull_request found in event payload.");
+                return null;
+              }
+
+              const prResponse = await github.rest.pulls.get({
+                owner,
+                repo,
+                pull_number: prNumber,
+              });
+              const resolvedPr = prResponse.data;
+              if (((resolvedPr.state || "").trim().toLowerCase()) !== "open") {
+                core.info("[coderabbit-freshness:skip_pr_not_open] Associated PR is not open.");
+                return null;
+              }
+              return resolvedPr;
+            };
+
+            const pr = await resolvePullRequest();
+            if (!pr) {
+              return;
+            }
+
+            if (pr.draft) {
+              core.info("[coderabbit-freshness:skip_draft] Draft PR; freshness gate skipped.");
+              return;
+            }
+
+            const author = (pr.user?.login || "").toLowerCase();
+            const isBotAuthor =
+              author.endsWith("[bot]") || (pr.user?.type || "").toLowerCase() === "bot";
+            if (isBotAuthor) {
+              core.info("[coderabbit-freshness:skip_bot] Bot-authored PR; freshness gate skipped.");
+              return;
+            }
+
+            const labels = new Set(
+              (pr.labels || [])
+                .map((label) => ((label?.name || "").trim().toLowerCase()))
+                .filter(Boolean)
+            );
+            const exemptLabels = ["coderabbit:exempt", "coderabbit:hold"];
+            const matchedExemptions = exemptLabels.filter((label) => labels.has(label));
+            if (matchedExemptions.length > 0) {
+              core.notice(
+                `[coderabbit-freshness:skip_exempt] Exempt via label(s): ${matchedExemptions.join(", ")}`
+              );
+              return;
+            }
+
+            const sha = (pr.head?.sha || "").trim();
+            if (!sha) {
+              core.setFailed(
+                "[coderabbit-freshness:fail] Missing PR head SHA. Next action: re-open/synchronize PR and retry."
+              );
+              return;
+            }
+
+            const staleMinutes = 120;
+            const now = Date.now();
+
+            const statuses = await github.paginate(github.rest.repos.listCommitStatusesForRef, {
+              owner,
+              repo,
+              ref: sha,
+              per_page: 100,
+            });
+            const coderabbitStatus = statuses
+              .filter((status) => ((status.context || "").trim().toLowerCase() === "coderabbit"))
+              .sort((a, b) => {
+                const aTs = parseTime(a.updated_at || a.created_at || "");
+                const bTs = parseTime(b.updated_at || b.created_at || "");
+                return bTs - aTs;
+              })[0];
+
+            if (coderabbitStatus) {
+              const description = ((coderabbitStatus.description || "").trim().toLowerCase());
+              const state = ((coderabbitStatus.state || "").trim().toLowerCase());
+              const updatedAt = parseTime(coderabbitStatus.updated_at || coderabbitStatus.created_at || "");
+              const ageMinutes = Math.max(0, Math.floor((now - updatedAt) / 60000));
+
+              if (description.includes("review skipped")) {
+                failWithAction("CodeRabbit status is 'Review skipped'");
+                return;
+              }
+              if (state === "pending") {
+                if (ageMinutes > staleMinutes) {
+                  failWithAction(
+                    `CodeRabbit status is pending stale (${ageMinutes}m old; SLA ${staleMinutes}m)`
+                  );
+                } else {
+                  failWithAction(`CodeRabbit status is still pending (${ageMinutes}m old)`);
+                }
+                return;
+              }
+              if (state !== "success") {
+                failWithAction(`CodeRabbit status state is ${state || "unknown"}`);
+                return;
+              }
+
+              core.notice(
+                `[coderabbit-freshness:ok_status] CodeRabbit status is ${state}; age ${ageMinutes}m.`
+              );
+              return;
+            }
+
+            const allSuites = await github.paginate(
+              github.rest.checks.listSuitesForRef,
+              {
+                owner,
+                repo,
+                ref: sha,
+                per_page: 100,
+              },
+              (response) => response.data?.check_suites || []
+            );
+            const suites = (allSuites || []).filter(
+              (suite) => (((suite.app || {}).slug || "").trim().toLowerCase() === "coderabbitai")
+            );
+            if (suites.length === 0) {
+              failWithAction("Missing CodeRabbit status/check-suite for this commit");
+              return;
+            }
+
+            const latestSuite = suites
+              .slice()
+              .sort((a, b) => {
+                const aTs = parseTime(a.updated_at || a.completed_at || a.created_at || "");
+                const bTs = parseTime(b.updated_at || b.completed_at || b.created_at || "");
+                return bTs - aTs;
+              })[0];
+
+            const suiteStatus = ((latestSuite.status || "").trim().toLowerCase());
+            const suiteConclusion = ((latestSuite.conclusion || "").trim().toLowerCase());
+            const suiteUpdatedAt = parseTime(
+              latestSuite.updated_at || latestSuite.completed_at || latestSuite.created_at || ""
+            );
+            const suiteAgeMinutes = Math.max(0, Math.floor((now - suiteUpdatedAt) / 60000));
+
+            if (suiteStatus === "completed") {
+              if (suiteConclusion === "skipped") {
+                failWithAction("CodeRabbit check-suite conclusion is skipped");
+                return;
+              }
+              if (!["success", "neutral"].includes(suiteConclusion)) {
+                failWithAction(`CodeRabbit check-suite conclusion is ${suiteConclusion || "unknown"}`);
+                return;
+              }
+              core.notice(
+                `[coderabbit-freshness:ok_suite] CodeRabbit check-suite completed (${suiteConclusion}); age ${suiteAgeMinutes}m.`
+              );
+              return;
+            }
+
+            const pendingStates = ["queued", "in_progress", "requested", "waiting", "pending"];
+            if (!pendingStates.includes(suiteStatus)) {
+              failWithAction(`CodeRabbit check-suite status is ${suiteStatus || "unknown"}`);
+              return;
+            }
+            if (suiteAgeMinutes > staleMinutes) {
+              failWithAction(
+                `CodeRabbit check-suite is pending stale (${suiteAgeMinutes}m old; SLA ${staleMinutes}m)`
+              );
+              return;
+            }
+            failWithAction(
+              `CodeRabbit check-suite is still ${suiteStatus} (${suiteAgeMinutes}m old)`
+            );
+            return;

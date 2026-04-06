@@ -11,6 +11,7 @@ const repoRoot = path.resolve(__dirname, '..');
 
 const FRESHNESS_CONFIG_PATH = path.join(repoRoot, 'docs', 'freshness.json');
 const MCP_SETUP_PATH = path.join(repoRoot, 'docs', 'MCP_SETUP.md');
+const REPO_CONTRACT_PATH = path.join(repoRoot, 'docs', 'agent', 'REPO_CONTRACT.md');
 const MCP_TOOL_SOURCE_DIR = path.join(repoRoot, 'src', 'mcp', 'tools');
 const OLD_REPO_PATTERNS = [
   /github\.com\/AndrewNordstrom\/bluesky-community-feed/,
@@ -53,6 +54,20 @@ const DEFAULT_SCAN_PATHS = [
   'docs',
   '.github/PULL_REQUEST_TEMPLATE.md',
 ];
+
+const EXPECTED_REPO_CONTRACT_HEADINGS = [
+  '## 1. What This Repo Is',
+  '## 2. Why It Exists',
+  '## 3. System Shape',
+  '## 4. Key Files and Directories',
+  '## 5. Build / Test / Run Commands',
+  '## 6. Deploy and Rollback Notes',
+  '## 7. Linked Deeper Docs',
+  '## 8. Known Gotchas',
+  '## 9. Where to Get Live State',
+];
+
+const ALLOWED_DOC_COMPLIANCE_STATUS = new Set(['Exists', 'Missing']);
 
 function walkMarkdownFiles(rootDir) {
   const files = [];
@@ -314,6 +329,209 @@ function validateLegacyRepoReferences(files, problems) {
   }
 }
 
+function parseMarkdownTableRow(line) {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith('|') || !trimmed.endsWith('|')) {
+    return null;
+  }
+
+  return trimmed
+    .slice(1, -1)
+    .split('|')
+    .map(cell => cell.trim());
+}
+
+function stripInlineCode(value) {
+  return value.replace(/^`+|`+$/g, '').trim();
+}
+
+export function collectTopLevelHeadings(content) {
+  const headings = [];
+  let inFence = false;
+  for (const rawLine of content.split('\n')) {
+    const line = rawLine.replace(/\r$/, '');
+    if (/^(```|~~~)/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (!inFence && /^##\s+.+$/.test(line)) {
+      headings.push(line);
+    }
+  }
+  return headings;
+}
+
+export function findNextTopLevelHeadingIndex(lines, startIndex = 0) {
+  let inFence = false;
+  for (let i = 0; i < startIndex; i += 1) {
+    const line = lines[i].replace(/\r$/, '');
+    if (/^(```|~~~)/.test(line)) {
+      inFence = !inFence;
+    }
+  }
+
+  for (let i = startIndex; i < lines.length; i += 1) {
+    const line = lines[i].replace(/\r$/, '');
+    if (/^(```|~~~)/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (!inFence && /^##\s+/.test(line)) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+export function findHeadingLineIndex(lines, headingRegex) {
+  let inFence = false;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i].replace(/\r$/, '');
+    if (/^(```|~~~)/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (!inFence && headingRegex.test(line)) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+export function isMarkdownSeparatorRow(cells, expectedLength) {
+  return (
+    Array.isArray(cells) &&
+    cells.length === expectedLength &&
+    cells.every(cell => /^:?-{3,}:?$/.test(cell))
+  );
+}
+
+function validateRepoContract(problems) {
+  if (!existsSync(REPO_CONTRACT_PATH)) {
+    problems.push('docs/agent/REPO_CONTRACT.md not found');
+    return;
+  }
+
+  const content = readFileSync(REPO_CONTRACT_PATH, 'utf8');
+  const lines = content.split('\n');
+  const headings = collectTopLevelHeadings(content);
+
+  if (headings.length !== EXPECTED_REPO_CONTRACT_HEADINGS.length) {
+    problems.push(
+      `repo contract heading count mismatch: expected ${EXPECTED_REPO_CONTRACT_HEADINGS.length}, found ${headings.length}`
+    );
+  }
+
+  EXPECTED_REPO_CONTRACT_HEADINGS.forEach((heading, index) => {
+    if (headings[index] !== heading) {
+      problems.push(
+        `repo contract heading mismatch at section ${index + 1}: expected "${heading}", found "${headings[index] ?? 'missing'}"`
+      );
+    }
+  });
+
+  const trackerHeadingIndex = findHeadingLineIndex(lines, /^###\s+Doc Compliance Tracker\b/);
+  if (trackerHeadingIndex === -1) {
+    problems.push('repo contract missing "### Doc Compliance Tracker" subsection');
+    return;
+  }
+
+  const nextTopLevelHeadingIndex = findNextTopLevelHeadingIndex(lines, trackerHeadingIndex + 1);
+  const trackerBodyLines =
+    nextTopLevelHeadingIndex === -1
+      ? lines.slice(trackerHeadingIndex + 1)
+      : lines.slice(trackerHeadingIndex + 1, nextTopLevelHeadingIndex);
+
+  const trackerLines = trackerBodyLines
+    .map(line => line.trim())
+    .filter(Boolean)
+    .filter(line => line.startsWith('|'));
+
+  if (trackerLines.length < 3) {
+    problems.push('repo contract doc compliance tracker table is missing rows');
+    return;
+  }
+
+  const headerCells = parseMarkdownTableRow(trackerLines[0]);
+  const separatorCells = parseMarkdownTableRow(trackerLines[1]);
+
+  if (!headerCells || !separatorCells) {
+    problems.push('repo contract doc compliance tracker table is malformed');
+    return;
+  }
+
+  const expectedHeaders = ['Required Doc', 'Canonical Path', 'Status', 'Notes'];
+  if (headerCells.length !== expectedHeaders.length) {
+    problems.push(
+      `repo contract doc compliance header column count mismatch: expected ${expectedHeaders.length}, found ${headerCells.length}`
+    );
+    return;
+  }
+  if (!isMarkdownSeparatorRow(separatorCells, expectedHeaders.length)) {
+    problems.push('repo contract doc compliance tracker separator row is malformed');
+    return;
+  }
+
+  expectedHeaders.forEach((expectedHeader, index) => {
+    if (headerCells[index] !== expectedHeader) {
+      problems.push(
+        `repo contract doc compliance header mismatch at column ${index + 1}: expected "${expectedHeader}", found "${headerCells[index] ?? 'missing'}"`
+      );
+    }
+  });
+
+  trackerLines.slice(2).forEach((line, index) => {
+    const row = parseMarkdownTableRow(line);
+    if (!row || row.length < 4) {
+      problems.push(`repo contract doc compliance row ${index + 1} is malformed`);
+      return;
+    }
+
+    const canonicalPath = stripInlineCode(row[1]);
+    const status = row[2];
+
+    if (!ALLOWED_DOC_COMPLIANCE_STATUS.has(status)) {
+      problems.push(
+        `repo contract doc compliance row ${index + 1} has invalid status "${status}"; expected Exists or Missing`
+      );
+    }
+
+    if (!canonicalPath) {
+      problems.push(`repo contract doc compliance row ${index + 1} is missing canonical path`);
+      return;
+    }
+
+    const resolvedCanonicalPath = path.resolve(repoRoot, canonicalPath);
+    const relativeCanonicalPath = path.relative(repoRoot, resolvedCanonicalPath);
+    const isOutsideRepo =
+      path.isAbsolute(canonicalPath) ||
+      relativeCanonicalPath.startsWith('..') ||
+      path.isAbsolute(relativeCanonicalPath);
+
+    if (isOutsideRepo) {
+      problems.push(
+        `repo contract doc compliance row ${index + 1} has out-of-repo canonical path "${canonicalPath}"`
+      );
+      return;
+    }
+
+    if (status === 'Exists') {
+      if (!existsSync(resolvedCanonicalPath)) {
+        problems.push(
+          `repo contract doc compliance row ${index + 1} marks "${canonicalPath}" as Exists, but the file is missing`
+        );
+        return;
+      }
+
+      if (!statSync(resolvedCanonicalPath).isFile()) {
+        problems.push(
+          `repo contract doc compliance row ${index + 1} marks "${canonicalPath}" as Exists, but it is not a file`
+        );
+      }
+    }
+  });
+}
+
 function main() {
   const problems = [];
 
@@ -337,6 +555,7 @@ function main() {
   validateMcpToolCount(problems);
   validateCiHasDocsVerify(path.join(repoRoot, '.github', 'workflows', 'ci.yml'), problems);
   validateLegacyRepoReferences(repoGuardFiles, problems);
+  validateRepoContract(problems);
 
   if (problems.length > 0) {
     console.error('Docs verification failed:');
@@ -351,4 +570,6 @@ function main() {
   console.log(`Docs verification passed (${freshnessDocs} tracked docs, ${markdownCount} markdown files scanned).`);
 }
 
-main();
+if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
+  main();
+}

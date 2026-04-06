@@ -3,7 +3,7 @@ name: coderabbit-thread-check
 on:
   pull_request:
     branches: [main]
-    types: [opened, reopened, synchronize, ready_for_review]
+    types: [opened, reopened, synchronize, ready_for_review, labeled, unlabeled]
   pull_request_review:
     types: [submitted, edited, dismissed]
 
@@ -13,4 +13,131 @@ permissions:
 
 jobs:
   coderabbit-thread-check:
-    uses: andrewnordstrom-eng/.github/.github/workflows/coderabbit-thread-check.yml@8b68c0663d4a7cd72bdf6051a5cff65f9ff46188
+    runs-on: ubuntu-latest
+    concurrency:
+      group: coderabbit-thread-check-${{ github.repository }}-${{ github.event.pull_request.number || github.sha || github.run_id }}
+      cancel-in-progress: true
+    permissions:
+      pull-requests: read
+    steps:
+      - name: Verify all CodeRabbit review threads are resolved
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const payload = context.payload || {};
+
+            const pr = payload.pull_request;
+            if (!pr) {
+              core.info("[coderabbit-thread-check:skip] No pull_request in event payload.");
+              return;
+            }
+
+            if (pr.draft) {
+              core.info("[coderabbit-thread-check:skip_draft] Draft PR; thread check skipped.");
+              return;
+            }
+
+            const author = (pr.user?.login || "").toLowerCase();
+            const isBotAuthor =
+              author.endsWith("[bot]") || (pr.user?.type || "").toLowerCase() === "bot";
+            if (isBotAuthor) {
+              core.info("[coderabbit-thread-check:skip_bot] Bot-authored PR; thread check skipped.");
+              return;
+            }
+
+            const labels = new Set(
+              (pr.labels || [])
+                .map((label) => ((label?.name || "").trim().toLowerCase()))
+                .filter(Boolean)
+            );
+            const exemptLabels = ["coderabbit:exempt", "coderabbit:hold"];
+            const matchedExemptions = exemptLabels.filter((label) => labels.has(label));
+            if (matchedExemptions.length > 0) {
+              core.notice(
+                `[coderabbit-thread-check:skip_exempt] Exempt via label(s): ${matchedExemptions.join(", ")}`
+              );
+              return;
+            }
+
+            const prNumber = pr.number;
+            if (!prNumber) {
+              core.setFailed("[coderabbit-thread-check:fail] Missing PR number in event payload.");
+              return;
+            }
+
+            const threads = [];
+            try {
+              let after = null;
+              while (true) {
+                const result = await github.graphql(
+                  `query($owner: String!, $repo: String!, $prNumber: Int!, $after: String) {
+                    repository(owner: $owner, name: $repo) {
+                      pullRequest(number: $prNumber) {
+                        reviewThreads(first: 100, after: $after) {
+                          nodes {
+                            isResolved
+                            isOutdated
+                            comments(first: 1) {
+                              nodes {
+                                author { login }
+                              }
+                            }
+                          }
+                          pageInfo {
+                            hasNextPage
+                            endCursor
+                          }
+                        }
+                      }
+                    }
+                  }`,
+                  { owner, repo, prNumber, after }
+                );
+                const page = result.repository.pullRequest.reviewThreads;
+                threads.push(...page.nodes);
+                if (!page.pageInfo.hasNextPage) break;
+                after = page.pageInfo.endCursor;
+              }
+            } catch (err) {
+              core.setFailed(
+                `[coderabbit-thread-check:fail] Failed to query review threads: ${err?.message || err}`
+              );
+              return;
+            }
+
+            const coderabbitThreads = threads.filter((thread) => {
+              const firstAuthor = (thread.comments?.nodes?.[0]?.author?.login || "").toLowerCase();
+              return firstAuthor === "coderabbitai" || firstAuthor === "coderabbitai[bot]";
+            });
+
+            const unresolvedThreads = coderabbitThreads.filter(
+              (thread) => !thread.isResolved && !thread.isOutdated
+            );
+
+            const totalCoderabbit = coderabbitThreads.length;
+            const resolvedCount = coderabbitThreads.filter((t) => t.isResolved).length;
+            const outdatedCount = coderabbitThreads.filter((t) => t.isOutdated && !t.isResolved).length;
+            const unresolvedCount = unresolvedThreads.length;
+
+            if (totalCoderabbit === 0) {
+              core.info(
+                "[coderabbit-thread-check:skip_no_threads] No CodeRabbit review threads found on this PR."
+              );
+              return;
+            }
+
+            if (unresolvedCount > 0) {
+              core.setFailed(
+                `[coderabbit-thread-check:fail] ${unresolvedCount} unresolved CodeRabbit review thread(s) on PR #${prNumber}. ` +
+                `Resolve all threads before merging. (${resolvedCount} resolved, ${outdatedCount} outdated, ${unresolvedCount} unresolved). ` +
+                `Temporary bypass requires label "coderabbit:exempt" with audit note.`
+              );
+              return;
+            }
+
+            core.notice(
+              `[coderabbit-thread-check:ok] All ${totalCoderabbit} CodeRabbit thread(s) resolved on PR #${prNumber}. ` +
+              `(${resolvedCount} resolved, ${outdatedCount} outdated).`
+            );
