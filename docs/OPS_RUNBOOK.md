@@ -137,20 +137,22 @@ Expected:
 
 ### DB backups
 
-- Script: `/home/corgi/backup-corgi.sh`
-- Schedule (user `corgi` crontab): `0 2 * * *`
-- Output dir: `/home/corgi/backups`
+- Script: `/opt/backups/daily-backup.sh`
+- Schedule (root crontab): `0 3 * * * /opt/backups/daily-backup.sh >> /opt/backups/backup.log 2>&1`
+- Output dir: `/opt/backups/postgres`
 - Retention policy:
-  - keep latest 5 `db_*.sql.gz`
-  - remove stale plain `.sql` older than 1 day
-  - remove compressed backups older than 14 days (safety net)
+  - keep only the latest 5 valid `dump-YYYY-MM-DD.sql.gz` files
+  - validate each PostgreSQL dump with `gzip -t` before it is retained
+  - remove invalid/truncated `.sql.gz` dumps automatically
+  - remove stale plain `.sql` files if any are left behind by an interrupted run
 
 Quick verification:
 
 ```bash
-sudo crontab -u corgi -l
-ls -1t /home/corgi/backups/db_* | nl
-tail -n 200 /home/corgi/backup.log
+sudo crontab -l
+find /opt/backups/postgres -maxdepth 1 -type f -name 'dump-*.sql.gz' -printf '%f\n' | sort -r | nl
+for dump in /opt/backups/postgres/dump-*.sql.gz; do sudo gzip -t "$dump"; done
+tail -n 200 /opt/backups/backup.log
 ```
 
 ## Ops Retention and Alerting
@@ -162,7 +164,8 @@ tail -n 200 /home/corgi/backup.log
 - Actions:
   - force logrotate attempt
   - vacuum systemd journal to 300MB
-  - enforce backup safety retention
+  - enforce PostgreSQL backup retention on `/opt/backups/postgres`
+  - delete invalid/truncated PostgreSQL dumps before counting retained backups
   - prune unused docker containers/images (safe prune only)
 
 ### Disk/service alert script
@@ -223,10 +226,10 @@ du -xhd1 /home/corgi | sort -h
 ```bash
 sudo /usr/local/bin/bluesky-ops-retention.sh
 ```
-3. If backup directory is large, keep latest 5 only:
+3. Verify the backup directory contains only the latest 5 valid dumps:
 ```bash
-cd /home/corgi/backups
-ls -1t db_* | tail -n +6 | xargs -r rm -f
+find /opt/backups/postgres -maxdepth 1 -type f -name 'dump-*.sql.gz' -printf '%f\n' | sort -r | nl
+for dump in /opt/backups/postgres/dump-*.sql.gz; do sudo gzip -t "$dump"; done
 ```
 4. Re-check `df -h /`.
 

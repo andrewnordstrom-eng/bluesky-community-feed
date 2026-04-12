@@ -3,7 +3,7 @@
 Status: canonical operability doc
 Owner: bluesky-feed
 Service class: production_service
-Last updated: 2026-04-05
+Last updated: 2026-04-12
 
 ## Release Path
 
@@ -41,11 +41,14 @@ Supporting ops signals:
 
 ## Backups And Recovery
 
-- PostgreSQL backups run daily via `/home/corgi/backup-corgi.sh`
-- retention keeps the latest five DB backups and removes stale compressed files
-  after 14 days
+- PostgreSQL backups run daily via `/opt/backups/daily-backup.sh`
+- the retained PostgreSQL dump must pass `gzip -t` before it is moved into
+  `/opt/backups/postgres`
+- retention keeps only the latest 5 valid PostgreSQL dumps and removes
+  invalid/truncated `.sql.gz` dumps automatically
 - operational cleanup script rotates logs, vacuums journals, and prunes unused
-  Docker artifacts
+  Docker artifacts while also enforcing the same PostgreSQL retention on
+  `/opt/backups/postgres`
 - recovery should restore PostgreSQL first, then rebuild Redis/cache state from
   the application
 

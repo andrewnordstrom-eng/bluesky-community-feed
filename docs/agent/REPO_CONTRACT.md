@@ -226,8 +226,10 @@ sudo systemctl restart bluesky-feed
 Notes:
 - DB migrations are forward-only by default. For destructive rollback, restore
   from backup first in a controlled maintenance window.
-- Backups run daily at 02:00 UTC via cron (`/home/corgi/backup-corgi.sh`),
-  retention: latest 5, compressed backups removed after 14 days.
+- Backups run daily via root cron using `/opt/backups/daily-backup.sh`, writing
+  PostgreSQL dumps to `/opt/backups/postgres`.
+- PostgreSQL retention is deterministic: keep only the latest 5 valid
+  `dump-YYYY-MM-DD.sql.gz` files and delete invalid/truncated dumps automatically.
 
 ### Infrastructure containers
 
@@ -365,7 +367,7 @@ See `docs/OPERABILITY.md`, `docs/runbooks/operator-quickstart.md`, and
 | Service status (VPS) | `sudo systemctl status bluesky-feed` |
 | Service logs (VPS) | `sudo journalctl -u bluesky-feed -f` |
 | Infra containers | `cd /opt/bluesky-feed && docker compose -f docker-compose.prod.yml ps` |
-| Database backups | `/home/corgi/backups/` on VPS |
+| Database backups | `/opt/backups/postgres/` on VPS |
 | Disk/service alerts | `sudo journalctl -t bluesky-disk-alert -n 100 --no-pager` |
 | Retention/cleanup logs | `sudo journalctl -t bluesky-ops-retention -n 100 --no-pager` |
 | Linear project board | `https://linear.app/andrewnord/project/bluesky-corgi-8f5a0fc7a693` |

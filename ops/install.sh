@@ -7,7 +7,7 @@ set -euo pipefail
 APP_DIR="/opt/bluesky-feed"
 
 # ── Make ops scripts executable ──────────────────────────────────
-SCRIPTS="db redis logs deploy feed-check status health-watchdog"
+SCRIPTS="db redis logs deploy feed-check status health-watchdog daily-backup.sh bluesky-ops-retention.sh"
 for script in $SCRIPTS; do
   if [ -f "$APP_DIR/ops/$script" ]; then
     chmod +x "$APP_DIR/ops/$script"
@@ -36,6 +36,20 @@ if [ -f "$APP_DIR/ops/health-watchdog.timer" ]; then
   echo "✓ health-watchdog.timer"
 fi
 
+# Backup and retention scripts
+install -d -m 0755 /opt/backups /opt/backups/postgres /opt/backups/igor
+echo "✓ /opt/backups directories"
+
+if [ -f "$APP_DIR/ops/daily-backup.sh" ]; then
+  install -m 0755 "$APP_DIR/ops/daily-backup.sh" /opt/backups/daily-backup.sh
+  echo "✓ /opt/backups/daily-backup.sh"
+fi
+
+if [ -f "$APP_DIR/ops/bluesky-ops-retention.sh" ]; then
+  install -m 0755 "$APP_DIR/ops/bluesky-ops-retention.sh" /usr/local/bin/bluesky-ops-retention.sh
+  echo "✓ /usr/local/bin/bluesky-ops-retention.sh"
+fi
+
 # Reload systemd and enable units
 systemctl daemon-reload
 echo "✓ systemctl daemon-reload"
@@ -55,6 +69,8 @@ echo "  ops/logs -f"
 echo "  ops/deploy"
 echo "  ops/feed-check 50"
 echo "  ops/status"
+echo "  /opt/backups/daily-backup.sh"
+echo "  /usr/local/bin/bluesky-ops-retention.sh"
 echo ""
 echo "Systemd units:"
 echo "  systemctl status bluesky-feed"
