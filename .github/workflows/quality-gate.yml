@@ -11,4 +11,4 @@ permissions:
 
 jobs:
   quality-gate:
-    uses: andrewnordstrom-eng/.github-public/.github/workflows/quality-gate.yml@3aaa6ed6e1feef3410e1c5bbdbfa669d43ca39db
+    uses: andrewnordstrom-eng/.github-public/.github/workflows/quality-gate.yml@215f9464d5778043a0261c42caa20ccef25baf7c
