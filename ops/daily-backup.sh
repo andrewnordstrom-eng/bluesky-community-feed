@@ -162,6 +162,13 @@ prune_postgres_backups() {
 trap cleanup_tmp_artifacts EXIT
 
 mkdir -p "${POSTGRES_DIR}" "${IGOR_DIR}"
+
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "error python3_required" >&2
+  log "ERROR: python3 required for backup retention validation"
+  exit 1
+fi
+
 acquire_backup_lock
 
 log "Starting daily backup..."
@@ -209,32 +216,28 @@ fi
 
 if [ -n "${IGOR_DB}" ]; then
   log "Copying Igor SQLite..."
-  if ! command -v python3 >/dev/null 2>&1; then
-    log "WARNING: python3 unavailable — skipping Igor SQLite backup"
-  else
-    IGOR_TMP="${IGOR_DIR}/.igor-${DATE}.db.tmp"
-    if ! create_sqlite_backup "${IGOR_DB}" "${IGOR_TMP}"; then
-      log "ERROR: Igor SQLite backup failed during snapshot creation"
-      exit 1
-    fi
-
-    if ! validate_sqlite_backup "${IGOR_TMP}"; then
-      log "ERROR: Igor SQLite backup failed integrity_check"
-      exit 1
-    fi
-
-    gzip -f "${IGOR_TMP}"
-    IGOR_TMP_GZ="${IGOR_TMP}.gz"
-    if ! validate_gzip_dump "${IGOR_TMP_GZ}"; then
-      log "ERROR: Igor SQLite backup failed gzip validation"
-      exit 1
-    fi
-
-    mv -f "${IGOR_TMP_GZ}" "${IGOR_DIR}/igor-${DATE}.db.gz"
-    IGOR_TMP=""
-    IGOR_TMP_GZ=""
-    log "Igor backup: ${IGOR_DIR}/igor-${DATE}.db.gz"
+  IGOR_TMP="${IGOR_DIR}/.igor-${DATE}.db.tmp"
+  if ! create_sqlite_backup "${IGOR_DB}" "${IGOR_TMP}"; then
+    log "ERROR: Igor SQLite backup failed during snapshot creation"
+    exit 1
   fi
+
+  if ! validate_sqlite_backup "${IGOR_TMP}"; then
+    log "ERROR: Igor SQLite backup failed integrity_check"
+    exit 1
+  fi
+
+  gzip -f "${IGOR_TMP}"
+  IGOR_TMP_GZ="${IGOR_TMP}.gz"
+  if ! validate_gzip_dump "${IGOR_TMP_GZ}"; then
+    log "ERROR: Igor SQLite backup failed gzip validation"
+    exit 1
+  fi
+
+  mv -f "${IGOR_TMP_GZ}" "${IGOR_DIR}/igor-${DATE}.db.gz"
+  IGOR_TMP=""
+  IGOR_TMP_GZ=""
+  log "Igor backup: ${IGOR_DIR}/igor-${DATE}.db.gz"
 else
   log "No Igor SQLite found — skipping"
 fi

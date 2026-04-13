@@ -60,6 +60,24 @@ describe('health response redaction', () => {
     expect(status).not.toHaveProperty('timestamp');
   });
 
+  it('returns only redacted status for public health when jetstream provider throws', async () => {
+    dbQueryMock.mockResolvedValue({ rows: [{ '?column?': 1 }] });
+    redisPingMock.mockResolvedValue('PONG');
+    registerJetstreamHealth(() => {
+      throw new Error('jetstream probe failed');
+    });
+    registerScoringHealth(() => ({
+      status: 'healthy',
+      is_running: false,
+    }));
+
+    const status = await getPublicHealthStatus();
+
+    expect(status).toEqual({ status: 'degraded' });
+    expect(status).not.toHaveProperty('components');
+    expect(status).not.toHaveProperty('timestamp');
+  });
+
   it('returns detailed diagnostics for admin health', async () => {
     dbQueryMock.mockRejectedValue(new Error('db down'));
     redisPingMock.mockResolvedValue('PONG');
@@ -236,5 +254,27 @@ describe('health response redaction', () => {
     } finally {
       await app.close();
     }
+  });
+
+  it('returns only redacted status for public health when jetstream health is not registered', async () => {
+    vi.resetModules();
+
+    const {
+      getPublicHealthStatus: getPublicHealthStatusFresh,
+      registerScoringHealth: registerScoringHealthFresh,
+    } = await import('../src/lib/health.js');
+
+    dbQueryMock.mockResolvedValue({ rows: [{ '?column?': 1 }] });
+    redisPingMock.mockResolvedValue('PONG');
+    registerScoringHealthFresh(() => ({
+      status: 'healthy',
+      is_running: false,
+    }));
+
+    const status = await getPublicHealthStatusFresh();
+
+    expect(status).toEqual({ status: 'degraded' });
+    expect(status).not.toHaveProperty('components');
+    expect(status).not.toHaveProperty('timestamp');
   });
 });
