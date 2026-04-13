@@ -137,20 +137,24 @@ Expected:
 
 ### DB backups
 
-- Script: `/home/corgi/backup-corgi.sh`
-- Schedule (user `corgi` crontab): `0 2 * * *`
-- Output dir: `/home/corgi/backups`
+- Script: `/opt/backups/daily-backup.sh`
+- Schedule (root crontab): `0 3 * * * /opt/backups/daily-backup.sh >> /opt/backups/backup.log 2>&1`
+- Output dir: `/opt/backups/postgres`
 - Retention policy:
-  - keep latest 5 `db_*.sql.gz`
-  - remove stale plain `.sql` older than 1 day
-  - remove compressed backups older than 14 days (safety net)
+  - keep only the latest 5 valid `dump-YYYY-MM-DD.sql.gz` files
+  - validate each PostgreSQL dump with `gzip -t` before it is retained
+  - remove invalid/truncated `.sql.gz` dumps automatically
+  - remove stale plain `.sql` files if any are left behind by an interrupted run
 
 Quick verification:
 
 ```bash
-sudo crontab -u corgi -l
-ls -1t /home/corgi/backups/db_* | nl
-tail -n 200 /home/corgi/backup.log
+sudo crontab -l
+find /opt/backups/postgres -maxdepth 1 -type f -name 'dump-*.sql.gz' -printf '%f\n' | sort -r | nl
+shopt -s nullglob
+for dump in /opt/backups/postgres/dump-*.sql.gz; do sudo gzip -t "$dump"; done
+shopt -u nullglob
+tail -n 200 /opt/backups/backup.log
 ```
 
 ## Ops Retention and Alerting
@@ -162,7 +166,8 @@ tail -n 200 /home/corgi/backup.log
 - Actions:
   - force logrotate attempt
   - vacuum systemd journal to 300MB
-  - enforce backup safety retention
+  - enforce PostgreSQL backup retention on `/opt/backups/postgres`
+  - delete invalid/truncated PostgreSQL dumps before counting retained backups
   - prune unused docker containers/images (safe prune only)
 
 ### Disk/service alert script
@@ -214,36 +219,51 @@ echo "db=$TOP_DB"
 ### 1) Disk pressure (`/` above 92%)
 
 1. Confirm usage:
+
 ```bash
 df -h /
 du -xhd1 /var | sort -h
+du -xhd1 /opt | sort -h
+du -xhd1 /opt/backups | sort -h
 du -xhd1 /home/corgi | sort -h
 ```
-2. Run retention:
+
+1. Run retention:
+
 ```bash
 sudo /usr/local/bin/bluesky-ops-retention.sh
 ```
-3. If backup directory is large, keep latest 5 only:
+
+1. Verify the backup directory contains only the latest 5 valid dumps:
+
 ```bash
-cd /home/corgi/backups
-ls -1t db_* | tail -n +6 | xargs -r rm -f
+find /opt/backups/postgres -maxdepth 1 -type f -name 'dump-*.sql.gz' -printf '%f\n' | sort -r | nl
+shopt -s nullglob
+for dump in /opt/backups/postgres/dump-*.sql.gz; do sudo gzip -t "$dump"; done
+shopt -u nullglob
 ```
-4. Re-check `df -h /`.
+
+1. Re-check `df -h /`.
 
 ### 2) Feed stale or empty
 
 1. Check app and health:
+
 ```bash
 sudo systemctl status bluesky-feed --no-pager
 curl -sS http://localhost:3001/health
 ```
-2. Check feed keys:
+
+1. Check feed keys:
+
 ```bash
 docker exec bluesky-feed-redis redis-cli zcard feed:current
 docker exec bluesky-feed-redis redis-cli get feed:updated_at
 ```
-3. Trigger manual rescore from admin UI.
-4. Check logs for scoring errors:
+
+1. Trigger manual rescore from admin UI.
+1. Check logs for scoring errors:
+
 ```bash
 sudo journalctl -u bluesky-feed -n 300 --no-pager | grep -Ei "scoring|error|redis|postgres"
 ```
@@ -251,11 +271,14 @@ sudo journalctl -u bluesky-feed -n 300 --no-pager | grep -Ei "scoring|error|redi
 ### 3) Jetstream disconnected
 
 1. Check health payload (`jetstream.connected`).
-2. Inspect logs:
+1. Inspect logs:
+
 ```bash
 sudo journalctl -u bluesky-feed -n 300 --no-pager | grep -Ei "jetstream|websocket|reconnect"
 ```
-3. Restart service if needed:
+
+1. Restart service if needed:
+
 ```bash
 sudo systemctl restart bluesky-feed
 ```
@@ -263,20 +286,27 @@ sudo systemctl restart bluesky-feed
 ### 4) PostgreSQL/Redis unavailable
 
 1. Check container state:
+
 ```bash
 cd /opt/bluesky-feed
 docker compose -f docker-compose.prod.yml ps
 ```
-2. Start infra if down:
+
+1. Start infra if down:
+
 ```bash
 docker compose -f docker-compose.prod.yml up -d postgres redis
 ```
-3. Validate DB/Redis:
+
+1. Validate DB/Redis:
+
 ```bash
 docker exec bluesky-feed-postgres pg_isready -U feed -d bluesky_feed
 docker exec bluesky-feed-redis redis-cli ping
 ```
-4. Restart app:
+
+1. Restart app:
+
 ```bash
 sudo systemctl restart bluesky-feed
 ```

@@ -5,9 +5,11 @@
 set -euo pipefail
 
 APP_DIR="/opt/bluesky-feed"
+BACKUP_SCRIPT="${APP_DIR}/ops/daily-backup.sh"
+RETENTION_SCRIPT="${APP_DIR}/ops/bluesky-ops-retention.sh"
 
 # ── Make ops scripts executable ──────────────────────────────────
-SCRIPTS="db redis logs deploy feed-check status health-watchdog"
+SCRIPTS="db redis logs deploy feed-check status health-watchdog daily-backup.sh bluesky-ops-retention.sh"
 for script in $SCRIPTS; do
   if [ -f "$APP_DIR/ops/$script" ]; then
     chmod +x "$APP_DIR/ops/$script"
@@ -36,6 +38,26 @@ if [ -f "$APP_DIR/ops/health-watchdog.timer" ]; then
   echo "✓ health-watchdog.timer"
 fi
 
+# Backup and retention scripts
+if [ ! -f "${BACKUP_SCRIPT}" ]; then
+  echo "ERROR: required backup script missing: ${BACKUP_SCRIPT}" >&2
+  exit 1
+fi
+
+if [ ! -f "${RETENTION_SCRIPT}" ]; then
+  echo "ERROR: required retention script missing: ${RETENTION_SCRIPT}" >&2
+  exit 1
+fi
+
+install -d -o root -g root -m 0700 /opt/backups /opt/backups/postgres /opt/backups/igor
+echo "✓ /opt/backups directories"
+
+install -m 0755 "${BACKUP_SCRIPT}" /opt/backups/daily-backup.sh
+echo "✓ /opt/backups/daily-backup.sh"
+
+install -m 0755 "${RETENTION_SCRIPT}" /usr/local/bin/bluesky-ops-retention.sh
+echo "✓ /usr/local/bin/bluesky-ops-retention.sh"
+
 # Reload systemd and enable units
 systemctl daemon-reload
 echo "✓ systemctl daemon-reload"
@@ -55,6 +77,8 @@ echo "  ops/logs -f"
 echo "  ops/deploy"
 echo "  ops/feed-check 50"
 echo "  ops/status"
+echo "  /opt/backups/daily-backup.sh"
+echo "  /usr/local/bin/bluesky-ops-retention.sh"
 echo ""
 echo "Systemd units:"
 echo "  systemctl status bluesky-feed"
