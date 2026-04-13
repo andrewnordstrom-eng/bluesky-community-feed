@@ -10,6 +10,8 @@ LOCK_FILE="${BACKUP_LOCK_FILE:-/var/lock/bluesky-backups.lock}"
 LOCK_FD=9
 DUMP_FILE="${POSTGRES_DIR}/dump-${DATE}.sql.gz"
 TMP_DUMP=""
+DUMP_STDERR=""
+IGOR_TMP=""
 
 log() {
   echo "[$(date --iso-8601=seconds)] $*"
@@ -24,9 +26,15 @@ acquire_backup_lock() {
   fi
 }
 
-cleanup_tmp_dump() {
+cleanup_tmp_artifacts() {
   if [[ -n "${TMP_DUMP}" && -f "${TMP_DUMP}" ]]; then
     rm -f "${TMP_DUMP}"
+  fi
+  if [[ -n "${DUMP_STDERR}" && -f "${DUMP_STDERR}" ]]; then
+    rm -f "${DUMP_STDERR}"
+  fi
+  if [[ -n "${IGOR_TMP}" && -f "${IGOR_TMP}" ]]; then
+    rm -f "${IGOR_TMP}"
   fi
 }
 
@@ -34,7 +42,43 @@ validate_gzip_dump() {
   gzip -t "$1" >/dev/null 2>&1
 }
 
+create_sqlite_backup() {
+  python3 - "$1" "$2" <<'PY'
+import sqlite3
+import sys
+
+source_path, backup_path = sys.argv[1], sys.argv[2]
+
+source = sqlite3.connect(source_path)
+target = sqlite3.connect(backup_path)
+try:
+    source.backup(target)
+finally:
+    target.close()
+    source.close()
+PY
+}
+
+validate_sqlite_backup() {
+  python3 - "$1" <<'PY'
+import sqlite3
+import sys
+
+database_path = sys.argv[1]
+
+connection = sqlite3.connect(database_path)
+try:
+    result = connection.execute("PRAGMA integrity_check").fetchone()
+finally:
+    connection.close()
+
+if not result or result[0] != "ok":
+    raise SystemExit(1)
+PY
+}
+
 prune_postgres_backups() {
+  local -a backups=()
   local valid_count=0
   local backup_name=""
   local backup_path=""
@@ -42,6 +86,11 @@ prune_postgres_backups() {
   mapfile -t backups < <(
     find "${POSTGRES_DIR}" -maxdepth 1 -type f -name 'dump-*.sql.gz' -printf '%f\n' | sort -r
   )
+
+  if (( ${#backups[@]} == 0 )); then
+    log "No PostgreSQL dumps found — nothing to prune"
+    return
+  fi
 
   for backup_name in "${backups[@]}"; do
     backup_path="${POSTGRES_DIR}/${backup_name}"
@@ -61,7 +110,7 @@ prune_postgres_backups() {
   find "${POSTGRES_DIR}" -maxdepth 1 -type f -name 'dump-*.sql' -delete -print || true
 }
 
-trap cleanup_tmp_dump EXIT
+trap cleanup_tmp_artifacts EXIT
 
 mkdir -p "${POSTGRES_DIR}" "${IGOR_DIR}"
 acquire_backup_lock
@@ -74,12 +123,16 @@ if [ "${DISK_PCT}" -gt 85 ]; then
 fi
 
 TMP_DUMP="$(mktemp "${POSTGRES_DIR}/.dump-${DATE}.sql.gz.tmp.XXXXXX")"
+DUMP_STDERR="$(mktemp)"
 
 log "Dumping PostgreSQL..."
-if ! docker exec bluesky-feed-postgres pg_dumpall -U feed 2>/dev/null | gzip -c > "${TMP_DUMP}"; then
-  log "ERROR: PostgreSQL dump failed before validation"
+if ! docker exec bluesky-feed-postgres pg_dumpall -U feed 2>"${DUMP_STDERR}" | gzip -c > "${TMP_DUMP}"; then
+  stderr_snippet="$(head -c 500 "${DUMP_STDERR}" | tr '\n' ' ')"
+  log "ERROR: PostgreSQL dump failed before validation: ${stderr_snippet:-unknown error}"
   exit 1
 fi
+rm -f "${DUMP_STDERR}"
+DUMP_STDERR=""
 
 DUMP_SIZE="$(stat -c%s "${TMP_DUMP}" 2>/dev/null || echo 0)"
 if [ "${DUMP_SIZE}" -lt "${MIN_DUMP_BYTES}" ]; then
@@ -107,9 +160,30 @@ fi
 
 if [ -n "${IGOR_DB}" ]; then
   log "Copying Igor SQLite..."
-  cp "${IGOR_DB}" "${IGOR_DIR}/igor-${DATE}.db"
-  gzip -f "${IGOR_DIR}/igor-${DATE}.db"
-  log "Igor backup: ${IGOR_DIR}/igor-${DATE}.db.gz"
+  if ! command -v python3 >/dev/null 2>&1; then
+    log "WARNING: python3 unavailable — skipping Igor SQLite backup"
+  else
+    IGOR_TMP="${IGOR_DIR}/.igor-${DATE}.db.tmp"
+    if ! create_sqlite_backup "${IGOR_DB}" "${IGOR_TMP}"; then
+      log "ERROR: Igor SQLite backup failed during snapshot creation"
+      exit 1
+    fi
+
+    if ! validate_sqlite_backup "${IGOR_TMP}"; then
+      log "ERROR: Igor SQLite backup failed integrity_check"
+      exit 1
+    fi
+
+    gzip -f "${IGOR_TMP}"
+    if ! validate_gzip_dump "${IGOR_TMP}.gz"; then
+      log "ERROR: Igor SQLite backup failed gzip validation"
+      exit 1
+    fi
+
+    mv -f "${IGOR_TMP}.gz" "${IGOR_DIR}/igor-${DATE}.db.gz"
+    IGOR_TMP=""
+    log "Igor backup: ${IGOR_DIR}/igor-${DATE}.db.gz"
+  fi
 else
   log "No Igor SQLite found — skipping"
 fi

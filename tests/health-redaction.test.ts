@@ -74,7 +74,7 @@ describe('health response redaction', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
-      status: 'degraded',
+      status: 'unhealthy',
       components: {
         database: {
           status: 'unhealthy',

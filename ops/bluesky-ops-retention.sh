@@ -24,6 +24,7 @@ validate_gzip_dump() {
 }
 
 prune_postgres_backups() {
+  local -a backups=()
   local valid_count=0
   local invalid_removed=0
   local old_removed=0
@@ -34,6 +35,11 @@ prune_postgres_backups() {
   mapfile -t backups < <(
     find "${POSTGRES_DIR}" -maxdepth 1 -type f -name 'dump-*.sql.gz' -printf '%f\n' | sort -r
   )
+
+  if (( ${#backups[@]} == 0 )); then
+    log "postgres_backup_retention kept=0 invalid_removed=0 old_removed=0 limit=${KEEP_VALID_DUMPS}"
+    return
+  fi
 
   for backup_name in "${backups[@]}"; do
     backup_path="${POSTGRES_DIR}/${backup_name}"
