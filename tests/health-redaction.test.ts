@@ -88,4 +88,37 @@ describe('health response redaction', () => {
 
     await app.close();
   });
+
+  it('returns degraded admin health when only jetstream is unhealthy', async () => {
+    dbQueryMock.mockResolvedValue({ rows: [{ '?column?': 1 }] });
+    redisPingMock.mockResolvedValue('PONG');
+    registerJetstreamHealth(() => ({
+      status: 'unhealthy',
+      connected: false,
+    }));
+
+    const app = Fastify();
+    registerAdminHealthRoutes(app);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/health',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      status: 'degraded',
+      components: {
+        database: {
+          status: 'healthy',
+        },
+        jetstream: {
+          status: 'unhealthy',
+          connected: false,
+        },
+      },
+    });
+
+    await app.close();
+  });
 });

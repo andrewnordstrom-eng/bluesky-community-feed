@@ -12,6 +12,7 @@ DUMP_FILE="${POSTGRES_DIR}/dump-${DATE}.sql.gz"
 TMP_DUMP=""
 DUMP_STDERR=""
 IGOR_TMP=""
+IGOR_TMP_GZ=""
 
 log() {
   echo "[$(date --iso-8601=seconds)] $*"
@@ -35,6 +36,9 @@ cleanup_tmp_artifacts() {
   fi
   if [[ -n "${IGOR_TMP}" && -f "${IGOR_TMP}" ]]; then
     rm -f "${IGOR_TMP}"
+  fi
+  if [[ -n "${IGOR_TMP_GZ}" && -f "${IGOR_TMP_GZ}" ]]; then
+    rm -f "${IGOR_TMP_GZ}"
   fi
 }
 
@@ -175,13 +179,15 @@ if [ -n "${IGOR_DB}" ]; then
     fi
 
     gzip -f "${IGOR_TMP}"
-    if ! validate_gzip_dump "${IGOR_TMP}.gz"; then
+    IGOR_TMP_GZ="${IGOR_TMP}.gz"
+    if ! validate_gzip_dump "${IGOR_TMP_GZ}"; then
       log "ERROR: Igor SQLite backup failed gzip validation"
       exit 1
     fi
 
-    mv -f "${IGOR_TMP}.gz" "${IGOR_DIR}/igor-${DATE}.db.gz"
+    mv -f "${IGOR_TMP_GZ}" "${IGOR_DIR}/igor-${DATE}.db.gz"
     IGOR_TMP=""
+    IGOR_TMP_GZ=""
     log "Igor backup: ${IGOR_DIR}/igor-${DATE}.db.gz"
   fi
 else

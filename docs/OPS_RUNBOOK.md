@@ -224,11 +224,13 @@ echo "db=$TOP_DB"
 df -h /
 du -xhd1 /var | sort -h
 du -xhd1 /home/corgi | sort -h
+
 ```
 2. Run retention:
 
 ```bash
 sudo /usr/local/bin/bluesky-ops-retention.sh
+
 ```
 3. Verify the backup directory contains only the latest 5 valid dumps:
 
@@ -237,6 +239,7 @@ find /opt/backups/postgres -maxdepth 1 -type f -name 'dump-*.sql.gz' -printf '%f
 shopt -s nullglob
 for dump in /opt/backups/postgres/dump-*.sql.gz; do sudo gzip -t "$dump"; done
 shopt -u nullglob
+
 ```
 4. Re-check `df -h /`.
 
