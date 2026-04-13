@@ -23,26 +23,51 @@ validate_gzip_dump() {
   gzip -t "$1" >/dev/null 2>&1
 }
 
+canonical_dump_date() {
+  local filename="$1"
+  if [[ "${filename}" =~ ^dump-([0-9]{4}-[0-9]{2}-[0-9]{2})\.sql\.gz$ ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+    return 0
+  fi
+  return 1
+}
+
 prune_postgres_backups() {
   local -a backups=()
   local valid_count=0
   local invalid_removed=0
+  local synthetic_removed=0
   local old_removed=0
   local backup_name=""
   local backup_path=""
+  local dump_date=""
   local kept_count=0
+  local today=""
+
+  today="$(date +%F)"
 
   mapfile -t backups < <(
     find "${POSTGRES_DIR}" -maxdepth 1 -type f -name 'dump-*.sql.gz' -printf '%f\n' | sort -r
   )
 
-  if (( ${#backups[@]} == 0 )); then
-    log "postgres_backup_retention kept=0 invalid_removed=0 old_removed=0 limit=${KEEP_VALID_DUMPS}"
-    return
-  fi
-
   for backup_name in "${backups[@]}"; do
     backup_path="${POSTGRES_DIR}/${backup_name}"
+
+    if ! dump_date="$(canonical_dump_date "${backup_name}")"; then
+      rm -f "${backup_path}"
+      invalid_removed=$((invalid_removed + 1))
+      synthetic_removed=$((synthetic_removed + 1))
+      log "remove_synthetic_dump file=${backup_path} reason=noncanonical_name"
+      continue
+    fi
+
+    if [[ "${dump_date}" > "${today}" ]]; then
+      rm -f "${backup_path}"
+      invalid_removed=$((invalid_removed + 1))
+      synthetic_removed=$((synthetic_removed + 1))
+      log "remove_synthetic_dump file=${backup_path} reason=future_date"
+      continue
+    fi
 
     if ! validate_gzip_dump "${backup_path}"; then
       rm -f "${backup_path}"
@@ -64,7 +89,7 @@ prune_postgres_backups() {
   done
 
   kept_count=$(( valid_count > KEEP_VALID_DUMPS ? KEEP_VALID_DUMPS : valid_count ))
-  log "postgres_backup_retention kept=${kept_count} invalid_removed=${invalid_removed} old_removed=${old_removed} limit=${KEEP_VALID_DUMPS}"
+  log "postgres_backup_retention kept=${kept_count} invalid_removed=${invalid_removed} synthetic_removed=${synthetic_removed} old_removed=${old_removed} limit=${KEEP_VALID_DUMPS}"
 }
 
 MODE="${1:-full}"

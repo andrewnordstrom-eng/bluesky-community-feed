@@ -46,6 +46,15 @@ validate_gzip_dump() {
   gzip -t "$1" >/dev/null 2>&1
 }
 
+canonical_dump_date() {
+  local filename="$1"
+  if [[ "${filename}" =~ ^dump-([0-9]{4}-[0-9]{2}-[0-9]{2})\.sql\.gz$ ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+    return 0
+  fi
+  return 1
+}
+
 create_sqlite_backup() {
   python3 - "$1" "$2" <<'PY'
 import sqlite3
@@ -84,23 +93,43 @@ PY
 prune_postgres_backups() {
   local -a backups=()
   local valid_count=0
+  local invalid_removed=0
+  local synthetic_removed=0
+  local old_removed=0
   local backup_name=""
   local backup_path=""
+  local dump_date=""
+  local today=""
+
+  today="$(date +%F)"
 
   mapfile -t backups < <(
     find "${POSTGRES_DIR}" -maxdepth 1 -type f -name 'dump-*.sql.gz' -printf '%f\n' | sort -r
   )
 
-  if (( ${#backups[@]} == 0 )); then
-    log "No PostgreSQL dumps found — nothing to prune"
-    return
-  fi
-
   for backup_name in "${backups[@]}"; do
     backup_path="${POSTGRES_DIR}/${backup_name}"
+
+    if ! dump_date="$(canonical_dump_date "${backup_name}")"; then
+      log "Removing synthetic PostgreSQL dump: ${backup_path} (reason=noncanonical_name)"
+      rm -f "${backup_path}"
+      invalid_removed=$((invalid_removed + 1))
+      synthetic_removed=$((synthetic_removed + 1))
+      continue
+    fi
+
+    if [[ "${dump_date}" > "${today}" ]]; then
+      log "Removing synthetic PostgreSQL dump: ${backup_path} (reason=future_date)"
+      rm -f "${backup_path}"
+      invalid_removed=$((invalid_removed + 1))
+      synthetic_removed=$((synthetic_removed + 1))
+      continue
+    fi
+
     if ! validate_gzip_dump "${backup_path}"; then
       log "Removing invalid PostgreSQL dump: ${backup_path}"
       rm -f "${backup_path}"
+      invalid_removed=$((invalid_removed + 1))
       continue
     fi
 
@@ -108,10 +137,12 @@ prune_postgres_backups() {
     if (( valid_count > KEEP_VALID_DUMPS )); then
       log "Removing out-of-retention PostgreSQL dump: ${backup_path}"
       rm -f "${backup_path}"
+      old_removed=$((old_removed + 1))
     fi
   done
 
   find "${POSTGRES_DIR}" -maxdepth 1 -type f -name 'dump-*.sql' -delete -print || true
+  log "PostgreSQL retention summary: kept=$(( valid_count > KEEP_VALID_DUMPS ? KEEP_VALID_DUMPS : valid_count )) invalid_removed=${invalid_removed} synthetic_removed=${synthetic_removed} old_removed=${old_removed} limit=${KEEP_VALID_DUMPS}"
 }
 
 trap cleanup_tmp_artifacts EXIT

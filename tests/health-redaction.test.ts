@@ -121,4 +121,42 @@ describe('health response redaction', () => {
 
     await app.close();
   });
+
+  it('returns unhealthy admin health when database and jetstream are both unhealthy', async () => {
+    dbQueryMock.mockRejectedValue(new Error('db down'));
+    redisPingMock.mockResolvedValue('PONG');
+    registerJetstreamHealth(() => ({
+      status: 'unhealthy',
+      connected: false,
+    }));
+    registerScoringHealth(() => ({
+      status: 'healthy',
+      is_running: false,
+    }));
+
+    const app = Fastify();
+    registerAdminHealthRoutes(app);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/health',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      status: 'unhealthy',
+      components: {
+        database: {
+          status: 'unhealthy',
+          error: 'db down',
+        },
+        jetstream: {
+          status: 'unhealthy',
+          connected: false,
+        },
+      },
+    });
+
+    await app.close();
+  });
 });
