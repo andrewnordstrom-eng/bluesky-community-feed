@@ -200,4 +200,41 @@ describe('health response redaction', () => {
       await app.close();
     }
   });
+
+  it('returns degraded admin health when jetstream health is not registered', async () => {
+    vi.resetModules();
+
+    const { registerScoringHealth: registerScoringHealthFresh } = await import('../src/lib/health.js');
+    const { registerAdminHealthRoutes: registerAdminHealthRoutesFresh } = await import('../src/admin/routes/health.js');
+
+    dbQueryMock.mockResolvedValue({ rows: [{ '?column?': 1 }] });
+    redisPingMock.mockResolvedValue('PONG');
+    registerScoringHealthFresh(() => ({
+      status: 'healthy',
+      is_running: false,
+    }));
+
+    const app = Fastify();
+    registerAdminHealthRoutesFresh(app);
+    try {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/health',
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        status: 'degraded',
+        components: {
+          jetstream: {
+            status: 'unhealthy',
+            connected: false,
+            error: 'Jetstream health check not registered',
+          },
+        },
+      });
+    } finally {
+      await app.close();
+    }
+  });
 });

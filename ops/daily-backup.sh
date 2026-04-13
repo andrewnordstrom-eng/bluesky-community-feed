@@ -48,8 +48,22 @@ validate_gzip_dump() {
 
 canonical_dump_date() {
   local filename="$1"
+  local dump_date=""
   if [[ "${filename}" =~ ^dump-([0-9]{4}-[0-9]{2}-[0-9]{2})\.sql\.gz$ ]]; then
-    printf '%s\n' "${BASH_REMATCH[1]}"
+    dump_date="${BASH_REMATCH[1]}"
+    if ! python3 - "${dump_date}" <<'PY'
+import datetime
+import sys
+
+try:
+    datetime.date.fromisoformat(sys.argv[1])
+except ValueError:
+    raise SystemExit(1)
+PY
+    then
+      return 1
+    fi
+    printf '%s\n' "${dump_date}"
     return 0
   fi
   return 1
@@ -104,7 +118,7 @@ prune_postgres_backups() {
   today="$(date +%F)"
 
   mapfile -t backups < <(
-    find "${POSTGRES_DIR}" -maxdepth 1 -type f -name 'dump-*.sql.gz' -printf '%f\n' | sort -r
+    find "${POSTGRES_DIR}" -maxdepth 1 -type f -name '*.sql.gz' -printf '%f\n' | sort -r
   )
 
   for backup_name in "${backups[@]}"; do
