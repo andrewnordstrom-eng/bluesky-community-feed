@@ -225,12 +225,12 @@ df -h /
 du -xhd1 /var | sort -h
 du -xhd1 /home/corgi | sort -h
 ```
-1. Run retention:
+2. Run retention:
 
 ```bash
 sudo /usr/local/bin/bluesky-ops-retention.sh
 ```
-1. Verify the backup directory contains only the latest 5 valid dumps:
+3. Verify the backup directory contains only the latest 5 valid dumps:
 
 ```bash
 find /opt/backups/postgres -maxdepth 1 -type f -name 'dump-*.sql.gz' -printf '%f\n' | sort -r | nl
@@ -238,22 +238,25 @@ shopt -s nullglob
 for dump in /opt/backups/postgres/dump-*.sql.gz; do sudo gzip -t "$dump"; done
 shopt -u nullglob
 ```
-1. Re-check `df -h /`.
+4. Re-check `df -h /`.
 
 ### 2) Feed stale or empty
 
 1. Check app and health:
+
 ```bash
 sudo systemctl status bluesky-feed --no-pager
 curl -sS http://localhost:3001/health
 ```
 2. Check feed keys:
+
 ```bash
 docker exec bluesky-feed-redis redis-cli zcard feed:current
 docker exec bluesky-feed-redis redis-cli get feed:updated_at
 ```
 3. Trigger manual rescore from admin UI.
 4. Check logs for scoring errors:
+
 ```bash
 sudo journalctl -u bluesky-feed -n 300 --no-pager | grep -Ei "scoring|error|redis|postgres"
 ```
@@ -262,10 +265,12 @@ sudo journalctl -u bluesky-feed -n 300 --no-pager | grep -Ei "scoring|error|redi
 
 1. Check health payload (`jetstream.connected`).
 2. Inspect logs:
+
 ```bash
 sudo journalctl -u bluesky-feed -n 300 --no-pager | grep -Ei "jetstream|websocket|reconnect"
 ```
 3. Restart service if needed:
+
 ```bash
 sudo systemctl restart bluesky-feed
 ```
