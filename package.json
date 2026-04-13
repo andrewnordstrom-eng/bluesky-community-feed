@@ -39,7 +39,7 @@
     "@huggingface/transformers": "^3.8.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "archiver": "^7.0.1",
-    "dotenv": "^16.4.0",
+    "dotenv": "^17.4.2",
     "fastify": "^5.8.4",
     "ioredis": "^5.10.1",
     "node-cron": "^4.2.1",
