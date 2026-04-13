@@ -260,6 +260,7 @@ curl -sS http://localhost:3001/health
 docker exec bluesky-feed-redis redis-cli zcard feed:current
 docker exec bluesky-feed-redis redis-cli get feed:updated_at
 ```
+
 1. Trigger manual rescore from admin UI.
 1. Check logs for scoring errors:
 
@@ -275,6 +276,7 @@ sudo journalctl -u bluesky-feed -n 300 --no-pager | grep -Ei "scoring|error|redi
 ```bash
 sudo journalctl -u bluesky-feed -n 300 --no-pager | grep -Ei "jetstream|websocket|reconnect"
 ```
+
 1. Restart service if needed:
 
 ```bash
@@ -289,17 +291,20 @@ sudo systemctl restart bluesky-feed
 cd /opt/bluesky-feed
 docker compose -f docker-compose.prod.yml ps
 ```
+
 1. Start infra if down:
 
 ```bash
 docker compose -f docker-compose.prod.yml up -d postgres redis
 ```
+
 1. Validate DB/Redis:
 
 ```bash
 docker exec bluesky-feed-postgres pg_isready -U feed -d bluesky_feed
 docker exec bluesky-feed-redis redis-cli ping
 ```
+
 1. Restart app:
 
 ```bash

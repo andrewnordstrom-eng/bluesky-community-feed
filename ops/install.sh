@@ -51,9 +51,6 @@ fi
 
 install -d -o root -g root -m 0700 /opt/backups /opt/backups/postgres /opt/backups/igor
 echo "✓ /opt/backups directories"
-chown root:root /opt/backups /opt/backups/postgres /opt/backups/igor
-chmod 0700 /opt/backups /opt/backups/postgres /opt/backups/igor
-echo "✓ /opt/backups ownership/perms"
 
 install -m 0755 "${BACKUP_SCRIPT}" /opt/backups/daily-backup.sh
 echo "✓ /opt/backups/daily-backup.sh"

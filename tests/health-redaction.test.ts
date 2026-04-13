@@ -66,27 +66,28 @@ describe('health response redaction', () => {
 
     const app = Fastify();
     registerAdminHealthRoutes(app);
+    try {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/health',
+      });
 
-    const response = await app.inject({
-      method: 'GET',
-      url: '/health',
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({
-      status: 'unhealthy',
-      components: {
-        database: {
-          status: 'unhealthy',
-          error: 'db down',
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        status: 'unhealthy',
+        components: {
+          database: {
+            status: 'unhealthy',
+            error: 'db down',
+          },
+          redis: {
+            status: 'healthy',
+          },
         },
-        redis: {
-          status: 'healthy',
-        },
-      },
-    });
-
-    await app.close();
+      });
+    } finally {
+      await app.close();
+    }
   });
 
   it('returns degraded admin health when only jetstream is unhealthy', async () => {
@@ -99,27 +100,28 @@ describe('health response redaction', () => {
 
     const app = Fastify();
     registerAdminHealthRoutes(app);
+    try {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/health',
+      });
 
-    const response = await app.inject({
-      method: 'GET',
-      url: '/health',
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({
-      status: 'degraded',
-      components: {
-        database: {
-          status: 'healthy',
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        status: 'degraded',
+        components: {
+          database: {
+            status: 'healthy',
+          },
+          jetstream: {
+            status: 'unhealthy',
+            connected: false,
+          },
         },
-        jetstream: {
-          status: 'unhealthy',
-          connected: false,
-        },
-      },
-    });
-
-    await app.close();
+      });
+    } finally {
+      await app.close();
+    }
   });
 
   it('returns unhealthy admin health when database and jetstream are both unhealthy', async () => {
@@ -136,27 +138,66 @@ describe('health response redaction', () => {
 
     const app = Fastify();
     registerAdminHealthRoutes(app);
+    try {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/health',
+      });
 
-    const response = await app.inject({
-      method: 'GET',
-      url: '/health',
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({
-      status: 'unhealthy',
-      components: {
-        database: {
-          status: 'unhealthy',
-          error: 'db down',
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        status: 'unhealthy',
+        components: {
+          database: {
+            status: 'unhealthy',
+            error: 'db down',
+          },
+          jetstream: {
+            status: 'unhealthy',
+            connected: false,
+          },
         },
-        jetstream: {
-          status: 'unhealthy',
-          connected: false,
-        },
-      },
-    });
+      });
+    } finally {
+      await app.close();
+    }
+  });
 
-    await app.close();
+  it('returns degraded admin health when jetstream provider throws and critical components are healthy', async () => {
+    dbQueryMock.mockResolvedValue({ rows: [{ '?column?': 1 }] });
+    redisPingMock.mockResolvedValue('PONG');
+    registerJetstreamHealth(() => {
+      throw new Error('jetstream probe failed');
+    });
+    registerScoringHealth(() => ({
+      status: 'healthy',
+      is_running: false,
+    }));
+
+    const app = Fastify();
+    registerAdminHealthRoutes(app);
+    try {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/health',
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        status: 'degraded',
+        components: {
+          database: {
+            status: 'healthy',
+          },
+          jetstream: {
+            status: 'unhealthy',
+            connected: false,
+            error: 'jetstream probe failed',
+          },
+        },
+      });
+    } finally {
+      await app.close();
+    }
   });
 });

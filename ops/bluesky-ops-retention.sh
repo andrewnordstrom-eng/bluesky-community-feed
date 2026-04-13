@@ -4,7 +4,6 @@ set -euo pipefail
 KEEP_VALID_DUMPS="${KEEP_VALID_DUMPS:-5}"
 POSTGRES_DIR="${POSTGRES_BACKUP_DIR:-/opt/backups/postgres}"
 LOCK_FILE="${BACKUP_LOCK_FILE:-/var/lock/bluesky-backups.lock}"
-LOCK_FD=9
 
 log() {
   logger -t bluesky-ops-retention "$*"
@@ -12,8 +11,8 @@ log() {
 
 acquire_backup_lock() {
   mkdir -p "$(dirname "${LOCK_FILE}")"
-  eval "exec ${LOCK_FD}>\"${LOCK_FILE}\""
-  if ! flock -n "${LOCK_FD}"; then
+  exec 9>"${LOCK_FILE}"
+  if ! flock -n 9; then
     log "lock_held file=${LOCK_FILE}"
     exit 0
   fi

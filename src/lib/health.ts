@@ -158,16 +158,25 @@ async function checkRedis(): Promise<ComponentHealth> {
  * Check Jetstream health.
  */
 function checkJetstream(): JetstreamHealth {
-  if (jetstreamHealthFn) {
-    return jetstreamHealthFn();
+  if (!jetstreamHealthFn) {
+    return {
+      status: 'unhealthy',
+      connected: false,
+      error: 'Jetstream health check not registered',
+    };
   }
 
-  // Jetstream not registered yet
-  return {
-    status: 'unhealthy',
-    connected: false,
-    error: 'Jetstream health check not registered',
-  };
+  try {
+    return jetstreamHealthFn();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    logger.warn({ err }, 'Jetstream health check failed');
+    return {
+      status: 'unhealthy',
+      connected: false,
+      error: message,
+    };
+  }
 }
 
 /**

@@ -7,7 +7,7 @@ MIN_DUMP_BYTES="${MIN_DUMP_BYTES:-1048576}"
 POSTGRES_DIR="${POSTGRES_BACKUP_DIR:-/opt/backups/postgres}"
 IGOR_DIR="${IGOR_BACKUP_DIR:-/opt/backups/igor}"
 LOCK_FILE="${BACKUP_LOCK_FILE:-/var/lock/bluesky-backups.lock}"
-LOCK_FD=9
+SQLITE_BACKUP_TIMEOUT_SECONDS="${SQLITE_BACKUP_TIMEOUT_SECONDS:-600}"
 DUMP_FILE="${POSTGRES_DIR}/dump-${DATE}.sql.gz"
 TMP_DUMP=""
 DUMP_STDERR=""
@@ -20,8 +20,8 @@ log() {
 
 acquire_backup_lock() {
   mkdir -p "$(dirname "${LOCK_FILE}")"
-  eval "exec ${LOCK_FD}>\"${LOCK_FILE}\""
-  if ! flock -n "${LOCK_FD}"; then
+  exec 9>"${LOCK_FILE}"
+  if ! flock -n 9; then
     log "lock_held file=${LOCK_FILE}"
     exit 0
   fi
@@ -56,7 +56,7 @@ canonical_dump_date() {
 }
 
 create_sqlite_backup() {
-  python3 - "$1" "$2" <<'PY'
+  timeout --foreground "${SQLITE_BACKUP_TIMEOUT_SECONDS}s" python3 - "$1" "$2" <<'PY'
 import sqlite3
 import sys
 
