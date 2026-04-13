@@ -6,11 +6,22 @@ KEEP_VALID_DUMPS="${KEEP_VALID_DUMPS:-5}"
 MIN_DUMP_BYTES="${MIN_DUMP_BYTES:-1048576}"
 POSTGRES_DIR="${POSTGRES_BACKUP_DIR:-/opt/backups/postgres}"
 IGOR_DIR="${IGOR_BACKUP_DIR:-/opt/backups/igor}"
+LOCK_FILE="${BACKUP_LOCK_FILE:-/var/lock/bluesky-backups.lock}"
+LOCK_FD=9
 DUMP_FILE="${POSTGRES_DIR}/dump-${DATE}.sql.gz"
 TMP_DUMP=""
 
 log() {
   echo "[$(date --iso-8601=seconds)] $*"
+}
+
+acquire_backup_lock() {
+  mkdir -p "$(dirname "${LOCK_FILE}")"
+  eval "exec ${LOCK_FD}>\"${LOCK_FILE}\""
+  if ! flock -n "${LOCK_FD}"; then
+    log "lock_held file=${LOCK_FILE}"
+    exit 0
+  fi
 }
 
 cleanup_tmp_dump() {
@@ -53,6 +64,7 @@ prune_postgres_backups() {
 trap cleanup_tmp_dump EXIT
 
 mkdir -p "${POSTGRES_DIR}" "${IGOR_DIR}"
+acquire_backup_lock
 
 log "Starting daily backup..."
 
