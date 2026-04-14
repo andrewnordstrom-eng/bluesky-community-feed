@@ -3,6 +3,11 @@ inheritance: true
 language: "en-US"
 
 reviews:
+  path_instructions:
+    - path: "**/*"
+      instructions: |-
+        Check the docs/anti-patterns.md file for known failure modes relevant to the changed files.
+        Flag if a PR reintroduces a documented anti-pattern.
   auto_review:
     enabled: true
     auto_incremental_review: true
