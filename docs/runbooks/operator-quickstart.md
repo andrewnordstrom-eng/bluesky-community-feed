@@ -30,7 +30,7 @@ Last updated: 2026-04-05
   `git fetch origin && git checkout main && git pull --ff-only origin main && npm install --no-audit --no-fund && npm run build && npm run migrate && sudo systemctl restart bluesky-feed`
 - Container status: `docker compose -f docker-compose.prod.yml ps`
 - Backup verification:
-  `ls -1t /home/corgi/backups/db_* | nl`
+  `find /mnt/host-backups/postgres -maxdepth 1 -type f -name 'dump-*.sql.gz' -printf '%f\n' | sort -r | nl`
 
 ## When To Go Deeper
 

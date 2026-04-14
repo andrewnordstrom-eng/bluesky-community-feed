@@ -1,0 +1,45 @@
+== findmnt ==
+TARGET            SOURCE   FSTYPE OPTIONS
+/mnt/host-backups /dev/sda ext4   rw,noatime,discard
+
+== findmnt verify ==
+/
+   [ ] target exists
+   [ ] FS options: discard,commit=30,errors=remount-ro
+   [ ] LABEL=cloudimg-rootfs translated to /dev/vda1
+   [ ] source /dev/vda1 exists
+   [W] cannot detect on-disk filesystem type (Permission denied)
+/boot
+   [ ] target exists
+   [ ] LABEL=BOOT translated to /dev/vda13
+   [ ] source /dev/vda13 exists
+   [W] cannot detect on-disk filesystem type (Permission denied)
+/boot/efi
+   [ ] target exists
+   [ ] FS options: umask=0077
+   [ ] LABEL=UEFI translated to /dev/vda15
+   [ ] source /dev/vda15 exists
+   [W] cannot detect on-disk filesystem type (Permission denied)
+/mnt/host-backups
+   [ ] target exists
+   [ ] VFS options: noatime
+   [ ] FS options: discard
+   [ ] userspace options: nofail
+   [ ] source /dev/disk/by-id/scsi-0DO_Volume_corgi-vps-backups exists
+   [W] cannot detect on-disk filesystem type (Permission denied)
+
+== blkid ==
+/dev/disk/by-id/scsi-0DO_Volume_corgi-vps-backups: UUID="8471e373-69fb-42a6-bbe5-fc412c901065" BLOCK_SIZE="4096" TYPE="ext4"
+
+== fstab tail ==
+LABEL=cloudimg-rootfs	/	 ext4	discard,commit=30,errors=remount-ro	0 1
+LABEL=BOOT	/boot	ext4	defaults	0 2
+LABEL=UEFI	/boot/efi	vfat	umask=0077	0 1
+/dev/disk/by-id/scsi-0DO_Volume_corgi-vps-backups /mnt/host-backups ext4 defaults,nofail,discard,noatime 0 2
+
+== ls -ld ==
+drwxr-xr-x  5 root root 4096 Apr 13 23:01 /mnt/host-backups
+drwxr-xr-x 19 igor igor 4096 Apr 13 23:34 /mnt/host-backups/igor
+drwx------  2 root root 4096 Apr 13 23:26 /mnt/host-backups/igor/daily
+drwxrwxr-x  9 igor igor 4096 Apr 13 19:47 /mnt/host-backups/igor/releases
+drwx------  2 root root 4096 Apr 13 23:26 /mnt/host-backups/postgres

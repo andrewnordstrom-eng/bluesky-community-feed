@@ -42,13 +42,15 @@ Supporting ops signals:
 ## Backups And Recovery
 
 - PostgreSQL backups run daily via `/opt/backups/daily-backup.sh`
+- backup artifacts land on the dedicated mounted backup tier at
+  `/mnt/host-backups/postgres`
 - the retained PostgreSQL dump must pass `gzip -t` before it is moved into
-  `/opt/backups/postgres`
+  `/mnt/host-backups/postgres`
 - retention keeps only the latest 5 valid PostgreSQL dumps and removes
   invalid/truncated `.sql.gz` dumps automatically
 - operational cleanup script rotates logs, vacuums journals, and prunes unused
   Docker artifacts while also enforcing the same PostgreSQL retention on
-  `/opt/backups/postgres`
+  `/mnt/host-backups/postgres`
 - recovery should restore PostgreSQL first, then rebuild Redis/cache state from
   the application
 
