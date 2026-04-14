@@ -1,0 +1,141 @@
+== source trees before copy ==
+23G	/opt/backups/postgres
+6.9M	/opt/backups/igor
+1.8G	/opt/igor/backups
+
+== destination before copy ==
+23G	/mnt/host-backups/postgres
+12K	/mnt/host-backups/igor
+
+== rsync postgres ==
+== rsync opt backups igor ==
+== rsync igor runtime backups ==
+
+== destination after copy ==
+23G	/mnt/host-backups/postgres
+1.9G	/mnt/host-backups/igor
+
+== postgres files after copy ==
+dump-2026-04-09.sql.gz 4803716513
+dump-2026-04-10.sql.gz 4803716516
+dump-2026-04-11.sql.gz 4803717208
+dump-2026-04-12.sql.gz 4803717486
+dump-2026-04-13.sql.gz 4803717490
+
+== igor files after copy ==
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260412T064806Z/.build-info.json 226
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260412T064806Z/bridge.yaml 4161
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260412T064806Z/igor-queue.sqlite 5914624
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260412T064806Z/igor-queue.sqlite-shm 32768
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260412T064806Z/igor-queue.sqlite-wal 4120032
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260412T064806Z/manifest.json 1410
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T053135Z/.build-info.json 226
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T053135Z/bridge.yaml 4161
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T053135Z/igor-queue.sqlite 6225920
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T053135Z/igor-queue.sqlite-shm 32768
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T053135Z/igor-queue.sqlite-wal 3345472
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T053135Z/manifest.json 1410
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T083206Z/.build-info.json 226
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T083206Z/bridge.yaml 4161
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T083206Z/igor-queue.sqlite 6311936
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T083206Z/igor-queue.sqlite-shm 32768
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T083206Z/igor-queue.sqlite-wal 4152992
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T083206Z/manifest.json 1410
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T083442Z/.build-info.json 226
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T083442Z/bridge.yaml 4161
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T083442Z/igor-queue.sqlite 6311936
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T083442Z/igor-queue.sqlite-shm 32768
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T083442Z/igor-queue.sqlite-wal 4152992
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T083442Z/manifest.json 1410
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T083629Z/.build-info.json 226
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T083629Z/bridge.yaml 4161
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T083629Z/igor-queue.sqlite 6311936
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T083629Z/igor-queue.sqlite-shm 32768
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T083629Z/igor-queue.sqlite-wal 4152992
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T083629Z/manifest.json 1410
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T090834Z/.build-info.json 190
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T090834Z/bridge.yaml 4161
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T090834Z/igor-queue.sqlite 6328320
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T090834Z/igor-queue.sqlite-shm 32768
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T090834Z/igor-queue.sqlite-wal 341992
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T090834Z/manifest.json 1409
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T110710Z/.build-info.json 190
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T110710Z/bridge.yaml 4161
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T110710Z/igor-queue.sqlite 6332416
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T110710Z/igor-queue.sqlite-shm 32768
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T110710Z/igor-queue.sqlite-wal 0
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T110710Z/manifest.json 1404
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T111528Z/.build-info.json 190
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T111528Z/bridge.yaml 4161
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T111528Z/igor-queue.sqlite 6365184
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T111528Z/igor-queue.sqlite-shm 32768
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T111528Z/igor-queue.sqlite-wal 424392
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T111528Z/manifest.json 1409
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T111754Z/.build-info.json 190
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T111754Z/bridge.yaml 4161
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T111754Z/igor-queue.sqlite 6365184
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T111754Z/igor-queue.sqlite-shm 32768
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T111754Z/igor-queue.sqlite-wal 98912
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T111754Z/manifest.json 1408
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T213311Z/.build-info.json 190
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T213311Z/bridge.yaml 4161
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T213311Z/igor-queue.sqlite 6553600
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T213311Z/igor-queue.sqlite-shm 32768
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T213311Z/igor-queue.sqlite-wal 2521472
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T213311Z/manifest.json 1410
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T214213Z/.build-info.json 190
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T214213Z/bridge.yaml 4161
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T214213Z/igor-queue.sqlite 6553600
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T214213Z/igor-queue.sqlite-shm 32768
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T214213Z/igor-queue.sqlite-wal 2521472
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T214213Z/manifest.json 1410
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T232338Z/.build-info.json 193
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T232338Z/bridge.yaml 4161
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T232338Z/igor-queue.sqlite 6778880
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T232338Z/igor-queue.sqlite-shm 32768
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T232338Z/igor-queue.sqlite-wal 2080632
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T232338Z/manifest.json 1410
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T232657Z/.build-info.json 193
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T232657Z/bridge.yaml 4161
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T232657Z/igor-queue.sqlite 6778880
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T232657Z/igor-queue.sqlite-shm 32768
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T232657Z/igor-queue.sqlite-wal 2220712
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T232657Z/manifest.json 1410
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T234710Z/.build-info.json 193
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T234710Z/bridge.yaml 4161
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T234710Z/igor-queue.sqlite 6778880
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T234710Z/igor-queue.sqlite-shm 32768
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T234710Z/igor-queue.sqlite-wal 2220712
+-rw-r--r-- igor:igor /mnt/host-backups/igor/20260413T234710Z/manifest.json 1410
+-rw-r--r-- root:root /mnt/host-backups/igor/daily/igor-2026-04-06.db.gz 872387
+-rw-r--r-- root:root /mnt/host-backups/igor/daily/igor-2026-04-07.db.gz 872387
+-rw-r--r-- root:root /mnt/host-backups/igor/daily/igor-2026-04-08.db.gz 872387
+-rw-r--r-- root:root /mnt/host-backups/igor/daily/igor-2026-04-09.db.gz 872387
+-rw-r--r-- root:root /mnt/host-backups/igor/daily/igor-2026-04-10.db.gz 872387
+-rw-r--r-- root:root /mnt/host-backups/igor/daily/igor-2026-04-11.db.gz 872387
+-rw-r--r-- root:root /mnt/host-backups/igor/daily/igor-2026-04-12.db.gz 932521
+-rw-r--r-- root:root /mnt/host-backups/igor/daily/igor-2026-04-13.db.gz 988995
+-rw-r--r-- root:root /mnt/host-backups/igor/daily/predeploy_.tgz 871
+drwxr-xr-x igor:igor /mnt/host-backups/igor/20260412T064806Z 4096
+drwxr-xr-x igor:igor /mnt/host-backups/igor/20260413T053135Z 4096
+drwxr-xr-x igor:igor /mnt/host-backups/igor/20260413T083206Z 4096
+drwxr-xr-x igor:igor /mnt/host-backups/igor/20260413T083442Z 4096
+drwxr-xr-x igor:igor /mnt/host-backups/igor/20260413T083629Z 4096
+drwxr-xr-x igor:igor /mnt/host-backups/igor/20260413T090834Z 4096
+drwxr-xr-x igor:igor /mnt/host-backups/igor/20260413T110710Z 4096
+drwxr-xr-x igor:igor /mnt/host-backups/igor/20260413T111528Z 4096
+drwxr-xr-x igor:igor /mnt/host-backups/igor/20260413T111754Z 4096
+drwxr-xr-x igor:igor /mnt/host-backups/igor/20260413T213311Z 4096
+drwxr-xr-x igor:igor /mnt/host-backups/igor/20260413T214213Z 4096
+drwxr-xr-x igor:igor /mnt/host-backups/igor/20260413T232338Z 4096
+drwxr-xr-x igor:igor /mnt/host-backups/igor/20260413T232657Z 4096
+drwxr-xr-x igor:igor /mnt/host-backups/igor/20260413T234710Z 4096
+drwxr-xr-x root:root /mnt/host-backups/igor/daily 4096
+drwxrwxr-x igor:igor /mnt/host-backups/igor/releases 4096
+drwxrwxr-x igor:igor /mnt/host-backups/igor/releases/20260413T083533Z-82f61ec70bf3 4096
+drwxrwxr-x igor:igor /mnt/host-backups/igor/releases/20260413T090727Z-bf5f7ff7ba27 4096
+drwxrwxr-x igor:igor /mnt/host-backups/igor/releases/20260413T110608Z-55245a6dbd09 4096
+drwxrwxr-x igor:igor /mnt/host-backups/igor/releases/20260413T111414Z-1f64ab47e096 4096
+drwxrwxr-x igor:igor /mnt/host-backups/igor/releases/20260413T111648Z-1ebc13642b2c 4096
+drwxrwxr-x igor:igor /mnt/host-backups/igor/releases/20260413T214104Z-c3b2c62abfe3 4096
+drwxrwxr-x igor:igor /mnt/host-backups/igor/releases/20260413T234603Z-899802c7d732 4096

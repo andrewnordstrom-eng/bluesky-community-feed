@@ -139,7 +139,9 @@ Expected:
 
 - Script: `/opt/backups/daily-backup.sh`
 - Schedule (root crontab): `0 3 * * * /opt/backups/daily-backup.sh >> /opt/backups/backup.log 2>&1`
-- Output dir: `/opt/backups/postgres`
+- Output dir: `/mnt/host-backups/postgres`
+- Mount contract: `/mnt/host-backups` must be a real mounted filesystem or the
+  backup producer exits non-zero instead of writing onto root
 - Retention policy:
   - keep only the latest 5 valid `dump-YYYY-MM-DD.sql.gz` files
   - validate each PostgreSQL dump with `gzip -t` before it is retained
@@ -150,9 +152,9 @@ Quick verification:
 
 ```bash
 sudo crontab -l
-find /opt/backups/postgres -maxdepth 1 -type f -name 'dump-*.sql.gz' -printf '%f\n' | sort -r | nl
+find /mnt/host-backups/postgres -maxdepth 1 -type f -name 'dump-*.sql.gz' -printf '%f\n' | sort -r | nl
 shopt -s nullglob
-for dump in /opt/backups/postgres/dump-*.sql.gz; do sudo gzip -t "$dump"; done
+for dump in /mnt/host-backups/postgres/dump-*.sql.gz; do sudo gzip -t "$dump"; done
 shopt -u nullglob
 tail -n 200 /opt/backups/backup.log
 ```
@@ -166,7 +168,7 @@ tail -n 200 /opt/backups/backup.log
 - Actions:
   - force logrotate attempt
   - vacuum systemd journal to 300MB
-  - enforce PostgreSQL backup retention on `/opt/backups/postgres`
+  - enforce PostgreSQL backup retention on `/mnt/host-backups/postgres`
   - delete invalid/truncated PostgreSQL dumps before counting retained backups
   - prune unused docker containers/images (safe prune only)
 
@@ -237,9 +239,9 @@ sudo /usr/local/bin/bluesky-ops-retention.sh
 1. Verify the backup directory contains only the latest 5 valid dumps:
 
 ```bash
-find /opt/backups/postgres -maxdepth 1 -type f -name 'dump-*.sql.gz' -printf '%f\n' | sort -r | nl
+find /mnt/host-backups/postgres -maxdepth 1 -type f -name 'dump-*.sql.gz' -printf '%f\n' | sort -r | nl
 shopt -s nullglob
-for dump in /opt/backups/postgres/dump-*.sql.gz; do sudo gzip -t "$dump"; done
+for dump in /mnt/host-backups/postgres/dump-*.sql.gz; do sudo gzip -t "$dump"; done
 shopt -u nullglob
 ```
 
