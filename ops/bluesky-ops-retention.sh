@@ -2,11 +2,19 @@
 set -euo pipefail
 
 KEEP_VALID_DUMPS="${KEEP_VALID_DUMPS:-5}"
-POSTGRES_DIR="${POSTGRES_BACKUP_DIR:-/opt/backups/postgres}"
+BACKUP_MOUNT_ROOT="${BACKUP_MOUNT_ROOT:-/mnt/host-backups}"
+POSTGRES_DIR="${POSTGRES_BACKUP_DIR:-${BACKUP_MOUNT_ROOT}/postgres}"
 LOCK_FILE="${BACKUP_LOCK_FILE:-/var/lock/bluesky-backups.lock}"
 
 log() {
   logger -t bluesky-ops-retention "$*"
+}
+
+require_backup_mount() {
+  if ! findmnt -T "${BACKUP_MOUNT_ROOT}" >/dev/null 2>&1; then
+    log "error backup_mount_missing path=${BACKUP_MOUNT_ROOT}"
+    exit 1
+  fi
 }
 
 acquire_backup_lock() {
@@ -122,6 +130,7 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 1
 fi
 
+require_backup_mount
 acquire_backup_lock
 
 if [[ "${MODE}" == "--postgres-only" ]]; then

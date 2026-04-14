@@ -4,8 +4,9 @@ set -euo pipefail
 DATE="$(date +%Y-%m-%d)"
 KEEP_VALID_DUMPS="${KEEP_VALID_DUMPS:-5}"
 MIN_DUMP_BYTES="${MIN_DUMP_BYTES:-1048576}"
-POSTGRES_DIR="${POSTGRES_BACKUP_DIR:-/opt/backups/postgres}"
-IGOR_DIR="${IGOR_BACKUP_DIR:-/opt/backups/igor}"
+BACKUP_MOUNT_ROOT="${BACKUP_MOUNT_ROOT:-/mnt/host-backups}"
+POSTGRES_DIR="${POSTGRES_BACKUP_DIR:-${BACKUP_MOUNT_ROOT}/postgres}"
+IGOR_DIR="${IGOR_BACKUP_DIR:-${BACKUP_MOUNT_ROOT}/igor/daily}"
 LOCK_FILE="${BACKUP_LOCK_FILE:-/var/lock/bluesky-backups.lock}"
 SQLITE_BACKUP_TIMEOUT_SECONDS="${SQLITE_BACKUP_TIMEOUT_SECONDS:-600}"
 DUMP_FILE="${POSTGRES_DIR}/dump-${DATE}.sql.gz"
@@ -16,6 +17,13 @@ IGOR_TMP_GZ=""
 
 log() {
   echo "[$(date --iso-8601=seconds)] $*"
+}
+
+require_backup_mount() {
+  if ! findmnt -T "${BACKUP_MOUNT_ROOT}" >/dev/null 2>&1; then
+    log "ERROR: backup mount missing at ${BACKUP_MOUNT_ROOT}"
+    exit 1
+  fi
 }
 
 acquire_backup_lock() {
@@ -169,6 +177,7 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 1
 fi
 
+require_backup_mount
 acquire_backup_lock
 
 log "Starting daily backup..."

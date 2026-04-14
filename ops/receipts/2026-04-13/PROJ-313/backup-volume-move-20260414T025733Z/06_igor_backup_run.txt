@@ -1,0 +1,41 @@
+LATEST=/mnt/host-backups/igor/20260414T033456Z
+Result=success
+ExecMainStatus=0
+ActiveState=inactive
+{
+  "generatedAt": "2026-04-14T03:34:56Z",
+  "backupDir": "/mnt/host-backups/igor/20260414T033456Z",
+  "retentionDays": 7,
+  "artifacts": [
+    {
+      "sourcePath": "/opt/igor/data/igor-queue.sqlite",
+      "backupPath": "/mnt/host-backups/igor/20260414T033456Z/igor-queue.sqlite",
+      "sizeBytes": 7016448,
+      "sha256": "dbcdab4ed06faf604845f52da5d54b3dd2cd3b29ba003ce9f448a5c1ca12af4b"
+    },
+    {
+      "sourcePath": "/opt/igor/data/igor-queue.sqlite-wal",
+      "backupPath": "/mnt/host-backups/igor/20260414T033456Z/igor-queue.sqlite-wal",
+      "sizeBytes": 2558552,
+      "sha256": "f4637ec9d8b0deaf36c39af2d90a96922a636980016d8917bdcb87baff336b0f"
+    },
+    {
+      "sourcePath": "/opt/igor/data/igor-queue.sqlite-shm",
+      "backupPath": "/mnt/host-backups/igor/20260414T033456Z/igor-queue.sqlite-shm",
+      "sizeBytes": 32768,
+      "sha256": "77e18d6ec4e6489553651a8a3e985bef5a805ad60b319f676aac64151c5f81c3"
+    },
+    {
+      "sourcePath": "/opt/igor/config/bridge.yaml",
+      "backupPath": "/mnt/host-backups/igor/20260414T033456Z/bridge.yaml",
+      "sizeBytes": 4161,
+      "sha256": "b33115bdfb8c53aa706147bdadfea8fe72ea62f84f8f11d61f2639547b2502fd"
+    },
+    {
+      "sourcePath": "/opt/igor/.build-info.json",
+      "backupPath": "/mnt/host-backups/igor/20260414T033456Z/.build-info.json",
+      "sizeBytes": 190,
+      "sha256": "63cde851590aa7c77b89d51efe9d297f31d991ab9b695e102cb78d5832e60fe7"
+    }
+  ]
+}

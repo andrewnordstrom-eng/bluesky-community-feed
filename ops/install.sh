@@ -7,6 +7,9 @@ set -euo pipefail
 APP_DIR="/opt/bluesky-feed"
 BACKUP_SCRIPT="${APP_DIR}/ops/daily-backup.sh"
 RETENTION_SCRIPT="${APP_DIR}/ops/bluesky-ops-retention.sh"
+BACKUP_MOUNT_ROOT="${BACKUP_MOUNT_ROOT:-/mnt/host-backups}"
+POSTGRES_BACKUP_DIR="${POSTGRES_BACKUP_DIR:-${BACKUP_MOUNT_ROOT}/postgres}"
+IGOR_BACKUP_DIR="${IGOR_BACKUP_DIR:-${BACKUP_MOUNT_ROOT}/igor/daily}"
 
 # ── Make ops scripts executable ──────────────────────────────────
 SCRIPTS="db redis logs deploy feed-check status health-watchdog daily-backup.sh bluesky-ops-retention.sh"
@@ -49,8 +52,14 @@ if [ ! -f "${RETENTION_SCRIPT}" ]; then
   exit 1
 fi
 
-install -d -o root -g root -m 0700 /opt/backups /opt/backups/postgres /opt/backups/igor
-echo "✓ /opt/backups directories"
+if ! findmnt -T "${BACKUP_MOUNT_ROOT}" >/dev/null 2>&1; then
+  echo "ERROR: required backup mount missing at ${BACKUP_MOUNT_ROOT}" >&2
+  exit 1
+fi
+
+install -d -o root -g root -m 0700 /opt/backups
+install -d -o root -g root -m 0700 "${POSTGRES_BACKUP_DIR}" "${IGOR_BACKUP_DIR}"
+echo "✓ backup directories on ${BACKUP_MOUNT_ROOT}"
 
 install -m 0755 "${BACKUP_SCRIPT}" /opt/backups/daily-backup.sh
 echo "✓ /opt/backups/daily-backup.sh"
