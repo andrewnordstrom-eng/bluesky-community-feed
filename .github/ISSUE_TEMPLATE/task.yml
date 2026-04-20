@@ -1,0 +1,33 @@
+name: Engineering Task
+description: Structured implementation task.
+title: "[Task]: "
+labels: [task, needs-triage]
+body:
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Why this task matters now.
+    validations:
+      required: true
+  - type: textarea
+    id: implementation
+    attributes:
+      label: Implementation Plan
+      description: Key steps and expected artifacts.
+    validations:
+      required: true
+  - type: textarea
+    id: test_plan
+    attributes:
+      label: Test Plan
+      description: How we prove this is done safely.
+    validations:
+      required: true
+  - type: textarea
+    id: rollback
+    attributes:
+      label: Rollback Plan
+      description: How to undo safely if needed.
+    validations:
+      required: true
