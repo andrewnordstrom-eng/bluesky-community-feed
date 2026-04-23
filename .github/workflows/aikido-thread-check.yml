@@ -1,0 +1,21 @@
+name: aikido-thread-check
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, ready_for_review]
+  pull_request_review_comment:
+    types: [created, edited]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Pull request number to evaluate"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  aikido-thread-check:
+    uses: andrewnordstrom-eng/.github/.github/workflows/aikido-thread-check.yml@e1973881413c810eb9682744951d09ae7f29e51c
