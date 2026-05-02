@@ -1,0 +1,23 @@
+name: aikido-thread-check
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, ready_for_review]
+  pull_request_review_comment:
+    types: [created, edited]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Pull request number to evaluate"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  aikido-thread-check:
+    # Pinned to the merged org .github mainline commit that contains the reusable Aikido thread gate.
+    uses: andrewnordstrom-eng/.github/.github/workflows/aikido-thread-check.yml@1c9b29f369383b461bc818c87060923b7ebc80b9
