@@ -9,7 +9,7 @@
  *   npx tsx scripts/load-test.ts --url http://localhost:3000 --connections 100 --duration 30
  */
 
-import autocannon from 'autocannon';
+import { formatBytes, runHttpLoad } from './http-load.js';
 
 // Parse command line arguments
 const args = process.argv.slice(2);
@@ -27,7 +27,7 @@ const P95_TARGET_MS = parseInt(getArg('target', '50'), 10);
 // Format: at://{publisher_did}/app.bsky.feed.generator/{rkey}
 const FEED_URI = process.env.FEED_URI || 'at://did:plc:example/app.bsky.feed.generator/community-gov';
 
-async function runLoadTest() {
+async function runLoadTest(): Promise<void> {
   console.log('='.repeat(60));
   console.log('Feed Generator Load Test');
   console.log('='.repeat(60));
@@ -39,17 +39,24 @@ async function runLoadTest() {
   console.log('='.repeat(60));
   console.log('');
 
-  const testUrl = `${BASE_URL}/xrpc/app.bsky.feed.getFeedSkeleton?feed=${encodeURIComponent(FEED_URI)}&limit=50`;
+  const testPath = `/xrpc/app.bsky.feed.getFeedSkeleton?feed=${encodeURIComponent(FEED_URI)}&limit=50`;
 
   console.log('Starting load test...\n');
 
-  const result = await autocannon({
-    url: testUrl,
+  const result = await runHttpLoad({
+    baseUrl: BASE_URL,
+    amount: null,
+    durationMs: DURATION * 1000,
     connections: CONNECTIONS,
-    duration: DURATION,
-    headers: {
-      'Accept': 'application/json',
-    },
+    timeoutMs: 30_000,
+    requests: [
+      {
+        method: 'GET',
+        path: testPath,
+        headers: { Accept: 'application/json' },
+        body: null,
+      },
+    ],
   });
 
   console.log('\n' + '='.repeat(60));
@@ -85,18 +92,12 @@ async function runLoadTest() {
   // Evaluate pass/fail
   const passed = result.latency.p95 <= P95_TARGET_MS;
   if (passed) {
-    console.log(`\n✅ PASS: p95 latency (${result.latency.p95}ms) is within target (<${P95_TARGET_MS}ms)`);
+    console.log(`\nPASS: p95 latency (${result.latency.p95}ms) is within target (<${P95_TARGET_MS}ms)`);
     process.exit(0);
   } else {
-    console.log(`\n❌ FAIL: p95 latency (${result.latency.p95}ms) exceeds target (<${P95_TARGET_MS}ms)`);
+    console.log(`\nFAIL: p95 latency (${result.latency.p95}ms) exceeds target (<${P95_TARGET_MS}ms)`);
     process.exit(1);
   }
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
 runLoadTest().catch((err) => {
