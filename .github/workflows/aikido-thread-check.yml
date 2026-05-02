@@ -3,8 +3,12 @@ name: aikido-thread-check
 on:
   pull_request:
     branches: [main]
+  pull_request_review:
+    types: [submitted, edited, dismissed]
+  pull_request_review_thread:
+    types: [resolved, unresolved]
   pull_request_review_comment:
-    types: [created, edited]
+    types: [created, edited, deleted]
   workflow_dispatch:
     inputs:
       pr_number:
@@ -88,7 +92,7 @@ jobs:
               return;
             }
 
-            const threads = [];
+            let threads = [];
             try {
               let after = null;
               while (true) {
@@ -98,11 +102,13 @@ jobs:
                       pullRequest(number: $prNumber) {
                         reviewThreads(first: 100, after: $after) {
                           nodes {
+                            id
                             isResolved
                             isOutdated
                             comments(first: 50) {
                               pageInfo {
                                 hasNextPage
+                                endCursor
                               }
                               nodes {
                                 author { login }
@@ -132,6 +138,75 @@ jobs:
               return;
             }
 
+            const fetchCompleteComments = async (thread) => {
+              const originalComments = thread.comments || {};
+              const commentNodes = [...(originalComments.nodes || [])];
+              let pageInfo = originalComments.pageInfo || {
+                hasNextPage: false,
+                endCursor: null,
+              };
+              let after = pageInfo.endCursor || null;
+
+              while (pageInfo.hasNextPage) {
+                if (!after) {
+                  throw new Error(`Missing comments endCursor for review thread ${thread.id}`);
+                }
+
+                const result = await github.graphql(
+                  `query($threadId: ID!, $after: String) {
+                    node(id: $threadId) {
+                      ... on PullRequestReviewThread {
+                        comments(first: 100, after: $after) {
+                          pageInfo {
+                            hasNextPage
+                            endCursor
+                          }
+                          nodes {
+                            author { login }
+                            body
+                          }
+                        }
+                      }
+                    }
+                  }`,
+                  { threadId: thread.id, after }
+                );
+                const page = result.node?.comments;
+                if (!page) {
+                  throw new Error(`Missing comments page for review thread ${thread.id}`);
+                }
+
+                commentNodes.push(...(page.nodes || []));
+                pageInfo = page.pageInfo || {
+                  hasNextPage: false,
+                  endCursor: null,
+                };
+                after = pageInfo.endCursor || null;
+              }
+
+              return {
+                ...thread,
+                comments: {
+                  ...originalComments,
+                  nodes: commentNodes,
+                  pageInfo,
+                },
+              };
+            };
+
+            try {
+              const completeThreads = [];
+              for (const thread of threads) {
+                completeThreads.push(await fetchCompleteComments(thread));
+              }
+              threads = completeThreads;
+            } catch (err) {
+              core.setFailed(
+                `[aikido-thread-check:fail] Failed to paginate review thread comments: ${err?.message || err}`
+              );
+              return;
+            }
+
             const aikidoThreads = threads.filter((thread) => {
               const firstAuthor = (thread.comments?.nodes?.[0]?.author?.login || "").toLowerCase();
               return firstAuthor === "aikido-pr-checks" || firstAuthor === "aikido-pr-checks[bot]";
@@ -140,9 +215,10 @@ jobs:
               (thread) => thread.comments?.pageInfo?.hasNextPage
             ).length;
             if (truncatedCommentThreads > 0) {
-              core.warning(
-                `[aikido-thread-check:warning_truncated_comments] ${truncatedCommentThreads} Aikido thread(s) have more than 50 comments; later disposition markers may require manual review.`
+              core.setFailed(
+                `[aikido-thread-check:fail_truncated_comments] ${truncatedCommentThreads} Aikido thread(s) still have truncated comment history after pagination.`
               );
+              return;
             }
 
             const hasDisposition = (thread) => {
