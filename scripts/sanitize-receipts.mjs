@@ -24,6 +24,13 @@ const DISALLOWED_RECEIPT_REGEX =
 const providerIdTokens = new Map();
 let providerIdCount = 0;
 
+class UnsupportedReceiptEntryError extends Error {
+  constructor(entryPath) {
+    super(`unsupported receipt entry type: ${relative(entryPath)}`);
+    this.name = 'UnsupportedReceiptEntryError';
+  }
+}
+
 function walkFiles(rootDir) {
   const files = [];
   const queue = [rootDir];
@@ -40,7 +47,9 @@ function walkFiles(rootDir) {
       }
       if (entry.isFile()) {
         files.push(fullPath);
+        continue;
       }
+      throw new UnsupportedReceiptEntryError(fullPath);
     }
   }
 

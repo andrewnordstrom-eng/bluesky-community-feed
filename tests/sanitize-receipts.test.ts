@@ -5,6 +5,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -265,6 +266,24 @@ describe('sanitizeReceiptContent', () => {
       expect(result.stderr).toMatch(/failed to read|EACCES|permission/i);
     } finally {
       chmodSync(receiptsRoot, 0o700);
+      rmSync(receiptsRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('cli --check fails closed when receipts contain a symlink', () => {
+    const receiptsRoot = mkdtempSync(path.join(tmpdir(), 'receipt-sanitize-symlink-'));
+    writeFileSync(path.join(receiptsRoot, 'target.txt'), 'already clean\n');
+    symlinkSync('target.txt', path.join(receiptsRoot, 'linked.txt'));
+
+    try {
+      const result = spawnSync(process.execPath, [sanitizeScriptPath, '--check'], {
+        encoding: 'utf8',
+        env: { ...process.env, RECEIPTS_ROOT: receiptsRoot },
+      });
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain('unsupported receipt entry type: linked.txt');
+    } finally {
       rmSync(receiptsRoot, { recursive: true, force: true });
     }
   });
