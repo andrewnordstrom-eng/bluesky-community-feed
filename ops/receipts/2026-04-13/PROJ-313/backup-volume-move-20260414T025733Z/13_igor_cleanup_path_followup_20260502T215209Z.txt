@@ -1,0 +1,34 @@
+== PROJ-388 Igor cleanup path follow-up ==
+captured_at_utc: 2026-05-02T21:52:09Z
+scope: read-only host proof for historical and current Igor root-backup cleanup paths
+
+== host command ==
+ssh corgi-vps "set -e; echo '== timestamp =='; date -u +%Y-%m-%dT%H:%M:%SZ; echo '== exact mount target =='; findmnt -n -o TARGET --target /mnt/host-backups; echo '== root backup postgres artifacts =='; sudo -n find /opt/backups -path '/opt/backups/postgres/dump-*.sql.gz' -type f -print; echo '== root backup igor flat artifacts =='; sudo -n find /opt/backups -path '/opt/backups/igor/igor-*.db.gz' -type f -print; echo '== root backup igor daily artifacts =='; sudo -n find /opt/backups -path '/opt/backups/igor/daily/igor-*.db.gz' -type f -print; echo '== /opt/backups size =='; sudo -n du -sh /opt/backups; echo '== directory modes =='; sudo -n ls -ld /opt/backups /mnt/host-backups /mnt/host-backups/postgres /mnt/host-backups/igor/daily"
+
+== timestamp ==
+2026-05-02T21:52:09Z
+
+== exact mount target ==
+/mnt/host-backups
+
+== root backup postgres artifacts ==
+
+== root backup igor flat artifacts ==
+
+== root backup igor daily artifacts ==
+
+== /opt/backups size ==
+52K	/opt/backups
+
+== directory modes ==
+drwxr-xr-x 5 root root 4096 Apr 13 23:01 /mnt/host-backups
+drwx------ 2 root root 4096 May  2 03:18 /mnt/host-backups/igor/daily
+drwx------ 2 root root 4096 May  2 03:18 /mnt/host-backups/postgres
+drwx------ 4 root root 4096 Apr 13 23:16 /opt/backups
+
+== notes ==
+- The blank artifact sections above are the expected result: no matching
+  /opt/backups/postgres/dump-*.sql.gz,
+  /opt/backups/igor/igor-*.db.gz, or
+  /opt/backups/igor/daily/igor-*.db.gz files were present.
+- The exact mount target remained /mnt/host-backups during this follow-up.

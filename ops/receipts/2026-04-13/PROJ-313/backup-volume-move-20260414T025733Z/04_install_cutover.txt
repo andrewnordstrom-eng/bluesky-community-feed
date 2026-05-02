@@ -21,7 +21,8 @@ authoritative source files are:
   missing-POSTGRES_DIR skip path, so an absent mount fails closed.
 - install.sh uses the same exact-target guard before creating backup data
   directories, keeps /opt/backups/daily-backup.sh as the cron-compatible script
-  install path, and creates /opt/backups as a 0755 script/log directory.
+  install path, creates /opt/backups as a 0700 script/log directory, and
+  pre-creates /opt/backups/backup.log as root:root 0600.
 - backup data remains rooted under /mnt/host-backups.
 
 == Igor backup integration captured by the original cutover ==

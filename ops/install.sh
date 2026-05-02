@@ -10,29 +10,16 @@ RETENTION_SCRIPT="${APP_DIR}/ops/bluesky-ops-retention.sh"
 BACKUP_MOUNT_ROOT="${BACKUP_MOUNT_ROOT:-/mnt/host-backups}"
 POSTGRES_BACKUP_DIR="${POSTGRES_BACKUP_DIR:-${BACKUP_MOUNT_ROOT}/postgres}"
 IGOR_BACKUP_DIR="${IGOR_BACKUP_DIR:-${BACKUP_MOUNT_ROOT}/igor/daily}"
+BACKUP_GUARD_CONTEXT="install"
+BACKUP_GUARD_LIBRARY="${APP_DIR}/ops/lib/backup-path-guards.sh"
 
-normalize_mount_path() {
-  local path="$1"
+if [ ! -r "${BACKUP_GUARD_LIBRARY}" ]; then
+  echo "ERROR: required backup guard library missing: ${BACKUP_GUARD_LIBRARY}" >&2
+  exit 1
+fi
 
-  while [[ "${path}" != "/" && "${path}" == */ ]]; do
-    path="${path%/}"
-  done
-
-  printf '%s\n' "${path}"
-}
-
-require_backup_mount() {
-  local mounted_target=""
-  local expected_target=""
-
-  expected_target="$(normalize_mount_path "${BACKUP_MOUNT_ROOT}")"
-  mounted_target="$(findmnt -n -o TARGET --target "${expected_target}" 2>/dev/null || true)"
-  mounted_target="$(normalize_mount_path "${mounted_target}")"
-  if [[ -z "${mounted_target}" || "${mounted_target}" != "${expected_target}" ]]; then
-    echo "ERROR: required backup mount missing at ${BACKUP_MOUNT_ROOT} mounted_target=${mounted_target:-none}" >&2
-    exit 1
-  fi
-}
+# shellcheck source=/dev/null
+source "${BACKUP_GUARD_LIBRARY}"
 
 # ── Make ops scripts executable ──────────────────────────────────
 SCRIPTS="db redis logs deploy feed-check status health-watchdog daily-backup.sh bluesky-ops-retention.sh"
@@ -76,13 +63,20 @@ if [ ! -f "${RETENTION_SCRIPT}" ]; then
 fi
 
 require_backup_mount
+require_backup_descendant "POSTGRES_BACKUP_DIR" "${POSTGRES_BACKUP_DIR}"
+require_backup_descendant "IGOR_BACKUP_DIR" "${IGOR_BACKUP_DIR}"
 
-install -d -o root -g root -m 0755 /opt/backups
+install -d -o root -g root -m 0700 /opt/backups
 install -d -o root -g root -m 0700 "${POSTGRES_BACKUP_DIR}" "${IGOR_BACKUP_DIR}"
 echo "✓ backup directories on ${BACKUP_MOUNT_ROOT}"
 
 install -m 0755 "${BACKUP_SCRIPT}" /opt/backups/daily-backup.sh
 echo "✓ /opt/backups/daily-backup.sh"
+
+touch /opt/backups/backup.log
+chown root:root /opt/backups/backup.log
+chmod 0600 /opt/backups/backup.log
+echo "✓ /opt/backups/backup.log"
 
 install -m 0755 "${RETENTION_SCRIPT}" /usr/local/bin/bluesky-ops-retention.sh
 echo "✓ /usr/local/bin/bluesky-ops-retention.sh"

@@ -10,28 +10,25 @@ log() {
   logger -t bluesky-ops-retention "$*"
 }
 
-normalize_mount_path() {
-  local path="$1"
+source_backup_guard_library() {
+  local script_dir=""
+  local guard_path=""
 
-  while [[ "${path}" != "/" && "${path}" == */ ]]; do
-    path="${path%/}"
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  for guard_path in "${script_dir}/lib/backup-path-guards.sh" "/opt/bluesky-feed/ops/lib/backup-path-guards.sh"; do
+    if [[ -r "${guard_path}" ]]; then
+      # shellcheck source=/dev/null
+      source "${guard_path}"
+      return
+    fi
   done
 
-  printf '%s\n' "${path}"
+  log "error backup_guard_library_missing"
+  exit 1
 }
 
-require_backup_mount() {
-  local mounted_target=""
-  local expected_target=""
-
-  expected_target="$(normalize_mount_path "${BACKUP_MOUNT_ROOT}")"
-  mounted_target="$(findmnt -n -o TARGET --target "${expected_target}" 2>/dev/null || true)"
-  mounted_target="$(normalize_mount_path "${mounted_target}")"
-  if [[ -z "${mounted_target}" || "${mounted_target}" != "${expected_target}" ]]; then
-    log "error backup_mount_missing path=${BACKUP_MOUNT_ROOT} mounted_target=${mounted_target:-none}"
-    exit 1
-  fi
-}
+BACKUP_GUARD_CONTEXT="retention"
+source_backup_guard_library
 
 acquire_backup_lock() {
   mkdir -p "$(dirname "${LOCK_FILE}")"
@@ -136,6 +133,7 @@ if [[ "${MODE}" != "full" && "${MODE}" != "--postgres-only" ]]; then
 fi
 
 require_backup_mount
+require_backup_descendant "POSTGRES_BACKUP_DIR" "${POSTGRES_DIR}"
 
 if [[ ! -d "${POSTGRES_DIR}" ]]; then
   log "skip postgres_dir_missing path=${POSTGRES_DIR}"

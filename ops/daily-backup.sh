@@ -19,28 +19,25 @@ log() {
   echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*"
 }
 
-normalize_mount_path() {
-  local path="$1"
+source_backup_guard_library() {
+  local script_dir=""
+  local guard_path=""
 
-  while [[ "${path}" != "/" && "${path}" == */ ]]; do
-    path="${path%/}"
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  for guard_path in "${script_dir}/lib/backup-path-guards.sh" "/opt/bluesky-feed/ops/lib/backup-path-guards.sh"; do
+    if [[ -r "${guard_path}" ]]; then
+      # shellcheck source=/dev/null
+      source "${guard_path}"
+      return
+    fi
   done
 
-  printf '%s\n' "${path}"
+  log "ERROR: required backup guard library missing"
+  exit 1
 }
 
-require_backup_mount() {
-  local mounted_target=""
-  local expected_target=""
-
-  expected_target="$(normalize_mount_path "${BACKUP_MOUNT_ROOT}")"
-  mounted_target="$(findmnt -n -o TARGET --target "${expected_target}" 2>/dev/null || true)"
-  mounted_target="$(normalize_mount_path "${mounted_target}")"
-  if [[ -z "${mounted_target}" || "${mounted_target}" != "${expected_target}" ]]; then
-    log "ERROR: backup mount missing at ${BACKUP_MOUNT_ROOT} mounted_target=${mounted_target:-none}"
-    exit 1
-  fi
-}
+BACKUP_GUARD_CONTEXT="daily"
+source_backup_guard_library
 
 acquire_backup_lock() {
   mkdir -p "$(dirname "${LOCK_FILE}")"
@@ -186,6 +183,8 @@ prune_postgres_backups() {
 trap cleanup_tmp_artifacts EXIT
 
 require_backup_mount
+require_backup_descendant "POSTGRES_BACKUP_DIR" "${POSTGRES_DIR}"
+require_backup_descendant "IGOR_BACKUP_DIR" "${IGOR_DIR}"
 mkdir -p "${POSTGRES_DIR}" "${IGOR_DIR}"
 
 if ! command -v python3 >/dev/null 2>&1; then

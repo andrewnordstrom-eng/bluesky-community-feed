@@ -1,0 +1,35 @@
+== PROJ-388 sha256 backfill status ==
+captured_at_utc: 2026-05-02T21:41Z
+scope: read-only host proof for historical PostgreSQL dump hash backfill
+
+The historical 2026-04-13 copy/post-change receipts captured byte sizes for
+dump-2026-04-09.sql.gz through dump-2026-04-13.sql.gz, but did not capture
+SHA-256 hashes. On 2026-05-02, those historical dumps were no longer present
+under the mounted backup path or the old root-backup path, so hashes cannot be
+backfilled without fabrication.
+
+== current retained PostgreSQL dumps command ==
+ssh corgi-vps 'findmnt -n -o TARGET --target /mnt/host-backups; sudo find /mnt/host-backups/postgres /opt/backups/postgres -maxdepth 1 -type f -name "dump-2026-04-*.sql.gz" -printf "%p %s\n" 2>/dev/null | sort; sudo find /mnt/host-backups/postgres /opt/backups/postgres -maxdepth 1 -type f -name "dump-2026-05-*.sql.gz" -printf "%p %s\n" 2>/dev/null | sort'
+
+== current retained PostgreSQL dumps output ==
+/mnt/host-backups
+/mnt/host-backups/postgres/dump-2026-04-28.sql.gz 4803717486
+/mnt/host-backups/postgres/dump-2026-04-29.sql.gz 4803716509
+/mnt/host-backups/postgres/dump-2026-04-30.sql.gz 4803717489
+/mnt/host-backups/postgres/dump-2026-05-01.sql.gz 4803717489
+/mnt/host-backups/postgres/dump-2026-05-02.sql.gz 4803716909
+
+== historical dump existence command ==
+ssh corgi-vps 'for day in 09 10 11 12 13; do for root in /mnt/host-backups/postgres /opt/backups/postgres; do path="$root/dump-2026-04-$day.sql.gz"; if sudo test -e "$path"; then echo "present $path"; else echo "missing $path"; fi; done; done'
+
+== historical dump existence output ==
+missing /mnt/host-backups/postgres/dump-2026-04-09.sql.gz
+missing /opt/backups/postgres/dump-2026-04-09.sql.gz
+missing /mnt/host-backups/postgres/dump-2026-04-10.sql.gz
+missing /opt/backups/postgres/dump-2026-04-10.sql.gz
+missing /mnt/host-backups/postgres/dump-2026-04-11.sql.gz
+missing /opt/backups/postgres/dump-2026-04-11.sql.gz
+missing /mnt/host-backups/postgres/dump-2026-04-12.sql.gz
+missing /opt/backups/postgres/dump-2026-04-12.sql.gz
+missing /mnt/host-backups/postgres/dump-2026-04-13.sql.gz
+missing /opt/backups/postgres/dump-2026-04-13.sql.gz

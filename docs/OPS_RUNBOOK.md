@@ -167,11 +167,9 @@ Quick verification:
 
 ```bash
 sudo crontab -l
-find /mnt/host-backups/postgres -maxdepth 1 -type f -name 'dump-*.sql.gz' -printf '%f\n' | sort -r | nl
-shopt -s nullglob
-for dump in /mnt/host-backups/postgres/dump-*.sql.gz; do sudo gzip -t "$dump"; done
-shopt -u nullglob
-tail -n 200 /opt/backups/backup.log
+sudo find /mnt/host-backups/postgres -maxdepth 1 -type f -name 'dump-*.sql.gz' -printf '%f\n' | sort -r | nl
+sudo bash -lc 'shopt -s nullglob; for dump in /mnt/host-backups/postgres/dump-*.sql.gz; do gzip -t "$dump"; done'
+sudo tail -n 200 /opt/backups/backup.log
 ```
 
 ## Ops Retention and Alerting
@@ -243,20 +241,20 @@ findmnt /mnt/host-backups
 df -hT /mnt/host-backups
 ```
 
-2. Check that `/etc/fstab` still contains the backup-volume entry:
+1. Check that `/etc/fstab` still contains the backup-volume entry:
 
 ```bash
 grep -F '/mnt/host-backups' /etc/fstab
 ```
 
-3. If the `fstab` entry exists, mount it and verify the exact target again:
+1. If the `fstab` entry exists, mount it and verify the exact target again:
 
 ```bash
 sudo mount /mnt/host-backups
 findmnt -n -o TARGET --target /mnt/host-backups
 ```
 
-4. If the mount still fails, or the `fstab` entry is missing, stop local
+1. If the mount still fails, or the `fstab` entry is missing, stop local
    backup work and route the incident to infrastructure/admin ownership to
    attach the DigitalOcean volume and restore the persistent `fstab` entry.
 
@@ -272,8 +270,8 @@ does not mean backup data was corrupted.
 df -h /
 du -xhd1 /var | sort -h
 du -xhd1 /opt | sort -h
-du -sh /opt/backups
-du -xhd1 /mnt/host-backups | sort -h
+sudo du -sh /opt/backups
+sudo du -xhd1 /mnt/host-backups | sort -h
 du -xhd1 /home/corgi | sort -h
 ```
 
@@ -286,10 +284,8 @@ sudo /usr/local/bin/bluesky-ops-retention.sh
 1. Verify the backup directory contains only the latest 5 valid dumps:
 
 ```bash
-find /mnt/host-backups/postgres -maxdepth 1 -type f -name 'dump-*.sql.gz' -printf '%f\n' | sort -r | nl
-shopt -s nullglob
-for dump in /mnt/host-backups/postgres/dump-*.sql.gz; do sudo gzip -t "$dump"; done
-shopt -u nullglob
+sudo find /mnt/host-backups/postgres -maxdepth 1 -type f -name 'dump-*.sql.gz' -printf '%f\n' | sort -r | nl
+sudo bash -lc 'shopt -s nullglob; for dump in /mnt/host-backups/postgres/dump-*.sql.gz; do gzip -t "$dump"; done'
 ```
 
 1. Re-check `df -h /`.

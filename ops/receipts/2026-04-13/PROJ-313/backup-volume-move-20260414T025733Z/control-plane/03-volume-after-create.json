@@ -1,6 +1,6 @@
 {
   "volume": {
-    "id": "40829714-37ac-11f1-bf9d-0a58ac120f0f",
+    "id": "[VOLUME_ID_1]",
     "name": "corgi-vps-backups",
     "created_at": "2026-04-14T02:47:18Z",
     "description": "Backup-only storage for Bluesky dumps and Igor backups",

@@ -19,7 +19,16 @@ dump-2026-04-09.sql.gz 4803716513
 dump-2026-04-10.sql.gz 4803716516
 dump-2026-04-11.sql.gz 4803717208
 dump-2026-04-12.sql.gz 4803717486
-dump-2026-04-13.sql.gz 4803717208
+dump-2026-04-13.sql.gz 4803717490
+Canonical size from 03_copy_phase command output.
+
+== sha256sum backfill status ==
+SHA-256 hashes were not captured in this historical 2026-04-13 receipt.
+PROJ-388 read-only host proof captured at 2026-05-02T21:41Z found these files
+had rotated out of both /mnt/host-backups/postgres and /opt/backups/postgres.
+The hashes cannot be backfilled without fabrication. See
+12_sha256_backfill_status_20260502T2141Z.txt for the current command/output
+proof.
 
 == new igor backup tree ==
 -rw-r--r-- igor:igor /mnt/host-backups/igor/20260412T064806Z/.build-info.json 226

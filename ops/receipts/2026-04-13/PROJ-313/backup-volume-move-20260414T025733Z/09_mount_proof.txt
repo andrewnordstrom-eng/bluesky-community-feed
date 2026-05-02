@@ -25,17 +25,17 @@ TARGET            SOURCE   FSTYPE OPTIONS
    [ ] VFS options: noatime
    [ ] FS options: discard
    [ ] userspace options: nofail
-   [ ] source /dev/disk/by-id/scsi-0DO_Volume_corgi-vps-backups exists
+   [ ] source [REDACTED] exists
    [W] cannot detect on-disk filesystem type (Permission denied)
 
 == blkid ==
-/dev/disk/by-id/scsi-0DO_Volume_corgi-vps-backups: UUID="8471e373-69fb-42a6-bbe5-fc412c901065" BLOCK_SIZE="4096" TYPE="ext4"
+[REDACTED] UUID:[REDACTED] BLOCK_SIZE="4096" TYPE="ext4"
 
 == fstab tail ==
 LABEL=cloudimg-rootfs	/	 ext4	discard,commit=30,errors=remount-ro	0 1
 LABEL=BOOT	/boot	ext4	defaults	0 2
 LABEL=UEFI	/boot/efi	vfat	umask=0077	0 1
-/dev/disk/by-id/scsi-0DO_Volume_corgi-vps-backups /mnt/host-backups ext4 defaults,nofail,discard,noatime 0 2
+[REDACTED] /mnt/host-backups ext4 defaults,nofail,discard,noatime 0 2
 
 == ls -ld ==
 drwxr-xr-x  5 root root 4096 Apr 13 23:01 /mnt/host-backups

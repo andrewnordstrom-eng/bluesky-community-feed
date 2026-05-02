@@ -21,10 +21,11 @@ lines, stdout/stderr, or exit statuses for the PostgreSQL, `/opt/backups/igor`,
 or `/opt/igor/backups` copy operations. This addendum does not reconstruct or
 fabricate those historical command lines.
 
-Current read-only verification captured on 2026-05-01 confirms the destination
-mount remains exact at /mnt/host-backups and the root backup data artifacts that
-were migrated by this packet are absent from /opt/backups. See
-10_review_fix_proof_20260501T235534Z.txt for the current command/output receipt.
+Current read-only verification captured at 2026-05-01T23:55:34Z confirms the
+destination mount remains exact at /mnt/host-backups and the root backup data
+artifacts that were migrated by this packet are absent from /opt/backups. See
+10_review_fix_proof_20260501T235534Z.txt for the current command/output
+receipt.
 
 == destination after copy ==
 23G	/mnt/host-backups/postgres
@@ -36,6 +37,14 @@ dump-2026-04-10.sql.gz 4803716516
 dump-2026-04-11.sql.gz 4803717208
 dump-2026-04-12.sql.gz 4803717486
 dump-2026-04-13.sql.gz 4803717490
+
+== sha256sum backfill status ==
+SHA-256 hashes were not captured in this historical 2026-04-13 copy-phase
+receipt. PROJ-388 read-only host proof captured at 2026-05-02T21:41Z found
+these files had rotated out of both /mnt/host-backups/postgres and
+/opt/backups/postgres. The hashes cannot be backfilled without fabrication.
+See 12_sha256_backfill_status_20260502T2141Z.txt for the current
+command/output proof.
 
 == igor files after copy ==
 -rw-r--r-- igor:igor /mnt/host-backups/igor/20260412T064806Z/.build-info.json 226

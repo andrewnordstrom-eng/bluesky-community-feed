@@ -130,24 +130,24 @@ TARGET            SOURCE   FSTYPE OPTIONS
 
 == lsblk -f ==
 NAME    FSTYPE  FSVER LABEL           UUID                                 FSAVAIL FSUSE% MOUNTPOINTS
-sda     ext4    1.0                   8471e373-69fb-42a6-bbe5-fc412c901065   92.9G     0% /mnt/host-backups
-vda                                                                                       
-├─vda1  ext4    1.0   cloudimg-rootfs ba2ea188-8426-4cb8-9b08-dd67592b461e   13.6G    86% /
-├─vda13 ext4    1.0   BOOT            7aa35a82-bfce-4842-9acf-bddedd40bb68    793M    13% /boot
-├─vda14                                                                                   
-└─vda15 vfat    FAT32 UEFI            DAD0-3607                              98.2M     6% /boot/efi
-vdb     iso9660       config-2        2026-03-25-21-52-01-00                              
+sda     ext4    1.0                   [REDACTED]   92.9G     0% /mnt/host-backups
+vda
+├─vda1  ext4    1.0   cloudimg-rootfs [REDACTED]   13.6G    86% /
+├─vda13 ext4    1.0   BOOT            [REDACTED]    793M    13% /boot
+├─vda14
+└─vda15 vfat    FAT32 UEFI            [REDACTED]                              98.2M     6% /boot/efi
+vdb     iso9660       config-2        2026-03-25-21-52-01-00
 
 == blkid ==
-/dev/vdb: BLOCK_SIZE="2048" UUID="2026-03-25-21-52-01-00" LABEL="config-2" TYPE="iso9660"
-/dev/vda15: LABEL_FATBOOT="UEFI" LABEL="UEFI" UUID="DAD0-3607" BLOCK_SIZE="512" TYPE="vfat" PARTUUID="472d9b8e-a2f5-492b-86e3-207e44ee3f56"
-/dev/vda13: LABEL="BOOT" UUID="7aa35a82-bfce-4842-9acf-bddedd40bb68" BLOCK_SIZE="4096" TYPE="ext4" PARTUUID="2a892062-86c8-4cac-9b2b-5dd8f773031e"
-/dev/vda1: LABEL="cloudimg-rootfs" UUID="ba2ea188-8426-4cb8-9b08-dd67592b461e" BLOCK_SIZE="4096" TYPE="ext4" PARTUUID="16ac70de-3c45-4b5d-8a6a-37f30dae671c"
-/dev/sda: UUID="8471e373-69fb-42a6-bbe5-fc412c901065" BLOCK_SIZE="4096" TYPE="ext4"
-/dev/vda14: PARTUUID="84348bd0-9852-4c71-97b5-f4513b0ba466"
+/dev/vdb: BLOCK_SIZE="2048" UUID:[REDACTED] LABEL="config-2" TYPE="iso9660"
+/dev/vda15: LABEL_FATBOOT="UEFI" LABEL="UEFI" UUID:[REDACTED] BLOCK_SIZE="512" TYPE="vfat" PARTUUID:[REDACTED]
+/dev/vda13: LABEL="BOOT" UUID:[REDACTED] BLOCK_SIZE="4096" TYPE="ext4" PARTUUID:[REDACTED]
+/dev/vda1: LABEL="cloudimg-rootfs" UUID:[REDACTED] BLOCK_SIZE="4096" TYPE="ext4" PARTUUID:[REDACTED]
+/dev/sda: UUID:[REDACTED] BLOCK_SIZE="4096" TYPE="ext4"
+/dev/vda14: PARTUUID:[REDACTED]
 
 == fstab ==
 LABEL=cloudimg-rootfs	/	 ext4	discard,commit=30,errors=remount-ro	0 1
 LABEL=BOOT	/boot	ext4	defaults	0 2
 LABEL=UEFI	/boot/efi	vfat	umask=0077	0 1
-/dev/disk/by-id/scsi-0DO_Volume_corgi-vps-backups /mnt/host-backups ext4 defaults,nofail,discard,noatime 0 2
+[REDACTED] /mnt/host-backups ext4 defaults,nofail,discard,noatime 0 2

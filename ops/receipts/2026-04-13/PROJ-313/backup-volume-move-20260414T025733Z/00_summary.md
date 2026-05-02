@@ -1,10 +1,10 @@
-## PROJ-313 backup-volume move
+# PROJ-313 backup-volume move
 
 - Decision executed: keep Bluesky runtime, Bluesky active Postgres data, Igor production, and Igor staging on root; move backup storage to `/mnt/host-backups`.
 - Control plane used: authenticated DigitalOcean API via existing `DIGITALOCEAN_API_TOKEN`.
 - New volume: `corgi-vps-backups`, 100 GB, attached to `corgi-vps`, mounted at `/mnt/host-backups`.
 
-### Before
+## Before
 
 - Root disk: `96G total / 83G used / 14G free / 86%`.
 - Root backup pressure:
@@ -16,7 +16,7 @@
 - Bluesky app service: already failed before the move.
 - Bluesky Postgres and Redis containers: healthy.
 
-### What changed
+## What changed
 
 - Provisioned and attached DigitalOcean volume `corgi-vps-backups`.
 - Formatted the new device as `ext4`.
@@ -28,7 +28,7 @@
 - Triggered one real Bluesky backup run and one real Igor backup service run after cutover.
 - Pruned historical backup contents from root after the new-volume runs succeeded.
 
-### PROJ-388 review-fix addendum (2026-05-01)
+## PROJ-388 review-fix addendum (2026-05-01)
 
 - The `PROJ-388` review pass tightened the Bluesky backup mount guard to require
   an exact `findmnt -n -o TARGET --target "$BACKUP_MOUNT_ROOT"` match before
@@ -36,15 +36,23 @@
 - The retention script now validates the mount before treating a missing
   PostgreSQL backup directory as a skip condition.
 - `/opt/backups` remains the installed script/log path for root cron
-  compatibility; backup data is still rooted under `/mnt/host-backups`.
+  compatibility with root-only directory/log permissions; backup data is still
+  rooted under `/mnt/host-backups`.
 - Newly captured read-only host proof and terminal provider proof are recorded
   in `10_review_fix_proof_20260501T235534Z.txt` and
   `control-plane/05-volume-attach-terminal-20260501T2355Z.json`.
 - The pre-existing `bluesky-feed.service` failure was routed to existing
   runtime-stabilization issue `PROJ-110`; evidence is recorded in
   `11_bluesky_service_followup_20260502T001223Z.txt`.
+- Historical SHA-256 hashes for the 2026-04-09 through 2026-04-13 PostgreSQL
+  dumps cannot be backfilled because those retained dumps have rotated out;
+  read-only host proof is recorded in
+  `12_sha256_backfill_status_20260502T2141Z.txt`.
+- A follow-up cleanup proof checked both historical Igor root-backup path shapes
+  under `/opt/backups/igor`; evidence is recorded in
+  `13_igor_cleanup_path_followup_20260502T215209Z.txt`.
 
-### After
+## After
 
 - Root disk: `96G total / 59G used / 38G free / 61%`.
 - New backup volume: `98G total / 25G used / 69G free / 27%`.
@@ -57,13 +65,13 @@
 - Bluesky app service: still failed, unchanged from pre-move state.
 - Bluesky Postgres and Redis containers: healthy.
 
-### Remaining explicit host risk
+## Remaining explicit host risk
 
 - Active Bluesky Postgres volume growth still lives on root.
 - Backup and rollback storage no longer compete with active runtime on root.
 - If root pressure later becomes unacceptable again, the next topology packet should be Bluesky data/runtime relocation rather than more pruning.
 
-### Receipt map
+## Receipt map
 
 - `01_prechange_measurements.txt`: root usage, sizes, dump inventory, mounts, `fstab`.
 - `02_runtime_before.txt`: Igor and Bluesky pre-change runtime truth.
@@ -79,5 +87,9 @@
   DigitalOcean action state.
 - `11_bluesky_service_followup_20260502T001223Z.txt`: read-only evidence and
   routing note for the pre-existing `bluesky-feed.service` failure.
+- `12_sha256_backfill_status_20260502T2141Z.txt`: read-only host proof that
+  historical PostgreSQL dump hashes cannot be backfilled without fabrication.
+- `13_igor_cleanup_path_followup_20260502T215209Z.txt`: read-only host proof
+  for flat and daily Igor root-backup cleanup paths.
 - `control-plane/05-volume-attach-terminal-20260501T2355Z.json`: terminal
-  DigitalOcean action receipt for action `3138450041`.
+  DigitalOcean action receipt.
