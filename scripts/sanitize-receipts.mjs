@@ -100,20 +100,29 @@ function main() {
     process.exit(1);
   }
   for (const file of receiptFiles) {
-    const originalBuffer = readFileSync(file);
-    if (originalBuffer.includes(0)) {
-      continue;
-    }
+    const displayPath = relative(file);
+    try {
+      const originalBuffer = readFileSync(file);
+      if (originalBuffer.includes(0)) {
+        continue;
+      }
 
-    const original = originalBuffer.toString('utf8');
-    const sanitized = sanitizeReceiptContent(original);
-    if (sanitized === original && !DISALLOWED_RECEIPT_REGEX.test(original)) {
-      continue;
-    }
+      const original = originalBuffer.toString('utf8');
+      const sanitized = sanitizeReceiptContent(original);
+      if (sanitized === original && !DISALLOWED_RECEIPT_REGEX.test(original)) {
+        continue;
+      }
 
-    dirtyFiles.push(relative(file));
-    if (!checkOnly) {
-      writeFileSync(file, sanitized);
+      if (checkOnly) {
+        dirtyFiles.push(displayPath);
+      } else {
+        writeFileSync(file, sanitized);
+        dirtyFiles.push(displayPath);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`receipt sanitizer: failed to process ${displayPath}: ${message}`);
+      process.exit(1);
     }
   }
 

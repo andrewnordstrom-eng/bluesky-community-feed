@@ -268,4 +268,56 @@ describe('sanitizeReceiptContent', () => {
       rmSync(receiptsRoot, { recursive: true, force: true });
     }
   });
+
+  it('cli --check fails with a deterministic error for unreadable receipt files', () => {
+    if (typeof process.getuid === 'function' && process.getuid() === 0) {
+      expect(process.getuid()).toBe(0);
+      return;
+    }
+
+    const receiptsRoot = mkdtempSync(path.join(tmpdir(), 'receipt-sanitize-unreadable-file-'));
+    const receiptPath = path.join(receiptsRoot, 'dirty.txt');
+    writeFileSync(receiptPath, '{"id":"3138450041"}\n');
+
+    try {
+      chmodSync(receiptPath, 0o000);
+
+      const result = spawnSync(process.execPath, [sanitizeScriptPath, '--check'], {
+        encoding: 'utf8',
+        env: { ...process.env, RECEIPTS_ROOT: receiptsRoot },
+      });
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain('receipt sanitizer: failed to process dirty.txt');
+    } finally {
+      chmodSync(receiptPath, 0o600);
+      rmSync(receiptsRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('sanitize mode fails with a deterministic error for unwritable receipt files', () => {
+    if (typeof process.getuid === 'function' && process.getuid() === 0) {
+      expect(process.getuid()).toBe(0);
+      return;
+    }
+
+    const receiptsRoot = mkdtempSync(path.join(tmpdir(), 'receipt-sanitize-unwritable-file-'));
+    const receiptPath = path.join(receiptsRoot, 'dirty.txt');
+    writeFileSync(receiptPath, '{"id":"3138450041"}\n');
+
+    try {
+      chmodSync(receiptPath, 0o400);
+
+      const result = spawnSync(process.execPath, [sanitizeScriptPath], {
+        encoding: 'utf8',
+        env: { ...process.env, RECEIPTS_ROOT: receiptsRoot },
+      });
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain('receipt sanitizer: failed to process dirty.txt');
+    } finally {
+      chmodSync(receiptPath, 0o600);
+      rmSync(receiptsRoot, { recursive: true, force: true });
+    }
+  });
 });
