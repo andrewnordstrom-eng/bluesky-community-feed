@@ -1,3 +1,4 @@
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { describe, expect, it } from 'vitest';
 import { runHttpLoad, summarizeRate, type HttpLoadOptions, type HttpLoadRequest } from '../scripts/http-load.js';
 
@@ -18,6 +19,39 @@ const validLoadOptions: HttpLoadOptions = {
 
 async function expectRangeError(options: HttpLoadOptions): Promise<void> {
   await expect(runHttpLoad(options)).rejects.toThrow(RangeError);
+}
+
+async function withHttpServer(
+  handler: (request: IncomingMessage, response: ServerResponse) => void,
+  run: (baseUrl: string) => Promise<void>
+): Promise<void> {
+  const server = createServer(handler);
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      server.off('error', reject);
+      resolve();
+    });
+  });
+
+  const address = server.address();
+  if (address === null || typeof address === 'string') {
+    throw new Error(`expected TCP server address; received ${String(address)}`);
+  }
+
+  try {
+    await run(`http://127.0.0.1:${address.port}`);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+  }
 }
 
 describe('summarizeRate', () => {
@@ -157,5 +191,33 @@ describe('runHttpLoad validation boundary cases', () => {
       amount: null,
       durationMs: null,
     });
+  });
+});
+
+describe('runHttpLoad execution', () => {
+  it('allocates exactly amount requests across concurrent workers', async () => {
+    let requestCount = 0;
+
+    await withHttpServer(
+      (_request, response) => {
+        requestCount += 1;
+        response.writeHead(200, { 'content-type': 'text/plain' });
+        response.end('ok');
+      },
+      async (baseUrl) => {
+        const result = await runHttpLoad({
+          baseUrl,
+          amount: 7,
+          durationMs: null,
+          connections: 3,
+          timeoutMs: 1_000,
+          requests: [getRequest],
+        });
+
+        expect(requestCount).toBe(7);
+        expect(result.requests.total).toBe(7);
+        expect(result.statusBuckets.s2xx).toBe(7);
+      }
+    );
   });
 });

@@ -68,6 +68,10 @@ interface MutableCounters {
   statusBuckets: StatusBuckets;
 }
 
+interface RequestIndexAllocator {
+  next(nowMs: number): number | null;
+}
+
 function emptyStatusBuckets(): StatusBuckets {
   return {
     s1xx: 0,
@@ -127,23 +131,24 @@ function assertLoadOptions(options: HttpLoadOptions): void {
   }
 }
 
-function nextRequestIndex(
-  counters: MutableCounters,
-  amount: number | null,
-  deadlineMs: number | null,
-  nowMs: number
-): number | null {
-  if (deadlineMs !== null && nowMs >= deadlineMs) {
-    return null;
-  }
+function createRequestIndexAllocator(amount: number | null, deadlineMs: number | null): RequestIndexAllocator {
+  let nextIndex = 0;
 
-  if (amount !== null && counters.sent >= amount) {
-    return null;
-  }
+  return {
+    next(nowMs: number): number | null {
+      if (deadlineMs !== null && nowMs >= deadlineMs) {
+        return null;
+      }
 
-  const requestIndex = counters.sent;
-  counters.sent += 1;
-  return requestIndex;
+      if (amount !== null && nextIndex >= amount) {
+        return null;
+      }
+
+      const requestIndex = nextIndex;
+      nextIndex += 1;
+      return requestIndex;
+    },
+  };
 }
 
 function addStatus(statusBuckets: StatusBuckets, status: number): void {
@@ -304,15 +309,19 @@ async function executeRequest(
   }
 }
 
-async function runWorker(options: HttpLoadOptions, startedAtMs: number, counters: MutableCounters): Promise<void> {
-  const deadlineMs = options.durationMs === null ? null : startedAtMs + options.durationMs;
-
+async function runWorker(
+  options: HttpLoadOptions,
+  startedAtMs: number,
+  counters: MutableCounters,
+  requestIndexes: RequestIndexAllocator
+): Promise<void> {
   while (true) {
-    const requestIndex = nextRequestIndex(counters, options.amount, deadlineMs, performance.now());
+    const requestIndex = requestIndexes.next(performance.now());
     if (requestIndex === null) {
       return;
     }
 
+    counters.sent += 1;
     const request = options.requests[requestIndex % options.requests.length];
     await executeRequest(options.baseUrl, request, options.timeoutMs, startedAtMs, counters);
   }
@@ -333,8 +342,12 @@ export async function runHttpLoad(options: HttpLoadOptions): Promise<HttpLoadRes
     completionBytes: [],
     statusBuckets: emptyStatusBuckets(),
   };
+  const deadlineMs = options.durationMs === null ? null : startedAtMs + options.durationMs;
+  const requestIndexes = createRequestIndexAllocator(options.amount, deadlineMs);
 
-  const workers = Array.from({ length: options.connections }, () => runWorker(options, startedAtMs, counters));
+  const workers = Array.from({ length: options.connections }, () =>
+    runWorker(options, startedAtMs, counters, requestIndexes)
+  );
   await Promise.all(workers);
 
   const elapsedMs = performance.now() - startedAtMs;
