@@ -36,6 +36,7 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
             const payload = context.payload || {};
+            const REQUIRED_CHECK_NAME = "aikido-thread-check / aikido-thread-check";
 
             const dispatchPrNumber = payload.inputs?.pr_number;
             const isDispatchRun = Boolean(dispatchPrNumber);
@@ -69,11 +70,18 @@ jobs:
                 return false;
               }
 
+              if ((context.sha || "").toLowerCase() === headSha.toLowerCase()) {
+                core.info(
+                  `[aikido-thread-check:skip_manual_check] workflow_dispatch is already running on PR #${prNumber} head ${headSha}; using the workflow job check.`
+                );
+                return true;
+              }
+
               try {
                 const response = await github.rest.checks.create({
                   owner,
                   repo,
-                  name: "aikido-thread-check",
+                  name: REQUIRED_CHECK_NAME,
                   head_sha: headSha,
                   status: "in_progress",
                   started_at: new Date().toISOString(),
@@ -248,6 +256,13 @@ jobs:
               return;
             }
 
+            const isAikidoAuthorLogin = (login) => {
+              const author = (login || "").toLowerCase();
+              return author === "aikido-pr-checks" || author === "aikido-pr-checks[bot]";
+            };
+            const isAikidoThread = (thread) =>
+              isAikidoAuthorLogin(thread.comments?.nodes?.[0]?.author?.login || "");
+
             const fetchCompleteComments = async (thread) => {
               const originalComments = thread.comments || {};
               const commentNodes = [...(originalComments.nodes || [])];
@@ -307,11 +322,11 @@ jobs:
             };
 
             try {
-              const completeThreads = [];
-              for (const thread of threads) {
-                completeThreads.push(await fetchCompleteComments(thread));
+              const completeAikidoThreads = new Map();
+              for (const thread of threads.filter(isAikidoThread)) {
+                completeAikidoThreads.set(thread.id, await fetchCompleteComments(thread));
               }
-              threads = completeThreads;
+              threads = threads.map((thread) => completeAikidoThreads.get(thread.id) || thread);
             } catch (err) {
               await recordFailure(
                 `[aikido-thread-check:fail] Failed to paginate review thread comments: ${err?.message || err}`
@@ -319,10 +334,7 @@ jobs:
               return;
             }
 
-            const aikidoThreads = threads.filter((thread) => {
-              const firstAuthor = (thread.comments?.nodes?.[0]?.author?.login || "").toLowerCase();
-              return firstAuthor === "aikido-pr-checks" || firstAuthor === "aikido-pr-checks[bot]";
-            });
+            const aikidoThreads = threads.filter(isAikidoThread);
             const truncatedCommentThreads = aikidoThreads.filter(
               (thread) => thread.comments?.pageInfo?.hasNextPage
             ).length;
@@ -346,8 +358,7 @@ jobs:
                 return Number.isFinite(time) ? time : 0;
               };
               const isAikidoComment = (comment) => {
-                const author = (comment.author?.login || "").toLowerCase();
-                return author === "aikido-pr-checks" || author === "aikido-pr-checks[bot]";
+                return isAikidoAuthorLogin(comment.author?.login || "");
               };
               const isTrustedDispositionAuthor = (comment) => {
                 const author = (comment.author?.login || "").toLowerCase();
