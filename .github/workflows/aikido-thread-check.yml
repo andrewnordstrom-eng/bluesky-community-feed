@@ -3,7 +3,6 @@ name: aikido-thread-check
 on:
   pull_request:
     branches: [main]
-    types: [opened, reopened, synchronize, ready_for_review]
   pull_request_review_comment:
     types: [created, edited]
   workflow_dispatch:
@@ -15,9 +14,167 @@ on:
 
 permissions:
   contents: read
-  pull-requests: read
 
 jobs:
   aikido-thread-check:
-    # Pinned to the merged org .github mainline commit that contains the reusable Aikido thread gate.
-    uses: andrewnordstrom-eng/.github/.github/workflows/aikido-thread-check.yml@1c9b29f369383b461bc818c87060923b7ebc80b9
+    runs-on: ubuntu-latest
+    concurrency:
+      group: aikido-thread-check-${{ github.repository }}-${{ github.event.pull_request.number || github.sha || github.run_id }}
+      cancel-in-progress: true
+    permissions:
+      pull-requests: read
+    steps:
+      - name: Verify all Aikido review threads are resolved
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const payload = context.payload || {};
+
+            const dispatchPrNumber = payload.inputs?.pr_number;
+            const pr =
+              payload.pull_request ||
+              (dispatchPrNumber
+                ? { number: Number(dispatchPrNumber), base: { ref: "main" }, draft: false }
+                : null);
+            if (!pr) {
+              core.info("[aikido-thread-check:skip] No pull_request in event payload.");
+              return;
+            }
+
+            if ((pr.base?.ref || "") !== "main") {
+              core.info(
+                `[aikido-thread-check:skip_base] Base branch is ${pr.base?.ref || "<unknown>"}; thread check only enforced for main.`
+              );
+              return;
+            }
+
+            if (pr.draft) {
+              core.info("[aikido-thread-check:skip_draft] Draft PR; thread check skipped.");
+              return;
+            }
+
+            const author = (pr.user?.login || "").toLowerCase();
+            const isBotAuthor =
+              author.endsWith("[bot]") || (pr.user?.type || "").toLowerCase() === "bot";
+            if (isBotAuthor) {
+              core.info("[aikido-thread-check:skip_bot] Bot-authored PR; thread check skipped.");
+              return;
+            }
+
+            const prNumber = pr.number;
+            if (!prNumber) {
+              core.setFailed("[aikido-thread-check:fail] Missing PR number in event payload.");
+              return;
+            }
+
+            const threads = [];
+            try {
+              let after = null;
+              while (true) {
+                const result = await github.graphql(
+                  `query($owner: String!, $repo: String!, $prNumber: Int!, $after: String) {
+                    repository(owner: $owner, name: $repo) {
+                      pullRequest(number: $prNumber) {
+                        reviewThreads(first: 100, after: $after) {
+                          nodes {
+                            isResolved
+                            isOutdated
+                            comments(first: 50) {
+                              pageInfo {
+                                hasNextPage
+                              }
+                              nodes {
+                                author { login }
+                                body
+                              }
+                            }
+                          }
+                          pageInfo {
+                            hasNextPage
+                            endCursor
+                          }
+                        }
+                      }
+                    }
+                  }`,
+                  { owner, repo, prNumber, after }
+                );
+                const page = result.repository.pullRequest.reviewThreads;
+                threads.push(...page.nodes);
+                if (!page.pageInfo.hasNextPage) break;
+                after = page.pageInfo.endCursor;
+              }
+            } catch (err) {
+              core.setFailed(
+                `[aikido-thread-check:fail] Failed to query review threads: ${err?.message || err}`
+              );
+              return;
+            }
+
+            const aikidoThreads = threads.filter((thread) => {
+              const firstAuthor = (thread.comments?.nodes?.[0]?.author?.login || "").toLowerCase();
+              return firstAuthor === "aikido-pr-checks" || firstAuthor === "aikido-pr-checks[bot]";
+            });
+            const truncatedCommentThreads = aikidoThreads.filter(
+              (thread) => thread.comments?.pageInfo?.hasNextPage
+            ).length;
+            if (truncatedCommentThreads > 0) {
+              core.warning(
+                `[aikido-thread-check:warning_truncated_comments] ${truncatedCommentThreads} Aikido thread(s) have more than 50 comments; later disposition markers may require manual review.`
+              );
+            }
+
+            const unresolvedThreads = aikidoThreads.filter((thread) => {
+              if (thread.isResolved || thread.isOutdated) {
+                return false;
+              }
+
+              const comments = thread.comments?.nodes || [];
+              const hasFixedDisposition = comments.some((comment) => {
+                const author = (comment.author?.login || "").toLowerCase();
+                const isAikidoAuthor =
+                  author === "aikido-pr-checks" || author === "aikido-pr-checks[bot]";
+                return !isAikidoAuthor && /^Addressed in current branch:/i.test(comment.body || "");
+              });
+              const hasIgnoreRequest = comments.some((comment) =>
+                /@AikidoSec ignore:/i.test(comment.body || "")
+              );
+              const hasIgnoreConfirmation = comments.some((comment) => {
+                const author = (comment.author?.login || "").toLowerCase();
+                const isAikidoAuthor =
+                  author === "aikido-pr-checks" || author === "aikido-pr-checks[bot]";
+                return isAikidoAuthor && /ignored this issue/i.test(comment.body || "");
+              });
+              return !(hasFixedDisposition || (hasIgnoreRequest && hasIgnoreConfirmation));
+            });
+
+            const totalAikido = aikidoThreads.length;
+            const resolvedCount = aikidoThreads.filter((thread) => thread.isResolved).length;
+            const outdatedCount = aikidoThreads.filter(
+              (thread) => thread.isOutdated && !thread.isResolved
+            ).length;
+            const unresolvedCount = unresolvedThreads.length;
+
+            if (totalAikido === 0) {
+              core.info(
+                "[aikido-thread-check:skip_no_threads] No Aikido review threads found on this PR."
+              );
+              return;
+            }
+
+            if (unresolvedCount > 0) {
+              core.setFailed(
+                `[aikido-thread-check:fail] ${unresolvedCount} unresolved Aikido review thread(s) on PR #${prNumber}. ` +
+                `Record a disposition on every live Aikido thread: reply "Addressed in current branch: <summary>" for fixes, or "@AikidoSec ignore: <reason>" for accepted risk/false positives. ` +
+                `If you ignore a finding, wait for the Aikido confirmation reply before resolving the thread. ` +
+                `(${resolvedCount} resolved, ${outdatedCount} outdated, ${unresolvedCount} unresolved).`
+              );
+              return;
+            }
+
+            core.notice(
+              `[aikido-thread-check:ok] All ${totalAikido} Aikido thread(s) resolved on PR #${prNumber}. ` +
+              `(${resolvedCount} resolved, ${outdatedCount} outdated).`
+            );
