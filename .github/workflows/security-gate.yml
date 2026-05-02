@@ -12,4 +12,4 @@ permissions:
 
 jobs:
   security-gate:
-    uses: andrewnordstrom-eng/.github-public/.github/workflows/security-gate.yml@3eb398cf25fba2dd97a05508678fe48b0b4e0532
+    uses: andrewnordstrom-eng/.github-public/.github/workflows/security-gate.yml@50211138be3f46fcc71f51aca669a3bced13de17
