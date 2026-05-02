@@ -33,11 +33,30 @@ jobs:
             const payload = context.payload || {};
 
             const dispatchPrNumber = payload.inputs?.pr_number;
-            const pr =
-              payload.pull_request ||
-              (dispatchPrNumber
-                ? { number: Number(dispatchPrNumber), base: { ref: "main" }, draft: false }
-                : null);
+            let pr = payload.pull_request || null;
+            if (!pr && dispatchPrNumber) {
+              const parsedPrNumber = Number(dispatchPrNumber);
+              if (!Number.isInteger(parsedPrNumber) || parsedPrNumber < 1) {
+                core.setFailed(
+                  `[aikido-thread-check:fail] Invalid workflow_dispatch pr_number: ${dispatchPrNumber}`
+                );
+                return;
+              }
+
+              try {
+                const response = await github.rest.pulls.get({
+                  owner,
+                  repo,
+                  pull_number: parsedPrNumber,
+                });
+                pr = response.data;
+              } catch (err) {
+                core.setFailed(
+                  `[aikido-thread-check:fail] Failed to fetch PR #${parsedPrNumber}: ${err?.message || err}`
+                );
+                return;
+              }
+            }
             if (!pr) {
               core.info("[aikido-thread-check:skip] No pull_request in event payload.");
               return;
