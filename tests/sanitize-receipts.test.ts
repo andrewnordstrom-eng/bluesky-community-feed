@@ -72,6 +72,30 @@ describe('sanitizeReceiptContent', () => {
     );
   });
 
+  it('redacts uppercase JSON id keys', () => {
+    const content = '{"ID": 3138450041, "VOLUME_ID": 3138450042}';
+
+    expect(sanitizeReceiptContent(content)).toBe(
+      '{"ID": "[PROVIDER_ID_1]", "VOLUME_ID": "[PROVIDER_ID_2]"}',
+    );
+  });
+
+  it('redacts quoted numeric JSON id values', () => {
+    const content = '{"id":"3138450041","droplet_id":"3138450041"}';
+
+    expect(sanitizeReceiptContent(content)).toBe(
+      '{"id":"[PROVIDER_ID_1]","droplet_id":"[PROVIDER_ID_1]"}',
+    );
+  });
+
+  it('redacts unquoted receipt id keys', () => {
+    const content = 'ID:3138450041 volume_id:"3138450042"';
+
+    expect(sanitizeReceiptContent(content)).toBe(
+      'ID:"[PROVIDER_ID_1]" volume_id:"[PROVIDER_ID_2]"',
+    );
+  });
+
   it('leaves empty and already-safe content unchanged', () => {
     expect(sanitizeReceiptContent('')).toBe('');
     expect(sanitizeReceiptContent('no stable identifiers here')).toBe(
@@ -92,6 +116,21 @@ describe('sanitizeReceiptContent', () => {
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('Receipt sanitizer found unredacted stable identifiers');
     expect(result.stderr).toContain('dirty.txt');
+  });
+
+  it('cli --check fails on quoted numeric JSON id receipt files', () => {
+    const receiptsRoot = mkdtempSync(path.join(tmpdir(), 'receipt-sanitize-json-dirty-'));
+    const receiptPath = path.join(receiptsRoot, 'dirty-json.txt');
+    writeFileSync(receiptPath, '{"id":"3138450041"}\n');
+
+    const result = spawnSync(process.execPath, [sanitizeScriptPath, '--check'], {
+      encoding: 'utf8',
+      env: { ...process.env, RECEIPTS_ROOT: receiptsRoot },
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Receipt sanitizer found unredacted stable identifiers');
+    expect(result.stderr).toContain('dirty-json.txt');
   });
 
   it('cli --check succeeds on clean receipt files without reporting paths', () => {
