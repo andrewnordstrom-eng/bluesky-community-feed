@@ -328,6 +328,7 @@ describe('sanitizeReceiptContent', () => {
       });
 
       expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain('receipt sanitizer: failed to read receipts directory');
       expect(result.stderr).toContain(receiptsRoot);
       expect(result.stderr).toMatch(/failed to read|EACCES|permission/i);
     } finally {

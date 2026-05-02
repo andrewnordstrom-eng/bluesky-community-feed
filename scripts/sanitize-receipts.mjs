@@ -97,7 +97,19 @@ export function sanitizeReceiptContent(content) {
 function main() {
   const checkOnly = process.argv.includes('--check');
 
-  if (!existsSync(receiptsRoot) || !statSync(receiptsRoot).isDirectory()) {
+  if (!existsSync(receiptsRoot)) {
+    console.error(`receipt sanitizer: missing receipts directory ${relative(receiptsRoot)}`);
+    process.exit(1);
+  }
+  let receiptsRootStat;
+  try {
+    receiptsRootStat = statSync(receiptsRoot);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`receipt sanitizer: failed to read receipts directory ${relative(receiptsRoot)}: ${message}`);
+    process.exit(1);
+  }
+  if (!receiptsRootStat.isDirectory()) {
     console.error(`receipt sanitizer: missing receipts directory ${relative(receiptsRoot)}`);
     process.exit(1);
   }
