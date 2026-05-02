@@ -39,9 +39,26 @@ jobs:
             const dispatchPrNumber = payload.inputs?.pr_number;
             const isDispatchRun = Boolean(dispatchPrNumber);
             let manualCheckRunId = null;
-            const createManualCheckRun = async (headSha, prNumber) => {
+            const createManualCheckRun = async (headSha, prNumber, headRepo) => {
               if (!isDispatchRun) {
                 return true;
+              }
+
+              const canonicalRepo = `${owner}/${repo}`.toLowerCase();
+              const headRepoFullName = (headRepo?.full_name || "").toLowerCase();
+              if (headRepoFullName === "") {
+                core.setFailed(
+                  `[aikido-thread-check:fail_dispatch_head_repo] workflow_dispatch recovery cannot determine the head repository for PR #${prNumber}.`
+                );
+                return false;
+              }
+
+              const isForkHead = headRepo?.fork === true || headRepoFullName !== canonicalRepo;
+              if (isForkHead) {
+                core.setFailed(
+                  `[aikido-thread-check:fail_fork_dispatch] workflow_dispatch recovery is unsupported for fork PRs; PR #${prNumber} head repo is ${headRepo?.full_name || "<unknown>"}.`
+                );
+                return false;
               }
 
               if (!headSha) {
@@ -145,7 +162,11 @@ jobs:
             }
 
             if (isDispatchRun) {
-              const checkRunCreated = await createManualCheckRun(pr.head?.sha, pr.number || dispatchPrNumber);
+              const checkRunCreated = await createManualCheckRun(
+                pr.head?.sha,
+                pr.number || dispatchPrNumber,
+                pr.head?.repo
+              );
               if (!checkRunCreated) {
                 return;
               }
