@@ -12,6 +12,9 @@ POSTGRES_BACKUP_DIR="${POSTGRES_BACKUP_DIR:-${BACKUP_MOUNT_ROOT}/postgres}"
 IGOR_BACKUP_DIR="${IGOR_BACKUP_DIR:-${BACKUP_MOUNT_ROOT}/igor/daily}"
 BACKUP_GUARD_CONTEXT="install"
 BACKUP_GUARD_LIBRARY="${APP_DIR}/ops/lib/backup-path-guards.sh"
+BACKUP_GUARD_INSTALL_DIR="/opt/backups/lib"
+BACKUP_GUARD_INSTALL_LIBRARY="${BACKUP_GUARD_INSTALL_DIR}/backup-path-guards.sh"
+DEPLOYMENT_RECEIPT="/opt/backups/DEPLOYMENT_RECEIPT"
 
 if [ ! -r "${BACKUP_GUARD_LIBRARY}" ]; then
   echo "ERROR: required backup guard library missing: ${BACKUP_GUARD_LIBRARY}" >&2
@@ -70,7 +73,14 @@ install -d -o root -g root -m 0700 /opt/backups
 install -d -o root -g root -m 0700 "${POSTGRES_BACKUP_DIR}" "${IGOR_BACKUP_DIR}"
 echo "✓ backup directories on ${BACKUP_MOUNT_ROOT}"
 
-install -m 0755 "${BACKUP_SCRIPT}" /opt/backups/daily-backup.sh
+install -d -o root -g root -m 0755 "${BACKUP_GUARD_INSTALL_DIR}"
+install -o root -g root -m 0755 "${BACKUP_GUARD_LIBRARY}" "${BACKUP_GUARD_INSTALL_LIBRARY}"
+printf '%s install backup_guard_library source=%s target=%s mode=0755\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${BACKUP_GUARD_LIBRARY}" "${BACKUP_GUARD_INSTALL_LIBRARY}" >> "${DEPLOYMENT_RECEIPT}"
+chown root:root "${DEPLOYMENT_RECEIPT}"
+chmod 0600 "${DEPLOYMENT_RECEIPT}"
+echo "✓ /opt/backups/lib/backup-path-guards.sh"
+
+install -o root -g root -m 0755 "${BACKUP_SCRIPT}" /opt/backups/daily-backup.sh
 echo "✓ /opt/backups/daily-backup.sh"
 
 touch /opt/backups/backup.log
@@ -78,7 +88,7 @@ chown root:root /opt/backups/backup.log
 chmod 0600 /opt/backups/backup.log
 echo "✓ /opt/backups/backup.log"
 
-install -m 0755 "${RETENTION_SCRIPT}" /usr/local/bin/bluesky-ops-retention.sh
+install -o root -g root -m 0755 "${RETENTION_SCRIPT}" /usr/local/bin/bluesky-ops-retention.sh
 echo "✓ /usr/local/bin/bluesky-ops-retention.sh"
 
 # Reload systemd and enable units

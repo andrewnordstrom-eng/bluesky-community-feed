@@ -24,7 +24,7 @@ source_backup_guard_library() {
   local guard_path=""
 
   script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  for guard_path in "${script_dir}/lib/backup-path-guards.sh" "/opt/bluesky-feed/ops/lib/backup-path-guards.sh"; do
+  for guard_path in "${script_dir}/lib/backup-path-guards.sh" "/opt/backups/lib/backup-path-guards.sh" "/opt/bluesky-feed/ops/lib/backup-path-guards.sh"; do
     if [[ -r "${guard_path}" ]]; then
       # shellcheck source=/dev/null
       source "${guard_path}"

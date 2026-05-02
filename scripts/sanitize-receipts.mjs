@@ -18,9 +18,9 @@ const DEVICE_BY_ID_REGEX = /\/dev\/disk\/by-id\/[^\s",]+/g;
 const SHORT_SERIAL_REGEX = /\b[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}\b/g;
 const UUID_FIELD_REGEX = /\b(UUID|PARTUUID)=("[^"\s]+"|[A-Fa-f0-9-]+)/gi;
 const ACTION_ID_REGEX = /(\baction\s+|\/v2\/actions\/)(\d{8,})\b/gi;
-const PROVIDER_JSON_ID_REGEX = /("id"\s*:\s*)(\d{8,})\b/g;
+const PROVIDER_JSON_ID_REGEX = /("(\w*_id|id)"\s*:\s*)(\d{8,})\b/g;
 const DISALLOWED_RECEIPT_REGEX =
-  /(UUID=|PARTUUID=|\/dev\/disk\/by-id\/|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\b[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}\b|(\baction\s+|\/v2\/actions\/)\d{8,}\b|"id"\s*:\s*\d{8,})/i;
+  /(UUID=|PARTUUID=|\/dev\/disk\/by-id\/|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\b[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}\b|(\baction\s+|\/v2\/actions\/)\d{8,}\b|"(\w*_id|id)"\s*:\s*\d{8,})/i;
 const providerIdTokens = new Map();
 let providerIdCount = 0;
 
@@ -51,7 +51,8 @@ function relative(filePath) {
   const relativeToRepo = path.relative(repoRoot, filePath);
   const isInRepo = relativeToRepo && !relativeToRepo.startsWith('..') && !path.isAbsolute(relativeToRepo);
   const basePath = isInRepo ? repoRoot : receiptsRoot;
-  return path.relative(basePath, filePath).replace(/\\/g, '/');
+  const relativePath = path.relative(basePath, filePath).replace(/\\/g, '/');
+  return relativePath || filePath;
 }
 
 export function resetReceiptSanitizerState() {
@@ -78,7 +79,7 @@ export function sanitizeReceiptContent(content) {
     .replace(CANONICAL_UUID_REGEX, '[REDACTED]')
     .replace(SHORT_SERIAL_REGEX, '[REDACTED]')
     .replace(ACTION_ID_REGEX, (_match, prefix, rawValue) => `${prefix}${providerIdToken(rawValue)}`)
-    .replace(PROVIDER_JSON_ID_REGEX, (_match, prefix, rawValue) => `${prefix}"${providerIdToken(rawValue)}"`);
+    .replace(PROVIDER_JSON_ID_REGEX, (_match, prefix, _key, rawValue) => `${prefix}"${providerIdToken(rawValue)}"`);
 }
 
 function main() {
@@ -90,7 +91,14 @@ function main() {
   }
 
   const dirtyFiles = [];
-  const receiptFiles = walkFiles(receiptsRoot);
+  let receiptFiles = [];
+  try {
+    receiptFiles = walkFiles(receiptsRoot);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`receipt sanitizer: failed to read receipts directory ${relative(receiptsRoot)}: ${message}`);
+    process.exit(1);
+  }
   for (const file of receiptFiles) {
     const original = readFileSync(file, 'utf8');
     const sanitized = sanitizeReceiptContent(original);

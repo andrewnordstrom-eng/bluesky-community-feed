@@ -1,5 +1,11 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -59,10 +65,10 @@ describe('sanitizeReceiptContent', () => {
 
   it('redacts provider action ids in prose, API paths, and JSON ids', () => {
     const content =
-      'DigitalOcean action 3138450041 via /v2/actions/3138450041 {"id": 3138450041}';
+      'DigitalOcean action 3138450041 via /v2/actions/3138450041 {"id": 3138450041, "droplet_id": 3138450041, "volume_id": 3138450042}';
 
     expect(sanitizeReceiptContent(content)).toBe(
-      'DigitalOcean action [PROVIDER_ID_1] via /v2/actions/[PROVIDER_ID_1] {"id": "[PROVIDER_ID_1]"}',
+      'DigitalOcean action [PROVIDER_ID_1] via /v2/actions/[PROVIDER_ID_1] {"id": "[PROVIDER_ID_1]", "droplet_id": "[PROVIDER_ID_1]", "volume_id": "[PROVIDER_ID_2]"}',
     );
   });
 
@@ -101,5 +107,45 @@ describe('sanitizeReceiptContent', () => {
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('Receipt sanitizer checked 1 receipt files.');
     expect(result.stderr).toBe('');
+  });
+
+  it('cli --check fails when RECEIPTS_ROOT is missing', () => {
+    const receiptsRoot = path.join(
+      tmpdir(),
+      `receipt-sanitize-missing-${process.pid}-${Date.now()}`,
+    );
+
+    const result = spawnSync(process.execPath, [sanitizeScriptPath, '--check'], {
+      encoding: 'utf8',
+      env: { ...process.env, RECEIPTS_ROOT: receiptsRoot },
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('receipt sanitizer: missing receipts directory');
+    expect(result.stderr).toContain(receiptsRoot);
+  });
+
+  it('cli --check fails when RECEIPTS_ROOT cannot be read', () => {
+    if (typeof process.getuid === 'function' && process.getuid() === 0) {
+      expect(process.getuid()).toBe(0);
+      return;
+    }
+
+    const receiptsRoot = mkdtempSync(path.join(tmpdir(), 'receipt-sanitize-unreadable-'));
+    try {
+      chmodSync(receiptsRoot, 0o000);
+
+      const result = spawnSync(process.execPath, [sanitizeScriptPath, '--check'], {
+        encoding: 'utf8',
+        env: { ...process.env, RECEIPTS_ROOT: receiptsRoot },
+      });
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain(receiptsRoot);
+      expect(result.stderr).toMatch(/failed to read|EACCES|permission/i);
+    } finally {
+      chmodSync(receiptsRoot, 0o700);
+      rmSync(receiptsRoot, { recursive: true, force: true });
+    }
   });
 });
