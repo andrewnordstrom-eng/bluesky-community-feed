@@ -3,6 +3,7 @@ name: aikido-thread-check
 on:
   pull_request:
     branches: [main]
+    types: [opened, reopened, synchronize, ready_for_review]
   pull_request_review:
     types: [submitted, edited, dismissed]
   pull_request_review_comment:
@@ -110,7 +111,9 @@ jobs:
                               }
                               nodes {
                                 author { login }
+                                authorAssociation
                                 body
+                                createdAt
                               }
                             }
                           }
@@ -161,7 +164,9 @@ jobs:
                           }
                           nodes {
                             author { login }
+                            authorAssociation
                             body
+                            createdAt
                           }
                         }
                       }
@@ -220,23 +225,43 @@ jobs:
             }
 
             const hasDisposition = (thread) => {
-              const comments = thread.comments?.nodes || [];
-              const hasFixedDisposition = comments.some((comment) => {
-                const author = (comment.author?.login || "").toLowerCase();
-                const isAikidoAuthor =
-                  author === "aikido-pr-checks" || author === "aikido-pr-checks[bot]";
-                return !isAikidoAuthor && /^Addressed in current branch:/i.test(comment.body || "");
+              const comments = [...(thread.comments?.nodes || [])].sort((a, b) => {
+                const aTime = Date.parse(a.createdAt || "");
+                const bTime = Date.parse(b.createdAt || "");
+                return (Number.isFinite(aTime) ? aTime : 0) - (Number.isFinite(bTime) ? bTime : 0);
               });
-              const hasIgnoreRequest = comments.some((comment) =>
+              const trustedAssociations = new Set(["AUTHOR", "OWNER", "MEMBER", "COLLABORATOR"]);
+              const isAikidoComment = (comment) => {
+                const author = (comment.author?.login || "").toLowerCase();
+                return author === "aikido-pr-checks" || author === "aikido-pr-checks[bot]";
+              };
+              const isTrustedDispositionAuthor = (comment) =>
+                !isAikidoComment(comment) && trustedAssociations.has(comment.authorAssociation || "");
+              const trustedDispositionComments = comments.filter(isTrustedDispositionAuthor);
+              const hasFixedDisposition = trustedDispositionComments.some((comment) =>
+                /^Addressed in current branch:/i.test(comment.body || "")
+              );
+              const trustedIgnoreRequests = trustedDispositionComments.filter((comment) =>
                 /@AikidoSec ignore:/i.test(comment.body || "")
               );
-              const hasIgnoreConfirmation = comments.some((comment) => {
-                const author = (comment.author?.login || "").toLowerCase();
-                const isAikidoAuthor =
-                  author === "aikido-pr-checks" || author === "aikido-pr-checks[bot]";
-                return isAikidoAuthor && /ignored this issue/i.test(comment.body || "");
+
+              if (trustedIgnoreRequests.length === 0) {
+                return hasFixedDisposition;
+              }
+
+              const latestIgnore = trustedIgnoreRequests[trustedIgnoreRequests.length - 1];
+              const latestIgnoreTime = Date.parse(latestIgnore.createdAt || "");
+              const hasLaterIgnoreConfirmation = comments.some((comment) => {
+                const commentTime = Date.parse(comment.createdAt || "");
+                return (
+                  isAikidoComment(comment) &&
+                  Number.isFinite(commentTime) &&
+                  Number.isFinite(latestIgnoreTime) &&
+                  commentTime > latestIgnoreTime &&
+                  /ignored this issue/i.test(comment.body || "")
+                );
               });
-              return hasFixedDisposition || (hasIgnoreRequest && hasIgnoreConfirmation);
+              return hasFixedDisposition || hasLaterIgnoreConfirmation;
             };
 
             const unresolvedThreads = aikidoThreads.filter((thread) => {

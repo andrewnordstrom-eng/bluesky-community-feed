@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { performance } from 'node:perf_hooks';
 import { describe, expect, it } from 'vitest';
 import { runHttpLoad, summarizeRate, type HttpLoadOptions, type HttpLoadRequest } from '../scripts/http-load.js';
 
@@ -238,6 +239,31 @@ describe('runHttpLoad execution', () => {
         expect(requestCount).toBe(7);
         expect(result.requests.total).toBe(7);
         expect(result.statusBuckets.s2xx).toBe(7);
+      }
+    );
+  });
+
+  it('stops duration-based runs after the configured deadline', async () => {
+    await withHttpServer(
+      (_request, response) => {
+        response.writeHead(200, { 'content-type': 'text/plain' });
+        response.end('ok');
+      },
+      async (baseUrl) => {
+        const startedAtMs = performance.now();
+        const result = await runHttpLoad({
+          baseUrl,
+          amount: null,
+          durationMs: 100,
+          connections: 2,
+          timeoutMs: 100,
+          requests: [getRequest],
+        });
+        const elapsedMs = performance.now() - startedAtMs;
+
+        expect(elapsedMs).toBeGreaterThanOrEqual(90);
+        expect(elapsedMs).toBeLessThan(1_000);
+        expect(result.requests.total).toBeGreaterThan(0);
       }
     );
   });
