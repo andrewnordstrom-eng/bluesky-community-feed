@@ -117,6 +117,13 @@ describe('sanitizeReceiptContent', () => {
     );
   });
 
+  it('does not partially redact alphanumeric provider id values', () => {
+    expect(sanitizeReceiptContent('{"id":"3138450041abc"}')).toBe(
+      '{"id":"3138450041abc"}',
+    );
+    expect(sanitizeReceiptContent('ID:3138450041xyz')).toBe('ID:3138450041xyz');
+  });
+
   it('leaves empty and already-safe content unchanged', () => {
     expect(sanitizeReceiptContent('')).toBe('');
     expect(sanitizeReceiptContent('no stable identifiers here')).toBe(
@@ -176,6 +183,19 @@ describe('sanitizeReceiptContent', () => {
 
     expect(dirtyResult.status).toBe(1);
     expect(dirtyResult.stderr).toContain('dirty-json.txt');
+  });
+
+  it('cli --check passes on alphanumeric provider id-like values', () => {
+    const receiptsRoot = mkdtempSync(path.join(tmpdir(), 'receipt-sanitize-alphanumeric-'));
+    writeFileSync(path.join(receiptsRoot, 'safe-json.txt'), '{"id":"3138450041abc"}\n');
+
+    const result = spawnSync(process.execPath, [sanitizeScriptPath, '--check'], {
+      encoding: 'utf8',
+      env: { ...process.env, RECEIPTS_ROOT: receiptsRoot },
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
   });
 
   it('sanitizes receipt files in sorted order for stable provider tokens', () => {

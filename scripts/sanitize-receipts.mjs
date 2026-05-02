@@ -19,9 +19,10 @@ const DEVICE_BY_ID_REGEX = /\/dev\/disk\/by-id\/[^\s",]+/g;
 const SHORT_SERIAL_REGEX = /\b[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}\b/g;
 const UUID_FIELD_REGEX = /\b(UUID|PARTUUID)=("[^"\s]+"|[A-Fa-f0-9-]+)/gi;
 const ACTION_ID_REGEX = /(\baction\s+|\/v2\/actions\/)(\d{8,})\b/gi;
-const PROVIDER_JSON_ID_REGEX = /((?:"(?:\w*_id|id)"|\b(?:\w*_id|id)\b)\s*:\s*)"?(\d{8,})"?/gi;
+const PROVIDER_JSON_ID_REGEX =
+  /((?:"(?:\w*_id|id)"|\b(?:\w*_id|id)\b)\s*:\s*)(?:"(\d{8,})"|\b(\d{8,})\b)/gi;
 const DISALLOWED_RECEIPT_REGEX =
-  /(UUID=|PARTUUID=|\/dev\/disk\/by-id\/|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\b[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}\b|(\baction\s+|\/v2\/actions\/)\d{8,}\b|(?:"(?:\w*_id|id)"|\b(?:\w*_id|id)\b)\s*:\s*"?\d{8,}"?)/i;
+  /(UUID=|PARTUUID=|\/dev\/disk\/by-id\/|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\b[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}\b|(\baction\s+|\/v2\/actions\/)\d{8,}\b|(?:"(?:\w*_id|id)"|\b(?:\w*_id|id)\b)\s*:\s*(?:"\d{8,}"|\b\d{8,}\b))/i;
 const providerIdTokens = new Map();
 
 class UnsupportedReceiptEntryError extends Error {
@@ -87,7 +88,10 @@ export function sanitizeReceiptContent(content) {
     .replace(CANONICAL_UUID_REGEX, '[REDACTED]')
     .replace(SHORT_SERIAL_REGEX, '[REDACTED]')
     .replace(ACTION_ID_REGEX, (_match, prefix, rawValue) => `${prefix}${providerIdToken(rawValue)}`)
-    .replace(PROVIDER_JSON_ID_REGEX, (_match, prefix, rawValue) => `${prefix}"${providerIdToken(rawValue)}"`);
+    .replace(PROVIDER_JSON_ID_REGEX, (_match, prefix, quotedValue, bareValue) => {
+      const rawValue = quotedValue || bareValue;
+      return `${prefix}"${providerIdToken(rawValue)}"`;
+    });
 }
 
 function main() {
