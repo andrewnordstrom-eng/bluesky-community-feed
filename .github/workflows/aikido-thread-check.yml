@@ -230,17 +230,38 @@ jobs:
                 const bTime = Date.parse(b.createdAt || "");
                 return (Number.isFinite(aTime) ? aTime : 0) - (Number.isFinite(bTime) ? bTime : 0);
               });
-              const trustedAssociations = new Set(["AUTHOR", "OWNER", "MEMBER", "COLLABORATOR"]);
+              const prAuthorLogin = (pr.user?.login || "").toLowerCase();
+              const trustedAssociations = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
+              const commentTimeMs = (comment) => {
+                const time = Date.parse(comment.createdAt || "");
+                return Number.isFinite(time) ? time : 0;
+              };
               const isAikidoComment = (comment) => {
                 const author = (comment.author?.login || "").toLowerCase();
                 return author === "aikido-pr-checks" || author === "aikido-pr-checks[bot]";
               };
-              const isTrustedDispositionAuthor = (comment) =>
-                !isAikidoComment(comment) && trustedAssociations.has(comment.authorAssociation || "");
+              const isTrustedDispositionAuthor = (comment) => {
+                const author = (comment.author?.login || "").toLowerCase();
+                return (
+                  !isAikidoComment(comment) &&
+                  ((prAuthorLogin !== "" && author === prAuthorLogin) ||
+                    trustedAssociations.has(comment.authorAssociation || ""))
+                );
+              };
+              const latestLiveAikidoTime = comments
+                .filter(
+                  (comment) => isAikidoComment(comment) && !/ignored this issue/i.test(comment.body || "")
+                )
+                .reduce((latest, comment) => Math.max(latest, commentTimeMs(comment)), 0);
               const trustedDispositionComments = comments.filter(isTrustedDispositionAuthor);
-              const hasFixedDisposition = trustedDispositionComments.some((comment) =>
+              const fixedDispositionComments = trustedDispositionComments.filter((comment) =>
                 /^Addressed in current branch:/i.test(comment.body || "")
               );
+              const latestFixedDispositionTime = fixedDispositionComments.reduce(
+                (latest, comment) => Math.max(latest, commentTimeMs(comment)),
+                0
+              );
+              const hasFixedDisposition = latestFixedDispositionTime > latestLiveAikidoTime;
               const trustedIgnoreRequests = trustedDispositionComments.filter((comment) =>
                 /@AikidoSec ignore:/i.test(comment.body || "")
               );
@@ -250,14 +271,14 @@ jobs:
               }
 
               const latestIgnore = trustedIgnoreRequests[trustedIgnoreRequests.length - 1];
-              const latestIgnoreTime = Date.parse(latestIgnore.createdAt || "");
+              const latestIgnoreTime = commentTimeMs(latestIgnore);
               const hasLaterIgnoreConfirmation = comments.some((comment) => {
-                const commentTime = Date.parse(comment.createdAt || "");
+                const commentTime = commentTimeMs(comment);
                 return (
                   isAikidoComment(comment) &&
-                  Number.isFinite(commentTime) &&
-                  Number.isFinite(latestIgnoreTime) &&
+                  latestIgnoreTime > latestLiveAikidoTime &&
                   commentTime > latestIgnoreTime &&
+                  commentTime > latestLiveAikidoTime &&
                   /ignored this issue/i.test(comment.body || "")
                 );
               });
