@@ -15,6 +15,7 @@ permissions:
 
 jobs:
   coderabbit-freshness:
+    name: coderabbit-freshness / coderabbit-freshness
     runs-on: ubuntu-latest
     concurrency:
       group: coderabbit-freshness-${{ github.repository }}-${{ github.event.pull_request.number || github.sha || github.run_id }}

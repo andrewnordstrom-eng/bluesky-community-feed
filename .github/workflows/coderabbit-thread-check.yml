@@ -13,6 +13,7 @@ permissions:
 
 jobs:
   coderabbit-thread-check:
+    name: coderabbit-thread-check / coderabbit-thread-check
     runs-on: ubuntu-latest
     concurrency:
       group: coderabbit-thread-check-${{ github.repository }}-${{ github.event.pull_request.number || github.sha || github.run_id }}
