@@ -85,6 +85,13 @@ function roundNumber(value: number, decimals: number): number {
 }
 
 function assertLoadOptions(options: HttpLoadOptions): void {
+  let baseUrl: URL;
+  try {
+    baseUrl = new URL(options.baseUrl);
+  } catch {
+    throw new RangeError(`baseUrl must be a valid absolute URL; received ${options.baseUrl}`);
+  }
+
   if (options.connections < 1 || !Number.isInteger(options.connections)) {
     throw new RangeError(`connections must be a positive integer; received ${options.connections}`);
   }
@@ -95,6 +102,16 @@ function assertLoadOptions(options: HttpLoadOptions): void {
 
   if (options.requests.length === 0) {
     throw new RangeError('requests must include at least one request template');
+  }
+
+  for (const [index, request] of options.requests.entries()) {
+    try {
+      new URL(request.path, baseUrl);
+    } catch {
+      throw new RangeError(
+        `request.path must resolve against baseUrl; received path ${request.path} at index ${index} for baseUrl ${options.baseUrl}`
+      );
+    }
   }
 
   if (options.amount === null && options.durationMs === null) {

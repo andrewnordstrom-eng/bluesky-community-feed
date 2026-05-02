@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { summarizeRate } from '../scripts/http-load.js';
+import { runHttpLoad, summarizeRate, type HttpLoadRequest } from '../scripts/http-load.js';
+
+const getRequest: HttpLoadRequest = {
+  method: 'GET',
+  path: '/',
+  headers: {},
+  body: null,
+};
 
 describe('summarizeRate', () => {
   it('computes throughput buckets from response bytes instead of completion counts', () => {
@@ -44,5 +51,43 @@ describe('summarizeRate', () => {
 
   it('fails fast when weighted samples do not align with completion offsets', () => {
     expect(() => summarizeRate(0, [10, 20], 1_000, [100])).toThrow(RangeError);
+    expect(() => summarizeRate(0, [10], 1_000, [-1])).toThrow(RangeError);
+    expect(() => summarizeRate(0, [10], 1_000, [Number.NaN])).toThrow(RangeError);
+    expect(() => summarizeRate(0, [10], 1_000, [Number.POSITIVE_INFINITY])).toThrow(RangeError);
+  });
+});
+
+describe('runHttpLoad option validation', () => {
+  it('rejects malformed baseUrl before workers start', async () => {
+    await expect(
+      runHttpLoad({
+        baseUrl: 'http://example .com',
+        amount: 1,
+        durationMs: null,
+        connections: 1,
+        timeoutMs: 1_000,
+        requests: [getRequest],
+      })
+    ).rejects.toThrow(RangeError);
+  });
+
+  it('rejects malformed request paths before workers start', async () => {
+    await expect(
+      runHttpLoad({
+        baseUrl: 'http://example.com',
+        amount: 1,
+        durationMs: null,
+        connections: 1,
+        timeoutMs: 1_000,
+        requests: [
+          {
+            method: 'GET',
+            path: '//[',
+            headers: {},
+            body: null,
+          },
+        ],
+      })
+    ).rejects.toThrow(RangeError);
   });
 });
