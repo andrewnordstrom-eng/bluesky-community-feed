@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { runHttpLoad, summarizeRate, type HttpLoadRequest } from '../scripts/http-load.js';
+import { runHttpLoad, summarizeRate, type HttpLoadOptions, type HttpLoadRequest } from '../scripts/http-load.js';
 
 const getRequest: HttpLoadRequest = {
   method: 'GET',
@@ -7,6 +7,18 @@ const getRequest: HttpLoadRequest = {
   headers: {},
   body: null,
 };
+const validLoadOptions: HttpLoadOptions = {
+  baseUrl: 'http://example.com',
+  amount: 1,
+  durationMs: null,
+  connections: 1,
+  timeoutMs: 1_000,
+  requests: [getRequest],
+};
+
+async function expectRangeError(options: HttpLoadOptions): Promise<void> {
+  await expect(runHttpLoad(options)).rejects.toThrow(RangeError);
+}
 
 describe('summarizeRate', () => {
   it('computes throughput buckets from response bytes instead of completion counts', () => {
@@ -49,6 +61,15 @@ describe('summarizeRate', () => {
     expect(throughput.max).toBe(requestRate.max * 512);
   });
 
+  it('reports zeros for empty weighted samples', () => {
+    expect(summarizeRate(0, [], 1_000, [])).toEqual({
+      average: 0,
+      min: 0,
+      max: 0,
+      total: 0,
+    });
+  });
+
   it('fails fast when weighted samples do not align with completion offsets', () => {
     expect(() => summarizeRate(0, [10, 20], 1_000, [100])).toThrow(RangeError);
     expect(() => summarizeRate(0, [10], 1_000, [-1])).toThrow(RangeError);
@@ -89,5 +110,52 @@ describe('runHttpLoad option validation', () => {
         ],
       })
     ).rejects.toThrow(RangeError);
+  });
+});
+
+describe('runHttpLoad validation boundary cases', () => {
+  it('rejects zero connections before workers start', async () => {
+    await expectRangeError({
+      ...validLoadOptions,
+      connections: 0,
+    });
+  });
+
+  it('rejects zero timeoutMs before workers start', async () => {
+    await expectRangeError({
+      ...validLoadOptions,
+      timeoutMs: 0,
+    });
+  });
+
+  it('rejects zero amount before workers start', async () => {
+    await expectRangeError({
+      ...validLoadOptions,
+      amount: 0,
+      durationMs: null,
+    });
+  });
+
+  it('rejects zero durationMs before workers start', async () => {
+    await expectRangeError({
+      ...validLoadOptions,
+      amount: null,
+      durationMs: 0,
+    });
+  });
+
+  it('rejects empty request templates before workers start', async () => {
+    await expectRangeError({
+      ...validLoadOptions,
+      requests: [],
+    });
+  });
+
+  it('rejects missing amount and duration before workers start', async () => {
+    await expectRangeError({
+      ...validLoadOptions,
+      amount: null,
+      durationMs: null,
+    });
   });
 });
