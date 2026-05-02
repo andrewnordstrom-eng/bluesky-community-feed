@@ -3,6 +3,7 @@ import {
   chmodSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -96,6 +97,13 @@ describe('sanitizeReceiptContent', () => {
     );
   });
 
+  it('redacts provider JSON id values only at the 8-digit boundary', () => {
+    expect(sanitizeReceiptContent('{"id":1234567}')).toBe('{"id":1234567}');
+    expect(sanitizeReceiptContent('{"id":"1234567"}')).toBe('{"id":"1234567"}');
+    expect(sanitizeReceiptContent('{"id":12345678}')).toBe('{"id":"[PROVIDER_ID_1]"}');
+    expect(sanitizeReceiptContent('{"id":"12345678"}')).toBe('{"id":"[PROVIDER_ID_1]"}');
+  });
+
   it('leaves empty and already-safe content unchanged', () => {
     expect(sanitizeReceiptContent('')).toBe('');
     expect(sanitizeReceiptContent('no stable identifiers here')).toBe(
@@ -131,6 +139,79 @@ describe('sanitizeReceiptContent', () => {
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('Receipt sanitizer found unredacted stable identifiers');
     expect(result.stderr).toContain('dirty-json.txt');
+  });
+
+  it('cli --check respects the provider JSON id digit boundary', () => {
+    const cleanReceiptsRoot = mkdtempSync(path.join(tmpdir(), 'receipt-sanitize-boundary-clean-'));
+    writeFileSync(path.join(cleanReceiptsRoot, 'safe-json.txt'), '{"id":"1234567"}\n');
+
+    const cleanResult = spawnSync(process.execPath, [sanitizeScriptPath, '--check'], {
+      encoding: 'utf8',
+      env: { ...process.env, RECEIPTS_ROOT: cleanReceiptsRoot },
+    });
+
+    expect(cleanResult.status).toBe(0);
+    expect(cleanResult.stderr).toBe('');
+
+    const dirtyReceiptsRoot = mkdtempSync(path.join(tmpdir(), 'receipt-sanitize-boundary-dirty-'));
+    writeFileSync(path.join(dirtyReceiptsRoot, 'dirty-json.txt'), '{"id":"12345678"}\n');
+
+    const dirtyResult = spawnSync(process.execPath, [sanitizeScriptPath, '--check'], {
+      encoding: 'utf8',
+      env: { ...process.env, RECEIPTS_ROOT: dirtyReceiptsRoot },
+    });
+
+    expect(dirtyResult.status).toBe(1);
+    expect(dirtyResult.stderr).toContain('dirty-json.txt');
+  });
+
+  it('sanitizes receipt files in sorted order for stable provider tokens', () => {
+    const receiptsRoot = mkdtempSync(path.join(tmpdir(), 'receipt-sanitize-sorted-'));
+    writeFileSync(path.join(receiptsRoot, 'b.txt'), '{"id":22222222}\n');
+    writeFileSync(path.join(receiptsRoot, 'a.txt'), '{"id":11111111}\n');
+
+    const result = spawnSync(process.execPath, [sanitizeScriptPath], {
+      encoding: 'utf8',
+      env: { ...process.env, RECEIPTS_ROOT: receiptsRoot },
+    });
+
+    expect(result.status).toBe(0);
+    expect(readFileSync(path.join(receiptsRoot, 'a.txt'), 'utf8')).toBe(
+      '{"id":"[PROVIDER_ID_1]"}\n',
+    );
+    expect(readFileSync(path.join(receiptsRoot, 'b.txt'), 'utf8')).toBe(
+      '{"id":"[PROVIDER_ID_2]"}\n',
+    );
+  });
+
+  it('sanitize mode leaves binary receipts byte-identical', () => {
+    const receiptsRoot = mkdtempSync(path.join(tmpdir(), 'receipt-sanitize-binary-'));
+    const binaryPath = path.join(receiptsRoot, 'artifact.bin');
+    const originalBinary = Buffer.from([0x00, 0x31, 0x32, 0x33, 0x34, 0xff]);
+    writeFileSync(binaryPath, originalBinary);
+
+    const result = spawnSync(process.execPath, [sanitizeScriptPath], {
+      encoding: 'utf8',
+      env: { ...process.env, RECEIPTS_ROOT: receiptsRoot },
+    });
+
+    expect(result.status).toBe(0);
+    expect(readFileSync(binaryPath)).toEqual(originalBinary);
+  });
+
+  it('cli --check reports dirty text receipts while ignoring binary receipts', () => {
+    const receiptsRoot = mkdtempSync(path.join(tmpdir(), 'receipt-sanitize-mixed-'));
+    writeFileSync(path.join(receiptsRoot, 'dirty.txt'), '{"id":"3138450041"}\n');
+    writeFileSync(path.join(receiptsRoot, 'artifact.bin'), Buffer.from([0x00, 0x31, 0x32]));
+
+    const result = spawnSync(process.execPath, [sanitizeScriptPath, '--check'], {
+      encoding: 'utf8',
+      env: { ...process.env, RECEIPTS_ROOT: receiptsRoot },
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('dirty.txt');
+    expect(result.stderr).not.toContain('artifact.bin');
   });
 
   it('cli --check succeeds on clean receipt files without reporting paths', () => {

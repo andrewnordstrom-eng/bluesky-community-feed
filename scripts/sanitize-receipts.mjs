@@ -93,14 +93,19 @@ function main() {
   const dirtyFiles = [];
   let receiptFiles = [];
   try {
-    receiptFiles = walkFiles(receiptsRoot);
+    receiptFiles = walkFiles(receiptsRoot).sort((a, b) => a.localeCompare(b));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`receipt sanitizer: failed to read receipts directory ${relative(receiptsRoot)}: ${message}`);
     process.exit(1);
   }
   for (const file of receiptFiles) {
-    const original = readFileSync(file, 'utf8');
+    const originalBuffer = readFileSync(file);
+    if (originalBuffer.includes(0)) {
+      continue;
+    }
+
+    const original = originalBuffer.toString('utf8');
     const sanitized = sanitizeReceiptContent(original);
     if (sanitized === original && !DISALLOWED_RECEIPT_REGEX.test(original)) {
       continue;
