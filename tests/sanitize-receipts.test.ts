@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   chmodSync,
   mkdirSync,
@@ -19,6 +20,11 @@ import {
 } from '../scripts/sanitize-receipts.mjs';
 
 const sanitizeScriptPath = path.resolve('scripts', 'sanitize-receipts.mjs');
+
+function providerToken(rawValue: string): string {
+  const digest = createHash('sha256').update(rawValue).digest('hex').slice(0, 12).toUpperCase();
+  return `[PROVIDER_ID_${digest}]`;
+}
 
 describe('sanitizeReceiptContent', () => {
   beforeEach(() => {
@@ -68,9 +74,11 @@ describe('sanitizeReceiptContent', () => {
   it('redacts provider action ids in prose, API paths, and JSON ids', () => {
     const content =
       'DigitalOcean action 3138450041 via /v2/actions/3138450041 {"id": 3138450041, "droplet_id": 3138450041, "volume_id": 3138450042}';
+    const firstToken = providerToken('3138450041');
+    const secondToken = providerToken('3138450042');
 
     expect(sanitizeReceiptContent(content)).toBe(
-      'DigitalOcean action [PROVIDER_ID_1] via /v2/actions/[PROVIDER_ID_1] {"id": "[PROVIDER_ID_1]", "droplet_id": "[PROVIDER_ID_1]", "volume_id": "[PROVIDER_ID_2]"}',
+      `DigitalOcean action ${firstToken} via /v2/actions/${firstToken} {"id": "${firstToken}", "droplet_id": "${firstToken}", "volume_id": "${secondToken}"}`,
     );
   });
 
@@ -78,7 +86,7 @@ describe('sanitizeReceiptContent', () => {
     const content = '{"ID": 3138450041, "VOLUME_ID": 3138450042}';
 
     expect(sanitizeReceiptContent(content)).toBe(
-      '{"ID": "[PROVIDER_ID_1]", "VOLUME_ID": "[PROVIDER_ID_2]"}',
+      `{"ID": "${providerToken('3138450041')}", "VOLUME_ID": "${providerToken('3138450042')}"}`,
     );
   });
 
@@ -86,7 +94,7 @@ describe('sanitizeReceiptContent', () => {
     const content = '{"id":"3138450041","droplet_id":"3138450041"}';
 
     expect(sanitizeReceiptContent(content)).toBe(
-      '{"id":"[PROVIDER_ID_1]","droplet_id":"[PROVIDER_ID_1]"}',
+      `{"id":"${providerToken('3138450041')}","droplet_id":"${providerToken('3138450041')}"}`,
     );
   });
 
@@ -94,15 +102,19 @@ describe('sanitizeReceiptContent', () => {
     const content = 'ID:3138450041 volume_id:"3138450042"';
 
     expect(sanitizeReceiptContent(content)).toBe(
-      'ID:"[PROVIDER_ID_1]" volume_id:"[PROVIDER_ID_2]"',
+      `ID:"${providerToken('3138450041')}" volume_id:"${providerToken('3138450042')}"`,
     );
   });
 
   it('redacts provider JSON id values only at the 8-digit boundary', () => {
     expect(sanitizeReceiptContent('{"id":1234567}')).toBe('{"id":1234567}');
     expect(sanitizeReceiptContent('{"id":"1234567"}')).toBe('{"id":"1234567"}');
-    expect(sanitizeReceiptContent('{"id":12345678}')).toBe('{"id":"[PROVIDER_ID_1]"}');
-    expect(sanitizeReceiptContent('{"id":"12345678"}')).toBe('{"id":"[PROVIDER_ID_1]"}');
+    expect(sanitizeReceiptContent('{"id":12345678}')).toBe(
+      `{"id":"${providerToken('12345678')}"}`,
+    );
+    expect(sanitizeReceiptContent('{"id":"12345678"}')).toBe(
+      `{"id":"${providerToken('12345678')}"}`,
+    );
   });
 
   it('leaves empty and already-safe content unchanged', () => {
@@ -178,10 +190,44 @@ describe('sanitizeReceiptContent', () => {
 
     expect(result.status).toBe(0);
     expect(readFileSync(path.join(receiptsRoot, 'a.txt'), 'utf8')).toBe(
+      `{"id":"${providerToken('11111111')}"}\n`,
+    );
+    expect(readFileSync(path.join(receiptsRoot, 'b.txt'), 'utf8')).toBe(
+      `{"id":"${providerToken('22222222')}"}\n`,
+    );
+  });
+
+  it('keeps provider tokens collision-free across incremental sanitize runs', () => {
+    const receiptsRoot = mkdtempSync(path.join(tmpdir(), 'receipt-sanitize-incremental-'));
+    writeFileSync(path.join(receiptsRoot, 'a.txt'), '{"id":11111111}\n');
+
+    const firstResult = spawnSync(process.execPath, [sanitizeScriptPath], {
+      encoding: 'utf8',
+      env: { ...process.env, RECEIPTS_ROOT: receiptsRoot },
+    });
+
+    expect(firstResult.status).toBe(0);
+    expect(readFileSync(path.join(receiptsRoot, 'a.txt'), 'utf8')).toBe(
+      `{"id":"${providerToken('11111111')}"}\n`,
+    );
+
+    writeFileSync(path.join(receiptsRoot, 'legacy.txt'), '{"id":"[PROVIDER_ID_1]"}\n');
+    writeFileSync(path.join(receiptsRoot, 'b.txt'), '{"id":22222222}\n');
+
+    const secondResult = spawnSync(process.execPath, [sanitizeScriptPath], {
+      encoding: 'utf8',
+      env: { ...process.env, RECEIPTS_ROOT: receiptsRoot },
+    });
+
+    expect(secondResult.status).toBe(0);
+    expect(readFileSync(path.join(receiptsRoot, 'legacy.txt'), 'utf8')).toBe(
       '{"id":"[PROVIDER_ID_1]"}\n',
     );
     expect(readFileSync(path.join(receiptsRoot, 'b.txt'), 'utf8')).toBe(
-      '{"id":"[PROVIDER_ID_2]"}\n',
+      `{"id":"${providerToken('22222222')}"}\n`,
+    );
+    expect(readFileSync(path.join(receiptsRoot, 'b.txt'), 'utf8')).not.toContain(
+      '[PROVIDER_ID_1]',
     );
   });
 

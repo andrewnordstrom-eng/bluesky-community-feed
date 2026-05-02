@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
@@ -22,7 +23,6 @@ const PROVIDER_JSON_ID_REGEX = /((?:"(?:\w*_id|id)"|\b(?:\w*_id|id)\b)\s*:\s*)"?
 const DISALLOWED_RECEIPT_REGEX =
   /(UUID=|PARTUUID=|\/dev\/disk\/by-id\/|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\b[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}\b|(\baction\s+|\/v2\/actions\/)\d{8,}\b|(?:"(?:\w*_id|id)"|\b(?:\w*_id|id)\b)\s*:\s*"?\d{8,}"?)/i;
 const providerIdTokens = new Map();
-let providerIdCount = 0;
 
 class UnsupportedReceiptEntryError extends Error {
   constructor(entryPath) {
@@ -66,7 +66,6 @@ function relative(filePath) {
 
 export function resetReceiptSanitizerState() {
   providerIdTokens.clear();
-  providerIdCount = 0;
 }
 
 function providerIdToken(rawValue) {
@@ -75,8 +74,8 @@ function providerIdToken(rawValue) {
     return existingToken;
   }
 
-  providerIdCount += 1;
-  const token = `[PROVIDER_ID_${providerIdCount}]`;
+  const digest = createHash('sha256').update(rawValue).digest('hex').slice(0, 12).toUpperCase();
+  const token = `[PROVIDER_ID_${digest}]`;
   providerIdTokens.set(rawValue, token);
   return token;
 }
