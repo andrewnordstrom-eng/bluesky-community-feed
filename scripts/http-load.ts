@@ -64,6 +64,7 @@ interface MutableCounters {
   non2xx: number;
   latenciesMs: number[];
   completionOffsetsMs: number[];
+  completionBytes: number[];
   statusBuckets: StatusBuckets;
 }
 
@@ -198,21 +199,41 @@ function summarizeLatency(latenciesMs: readonly number[]): LatencyStats {
   };
 }
 
-function summarizeRate(total: number, completionOffsetsMs: readonly number[], elapsedMs: number): RateStats {
+export function summarizeRate(
+  total: number,
+  completionOffsetsMs: readonly number[],
+  elapsedMs: number,
+  weights: readonly number[] | null
+): RateStats {
+  if (weights !== null && weights.length !== completionOffsetsMs.length) {
+    throw new RangeError(
+      `weights length must match completion offsets length; received ${weights.length} weights for ${completionOffsetsMs.length} offsets`
+    );
+  }
+
   const elapsedSeconds = Math.max(elapsedMs / 1000, 0.001);
   const bucketCount = Math.max(1, Math.ceil(elapsedSeconds));
   const buckets = Array.from({ length: bucketCount }, () => 0);
+  let weightedTotal = 0;
 
-  for (const offsetMs of completionOffsetsMs) {
+  for (const [index, offsetMs] of completionOffsetsMs.entries()) {
+    const weight = weights === null ? 1 : weights[index];
+    if (!Number.isFinite(weight) || weight < 0) {
+      throw new RangeError(`rate weight must be a non-negative finite number; received ${weight} at index ${index}`);
+    }
+
     const bucketIndex = Math.min(bucketCount - 1, Math.max(0, Math.floor(offsetMs / 1000)));
-    buckets[bucketIndex] += 1;
+    buckets[bucketIndex] += weight;
+    weightedTotal += weight;
   }
 
+  const effectiveTotal = weights === null ? total : weightedTotal;
+
   return {
-    average: roundNumber(total / elapsedSeconds, 2),
+    average: roundNumber(effectiveTotal / elapsedSeconds, 2),
     min: Math.min(...buckets),
     max: Math.max(...buckets),
-    total,
+    total: effectiveTotal,
   };
 }
 
@@ -234,6 +255,7 @@ async function executeRequest(
   const requestStartedAtMs = performance.now();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  let responseBytes = 0;
 
   try {
     const response = await fetch(formatRequestUrl(baseUrl, request.path), {
@@ -243,7 +265,8 @@ async function executeRequest(
       signal: controller.signal,
     });
     const body = await response.arrayBuffer();
-    counters.bytes += body.byteLength;
+    responseBytes = body.byteLength;
+    counters.bytes += responseBytes;
     addStatus(counters.statusBuckets, response.status);
 
     if (response.status < 200 || response.status >= 300) {
@@ -260,6 +283,7 @@ async function executeRequest(
     const completedAtMs = performance.now();
     counters.latenciesMs.push(roundNumber(completedAtMs - requestStartedAtMs, 2));
     counters.completionOffsetsMs.push(completedAtMs - runStartedAtMs);
+    counters.completionBytes.push(responseBytes);
   }
 }
 
@@ -289,6 +313,7 @@ export async function runHttpLoad(options: HttpLoadOptions): Promise<HttpLoadRes
     non2xx: 0,
     latenciesMs: [],
     completionOffsetsMs: [],
+    completionBytes: [],
     statusBuckets: emptyStatusBuckets(),
   };
 
@@ -299,8 +324,8 @@ export async function runHttpLoad(options: HttpLoadOptions): Promise<HttpLoadRes
 
   return {
     latency: summarizeLatency(counters.latenciesMs),
-    requests: summarizeRate(counters.sent, counters.completionOffsetsMs, elapsedMs),
-    throughput: summarizeRate(counters.bytes, counters.completionOffsetsMs, elapsedMs),
+    requests: summarizeRate(counters.sent, counters.completionOffsetsMs, elapsedMs, null),
+    throughput: summarizeRate(counters.bytes, counters.completionOffsetsMs, elapsedMs, counters.completionBytes),
     errors: counters.errors,
     timeouts: counters.timeouts,
     non2xx: counters.non2xx,
