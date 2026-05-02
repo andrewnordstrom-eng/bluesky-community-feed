@@ -145,11 +145,7 @@ jobs:
               );
             }
 
-            const unresolvedThreads = aikidoThreads.filter((thread) => {
-              if (thread.isResolved || thread.isOutdated) {
-                return false;
-              }
-
+            const hasDisposition = (thread) => {
               const comments = thread.comments?.nodes || [];
               const hasFixedDisposition = comments.some((comment) => {
                 const author = (comment.author?.login || "").toLowerCase();
@@ -166,13 +162,24 @@ jobs:
                   author === "aikido-pr-checks" || author === "aikido-pr-checks[bot]";
                 return isAikidoAuthor && /ignored this issue/i.test(comment.body || "");
               });
-              return !(hasFixedDisposition || (hasIgnoreRequest && hasIgnoreConfirmation));
+              return hasFixedDisposition || (hasIgnoreRequest && hasIgnoreConfirmation);
+            };
+
+            const unresolvedThreads = aikidoThreads.filter((thread) => {
+              if (thread.isResolved || thread.isOutdated) {
+                return false;
+              }
+
+              return !hasDisposition(thread);
             });
 
             const totalAikido = aikidoThreads.length;
             const resolvedCount = aikidoThreads.filter((thread) => thread.isResolved).length;
             const outdatedCount = aikidoThreads.filter(
               (thread) => thread.isOutdated && !thread.isResolved
+            ).length;
+            const dispositionedCount = aikidoThreads.filter(
+              (thread) => !thread.isResolved && !thread.isOutdated && hasDisposition(thread)
             ).length;
             const unresolvedCount = unresolvedThreads.length;
 
@@ -194,6 +201,6 @@ jobs:
             }
 
             core.notice(
-              `[aikido-thread-check:ok] All ${totalAikido} Aikido thread(s) resolved on PR #${prNumber}. ` +
-              `(${resolvedCount} resolved, ${outdatedCount} outdated).`
+              `[aikido-thread-check:ok] All ${totalAikido} Aikido thread(s) accounted for on PR #${prNumber}. ` +
+              `(${resolvedCount} resolved, ${dispositionedCount} dispositioned, ${outdatedCount} outdated).`
             );
