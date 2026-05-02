@@ -88,12 +88,20 @@ function roundNumber(value: number, decimals: number): number {
   return Math.round(value * scale) / scale;
 }
 
+function isHttpUrl(url: URL): boolean {
+  return url.protocol === 'http:' || url.protocol === 'https:';
+}
+
 function assertLoadOptions(options: HttpLoadOptions): void {
   let baseUrl: URL;
   try {
     baseUrl = new URL(options.baseUrl);
   } catch {
     throw new RangeError(`baseUrl must be a valid absolute URL; received ${options.baseUrl}`);
+  }
+
+  if (!isHttpUrl(baseUrl)) {
+    throw new RangeError(`baseUrl must use http: or https: protocol; received ${baseUrl.protocol}`);
   }
 
   if (options.connections < 1 || !Number.isInteger(options.connections)) {
@@ -109,11 +117,18 @@ function assertLoadOptions(options: HttpLoadOptions): void {
   }
 
   for (const [index, request] of options.requests.entries()) {
+    let requestUrl: URL;
     try {
-      new URL(request.path, baseUrl);
+      requestUrl = new URL(request.path, baseUrl);
     } catch {
       throw new RangeError(
         `request.path must resolve against baseUrl; received path ${request.path} at index ${index} for baseUrl ${options.baseUrl}`
+      );
+    }
+
+    if (!isHttpUrl(requestUrl)) {
+      throw new RangeError(
+        `request.path must resolve to http: or https: protocol; received ${requestUrl.protocol} for path ${request.path} at index ${index}`
       );
     }
   }

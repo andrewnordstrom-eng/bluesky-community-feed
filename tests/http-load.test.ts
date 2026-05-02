@@ -126,6 +126,13 @@ describe('runHttpLoad option validation', () => {
     ).rejects.toThrow(RangeError);
   });
 
+  it('rejects non-http baseUrl before workers start', async () => {
+    await expectRangeError({
+      ...validLoadOptions,
+      baseUrl: 'ftp://example.com',
+    });
+  });
+
   it('rejects malformed request paths before workers start', async () => {
     await expect(
       runHttpLoad({
@@ -144,6 +151,20 @@ describe('runHttpLoad option validation', () => {
         ],
       })
     ).rejects.toThrow(RangeError);
+  });
+
+  it('rejects request paths that resolve to non-http URLs before workers start', async () => {
+    await expectRangeError({
+      ...validLoadOptions,
+      requests: [
+        {
+          method: 'GET',
+          path: 'mailto:test@example.com',
+          headers: {},
+          body: null,
+        },
+      ],
+    });
   });
 });
 
@@ -217,6 +238,79 @@ describe('runHttpLoad execution', () => {
         expect(requestCount).toBe(7);
         expect(result.requests.total).toBe(7);
         expect(result.statusBuckets.s2xx).toBe(7);
+      }
+    );
+  });
+
+  it('counts timeout responses without marking them successful', async () => {
+    await withHttpServer(
+      (_request, response) => {
+        setTimeout(() => {
+          response.writeHead(200, { 'content-type': 'text/plain' });
+          response.end('slow');
+        }, 50);
+      },
+      async (baseUrl) => {
+        const result = await runHttpLoad({
+          baseUrl,
+          amount: 1,
+          durationMs: null,
+          connections: 1,
+          timeoutMs: 10,
+          requests: [getRequest],
+        });
+
+        expect(result.requests.total).toBe(1);
+        expect(result.statusBuckets.s2xx).toBe(0);
+        expect(result.timeouts).toBe(1);
+        expect(result.errors).toBe(0);
+      }
+    );
+  });
+
+  it('counts non-2xx responses in status buckets and non2xx totals', async () => {
+    await withHttpServer(
+      (_request, response) => {
+        response.writeHead(503, { 'content-type': 'text/plain' });
+        response.end('unavailable');
+      },
+      async (baseUrl) => {
+        const result = await runHttpLoad({
+          baseUrl,
+          amount: 1,
+          durationMs: null,
+          connections: 1,
+          timeoutMs: 1_000,
+          requests: [getRequest],
+        });
+
+        expect(result.requests.total).toBe(1);
+        expect(result.statusBuckets.s5xx).toBe(1);
+        expect(result.non2xx).toBe(1);
+        expect(result.errors).toBe(0);
+      }
+    );
+  });
+
+  it('counts transport failures without marking them successful', async () => {
+    await withHttpServer(
+      (_request, response) => {
+        response.destroy(new Error('intentional transport reset'));
+      },
+      async (baseUrl) => {
+        const result = await runHttpLoad({
+          baseUrl,
+          amount: 1,
+          durationMs: null,
+          connections: 1,
+          timeoutMs: 1_000,
+          requests: [getRequest],
+        });
+
+        expect(result.requests.total).toBe(1);
+        expect(result.statusBuckets.s2xx).toBe(0);
+        expect(result.errors).toBe(1);
+        expect(result.timeouts).toBe(0);
       }
     );
   });

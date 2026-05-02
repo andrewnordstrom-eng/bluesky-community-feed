@@ -21,7 +21,7 @@ jobs:
   aikido-thread-check:
     runs-on: ubuntu-latest
     concurrency:
-      group: aikido-thread-check-${{ github.repository }}-${{ github.event.pull_request.number || github.sha || github.run_id }}
+      group: aikido-thread-check-${{ github.repository }}-${{ github.event.pull_request.number || github.event.inputs.pr_number || github.sha || github.run_id }}
       cancel-in-progress: true
     permissions:
       pull-requests: read
