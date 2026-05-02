@@ -16,7 +16,7 @@
   "dependencies": {
     "@tanstack/react-query": "^5.96.1",
     "axios": "^1.15.0",
-    "dompurify": "^3.3.3",
+    "dompurify": "^3.4.2",
     "marked": "^17.0.5",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
@@ -43,7 +43,9 @@
     "eslint-plugin-react-hooks": {
       "eslint": "$eslint"
     },
-    "flatted": "3.4.2"
+    "flatted": "3.4.2",
+    "follow-redirects": "1.16.0",
+    "postcss": "8.5.13"
   },
   "engines": {
     "node": ">=20.19.0"

@@ -1,8 +1,9 @@
-import autocannon from 'autocannon';
 import Fastify from 'fastify';
 import { config } from '../../src/config.js';
 import { redis } from '../../src/db/redis.js';
 import { registerFeedSkeleton } from '../../src/feed/routes/feed-skeleton.js';
+import type { HttpLoadRequest } from '../../scripts/http-load.js';
+import { runHttpLoad } from '../../scripts/http-load.js';
 import { AssertionResult, ScenarioResult, makeJwt, nowIso, rssMb, summarizeAssertions } from './_helpers.js';
 
 interface FeedPassResult {
@@ -23,44 +24,30 @@ interface FeedPassResult {
     s3xx: number;
     s4xx: number;
     s5xx: number;
+    other: number;
   };
   rssBeforeMb: number;
   rssAfterMb: number;
   rssDeltaMb: number;
 }
 
-function getP95Latency(result: autocannon.Result): number {
-  const latency = result.latency as Record<string, number | undefined>;
-  if (typeof latency.p95 === 'number') {
-    return latency.p95;
-  }
-
-  const p90 = typeof latency.p90 === 'number' ? latency.p90 : undefined;
-  const p97_5 = typeof latency.p97_5 === 'number' ? latency.p97_5 : undefined;
-  if (typeof p90 === 'number' && typeof p97_5 === 'number') {
-    const interpolated = p90 + ((95 - 90) / (97.5 - 90)) * (p97_5 - p90);
-    return Number(interpolated.toFixed(2));
-  }
-
-  if (typeof latency.p99 === 'number') {
-    return latency.p99;
-  }
-
-  return result.latency.max;
+interface NoopRedisPipeline {
+  rpush: () => NoopRedisPipeline;
+  ltrim: () => NoopRedisPipeline;
+  exec: () => Promise<[]>;
 }
 
-async function runLoad(baseUrl: string, validCursor: string | null, noOpRpush = false): Promise<FeedPassResult> {
+async function runLoad(baseUrl: string, validCursor: string | null, noOpRpush: boolean): Promise<FeedPassResult> {
   const originalPipeline = redis.pipeline.bind(redis);
   if (noOpRpush) {
-    (redis as unknown as { pipeline: () => { rpush: () => unknown; ltrim: () => unknown; exec: () => Promise<[]> } }).pipeline =
-      () => {
-        const stub = {
-          rpush: () => stub,
-          ltrim: () => stub,
-          exec: async () => [],
-        };
-        return stub;
+    (redis as unknown as { pipeline: () => NoopRedisPipeline }).pipeline = () => {
+      const stub: NoopRedisPipeline = {
+        rpush: () => stub,
+        ltrim: () => stub,
+        exec: async (): Promise<[]> => [],
       };
+      return stub;
+    };
   }
 
   const feedUri = `at://${config.FEEDGEN_PUBLISHER_DID}/app.bsky.feed.generator/community-gov`;
@@ -70,75 +57,88 @@ async function runLoad(baseUrl: string, validCursor: string | null, noOpRpush = 
 
   const cursorQuery = validCursor ? `&cursor=${encodeURIComponent(validCursor)}` : '';
 
-  const requests = [
+  const requests: HttpLoadRequest[] = [
     {
       method: 'GET',
       path: `/xrpc/app.bsky.feed.getFeedSkeleton?feed=${encodeURIComponent(feedUri)}&limit=50`,
       headers: { Accept: 'application/json' },
+      body: null,
     },
     {
       method: 'GET',
       path: `/xrpc/app.bsky.feed.getFeedSkeleton?feed=${encodeURIComponent(feedUri)}&limit=50`,
       headers: { Accept: 'application/json', Authorization: goodJwt },
+      body: null,
     },
     {
       method: 'GET',
       path: `/xrpc/app.bsky.feed.getFeedSkeleton?feed=${encodeURIComponent(feedUri)}&limit=50`,
       headers: { Accept: 'application/json', Authorization: malformedJwt },
+      body: null,
     },
     {
       method: 'GET',
       path: `/xrpc/app.bsky.feed.getFeedSkeleton?feed=${encodeURIComponent(feedUri)}&limit=50${cursorQuery}`,
       headers: { Accept: 'application/json' },
+      body: null,
     },
     {
       method: 'GET',
       path: `/xrpc/app.bsky.feed.getFeedSkeleton?feed=${encodeURIComponent(feedUri)}&limit=50${cursorQuery}`,
       headers: { Accept: 'application/json', Authorization: goodJwt },
+      body: null,
     },
     {
       method: 'GET',
       path: `/xrpc/app.bsky.feed.getFeedSkeleton?feed=${encodeURIComponent(feedUri)}&limit=50&cursor=${encodeURIComponent(garbageCursor)}`,
       headers: { Accept: 'application/json', Authorization: malformedJwt },
+      body: null,
     },
   ];
 
   const rssBefore = rssMb();
 
-  const result = await autocannon({
-    url: baseUrl,
-    amount: 10_000,
-    connections: 100,
-    requests,
-  });
+  try {
+    const result = await runHttpLoad({
+      baseUrl,
+      amount: 10_000,
+      durationMs: null,
+      connections: 100,
+      timeoutMs: 30_000,
+      requests,
+    });
 
-  const rssAfter = rssMb();
+    const rssAfter = rssMb();
 
-  (redis as unknown as { pipeline: typeof redis.pipeline }).pipeline = originalPipeline;
-
-  return {
-    label: noOpRpush ? 'rpush_noop' : 'rpush_normal',
-    p50: result.latency.p50,
-    p95: getP95Latency(result),
-    p99: result.latency.p99,
-    average: result.latency.average,
-    max: result.latency.max,
-    requestsAverage: result.requests.average,
-    totalRequests: result.requests.total,
-    errors: result.errors,
-    timeouts: result.timeouts,
-    non2xx: result.non2xx,
-    statusBuckets: {
-      s1xx: result['1xx'],
-      s2xx: result['2xx'],
-      s3xx: result['3xx'],
-      s4xx: result['4xx'],
-      s5xx: result['5xx'],
-    },
-    rssBeforeMb: rssBefore,
-    rssAfterMb: rssAfter,
-    rssDeltaMb: Number((rssAfter - rssBefore).toFixed(2)),
-  };
+    return {
+      label: noOpRpush ? 'rpush_noop' : 'rpush_normal',
+      p50: result.latency.p50,
+      p95: result.latency.p95,
+      p99: result.latency.p99,
+      average: result.latency.average,
+      max: result.latency.max,
+      requestsAverage: result.requests.average,
+      totalRequests: result.requests.total,
+      errors: result.errors,
+      timeouts: result.timeouts,
+      non2xx: result.non2xx,
+      statusBuckets: {
+        s1xx: result.statusBuckets.s1xx,
+        s2xx: result.statusBuckets.s2xx,
+        s3xx: result.statusBuckets.s3xx,
+        s4xx: result.statusBuckets.s4xx,
+        s5xx: result.statusBuckets.s5xx,
+        other: result.statusBuckets.other,
+      },
+      rssBeforeMb: rssBefore,
+      rssAfterMb: rssAfter,
+      rssDeltaMb: Number((rssAfter - rssBefore).toFixed(2)),
+    };
+  } finally {
+    if (noOpRpush) {
+      (redis as unknown as { pipeline: typeof redis.pipeline }).pipeline = originalPipeline;
+    }
+  }
 }
 
 export async function runFeedSkeletonStress(): Promise<ScenarioResult> {

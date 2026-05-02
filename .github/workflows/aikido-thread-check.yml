@@ -1,0 +1,445 @@
+name: aikido-thread-check
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, ready_for_review]
+  pull_request_review:
+    types: [submitted, edited, dismissed]
+  pull_request_review_comment:
+    types: [created, edited, deleted]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Pull request number to evaluate"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  aikido-thread-check:
+    name: aikido-thread-check / aikido-thread-check
+    runs-on: ubuntu-latest
+    concurrency:
+      group: aikido-thread-check-${{ github.repository }}-${{ github.event.pull_request.number || github.event.inputs.pr_number || github.sha || github.run_id }}
+      cancel-in-progress: true
+    permissions:
+      checks: write
+      pull-requests: read
+    steps:
+      - name: Verify all Aikido review threads are resolved
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const payload = context.payload || {};
+            const REQUIRED_CHECK_NAME = "aikido-thread-check / aikido-thread-check";
+
+            const dispatchPrNumber = payload.inputs?.pr_number;
+            const isDispatchRun = Boolean(dispatchPrNumber);
+            let manualCheckRunId = null;
+            const createManualCheckRun = async (headSha, prNumber, headRepo) => {
+              if (!isDispatchRun) {
+                return true;
+              }
+
+              const canonicalRepo = `${owner}/${repo}`.toLowerCase();
+              const headRepoFullName = (headRepo?.full_name || "").toLowerCase();
+              if (headRepoFullName === "") {
+                core.setFailed(
+                  `[aikido-thread-check:fail_dispatch_head_repo] workflow_dispatch recovery cannot determine the head repository for PR #${prNumber}.`
+                );
+                return false;
+              }
+
+              const isForkHead = headRepo?.fork === true || headRepoFullName !== canonicalRepo;
+              if (isForkHead) {
+                core.setFailed(
+                  `[aikido-thread-check:fail_fork_dispatch] workflow_dispatch recovery is unsupported for fork PRs; PR #${prNumber} head repo is ${headRepo?.full_name || "<unknown>"}.`
+                );
+                return false;
+              }
+
+              if (!headSha) {
+                core.setFailed(
+                  `[aikido-thread-check:fail] Missing PR head SHA for workflow_dispatch PR #${prNumber}.`
+                );
+                return false;
+              }
+
+              if ((context.sha || "").toLowerCase() === headSha.toLowerCase()) {
+                core.info(
+                  `[aikido-thread-check:skip_manual_check] workflow_dispatch is already running on PR #${prNumber} head ${headSha}; using the workflow job check.`
+                );
+                return true;
+              }
+
+              try {
+                const response = await github.rest.checks.create({
+                  owner,
+                  repo,
+                  name: REQUIRED_CHECK_NAME,
+                  head_sha: headSha,
+                  status: "in_progress",
+                  started_at: new Date().toISOString(),
+                  output: {
+                    title: "Aikido thread check",
+                    summary: `Manual workflow_dispatch recovery run for PR #${prNumber}.`,
+                  },
+                });
+                manualCheckRunId = response.data.id;
+                return true;
+              } catch (err) {
+                core.setFailed(
+                  `[aikido-thread-check:fail_check_run] Failed to create manual check run for PR #${prNumber}: ${err?.message || err}`
+                );
+                return false;
+              }
+            };
+            const completeManualCheckRun = async (conclusion, title, summary) => {
+              if (!manualCheckRunId) {
+                return true;
+              }
+
+              try {
+                await github.rest.checks.update({
+                  owner,
+                  repo,
+                  check_run_id: manualCheckRunId,
+                  status: "completed",
+                  conclusion,
+                  completed_at: new Date().toISOString(),
+                  output: {
+                    title,
+                    summary,
+                  },
+                });
+                return true;
+              } catch (err) {
+                core.setFailed(
+                  `[aikido-thread-check:fail_update_check_run] Failed to update manual check run ${manualCheckRunId}: ${err?.message || err}`
+                );
+                return false;
+              }
+            };
+            const recordFailure = async (message) => {
+              await completeManualCheckRun("failure", "Aikido thread check failed", message);
+              core.setFailed(message);
+            };
+            const recordSuccess = async (message, emitNotice) => {
+              const updated = await completeManualCheckRun("success", "Aikido thread check passed", message);
+              if (!updated) {
+                return;
+              }
+
+              if (emitNotice) {
+                core.notice(message);
+              } else {
+                core.info(message);
+              }
+            };
+            let pr = payload.pull_request || null;
+            if (!pr && dispatchPrNumber) {
+              const parsedPrNumber = Number(dispatchPrNumber);
+              if (!Number.isInteger(parsedPrNumber) || parsedPrNumber < 1) {
+                core.setFailed(
+                  `[aikido-thread-check:fail] Invalid workflow_dispatch pr_number: ${dispatchPrNumber}`
+                );
+                return;
+              }
+
+              try {
+                const response = await github.rest.pulls.get({
+                  owner,
+                  repo,
+                  pull_number: parsedPrNumber,
+                });
+                pr = response.data;
+              } catch (err) {
+                core.setFailed(
+                  `[aikido-thread-check:fail] Failed to fetch PR #${parsedPrNumber}: ${err?.message || err}`
+                );
+                return;
+              }
+            }
+            if (!pr) {
+              core.info("[aikido-thread-check:skip] No pull_request in event payload.");
+              return;
+            }
+
+            if (isDispatchRun) {
+              const checkRunCreated = await createManualCheckRun(
+                pr.head?.sha,
+                pr.number || dispatchPrNumber,
+                pr.head?.repo
+              );
+              if (!checkRunCreated) {
+                return;
+              }
+            }
+
+            if ((pr.base?.ref || "") !== "main") {
+              await recordSuccess(
+                `[aikido-thread-check:skip_base] Base branch is ${pr.base?.ref || "<unknown>"}; thread check only enforced for main.`,
+                false
+              );
+              return;
+            }
+
+            if (pr.draft) {
+              await recordSuccess("[aikido-thread-check:skip_draft] Draft PR; thread check skipped.", false);
+              return;
+            }
+
+            const author = (pr.user?.login || "").toLowerCase();
+            const isBotAuthor =
+              author.endsWith("[bot]") || (pr.user?.type || "").toLowerCase() === "bot";
+            if (isBotAuthor) {
+              await recordSuccess("[aikido-thread-check:skip_bot] Bot-authored PR; thread check skipped.", false);
+              return;
+            }
+
+            const prNumber = pr.number;
+            if (!prNumber) {
+              await recordFailure("[aikido-thread-check:fail] Missing PR number in event payload.");
+              return;
+            }
+
+            let threads = [];
+            try {
+              let after = null;
+              while (true) {
+                const result = await github.graphql(
+                  `query($owner: String!, $repo: String!, $prNumber: Int!, $after: String) {
+                    repository(owner: $owner, name: $repo) {
+                      pullRequest(number: $prNumber) {
+                        reviewThreads(first: 100, after: $after) {
+                          nodes {
+                            id
+                            isResolved
+                            isOutdated
+                            comments(first: 50) {
+                              pageInfo {
+                                hasNextPage
+                                endCursor
+                              }
+                              nodes {
+                                author { login }
+                                authorAssociation
+                                body
+                                createdAt
+                              }
+                            }
+                          }
+                          pageInfo {
+                            hasNextPage
+                            endCursor
+                          }
+                        }
+                      }
+                    }
+                  }`,
+                  { owner, repo, prNumber, after }
+                );
+                const page = result.repository.pullRequest.reviewThreads;
+                threads.push(...page.nodes);
+                if (!page.pageInfo.hasNextPage) break;
+                after = page.pageInfo.endCursor;
+              }
+            } catch (err) {
+              await recordFailure(
+                `[aikido-thread-check:fail] Failed to query review threads: ${err?.message || err}`
+              );
+              return;
+            }
+
+            const isAikidoAuthorLogin = (login) => {
+              const author = (login || "").toLowerCase();
+              return author === "aikido-pr-checks" || author === "aikido-pr-checks[bot]";
+            };
+            const isAikidoThread = (thread) =>
+              isAikidoAuthorLogin(thread.comments?.nodes?.[0]?.author?.login || "");
+
+            const fetchCompleteComments = async (thread) => {
+              const originalComments = thread.comments || {};
+              const commentNodes = [...(originalComments.nodes || [])];
+              let pageInfo = originalComments.pageInfo || {
+                hasNextPage: false,
+                endCursor: null,
+              };
+              let after = pageInfo.endCursor || null;
+
+              while (pageInfo.hasNextPage) {
+                if (!after) {
+                  throw new Error(`Missing comments endCursor for review thread ${thread.id}`);
+                }
+
+                const result = await github.graphql(
+                  `query($threadId: ID!, $after: String) {
+                    node(id: $threadId) {
+                      ... on PullRequestReviewThread {
+                        comments(first: 100, after: $after) {
+                          pageInfo {
+                            hasNextPage
+                            endCursor
+                          }
+                          nodes {
+                            author { login }
+                            authorAssociation
+                            body
+                            createdAt
+                          }
+                        }
+                      }
+                    }
+                  }`,
+                  { threadId: thread.id, after }
+                );
+                const page = result.node?.comments;
+                if (!page) {
+                  throw new Error(`Missing comments page for review thread ${thread.id}`);
+                }
+
+                commentNodes.push(...(page.nodes || []));
+                pageInfo = page.pageInfo || {
+                  hasNextPage: false,
+                  endCursor: null,
+                };
+                after = pageInfo.endCursor || null;
+              }
+
+              return {
+                ...thread,
+                comments: {
+                  ...originalComments,
+                  nodes: commentNodes,
+                  pageInfo,
+                },
+              };
+            };
+
+            try {
+              const completeAikidoThreads = new Map();
+              for (const thread of threads.filter(isAikidoThread)) {
+                completeAikidoThreads.set(thread.id, await fetchCompleteComments(thread));
+              }
+              threads = threads.map((thread) => completeAikidoThreads.get(thread.id) || thread);
+            } catch (err) {
+              await recordFailure(
+                `[aikido-thread-check:fail] Failed to paginate review thread comments: ${err?.message || err}`
+              );
+              return;
+            }
+
+            const aikidoThreads = threads.filter(isAikidoThread);
+            const truncatedCommentThreads = aikidoThreads.filter(
+              (thread) => thread.comments?.pageInfo?.hasNextPage
+            ).length;
+            if (truncatedCommentThreads > 0) {
+              await recordFailure(
+                `[aikido-thread-check:fail_truncated_comments] ${truncatedCommentThreads} Aikido thread(s) still have truncated comment history after pagination.`
+              );
+              return;
+            }
+
+            const hasDisposition = (thread) => {
+              const comments = [...(thread.comments?.nodes || [])].sort((a, b) => {
+                const aTime = Date.parse(a.createdAt || "");
+                const bTime = Date.parse(b.createdAt || "");
+                return (Number.isFinite(aTime) ? aTime : 0) - (Number.isFinite(bTime) ? bTime : 0);
+              });
+              const prAuthorLogin = (pr.user?.login || "").toLowerCase();
+              const trustedAssociations = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
+              const commentTimeMs = (comment) => {
+                const time = Date.parse(comment.createdAt || "");
+                return Number.isFinite(time) ? time : 0;
+              };
+              const isAikidoComment = (comment) => {
+                return isAikidoAuthorLogin(comment.author?.login || "");
+              };
+              const isTrustedDispositionAuthor = (comment) => {
+                const author = (comment.author?.login || "").toLowerCase();
+                return (
+                  !isAikidoComment(comment) &&
+                  ((prAuthorLogin !== "" && author === prAuthorLogin) ||
+                    trustedAssociations.has(comment.authorAssociation || ""))
+                );
+              };
+              const latestLiveAikidoTime = comments
+                .filter(
+                  (comment) => isAikidoComment(comment) && !/ignored this issue/i.test(comment.body || "")
+                )
+                .reduce((latest, comment) => Math.max(latest, commentTimeMs(comment)), 0);
+              const trustedDispositionComments = comments.filter(isTrustedDispositionAuthor);
+              const fixedDispositionComments = trustedDispositionComments.filter((comment) =>
+                /^Addressed in current branch:/i.test(comment.body || "")
+              );
+              const latestFixedDispositionTime = fixedDispositionComments.reduce(
+                (latest, comment) => Math.max(latest, commentTimeMs(comment)),
+                0
+              );
+              const hasFixedDisposition = latestFixedDispositionTime > latestLiveAikidoTime;
+              const trustedIgnoreRequests = trustedDispositionComments.filter((comment) =>
+                /@AikidoSec ignore:/i.test(comment.body || "")
+              );
+
+              if (trustedIgnoreRequests.length === 0) {
+                return hasFixedDisposition;
+              }
+
+              const latestIgnore = trustedIgnoreRequests[trustedIgnoreRequests.length - 1];
+              const latestIgnoreTime = commentTimeMs(latestIgnore);
+              const hasLaterIgnoreConfirmation = comments.some((comment) => {
+                const commentTime = commentTimeMs(comment);
+                return (
+                  isAikidoComment(comment) &&
+                  latestIgnoreTime > latestLiveAikidoTime &&
+                  commentTime > latestIgnoreTime &&
+                  commentTime > latestLiveAikidoTime &&
+                  /ignored this issue/i.test(comment.body || "")
+                );
+              });
+              return hasFixedDisposition || hasLaterIgnoreConfirmation;
+            };
+
+            const unresolvedThreads = aikidoThreads.filter((thread) => {
+              if (thread.isResolved || thread.isOutdated) {
+                return false;
+              }
+
+              return !hasDisposition(thread);
+            });
+
+            const totalAikido = aikidoThreads.length;
+            const resolvedCount = aikidoThreads.filter((thread) => thread.isResolved).length;
+            const outdatedCount = aikidoThreads.filter(
+              (thread) => thread.isOutdated && !thread.isResolved
+            ).length;
+            const dispositionedCount = aikidoThreads.filter(
+              (thread) => !thread.isResolved && !thread.isOutdated && hasDisposition(thread)
+            ).length;
+            const unresolvedCount = unresolvedThreads.length;
+
+            if (totalAikido === 0) {
+              await recordSuccess("[aikido-thread-check:skip_no_threads] No Aikido review threads found on this PR.", false);
+              return;
+            }
+
+            if (unresolvedCount > 0) {
+              await recordFailure(
+                `[aikido-thread-check:fail] ${unresolvedCount} unresolved Aikido review thread(s) on PR #${prNumber}. ` +
+                `Record a disposition on every live Aikido thread: reply "Addressed in current branch: <summary>" for fixes, or "@AikidoSec ignore: <reason>" for accepted risk/false positives. ` +
+                `If you ignore a finding, wait for the Aikido confirmation reply before resolving the thread. ` +
+                `(${resolvedCount} resolved, ${outdatedCount} outdated, ${unresolvedCount} unresolved).`
+              );
+              return;
+            }
+
+            await recordSuccess(
+              `[aikido-thread-check:ok] All ${totalAikido} Aikido thread(s) accounted for on PR #${prNumber}. ` +
+              `(${resolvedCount} resolved, ${dispositionedCount} dispositioned, ${outdatedCount} outdated).`,
+              true
+            );
