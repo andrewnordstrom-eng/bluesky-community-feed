@@ -1,0 +1,41 @@
+== PROJ-388 review-fix proof ==
+captured_at_utc: 2026-05-01T23:55:34Z
+scope: read-only host/provider proof for bluesky-community-feed#164 review fixes
+
+== host command ==
+ssh corgi-vps "set -e; echo '== timestamp =='; date -u +%Y-%m-%dT%H:%M:%SZ; echo '== exact mount target =='; findmnt -n -o TARGET --target /mnt/host-backups; echo '== root backup postgres artifacts =='; sudo -n find /opt/backups -path '/opt/backups/postgres/dump-*.sql.gz' -type f -print; echo '== root backup igor artifacts =='; sudo -n find /opt/backups -path '/opt/backups/igor/igor-*.db.gz' -type f -print; echo '== /opt/backups size =='; sudo -n du -sh /opt/backups; echo '== root df =='; df -h /; echo '== directory modes =='; sudo -n ls -ld /opt/backups /mnt/host-backups /mnt/host-backups/postgres /mnt/host-backups/igor/daily"
+
+== timestamp ==
+2026-05-01T23:55:34Z
+
+== exact mount target ==
+/mnt/host-backups
+
+== root backup postgres artifacts ==
+
+== root backup igor artifacts ==
+
+== /opt/backups size ==
+52K	/opt/backups
+
+== root df ==
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/vda1        96G   67G   29G  70% /
+
+== directory modes ==
+drwxr-xr-x 5 root root 4096 Apr 13 23:01 /mnt/host-backups
+drwx------ 2 root root 4096 May  1 03:18 /mnt/host-backups/igor/daily
+drwx------ 2 root root 4096 May  1 03:18 /mnt/host-backups/postgres
+drwx------ 4 root root 4096 Apr 13 23:16 /opt/backups
+
+== notes ==
+- The blank artifact sections above are the expected result: no matching
+  /opt/backups/postgres/dump-*.sql.gz or /opt/backups/igor/igor-*.db.gz files
+  were present.
+- The live /opt/backups directory was still 0700 when this read-only proof was
+  captured. The reviewed install script now creates it as 0755 because it is a
+  script/log location, not the backup data root.
+- DigitalOcean action 3138450041 was fetched read-only via GET
+  /v2/actions/3138450041 at 2026-05-01T23:55Z. The provider returned
+  status=completed and completed_at=2026-04-14T02:47:24Z; the terminal JSON
+  receipt is control-plane/05-volume-attach-terminal-20260501T2355Z.json.

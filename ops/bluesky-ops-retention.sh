@@ -10,9 +10,25 @@ log() {
   logger -t bluesky-ops-retention "$*"
 }
 
+normalize_mount_path() {
+  local path="$1"
+
+  while [[ "${path}" != "/" && "${path}" == */ ]]; do
+    path="${path%/}"
+  done
+
+  printf '%s\n' "${path}"
+}
+
 require_backup_mount() {
-  if ! findmnt -T "${BACKUP_MOUNT_ROOT}" >/dev/null 2>&1; then
-    log "error backup_mount_missing path=${BACKUP_MOUNT_ROOT}"
+  local mounted_target=""
+  local expected_target=""
+
+  expected_target="$(normalize_mount_path "${BACKUP_MOUNT_ROOT}")"
+  mounted_target="$(findmnt -n -o TARGET --target "${expected_target}" 2>/dev/null || true)"
+  mounted_target="$(normalize_mount_path "${mounted_target}")"
+  if [[ -z "${mounted_target}" || "${mounted_target}" != "${expected_target}" ]]; then
+    log "error backup_mount_missing path=${BACKUP_MOUNT_ROOT} mounted_target=${mounted_target:-none}"
     exit 1
   fi
 }
@@ -119,6 +135,8 @@ if [[ "${MODE}" != "full" && "${MODE}" != "--postgres-only" ]]; then
   exit 2
 fi
 
+require_backup_mount
+
 if [[ ! -d "${POSTGRES_DIR}" ]]; then
   log "skip postgres_dir_missing path=${POSTGRES_DIR}"
   exit 0
@@ -130,7 +148,6 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 1
 fi
 
-require_backup_mount
 acquire_backup_lock
 
 if [[ "${MODE}" == "--postgres-only" ]]; then

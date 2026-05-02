@@ -1,154 +1,41 @@
-== backup script head ==
-#!/usr/bin/env bash
-set -euo pipefail
+== install/cutover summary ==
+scope: Bluesky backup producer, Bluesky retention script, Igor state backup service, and Igor deploy rollback backup root
 
-DATE="$(date +%Y-%m-%d)"
-KEEP_VALID_DUMPS="${KEEP_VALID_DUMPS:-5}"
-MIN_DUMP_BYTES="${MIN_DUMP_BYTES:-1048576}"
-BACKUP_MOUNT_ROOT="${BACKUP_MOUNT_ROOT:-/mnt/host-backups}"
-POSTGRES_DIR="${POSTGRES_BACKUP_DIR:-${BACKUP_MOUNT_ROOT}/postgres}"
-IGOR_DIR="${IGOR_BACKUP_DIR:-${BACKUP_MOUNT_ROOT}/igor/daily}"
-LOCK_FILE="${BACKUP_LOCK_FILE:-/var/lock/bluesky-backups.lock}"
-SQLITE_BACKUP_TIMEOUT_SECONDS="${SQLITE_BACKUP_TIMEOUT_SECONDS:-600}"
-DUMP_FILE="${POSTGRES_DIR}/dump-${DATE}.sql.gz"
-TMP_DUMP=""
-DUMP_STDERR=""
-IGOR_TMP=""
-IGOR_TMP_GZ=""
+== historical receipt note ==
+The original 2026-04-14 capture embedded truncated script heads. Those snippets
+are no longer authoritative in this PR branch because the PROJ-388 review pass
+tightened the mount guard and clarified /opt/backups usage. The current
+authoritative source files are:
 
-log() {
-  echo "[$(date --iso-8601=seconds)] $*"
-}
+- ops/daily-backup.sh
+- ops/bluesky-ops-retention.sh
+- ops/install.sh
 
-require_backup_mount() {
-  if ! findmnt -T "${BACKUP_MOUNT_ROOT}" >/dev/null 2>&1; then
-    log "ERROR: backup mount missing at ${BACKUP_MOUNT_ROOT}"
-    exit 1
-  fi
-}
+== PROJ-388 current reviewed Bluesky state ==
+- daily-backup.sh validates the exact backup mount target with
+  findmnt -n -o TARGET --target "$BACKUP_MOUNT_ROOT" before creating
+  ${BACKUP_MOUNT_ROOT}/postgres or ${BACKUP_MOUNT_ROOT}/igor/daily.
+- daily-backup.sh normalizes trailing slashes in BACKUP_MOUNT_ROOT before
+  comparing the expected and actual mount targets.
+- bluesky-ops-retention.sh validates the exact mount target before any
+  missing-POSTGRES_DIR skip path, so an absent mount fails closed.
+- install.sh uses the same exact-target guard before creating backup data
+  directories, keeps /opt/backups/daily-backup.sh as the cron-compatible script
+  install path, and creates /opt/backups as a 0755 script/log directory.
+- backup data remains rooted under /mnt/host-backups.
 
-acquire_backup_lock() {
-  mkdir -p "$(dirname "${LOCK_FILE}")"
-  exec 9>"${LOCK_FILE}"
-  if ! flock -n 9; then
-    log "lock_held file=${LOCK_FILE}"
-    exit 0
-  fi
-}
+== Igor backup integration captured by the original cutover ==
+- igor-state-backup.service declared RequiresMountsFor=/mnt/host-backups.
+- igor-state-backup.service used BACKUP_ROOT=/mnt/host-backups/igor and
+  BACKUP_REQUIRED_MOUNT=/mnt/host-backups.
+- deploy-release.sh used PRODUCTION_BACKUP_ROOT=/mnt/host-backups/igor for
+  release rollback snapshots.
 
-cleanup_tmp_artifacts() {
-  if [[ -n "${TMP_DUMP}" && -f "${TMP_DUMP}" ]]; then
-    rm -f "${TMP_DUMP}"
-== retention head ==
-#!/usr/bin/env bash
-set -euo pipefail
-
-KEEP_VALID_DUMPS="${KEEP_VALID_DUMPS:-5}"
-BACKUP_MOUNT_ROOT="${BACKUP_MOUNT_ROOT:-/mnt/host-backups}"
-POSTGRES_DIR="${POSTGRES_BACKUP_DIR:-${BACKUP_MOUNT_ROOT}/postgres}"
-LOCK_FILE="${BACKUP_LOCK_FILE:-/var/lock/bluesky-backups.lock}"
-
-log() {
-  logger -t bluesky-ops-retention "$*"
-}
-
-require_backup_mount() {
-  if ! findmnt -T "${BACKUP_MOUNT_ROOT}" >/dev/null 2>&1; then
-    log "error backup_mount_missing path=${BACKUP_MOUNT_ROOT}"
-    exit 1
-  fi
-}
-
-acquire_backup_lock() {
-  mkdir -p "$(dirname "${LOCK_FILE}")"
-  exec 9>"${LOCK_FILE}"
-  if ! flock -n 9; then
-    log "lock_held file=${LOCK_FILE}"
-    exit 0
-  fi
-}
-
-validate_gzip_dump() {
-  gzip -t "$1" >/dev/null 2>&1
-}
-
-canonical_dump_date() {
-  local filename="$1"
-  local dump_date=""
-  if [[ "${filename}" =~ ^dump-([0-9]{4}-[0-9]{2}-[0-9]{2})\.sql\.gz$ ]]; then
-    dump_date="${BASH_REMATCH[1]}"
-    if ! python3 - "${dump_date}" <<'PY'
-import datetime
-import sys
-== bluesky ops head ==
-#!/usr/bin/env bash
-# Install ops scripts and systemd units on the VPS.
-# Run from local: ssh root@64.23.239.212 'bash -s' < ops/install.sh
-# Or from VPS:    cd /opt/bluesky-feed && bash ops/install.sh
-set -euo pipefail
-
-APP_DIR="/opt/bluesky-feed"
-BACKUP_SCRIPT="${APP_DIR}/ops/daily-backup.sh"
-RETENTION_SCRIPT="${APP_DIR}/ops/bluesky-ops-retention.sh"
-BACKUP_MOUNT_ROOT="${BACKUP_MOUNT_ROOT:-/mnt/host-backups}"
-POSTGRES_BACKUP_DIR="${POSTGRES_BACKUP_DIR:-${BACKUP_MOUNT_ROOT}/postgres}"
-IGOR_BACKUP_DIR="${IGOR_BACKUP_DIR:-${BACKUP_MOUNT_ROOT}/igor/daily}"
-
-# ── Make ops scripts executable ──────────────────────────────────
-SCRIPTS="db redis logs deploy feed-check status health-watchdog daily-backup.sh bluesky-ops-retention.sh"
-for script in $SCRIPTS; do
-  if [ -f "$APP_DIR/ops/$script" ]; then
-    chmod +x "$APP_DIR/ops/$script"
-    echo "✓ ops/$script"
-  fi
-done
-
-# ── Install systemd service file ─────────────────────────────────
-echo ""
-echo "=== Installing systemd units ==="
-
-# Main application service
-if [ -f "$APP_DIR/ops/bluesky-feed.service" ]; then
-  cp "$APP_DIR/ops/bluesky-feed.service" /etc/systemd/system/bluesky-feed.service
-  echo "✓ bluesky-feed.service"
-fi
-
-# Health watchdog timer
-if [ -f "$APP_DIR/ops/health-watchdog.service" ]; then
-  cp "$APP_DIR/ops/health-watchdog.service" /etc/systemd/system/health-watchdog.service
-  echo "✓ health-watchdog.service"
-fi
-
-if [ -f "$APP_DIR/ops/health-watchdog.timer" ]; then
-  cp "$APP_DIR/ops/health-watchdog.timer" /etc/systemd/system/health-watchdog.timer
-== igor service ==
-# /etc/systemd/system/igor-state-backup.service
-[Unit]
-Description=Igor state backup snapshot
-After=network.target
-RequiresMountsFor=/mnt/host-backups
-
-[Service]
-Type=oneshot
-User=igor
-Group=igor
-WorkingDirectory=/opt/igor
-EnvironmentFile=-/opt/igor/.env
-Environment=HOME=/opt/igor
-Environment=BACKUP_ROOT=/mnt/host-backups/igor
-Environment=BACKUP_REQUIRED_MOUNT=/mnt/host-backups
-Environment=BACKUP_RETENTION_DAYS=7
-ExecStart=/usr/bin/bash /opt/igor/scripts/backup-state.sh
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=full
-ProtectHome=true
-ReadWritePaths=/mnt/host-backups/igor
-== deploy-release backup root ==
-13:PRODUCTION_BACKUP_ROOT="${PRODUCTION_BACKUP_ROOT:-/mnt/host-backups/igor}"
-31:RELEASE_ROOT=""
-229:  ssh "${SSH_HOST}" "ls -td '${PRODUCTION_BACKUP_ROOT}'/[0-9]*Z 2>/dev/null | head -1"
-255:  RELEASE_ROOT="${PRODUCTION_BACKUP_ROOT}/releases/${RELEASE_ID}"
-259:  SNAPSHOT_DIR="${RELEASE_ROOT}/prod-predeploy"
-416:  run_logged "ssh ${SSH_HOST} findmnt -T ${PRODUCTION_BACKUP_ROOT}" ssh "${SSH_HOST}" "findmnt -T '${PRODUCTION_BACKUP_ROOT}'"
-466:  [[ -n "${LATEST_STATE_BACKUP}" ]] || fail "Could not locate latest timer-managed backup under ${PRODUCTION_BACKUP_ROOT}"
+== related receipts ==
+- 05_bluesky_backup_run.txt records a real Bluesky/PostgreSQL backup run after
+  the cutover.
+- 06_igor_backup_run.txt records a real Igor state backup service run after the
+  cutover.
+- 09_mount_proof.txt records mount, filesystem, and persistent fstab proof.
+- 10_review_fix_proof_20260501T235534Z.txt records fresh exact-mount and
+  root-backup cleanup proof.

@@ -42,6 +42,8 @@ Supporting ops signals:
 ## Backups And Recovery
 
 - PostgreSQL backups run daily via `/opt/backups/daily-backup.sh`
+- `/opt/backups` is a script/log location for cron compatibility, not a backup
+  data root
 - backup artifacts land on the dedicated mounted backup tier at
   `/mnt/host-backups/postgres`
 - the retained PostgreSQL dump must pass `gzip -t` before it is moved into

@@ -1,0 +1,50 @@
+== PROJ-388 bluesky-feed.service follow-up evidence ==
+captured_at_utc: 2026-05-02T00:12:23Z
+scope: read-only routing evidence for pre-existing bluesky-feed.service failure
+follow_up: existing Linear issue PROJ-110
+
+== systemctl show bluesky-feed.service ==
+Result=exit-code
+NRestarts=29
+ExecMainPID=3466473
+ExecMainCode=1
+ExecMainStatus=1
+ExecStart={ path=/usr/bin/node ; argv[]=/usr/bin/node dist/index.js ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }
+ActiveState=failed
+SubState=failed
+FragmentPath=/etc/systemd/system/bluesky-feed.service
+DropInPaths=/etc/systemd/system/bluesky-feed.service.d/10-dependencies.conf /etc/systemd/system/bluesky-feed.service.d/20-watchdog-hotfix.conf
+
+== journal 2026-03-31..2026-04-14 tail ==
+-- No entries --
+
+journal_note: `systemctl show` reports `NRestarts=29` and
+`ExecMainStatus=1`, while this bounded journal query returned no retained
+entries. Treat the missing journal lines as a PROJ-110 investigation item:
+likely explanations are journal retention/rotation, an early pre-log-emission
+startup failure, or an overly narrow journal filter.
+
+== unit and drop-in summary ==
+- Unit: /etc/systemd/system/bluesky-feed.service
+- ExecStart: /usr/bin/node dist/index.js
+- Drop-ins:
+  - /etc/systemd/system/bluesky-feed.service.d/10-dependencies.conf adds ExecStartPre=/usr/local/bin/bluesky-feed-ensure-deps.sh
+  - /etc/systemd/system/bluesky-feed.service.d/20-watchdog-hotfix.conf sets WatchdogSec=180
+- EnvironmentFile is /opt/bluesky-feed/.env; this receipt did not read or print
+  environment-file contents.
+
+== docker ps bluesky-feed containers ==
+bluesky-feed-postgres Up 4 weeks (healthy) postgres:16
+bluesky-feed-redis Up 4 weeks (healthy) redis:7-alpine
+
+== docker inspect state summary ==
+/bluesky-feed-postgres running=true status=running health=healthy started=2026-04-03T08:44:43.144780408Z finished=2026-04-03T08:44:41.661500481Z
+/bluesky-feed-redis running=true status=running health=healthy started=2026-04-03T08:44:43.145558729Z finished=2026-04-03T08:44:41.664781015Z
+
+== interpretation ==
+- The failed app service is pre-existing evidence, already present before and
+  after the backup-volume migration.
+- Data dependency containers remain healthy, which matches the original receipt
+  split between app-service failure and database/Redis container health.
+- No runtime remediation was attempted in this PR; service recovery belongs to
+  PROJ-110.

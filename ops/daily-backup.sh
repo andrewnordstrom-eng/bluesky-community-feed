@@ -16,12 +16,28 @@ IGOR_TMP=""
 IGOR_TMP_GZ=""
 
 log() {
-  echo "[$(date --iso-8601=seconds)] $*"
+  echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*"
+}
+
+normalize_mount_path() {
+  local path="$1"
+
+  while [[ "${path}" != "/" && "${path}" == */ ]]; do
+    path="${path%/}"
+  done
+
+  printf '%s\n' "${path}"
 }
 
 require_backup_mount() {
-  if ! findmnt -T "${BACKUP_MOUNT_ROOT}" >/dev/null 2>&1; then
-    log "ERROR: backup mount missing at ${BACKUP_MOUNT_ROOT}"
+  local mounted_target=""
+  local expected_target=""
+
+  expected_target="$(normalize_mount_path "${BACKUP_MOUNT_ROOT}")"
+  mounted_target="$(findmnt -n -o TARGET --target "${expected_target}" 2>/dev/null || true)"
+  mounted_target="$(normalize_mount_path "${mounted_target}")"
+  if [[ -z "${mounted_target}" || "${mounted_target}" != "${expected_target}" ]]; then
+    log "ERROR: backup mount missing at ${BACKUP_MOUNT_ROOT} mounted_target=${mounted_target:-none}"
     exit 1
   fi
 }
@@ -169,6 +185,7 @@ prune_postgres_backups() {
 
 trap cleanup_tmp_artifacts EXIT
 
+require_backup_mount
 mkdir -p "${POSTGRES_DIR}" "${IGOR_DIR}"
 
 if ! command -v python3 >/dev/null 2>&1; then
@@ -177,7 +194,6 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 1
 fi
 
-require_backup_mount
 acquire_backup_lock
 
 log "Starting daily backup..."

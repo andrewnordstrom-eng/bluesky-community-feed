@@ -11,6 +11,29 @@ BACKUP_MOUNT_ROOT="${BACKUP_MOUNT_ROOT:-/mnt/host-backups}"
 POSTGRES_BACKUP_DIR="${POSTGRES_BACKUP_DIR:-${BACKUP_MOUNT_ROOT}/postgres}"
 IGOR_BACKUP_DIR="${IGOR_BACKUP_DIR:-${BACKUP_MOUNT_ROOT}/igor/daily}"
 
+normalize_mount_path() {
+  local path="$1"
+
+  while [[ "${path}" != "/" && "${path}" == */ ]]; do
+    path="${path%/}"
+  done
+
+  printf '%s\n' "${path}"
+}
+
+require_backup_mount() {
+  local mounted_target=""
+  local expected_target=""
+
+  expected_target="$(normalize_mount_path "${BACKUP_MOUNT_ROOT}")"
+  mounted_target="$(findmnt -n -o TARGET --target "${expected_target}" 2>/dev/null || true)"
+  mounted_target="$(normalize_mount_path "${mounted_target}")"
+  if [[ -z "${mounted_target}" || "${mounted_target}" != "${expected_target}" ]]; then
+    echo "ERROR: required backup mount missing at ${BACKUP_MOUNT_ROOT} mounted_target=${mounted_target:-none}" >&2
+    exit 1
+  fi
+}
+
 # ── Make ops scripts executable ──────────────────────────────────
 SCRIPTS="db redis logs deploy feed-check status health-watchdog daily-backup.sh bluesky-ops-retention.sh"
 for script in $SCRIPTS; do
@@ -52,12 +75,9 @@ if [ ! -f "${RETENTION_SCRIPT}" ]; then
   exit 1
 fi
 
-if ! findmnt -T "${BACKUP_MOUNT_ROOT}" >/dev/null 2>&1; then
-  echo "ERROR: required backup mount missing at ${BACKUP_MOUNT_ROOT}" >&2
-  exit 1
-fi
+require_backup_mount
 
-install -d -o root -g root -m 0700 /opt/backups
+install -d -o root -g root -m 0755 /opt/backups
 install -d -o root -g root -m 0700 "${POSTGRES_BACKUP_DIR}" "${IGOR_BACKUP_DIR}"
 echo "✓ backup directories on ${BACKUP_MOUNT_ROOT}"
 

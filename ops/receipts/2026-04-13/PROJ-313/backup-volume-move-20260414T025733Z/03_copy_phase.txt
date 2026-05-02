@@ -3,13 +3,28 @@
 6.9M	/opt/backups/igor
 1.8G	/opt/igor/backups
 
-== destination before copy ==
+== destination checkpoint before final copy receipt ==
 23G	/mnt/host-backups/postgres
 12K	/mnt/host-backups/igor
 
-== rsync postgres ==
-== rsync opt backups igor ==
-== rsync igor runtime backups ==
+== PROJ-388 audit addendum: copy-phase capture gaps ==
+The `destination checkpoint before final copy receipt` label above is deliberate:
+the original file labeled this as "destination before copy" even though
+/mnt/host-backups/postgres already contained 23G, matching the source tree.
+`01_prechange_measurements.txt` shows the newly created `/dev/sda` volume at
+0% use before data copy, so this checkpoint was captured after the PostgreSQL
+copy had already occurred or during a retry/continuation. The true pre-copy
+PostgreSQL destination baseline was not captured in this receipt.
+
+The original copy-phase receipt also did not capture concrete rsync command
+lines, stdout/stderr, or exit statuses for the PostgreSQL, `/opt/backups/igor`,
+or `/opt/igor/backups` copy operations. This addendum does not reconstruct or
+fabricate those historical command lines.
+
+Current read-only verification captured on 2026-05-01 confirms the destination
+mount remains exact at /mnt/host-backups and the root backup data artifacts that
+were migrated by this packet are absent from /opt/backups. See
+10_review_fix_proof_20260501T235534Z.txt for the current command/output receipt.
 
 == destination after copy ==
 23G	/mnt/host-backups/postgres

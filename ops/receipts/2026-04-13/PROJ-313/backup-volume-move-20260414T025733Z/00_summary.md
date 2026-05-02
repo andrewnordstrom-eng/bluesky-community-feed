@@ -28,6 +28,22 @@
 - Triggered one real Bluesky backup run and one real Igor backup service run after cutover.
 - Pruned historical backup contents from root after the new-volume runs succeeded.
 
+### PROJ-388 review-fix addendum (2026-05-01)
+
+- The `PROJ-388` review pass tightened the Bluesky backup mount guard to require
+  an exact `findmnt -n -o TARGET --target "$BACKUP_MOUNT_ROOT"` match before
+  creating backup data directories.
+- The retention script now validates the mount before treating a missing
+  PostgreSQL backup directory as a skip condition.
+- `/opt/backups` remains the installed script/log path for root cron
+  compatibility; backup data is still rooted under `/mnt/host-backups`.
+- Newly captured read-only host proof and terminal provider proof are recorded
+  in `10_review_fix_proof_20260501T235534Z.txt` and
+  `control-plane/05-volume-attach-terminal-20260501T2355Z.json`.
+- The pre-existing `bluesky-feed.service` failure was routed to existing
+  runtime-stabilization issue `PROJ-110`; evidence is recorded in
+  `11_bluesky_service_followup_20260502T001223Z.txt`.
+
 ### After
 
 - Root disk: `96G total / 59G used / 38G free / 61%`.
@@ -58,3 +74,10 @@
 - `07_prune_root_backups.txt` and `07b_prune_root_backups_explicit.txt`: root cleanup evidence.
 - `08_postchange_state.txt`: post-cutover disk usage, backup trees, and runtime non-regression.
 - `09_mount_proof.txt`: mount, filesystem, and persistent `fstab` proof.
+- `10_review_fix_proof_20260501T235534Z.txt`: `PROJ-388` read-only
+  host/provider proof for mount exactness, root-backup cleanup, and terminal
+  DigitalOcean action state.
+- `11_bluesky_service_followup_20260502T001223Z.txt`: read-only evidence and
+  routing note for the pre-existing `bluesky-feed.service` failure.
+- `control-plane/05-volume-attach-terminal-20260501T2355Z.json`: terminal
+  DigitalOcean action receipt for action `3138450041`.

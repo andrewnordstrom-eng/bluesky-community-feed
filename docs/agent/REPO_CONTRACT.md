@@ -227,7 +227,8 @@ Notes:
 - DB migrations are forward-only by default. For destructive rollback, restore
   from backup first in a controlled maintenance window.
 - Backups run daily via root cron using `/opt/backups/daily-backup.sh`, writing
-  PostgreSQL dumps to `/mnt/host-backups/postgres`.
+  PostgreSQL dumps to `/mnt/host-backups/postgres`; `/opt/backups` is the
+  installed-script/log path, not the backup data root.
 - PostgreSQL retention is deterministic: keep only the latest 5 valid
   `dump-YYYY-MM-DD.sql.gz` files and delete invalid/truncated dumps automatically.
 
