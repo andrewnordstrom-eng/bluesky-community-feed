@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -103,14 +103,14 @@ function main() {
   }
   let receiptsRootStat;
   try {
-    receiptsRootStat = statSync(receiptsRoot);
+    receiptsRootStat = lstatSync(receiptsRoot);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`receipt sanitizer: failed to read receipts directory ${relative(receiptsRoot)}: ${message}`);
     process.exit(1);
   }
   if (!receiptsRootStat.isDirectory()) {
-    console.error(`receipt sanitizer: missing receipts directory ${relative(receiptsRoot)}`);
+    console.error(`receipt sanitizer: unsupported receipts directory ${relative(receiptsRoot)}`);
     process.exit(1);
   }
 

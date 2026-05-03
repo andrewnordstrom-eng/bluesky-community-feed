@@ -7,6 +7,7 @@ import {
   readFileSync,
   rmSync,
   symlinkSync,
+  unlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -334,6 +335,27 @@ describe('sanitizeReceiptContent', () => {
     } finally {
       chmodSync(receiptsRoot, 0o700);
       rmSync(receiptsRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('cli --check fails closed when RECEIPTS_ROOT is a symlink', () => {
+    const targetRoot = mkdtempSync(path.join(tmpdir(), 'receipt-sanitize-root-target-'));
+    const linkRoot = path.join(tmpdir(), `receipt-sanitize-root-link-${process.pid}-${Date.now()}`);
+    writeFileSync(path.join(targetRoot, 'clean.txt'), 'already clean\n');
+    symlinkSync(targetRoot, linkRoot, 'dir');
+
+    try {
+      const result = spawnSync(process.execPath, [sanitizeScriptPath, '--check'], {
+        encoding: 'utf8',
+        env: { ...process.env, RECEIPTS_ROOT: linkRoot },
+      });
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain('receipt sanitizer: unsupported receipts directory');
+      expect(result.stderr).toContain(linkRoot);
+    } finally {
+      unlinkSync(linkRoot);
+      rmSync(targetRoot, { recursive: true, force: true });
     }
   });
 
