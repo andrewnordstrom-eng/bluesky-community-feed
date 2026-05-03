@@ -4,8 +4,9 @@ set -euo pipefail
 DATE="$(date +%Y-%m-%d)"
 KEEP_VALID_DUMPS="${KEEP_VALID_DUMPS:-5}"
 MIN_DUMP_BYTES="${MIN_DUMP_BYTES:-1048576}"
-POSTGRES_DIR="${POSTGRES_BACKUP_DIR:-/opt/backups/postgres}"
-IGOR_DIR="${IGOR_BACKUP_DIR:-/opt/backups/igor}"
+BACKUP_MOUNT_ROOT="${BACKUP_MOUNT_ROOT:-/mnt/host-backups}"
+POSTGRES_DIR="${POSTGRES_BACKUP_DIR:-${BACKUP_MOUNT_ROOT}/postgres}"
+IGOR_DIR="${IGOR_BACKUP_DIR:-${BACKUP_MOUNT_ROOT}/igor/daily}"
 LOCK_FILE="${BACKUP_LOCK_FILE:-/var/lock/bluesky-backups.lock}"
 SQLITE_BACKUP_TIMEOUT_SECONDS="${SQLITE_BACKUP_TIMEOUT_SECONDS:-600}"
 DUMP_FILE="${POSTGRES_DIR}/dump-${DATE}.sql.gz"
@@ -15,8 +16,28 @@ IGOR_TMP=""
 IGOR_TMP_GZ=""
 
 log() {
-  echo "[$(date --iso-8601=seconds)] $*"
+  echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*"
 }
+
+source_backup_guard_library() {
+  local script_dir=""
+  local guard_path=""
+
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  for guard_path in "${script_dir}/lib/backup-path-guards.sh" "/opt/backups/lib/backup-path-guards.sh" "/opt/bluesky-feed/ops/lib/backup-path-guards.sh"; do
+    if [[ -r "${guard_path}" ]]; then
+      # shellcheck source=/dev/null
+      source "${guard_path}"
+      return
+    fi
+  done
+
+  log "ERROR: required backup guard library missing"
+  exit 1
+}
+
+BACKUP_GUARD_CONTEXT="daily"
+source_backup_guard_library
 
 acquire_backup_lock() {
   mkdir -p "$(dirname "${LOCK_FILE}")"
@@ -161,6 +182,9 @@ prune_postgres_backups() {
 
 trap cleanup_tmp_artifacts EXIT
 
+require_backup_mount
+require_backup_descendant "POSTGRES_BACKUP_DIR" "${POSTGRES_DIR}"
+require_backup_descendant "IGOR_BACKUP_DIR" "${IGOR_DIR}"
 mkdir -p "${POSTGRES_DIR}" "${IGOR_DIR}"
 
 if ! command -v python3 >/dev/null 2>&1; then

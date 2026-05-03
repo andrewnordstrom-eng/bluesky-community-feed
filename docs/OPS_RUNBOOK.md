@@ -139,22 +139,37 @@ Expected:
 
 - Script: `/opt/backups/daily-backup.sh`
 - Schedule (root crontab): `0 3 * * * /opt/backups/daily-backup.sh >> /opt/backups/backup.log 2>&1`
-- Output dir: `/opt/backups/postgres`
+- Output dir: `/mnt/host-backups/postgres`
+- `/opt/backups` is retained only for the installed script and cron log; backup
+  data must stay under `/mnt/host-backups`
+- Mount contract: `/mnt/host-backups` must be a real mounted filesystem or the
+  backup producer exits non-zero before creating backup data directories on root
 - Retention policy:
   - keep only the latest 5 valid `dump-YYYY-MM-DD.sql.gz` files
   - validate each PostgreSQL dump with `gzip -t` before it is retained
   - remove invalid/truncated `.sql.gz` dumps automatically
   - remove stale plain `.sql` files if any are left behind by an interrupted run
 
+Verify backup mount before troubleshooting backup output:
+
+```bash
+findmnt -n -o TARGET --target /mnt/host-backups
+findmnt /mnt/host-backups
+df -hT /mnt/host-backups
+mount | grep ' /mnt/host-backups '
+```
+
+The first command must print exactly `/mnt/host-backups`. If it prints `/` or
+another parent mount, the dedicated backup volume is missing; backup scripts
+will fail closed before creating backup data directories on root.
+
 Quick verification:
 
 ```bash
 sudo crontab -l
-find /opt/backups/postgres -maxdepth 1 -type f -name 'dump-*.sql.gz' -printf '%f\n' | sort -r | nl
-shopt -s nullglob
-for dump in /opt/backups/postgres/dump-*.sql.gz; do sudo gzip -t "$dump"; done
-shopt -u nullglob
-tail -n 200 /opt/backups/backup.log
+sudo find /mnt/host-backups/postgres -maxdepth 1 -type f -name 'dump-*.sql.gz' -printf '%f\n' | sort -r | nl
+sudo bash -lc 'shopt -s nullglob; for dump in /mnt/host-backups/postgres/dump-*.sql.gz; do gzip -t "$dump"; done'
+sudo tail -n 200 /opt/backups/backup.log
 ```
 
 ## Ops Retention and Alerting
@@ -166,7 +181,7 @@ tail -n 200 /opt/backups/backup.log
 - Actions:
   - force logrotate attempt
   - vacuum systemd journal to 300MB
-  - enforce PostgreSQL backup retention on `/opt/backups/postgres`
+  - enforce PostgreSQL backup retention on `/mnt/host-backups/postgres`
   - delete invalid/truncated PostgreSQL dumps before counting retained backups
   - prune unused docker containers/images (safe prune only)
 
@@ -216,6 +231,37 @@ echo "db=$TOP_DB"
 
 ## Incident Playbooks
 
+### 0) Backup mount missing
+
+1. Confirm whether `/mnt/host-backups` is the exact mounted target:
+
+```bash
+findmnt -n -o TARGET --target /mnt/host-backups
+findmnt /mnt/host-backups
+df -hT /mnt/host-backups
+```
+
+1. Check that `/etc/fstab` still contains the backup-volume entry:
+
+```bash
+grep -F '/mnt/host-backups' /etc/fstab
+```
+
+1. If the `fstab` entry exists, mount it and verify the exact target again:
+
+```bash
+sudo mount /mnt/host-backups
+findmnt -n -o TARGET --target /mnt/host-backups
+```
+
+1. If the mount still fails, or the `fstab` entry is missing, stop local
+   backup work and route the incident to infrastructure/admin ownership to
+   attach the DigitalOcean volume and restore the persistent `fstab` entry.
+
+Backup and retention scripts intentionally exit non-zero when the mount is
+missing. That fail-closed behavior protects root from orphan backup data; it
+does not mean backup data was corrupted.
+
 ### 1) Disk pressure (`/` above 92%)
 
 1. Confirm usage:
@@ -224,7 +270,8 @@ echo "db=$TOP_DB"
 df -h /
 du -xhd1 /var | sort -h
 du -xhd1 /opt | sort -h
-du -xhd1 /opt/backups | sort -h
+sudo du -sh /opt/backups
+sudo du -xhd1 /mnt/host-backups | sort -h
 du -xhd1 /home/corgi | sort -h
 ```
 
@@ -237,10 +284,8 @@ sudo /usr/local/bin/bluesky-ops-retention.sh
 1. Verify the backup directory contains only the latest 5 valid dumps:
 
 ```bash
-find /opt/backups/postgres -maxdepth 1 -type f -name 'dump-*.sql.gz' -printf '%f\n' | sort -r | nl
-shopt -s nullglob
-for dump in /opt/backups/postgres/dump-*.sql.gz; do sudo gzip -t "$dump"; done
-shopt -u nullglob
+sudo find /mnt/host-backups/postgres -maxdepth 1 -type f -name 'dump-*.sql.gz' -printf '%f\n' | sort -r | nl
+sudo bash -lc 'shopt -s nullglob; for dump in /mnt/host-backups/postgres/dump-*.sql.gz; do gzip -t "$dump"; done'
 ```
 
 1. Re-check `df -h /`.

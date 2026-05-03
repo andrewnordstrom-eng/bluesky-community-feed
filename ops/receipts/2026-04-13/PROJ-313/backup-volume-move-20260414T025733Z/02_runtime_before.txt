@@ -1,0 +1,31 @@
+== igor production health ==
+{"service":"igor","status":"ok","uptimeSeconds":11510,"lastWebhookReceivedAt":"2026-04-14T02:28:19.106Z","queueDepth":0,"queueError":null,"dataPlane":{"enabled":false,"mode":"disabled","postgresConfigured":false,"outboxPending":0,"lastHealthyAt":null,"lastError":null},"circuitBreaker":{"engaged":false,"source":"manual","method":"api:/killswitch","reason":"post-redeploy controlled recovery","changedAt":"2026-04-12T00:45:42.640Z"},"running":[],"recentFailures":[],"mcp":{"enabled":true,"endpoint":"/mcp","transport":"streamable-http","mode":"stateless"},"scheduler":{"enabled":true,"nextRun":null,"lastRun":null},"hygiene":{"enabled":true,"nextRun":null,"lastRun":"2026-04-14T00:00:45.528Z"},"quarterly":{"enabled":false,"nextRun":null,"lastRun":null}}
+
+== igor staging health ==
+{"service":"igor","status":"ok","uptimeSeconds":11558,"lastWebhookReceivedAt":"2026-04-13T23:46:51.979Z","queueDepth":0,"queueError":null,"dataPlane":{"enabled":false,"mode":"disabled","postgresConfigured":false,"outboxPending":0,"lastHealthyAt":null,"lastError":null},"circuitBreaker":{"engaged":false},"running":[],"recentFailures":[],"mcp":{"enabled":true,"endpoint":"/mcp","transport":"streamable-http","mode":"stateless"},"scheduler":{"enabled":true,"nextRun":null,"lastRun":null},"hygiene":{"enabled":true,"nextRun":null,"lastRun":"2026-04-14T00:00:45.149Z"},"quarterly":{"enabled":false,"nextRun":null,"lastRun":null}}
+
+== bluesky service status ==
+× bluesky-feed.service - Community Feed Generator (Bluesky)
+     Loaded: loaded (/etc/systemd/system/bluesky-feed.service; enabled; preset: enabled)
+    Drop-In: /etc/systemd/system/bluesky-feed.service.d
+             └─10-dependencies.conf, 20-watchdog-hotfix.conf
+     Active: failed (Result: exit-code) since Thu 2026-04-02 03:48:55 EDT; 1 week 4 days ago
+   Duration: 3min 54ms
+ Invocation: 6802ecebd7754433a4e31b06b1466d61
+       Docs: https://github.com/corgi-network/bluesky-feed
+   Main PID: 3466473 (code=exited, status=1/FAILURE)
+
+== docker ps bluesky ==
+bluesky-feed-postgres   Up 10 days (healthy)   postgres:16
+bluesky-feed-redis      Up 10 days (healthy)   redis:7-alpine
+
+== docker inspect health ==
+{"Status":"running","Running":true,"Paused":false,"Restarting":false,"OOMKilled":false,"Dead":false,"Pid":3877359,"ExitCode":0,"Error":"","StartedAt":"2026-04-03T08:44:43.144780408Z","FinishedAt":"2026-04-03T08:44:41.661500481Z","Health":{"Status":"healthy","FailingStreak":0,"Log":[{"Start":"2026-04-13T22:58:27.881424344-04:00","End":"2026-04-13T22:58:27.959565795-04:00","ExitCode":0,"Output":"/var/run/postgresql:5432 - accepting connections\n"},{"Start":"2026-04-13T22:58:37.960483183-04:00","End":"2026-04-13T22:58:38.045127024-04:00","ExitCode":0,"Output":"/var/run/postgresql:5432 - accepting connections\n"},{"Start":"2026-04-13T22:58:48.046455955-04:00","End":"2026-04-13T22:58:48.143726497-04:00","ExitCode":0,"Output":"/var/run/postgresql:5432 - accepting connections\n"},{"Start":"2026-04-13T22:58:58.145003341-04:00","End":"2026-04-13T22:58:58.232656961-04:00","ExitCode":0,"Output":"/var/run/postgresql:5432 - accepting connections\n"},{"Start":"2026-04-13T22:59:08.234074605-04:00","End":"2026-04-13T22:59:08.318334773-04:00","ExitCode":0,"Output":"/var/run/postgresql:5432 - accepting connections\n"}]}}
+
+{"Status":"running","Running":true,"Paused":false,"Restarting":false,"OOMKilled":false,"Dead":false,"Pid":3877357,"ExitCode":0,"Error":"","StartedAt":"2026-04-03T08:44:43.145558729Z","FinishedAt":"2026-04-03T08:44:41.664781015Z","Health":{"Status":"healthy","FailingStreak":0,"Log":[{"Start":"2026-04-13T22:58:27.471960245-04:00","End":"2026-04-13T22:58:27.514225533-04:00","ExitCode":0,"Output":"PONG\n"},{"Start":"2026-04-13T22:58:37.515682264-04:00","End":"2026-04-13T22:58:37.564977895-04:00","ExitCode":0,"Output":"PONG\n"},{"Start":"2026-04-13T22:58:47.565959771-04:00","End":"2026-04-13T22:58:47.618456589-04:00","ExitCode":0,"Output":"PONG\n"},{"Start":"2026-04-13T22:58:57.619834285-04:00","End":"2026-04-13T22:58:57.669610613-04:00","ExitCode":0,"Output":"PONG\n"},{"Start":"2026-04-13T22:59:07.670739716-04:00","End":"2026-04-13T22:59:07.722505189-04:00","ExitCode":0,"Output":"PONG\n"}]}}
+
+== PROJ-388 service-failure follow-up addendum ==
+This bluesky-feed.service failure predates the backup-volume migration and was
+not remediated in this backup-storage PR. Current read-only follow-up evidence
+was captured in 11_bluesky_service_followup_20260502T001223Z.txt and routed to
+existing Linear issue PROJ-110 for runtime stabilization.

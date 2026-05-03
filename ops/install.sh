@@ -7,6 +7,22 @@ set -euo pipefail
 APP_DIR="/opt/bluesky-feed"
 BACKUP_SCRIPT="${APP_DIR}/ops/daily-backup.sh"
 RETENTION_SCRIPT="${APP_DIR}/ops/bluesky-ops-retention.sh"
+BACKUP_MOUNT_ROOT="${BACKUP_MOUNT_ROOT:-/mnt/host-backups}"
+POSTGRES_BACKUP_DIR="${POSTGRES_BACKUP_DIR:-${BACKUP_MOUNT_ROOT}/postgres}"
+IGOR_BACKUP_DIR="${IGOR_BACKUP_DIR:-${BACKUP_MOUNT_ROOT}/igor/daily}"
+BACKUP_GUARD_CONTEXT="install"
+BACKUP_GUARD_LIBRARY="${APP_DIR}/ops/lib/backup-path-guards.sh"
+BACKUP_GUARD_INSTALL_DIR="/opt/backups/lib"
+BACKUP_GUARD_INSTALL_LIBRARY="${BACKUP_GUARD_INSTALL_DIR}/backup-path-guards.sh"
+DEPLOYMENT_RECEIPT="/opt/backups/DEPLOYMENT_RECEIPT"
+
+if [ ! -r "${BACKUP_GUARD_LIBRARY}" ]; then
+  echo "ERROR: required backup guard library missing: ${BACKUP_GUARD_LIBRARY}" >&2
+  exit 1
+fi
+
+# shellcheck source=/dev/null
+source "${BACKUP_GUARD_LIBRARY}"
 
 # ── Make ops scripts executable ──────────────────────────────────
 SCRIPTS="db redis logs deploy feed-check status health-watchdog daily-backup.sh bluesky-ops-retention.sh"
@@ -49,13 +65,30 @@ if [ ! -f "${RETENTION_SCRIPT}" ]; then
   exit 1
 fi
 
-install -d -o root -g root -m 0700 /opt/backups /opt/backups/postgres /opt/backups/igor
-echo "✓ /opt/backups directories"
+require_backup_mount
+require_backup_descendant "POSTGRES_BACKUP_DIR" "${POSTGRES_BACKUP_DIR}"
+require_backup_descendant "IGOR_BACKUP_DIR" "${IGOR_BACKUP_DIR}"
 
-install -m 0755 "${BACKUP_SCRIPT}" /opt/backups/daily-backup.sh
+install -d -o root -g root -m 0700 /opt/backups
+install -d -o root -g root -m 0700 "${POSTGRES_BACKUP_DIR}" "${IGOR_BACKUP_DIR}"
+echo "✓ backup directories on ${BACKUP_MOUNT_ROOT}"
+
+install -d -o root -g root -m 0755 "${BACKUP_GUARD_INSTALL_DIR}"
+install -o root -g root -m 0755 "${BACKUP_GUARD_LIBRARY}" "${BACKUP_GUARD_INSTALL_LIBRARY}"
+printf '%s install backup_guard_library source=%s target=%s mode=0755\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${BACKUP_GUARD_LIBRARY}" "${BACKUP_GUARD_INSTALL_LIBRARY}" >> "${DEPLOYMENT_RECEIPT}"
+chown root:root "${DEPLOYMENT_RECEIPT}"
+chmod 0600 "${DEPLOYMENT_RECEIPT}"
+echo "✓ /opt/backups/lib/backup-path-guards.sh"
+
+install -o root -g root -m 0755 "${BACKUP_SCRIPT}" /opt/backups/daily-backup.sh
 echo "✓ /opt/backups/daily-backup.sh"
 
-install -m 0755 "${RETENTION_SCRIPT}" /usr/local/bin/bluesky-ops-retention.sh
+touch /opt/backups/backup.log
+chown root:root /opt/backups/backup.log
+chmod 0600 /opt/backups/backup.log
+echo "✓ /opt/backups/backup.log"
+
+install -o root -g root -m 0755 "${RETENTION_SCRIPT}" /usr/local/bin/bluesky-ops-retention.sh
 echo "✓ /usr/local/bin/bluesky-ops-retention.sh"
 
 # Reload systemd and enable units

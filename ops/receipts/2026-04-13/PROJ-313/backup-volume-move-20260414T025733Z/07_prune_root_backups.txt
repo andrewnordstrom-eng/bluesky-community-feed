@@ -1,0 +1,33 @@
+== initial post-prune check with remaining root backup artifacts ==
+-rw------- root:root /opt/backups/postgres/dump-2026-04-12.sql.gz 4803717486
+-rw------- root:root /opt/backups/postgres/dump-2026-04-13.sql.gz 4803717490
+-rw-r--r-- root:root /opt/backups/backup.log 4664
+-rw-r--r-- root:root /opt/backups/igor/igor-2026-04-06.db.gz 872387
+-rw-r--r-- root:root /opt/backups/igor/igor-2026-04-07.db.gz 872387
+-rw-r--r-- root:root /opt/backups/igor/igor-2026-04-08.db.gz 872387
+-rw-r--r-- root:root /opt/backups/igor/igor-2026-04-09.db.gz 872387
+-rw-r--r-- root:root /opt/backups/igor/igor-2026-04-10.db.gz 872387
+-rw-r--r-- root:root /opt/backups/igor/igor-2026-04-11.db.gz 872387
+-rw-r--r-- root:root /opt/backups/igor/igor-2026-04-12.db.gz 932521
+-rw-r--r-- root:root /opt/backups/igor/igor-2026-04-13.db.gz 988995
+-rw-r--r-- root:root /opt/backups/igor/predeploy_.tgz 871
+-rw-r--r-- root:root /opt/backups/postgres/dump-2026-04-09.sql.gz 4803716513
+-rw-r--r-- root:root /opt/backups/postgres/dump-2026-04-10.sql.gz 4803716516
+-rw-r--r-- root:root /opt/backups/postgres/dump-2026-04-11.sql.gz 4803717208
+-rwx------ root:root /opt/backups/daily-backup.sh.20260412T223752Z.bak 1917
+-rwxr-xr-x root:root /opt/backups/daily-backup.sh 6949
+-rwxr-xr-x root:root /opt/backups/daily-backup.sh.20260414T031631Z.bak 3022
+drwxr-xr-x root:root /opt/backups/igor 4096
+drwxr-xr-x root:root /opt/backups/postgres 4096
+
+== post-prune igor backups ==
+
+== PROJ-388 post-cleanup addendum ==
+The initial check above still showed root backup artifacts, so it was not the
+final cleanup state. The subsequent explicit cleanup receipt in
+07b_prune_root_backups_explicit.txt shows those April 2026 root backup artifacts
+being deleted. The fresh read-only receipt
+10_review_fix_proof_20260501T235534Z.txt confirms that, on 2026-05-01,
+/opt/backups contains no /opt/backups/postgres/dump-*.sql.gz files and no
+/opt/backups/igor/igor-*.db.gz files, and records current /opt/backups size plus
+root filesystem usage.

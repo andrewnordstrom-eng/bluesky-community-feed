@@ -2,12 +2,33 @@
 set -euo pipefail
 
 KEEP_VALID_DUMPS="${KEEP_VALID_DUMPS:-5}"
-POSTGRES_DIR="${POSTGRES_BACKUP_DIR:-/opt/backups/postgres}"
+BACKUP_MOUNT_ROOT="${BACKUP_MOUNT_ROOT:-/mnt/host-backups}"
+POSTGRES_DIR="${POSTGRES_BACKUP_DIR:-${BACKUP_MOUNT_ROOT}/postgres}"
 LOCK_FILE="${BACKUP_LOCK_FILE:-/var/lock/bluesky-backups.lock}"
 
 log() {
   logger -t bluesky-ops-retention "$*"
 }
+
+source_backup_guard_library() {
+  local script_dir=""
+  local guard_path=""
+
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  for guard_path in "${script_dir}/lib/backup-path-guards.sh" "/opt/backups/lib/backup-path-guards.sh" "/opt/bluesky-feed/ops/lib/backup-path-guards.sh"; do
+    if [[ -r "${guard_path}" ]]; then
+      # shellcheck source=/dev/null
+      source "${guard_path}"
+      return
+    fi
+  done
+
+  log "error backup_guard_library_missing"
+  exit 1
+}
+
+BACKUP_GUARD_CONTEXT="retention"
+source_backup_guard_library
 
 acquire_backup_lock() {
   mkdir -p "$(dirname "${LOCK_FILE}")"
@@ -110,6 +131,9 @@ if [[ "${MODE}" != "full" && "${MODE}" != "--postgres-only" ]]; then
   echo "usage: $0 [--postgres-only]" >&2
   exit 2
 fi
+
+require_backup_mount
+require_backup_descendant "POSTGRES_BACKUP_DIR" "${POSTGRES_DIR}"
 
 if [[ ! -d "${POSTGRES_DIR}" ]]; then
   log "skip postgres_dir_missing path=${POSTGRES_DIR}"

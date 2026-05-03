@@ -1,0 +1,43 @@
+== install/cutover summary ==
+scope: Bluesky backup producer, Bluesky retention script, Igor state backup service, and Igor deploy rollback backup root
+
+== historical receipt note ==
+The original 2026-04-14 capture embedded truncated script heads. Those snippets
+are no longer authoritative in this PR branch because the PROJ-388 review pass
+tightened the mount guard and clarified /opt/backups usage. The current
+authoritative source files are:
+
+- ops/daily-backup.sh
+- ops/bluesky-ops-retention.sh
+- ops/install.sh
+
+== PROJ-388 current reviewed Bluesky state ==
+- daily-backup.sh validates the exact backup mount target with
+  findmnt -n -o TARGET --target "$BACKUP_MOUNT_ROOT" before creating
+  ${BACKUP_MOUNT_ROOT}/postgres or ${BACKUP_MOUNT_ROOT}/igor/daily.
+- daily-backup.sh normalizes trailing slashes in BACKUP_MOUNT_ROOT before
+  comparing the expected and actual mount targets.
+- bluesky-ops-retention.sh validates the exact mount target before any
+  missing-POSTGRES_DIR skip path, so an absent mount fails closed.
+- install.sh uses the same exact-target guard before creating backup data
+  directories, keeps /opt/backups/daily-backup.sh as the cron-compatible script
+  install path, installs /opt/backups/lib/backup-path-guards.sh for the cron
+  runtime path, creates /opt/backups as a 0700 script/log directory, and
+  pre-creates /opt/backups/backup.log as root:root 0600.
+- backup data remains rooted under /mnt/host-backups.
+
+== Igor backup integration captured by the original cutover ==
+- igor-state-backup.service declared RequiresMountsFor=/mnt/host-backups.
+- igor-state-backup.service used BACKUP_ROOT=/mnt/host-backups/igor and
+  BACKUP_REQUIRED_MOUNT=/mnt/host-backups.
+- deploy-release.sh used PRODUCTION_BACKUP_ROOT=/mnt/host-backups/igor for
+  release rollback snapshots.
+
+== related receipts ==
+- 05_bluesky_backup_run.txt records a real Bluesky/PostgreSQL backup run after
+  the cutover.
+- 06_igor_backup_run.txt records a real Igor state backup service run after the
+  cutover.
+- 09_mount_proof.txt records mount, filesystem, and persistent fstab proof.
+- 10_review_fix_proof_20260501T235534Z.txt records fresh exact-mount and
+  root-backup cleanup proof.

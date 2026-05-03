@@ -1,0 +1,33 @@
+{
+  "fetched_at": "2026-05-01T23:55:00Z",
+  "source": "GET https://api.digitalocean.com/v2/actions/[PROVIDER_ID_1]",
+  "receipt_note": "Terminal provider receipt for action [PROVIDER_ID_1]. DigitalOcean returned type=attach_drive for the same action id; the earlier non-terminal receipt recorded type=attach_volume.",
+  "droplet": {
+    "id": "[PROVIDER_ID_2]",
+    "name": "Corgi-Services",
+    "matched_volume_id": "[VOLUME_ID_1]"
+  },
+  "action": {
+    "id": "[PROVIDER_ID_1]",
+    "status": "completed",
+    "type": "attach_drive",
+    "started_at": "2026-04-14T02:47:19Z",
+    "completed_at": "2026-04-14T02:47:24Z",
+    "resource_id": 0,
+    "resource_type": "backend",
+    "region_slug": "sfo3",
+    "region": {
+      "name": "San Francisco 3",
+      "slug": "sfo3",
+      "available": true,
+      "features": [
+        "backups",
+        "ipv6",
+        "metadata",
+        "install_agent",
+        "storage",
+        "image_transfer"
+      ]
+    }
+  }
+}
