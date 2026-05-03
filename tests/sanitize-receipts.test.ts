@@ -1,5 +1,4 @@
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import {
   chmodSync,
   mkdirSync,
@@ -21,10 +20,10 @@ import {
 } from '../scripts/sanitize-receipts.mjs';
 
 const sanitizeScriptPath = path.resolve('scripts', 'sanitize-receipts.mjs');
+const PROVIDER_TOKEN_REGEX = /\[PROVIDER_ID_[0-9A-F]{16}\]/g;
 
-function providerToken(rawValue: string): string {
-  const digest = createHash('sha256').update(rawValue).digest('hex').slice(0, 12).toUpperCase();
-  return `[PROVIDER_ID_${digest}]`;
+function providerTokens(content: string): string[] {
+  return content.match(PROVIDER_TOKEN_REGEX) ?? [];
 }
 
 describe('sanitizeReceiptContent', () => {
@@ -75,47 +74,57 @@ describe('sanitizeReceiptContent', () => {
   it('redacts provider action ids in prose, API paths, and JSON ids', () => {
     const content =
       'DigitalOcean action 3138450041 via /v2/actions/3138450041 {"id": 3138450041, "droplet_id": 3138450041, "volume_id": 3138450042}';
-    const firstToken = providerToken('3138450041');
-    const secondToken = providerToken('3138450042');
+    const sanitized = sanitizeReceiptContent(content);
+    const tokens = providerTokens(sanitized);
 
-    expect(sanitizeReceiptContent(content)).toBe(
-      `DigitalOcean action ${firstToken} via /v2/actions/${firstToken} {"id": "${firstToken}", "droplet_id": "${firstToken}", "volume_id": "${secondToken}"}`,
-    );
+    expect(tokens).toHaveLength(5);
+    expect(tokens[0]).toBe(tokens[1]);
+    expect(tokens[0]).toBe(tokens[2]);
+    expect(tokens[0]).toBe(tokens[3]);
+    expect(tokens[4]).not.toBe(tokens[0]);
+    expect(sanitized).not.toContain('3138450041');
+    expect(sanitized).not.toContain('3138450042');
   });
 
   it('redacts uppercase JSON id keys', () => {
     const content = '{"ID": 3138450041, "VOLUME_ID": 3138450042}';
+    const sanitized = sanitizeReceiptContent(content);
+    const tokens = providerTokens(sanitized);
 
-    expect(sanitizeReceiptContent(content)).toBe(
-      `{"ID": "${providerToken('3138450041')}", "VOLUME_ID": "${providerToken('3138450042')}"}`,
-    );
+    expect(tokens).toHaveLength(2);
+    expect(tokens[0]).not.toBe(tokens[1]);
+    expect(sanitized).toBe(`{"ID": "${tokens[0]}", "VOLUME_ID": "${tokens[1]}"}`);
   });
 
   it('redacts quoted numeric JSON id values', () => {
     const content = '{"id":"3138450041","droplet_id":"3138450041"}';
+    const sanitized = sanitizeReceiptContent(content);
+    const tokens = providerTokens(sanitized);
 
-    expect(sanitizeReceiptContent(content)).toBe(
-      `{"id":"${providerToken('3138450041')}","droplet_id":"${providerToken('3138450041')}"}`,
-    );
+    expect(tokens).toHaveLength(2);
+    expect(tokens[0]).toBe(tokens[1]);
+    expect(sanitized).toBe(`{"id":"${tokens[0]}","droplet_id":"${tokens[0]}"}`);
   });
 
   it('redacts unquoted receipt id keys', () => {
     const content = 'ID:3138450041 volume_id:"3138450042"';
+    const sanitized = sanitizeReceiptContent(content);
+    const tokens = providerTokens(sanitized);
 
-    expect(sanitizeReceiptContent(content)).toBe(
-      `ID:"${providerToken('3138450041')}" volume_id:"${providerToken('3138450042')}"`,
-    );
+    expect(tokens).toHaveLength(2);
+    expect(tokens[0]).not.toBe(tokens[1]);
+    expect(sanitized).toBe(`ID:"${tokens[0]}" volume_id:"${tokens[1]}"`);
   });
 
   it('redacts provider JSON id values only at the 8-digit boundary', () => {
     expect(sanitizeReceiptContent('{"id":1234567}')).toBe('{"id":1234567}');
     expect(sanitizeReceiptContent('{"id":"1234567"}')).toBe('{"id":"1234567"}');
-    expect(sanitizeReceiptContent('{"id":12345678}')).toBe(
-      `{"id":"${providerToken('12345678')}"}`,
-    );
-    expect(sanitizeReceiptContent('{"id":"12345678"}')).toBe(
-      `{"id":"${providerToken('12345678')}"}`,
-    );
+    const bareSanitized = sanitizeReceiptContent('{"id":12345678}');
+    const quotedSanitized = sanitizeReceiptContent('{"id":"12345678"}');
+    const [token] = providerTokens(bareSanitized);
+
+    expect(bareSanitized).toBe(`{"id":"${token}"}`);
+    expect(quotedSanitized).toBe(`{"id":"${token}"}`);
   });
 
   it('does not partially redact alphanumeric provider id values', () => {
@@ -199,7 +208,7 @@ describe('sanitizeReceiptContent', () => {
     expect(result.stderr).toBe('');
   });
 
-  it('sanitizes receipt files in sorted order for stable provider tokens', () => {
+  it('sanitizes receipt files with collision-free provider tokens', () => {
     const receiptsRoot = mkdtempSync(path.join(tmpdir(), 'receipt-sanitize-sorted-'));
     writeFileSync(path.join(receiptsRoot, 'b.txt'), '{"id":22222222}\n');
     writeFileSync(path.join(receiptsRoot, 'a.txt'), '{"id":11111111}\n');
@@ -210,12 +219,14 @@ describe('sanitizeReceiptContent', () => {
     });
 
     expect(result.status).toBe(0);
-    expect(readFileSync(path.join(receiptsRoot, 'a.txt'), 'utf8')).toBe(
-      `{"id":"${providerToken('11111111')}"}\n`,
-    );
-    expect(readFileSync(path.join(receiptsRoot, 'b.txt'), 'utf8')).toBe(
-      `{"id":"${providerToken('22222222')}"}\n`,
-    );
+    const aContent = readFileSync(path.join(receiptsRoot, 'a.txt'), 'utf8');
+    const bContent = readFileSync(path.join(receiptsRoot, 'b.txt'), 'utf8');
+    const [aToken] = providerTokens(aContent);
+    const [bToken] = providerTokens(bContent);
+
+    expect(aContent).toBe(`{"id":"${aToken}"}\n`);
+    expect(bContent).toBe(`{"id":"${bToken}"}\n`);
+    expect(aToken).not.toBe(bToken);
   });
 
   it('keeps provider tokens collision-free across incremental sanitize runs', () => {
@@ -228,9 +239,9 @@ describe('sanitizeReceiptContent', () => {
     });
 
     expect(firstResult.status).toBe(0);
-    expect(readFileSync(path.join(receiptsRoot, 'a.txt'), 'utf8')).toBe(
-      `{"id":"${providerToken('11111111')}"}\n`,
-    );
+    const aContent = readFileSync(path.join(receiptsRoot, 'a.txt'), 'utf8');
+    const [aToken] = providerTokens(aContent);
+    expect(aContent).toBe(`{"id":"${aToken}"}\n`);
 
     writeFileSync(path.join(receiptsRoot, 'legacy.txt'), '{"id":"[PROVIDER_ID_1]"}\n');
     writeFileSync(path.join(receiptsRoot, 'b.txt'), '{"id":22222222}\n');
@@ -244,12 +255,11 @@ describe('sanitizeReceiptContent', () => {
     expect(readFileSync(path.join(receiptsRoot, 'legacy.txt'), 'utf8')).toBe(
       '{"id":"[PROVIDER_ID_1]"}\n',
     );
-    expect(readFileSync(path.join(receiptsRoot, 'b.txt'), 'utf8')).toBe(
-      `{"id":"${providerToken('22222222')}"}\n`,
-    );
-    expect(readFileSync(path.join(receiptsRoot, 'b.txt'), 'utf8')).not.toContain(
-      '[PROVIDER_ID_1]',
-    );
+    const bContent = readFileSync(path.join(receiptsRoot, 'b.txt'), 'utf8');
+    const [bToken] = providerTokens(bContent);
+    expect(bContent).toBe(`{"id":"${bToken}"}\n`);
+    expect(bToken).not.toBe(aToken);
+    expect(bContent).not.toContain('[PROVIDER_ID_1]');
   });
 
   it('sanitize mode leaves binary receipts byte-identical', () => {
@@ -265,6 +275,35 @@ describe('sanitizeReceiptContent', () => {
 
     expect(result.status).toBe(0);
     expect(readFileSync(binaryPath)).toEqual(originalBinary);
+  });
+
+  it('cli --check fails on invalid UTF-8 receipts', () => {
+    const receiptsRoot = mkdtempSync(path.join(tmpdir(), 'receipt-sanitize-invalid-utf8-'));
+    writeFileSync(path.join(receiptsRoot, 'invalid.txt'), Buffer.from([0xff, 0xfe, 0xfd]));
+
+    const result = spawnSync(process.execPath, [sanitizeScriptPath, '--check'], {
+      encoding: 'utf8',
+      env: { ...process.env, RECEIPTS_ROOT: receiptsRoot },
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('receipt sanitizer: failed to process invalid.txt');
+  });
+
+  it('sanitize mode fails when disallowed identifiers remain after replacement', () => {
+    const receiptsRoot = mkdtempSync(path.join(tmpdir(), 'receipt-sanitize-still-dirty-'));
+    const receiptPath = path.join(receiptsRoot, 'still-dirty.txt');
+    writeFileSync(receiptPath, 'UUID=not-a-uuid\n');
+
+    const result = spawnSync(process.execPath, [sanitizeScriptPath], {
+      encoding: 'utf8',
+      env: { ...process.env, RECEIPTS_ROOT: receiptsRoot },
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('receipt sanitizer: failed to process still-dirty.txt');
+    expect(result.stderr).toContain('sanitized content still contains disallowed stable identifiers');
+    expect(readFileSync(receiptPath, 'utf8')).toBe('UUID=not-a-uuid\n');
   });
 
   it('cli --check reports dirty text receipts while ignoring binary receipts', () => {

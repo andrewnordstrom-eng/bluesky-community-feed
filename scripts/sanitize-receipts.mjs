@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
-import { createHash } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { existsSync, lstatSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
+import { TextDecoder } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -24,6 +25,7 @@ const PROVIDER_JSON_ID_REGEX =
 const DISALLOWED_RECEIPT_REGEX =
   /(UUID=|PARTUUID=|\/dev\/disk\/by-id\/|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\b[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}\b|(\baction\s+|\/v2\/actions\/)\d{8,}\b|(?:"(?:\w*_id|id)"|\b(?:\w*_id|id)\b)\s*:\s*(?:"\d{8,}"|\b\d{8,}\b))/i;
 const providerIdTokens = new Map();
+const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
 
 class UnsupportedReceiptEntryError extends Error {
   constructor(entryPath) {
@@ -75,8 +77,7 @@ function providerIdToken(rawValue) {
     return existingToken;
   }
 
-  const digest = createHash('sha256').update(rawValue).digest('hex').slice(0, 12).toUpperCase();
-  const token = `[PROVIDER_ID_${digest}]`;
+  const token = `[PROVIDER_ID_${randomUUID().replace(/-/g, '').slice(0, 16).toUpperCase()}]`;
   providerIdTokens.set(rawValue, token);
   return token;
 }
@@ -131,10 +132,14 @@ function main() {
         continue;
       }
 
-      const original = originalBuffer.toString('utf8');
+      const original = utf8Decoder.decode(originalBuffer);
       const sanitized = sanitizeReceiptContent(original);
-      if (sanitized === original && !DISALLOWED_RECEIPT_REGEX.test(original)) {
+      const wasDirty = sanitized !== original || DISALLOWED_RECEIPT_REGEX.test(original);
+      if (!wasDirty) {
         continue;
+      }
+      if (DISALLOWED_RECEIPT_REGEX.test(sanitized)) {
+        throw new Error('sanitized content still contains disallowed stable identifiers');
       }
 
       if (checkOnly) {
