@@ -88,6 +88,18 @@ jobs:
       - name: Install frontend dependencies
         run: cd web && npm ci
 
+      - name: Validate frontend Axios pin
+        run: |
+          node --input-type=module -e '
+            import fs from "node:fs";
+
+            const packageJson = JSON.parse(fs.readFileSync("web/package.json", "utf8"));
+            const axiosVersion = packageJson.dependencies?.axios;
+            if (axiosVersion !== "1.15.2") {
+              throw new Error(`web/package.json must pin axios to exact 1.15.2; found ${axiosVersion ?? "missing"}`);
+            }
+          '
+
       - name: Lint frontend
         run: cd web && npm run lint
 
