@@ -141,6 +141,40 @@ describe('sanitizeReceiptContent', () => {
     );
   });
 
+  it('redacts dotenv-style secret assignments while preserving key names', () => {
+    const content = [
+      'DATABASE_URL=postgresql://feed:db-password@example.internal:5432/feed',
+      'export BOT_APP_PASSWORD="bot-password"',
+      "BSKY_APP_PASSWORD='bsky-password'",
+      'EXPORT_ANONYMIZATION_SALT=random-export-salt',
+      'PUBLIC_BASE_URL=https://feed.corgi.network',
+    ].join('\n');
+
+    const sanitized = sanitizeReceiptContent(content);
+
+    expect(sanitized).toContain('DATABASE_URL=[REDACTED]');
+    expect(sanitized).toContain('export BOT_APP_PASSWORD=[REDACTED]');
+    expect(sanitized).toContain('BSKY_APP_PASSWORD=[REDACTED]');
+    expect(sanitized).toContain('EXPORT_ANONYMIZATION_SALT=[REDACTED]');
+    expect(sanitized).toContain('PUBLIC_BASE_URL=https://feed.corgi.network');
+    expect(sanitized).not.toContain('db-password');
+    expect(sanitized).not.toContain('bot-password');
+    expect(sanitized).not.toContain('bsky-password');
+    expect(sanitized).not.toContain('random-export-salt');
+  });
+
+  it('redacts credential-bearing URLs outside dotenv assignments', () => {
+    const content =
+      'psql postgresql://feed:db-password@example.internal:5432/feed && redis://default:redis-password@localhost:6379';
+
+    const sanitized = sanitizeReceiptContent(content);
+
+    expect(sanitized).toContain('postgresql://[REDACTED]@example.internal:5432/feed');
+    expect(sanitized).toContain('redis://[REDACTED]@localhost:6379');
+    expect(sanitized).not.toContain('feed:db-password');
+    expect(sanitized).not.toContain('default:redis-password');
+  });
+
   it('cli --check fails on dirty receipt files and reports the path', () => {
     const receiptsRoot = mkdtempSync(path.join(tmpdir(), 'receipt-sanitize-dirty-'));
     const receiptPath = path.join(receiptsRoot, 'dirty.txt');
@@ -169,6 +203,44 @@ describe('sanitizeReceiptContent', () => {
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('Receipt sanitizer found unredacted stable identifiers');
     expect(result.stderr).toContain('dirty-json.txt');
+  });
+
+  it('cli --check fails on dotenv-style secret assignments', () => {
+    const receiptsRoot = mkdtempSync(path.join(tmpdir(), 'receipt-sanitize-env-dirty-'));
+    const receiptPath = path.join(receiptsRoot, 'dirty-env.txt');
+    writeFileSync(receiptPath, 'DATABASE_URL=postgresql://feed:db-password@example.internal/feed\n');
+
+    const result = spawnSync(process.execPath, [sanitizeScriptPath, '--check'], {
+      encoding: 'utf8',
+      env: { ...process.env, RECEIPTS_ROOT: receiptsRoot },
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Receipt sanitizer found unredacted stable identifiers');
+    expect(result.stderr).toContain('dirty-env.txt');
+  });
+
+  it('cli --check fails on dotenv-style secret assignment edge cases', () => {
+    const cases = [
+      ['empty-value.txt', 'DATABASE_URL=\n'],
+      ['inline-comment.txt', 'DATABASE_URL=secret # db\n'],
+      ['lowercase-key.txt', 'database_url=postgresql://feed:db-password@example.internal/feed\n'],
+      ['quoted-equals.txt', 'PASSWORD="pass=word"\n'],
+    ];
+
+    for (const [fileName, content] of cases) {
+      const receiptsRoot = mkdtempSync(path.join(tmpdir(), 'receipt-sanitize-env-edge-'));
+      writeFileSync(path.join(receiptsRoot, fileName), content);
+
+      const result = spawnSync(process.execPath, [sanitizeScriptPath, '--check'], {
+        encoding: 'utf8',
+        env: { ...process.env, RECEIPTS_ROOT: receiptsRoot },
+      });
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('Receipt sanitizer found unredacted stable identifiers');
+      expect(result.stderr).toContain(fileName);
+    }
   });
 
   it('cli --check respects the provider JSON id digit boundary', () => {

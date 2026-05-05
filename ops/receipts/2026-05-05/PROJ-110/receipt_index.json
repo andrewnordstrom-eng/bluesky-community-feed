@@ -1,0 +1,39 @@
+{
+  "generated_at": "2026-05-05T08:56:00Z",
+  "issue": "PROJ-110",
+  "scope": "secret exposure response, production health restoration, and repo hardening",
+  "artifacts": [
+    {
+      "path": "ops/receipts/2026-05-05/PROJ-110/secret-exposure-response.md",
+      "sha256": "dcf0970ec2a4618baa2f048734113e28367083f273d311bdcf738895d023d1ee"
+    },
+    {
+      "path": "ops/receipts/2026-05-05/PROJ-110/bluesky-community-feed-threat-model.md",
+      "sha256": "cfc352d62076f59b49e78e422a4487fb34ce61de70b14ced15491b6c2d81dc61"
+    },
+    {
+      "path": "ops/receipts/2026-05-05/PROJ-110/security-ownership-summary.json",
+      "sha256": "0a7dec23d0c3fa6ea5cc2c1d7996b1948b7e2e271b2f8324970e987aadcc65a3"
+    },
+    {
+      "path": "ops/receipts/2026-05-05/PROJ-110/security-best-practices-summary.md",
+      "sha256": "2e454b9c92b05245a00c3dbbeb3504dba46a703c15a62c0549ebf47710a92bb4"
+    },
+    {
+      "path": "ops/receipts/2026-05-05/PROJ-110/validation-summary.md",
+      "sha256": "f72244fd2ad4e4ba208b9290bed42fdb2d713dacce4b604d82c7b4fd717c5cf5"
+    }
+  ],
+  "hosted_workflow_receipts": [
+    {
+      "name": "Daily Health Check after SSH credential rotation",
+      "url": "https://github.com/andrewnordstrom-eng/bluesky-community-feed/actions/runs/25366648561",
+      "conclusion": "success"
+    },
+    {
+      "name": "Daily Health Check after Bluesky app-password revocation and env scrub",
+      "url": "https://github.com/andrewnordstrom-eng/bluesky-community-feed/actions/runs/25366964265",
+      "conclusion": "success"
+    }
+  ]
+}
