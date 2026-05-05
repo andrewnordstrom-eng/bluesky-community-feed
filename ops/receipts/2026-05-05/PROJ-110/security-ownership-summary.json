@@ -1,0 +1,33 @@
+{
+  "generated_at": "2026-05-05T08:55:03.038143+00:00",
+  "repo": "/private/tmp/proj110-bluesky-health",
+  "window": "12 months ago",
+  "orphaned_sensitive_code": [],
+  "hidden_owners": [
+    {
+      "person": "anno3007@colorado.edu",
+      "name": "AndrewNordstrom",
+      "controls": "100% of auth code",
+      "category": "auth",
+      "share": 1.0
+    }
+  ],
+  "bus_factor_hotspots": [
+    {
+      "path": "src/auth/admin.ts",
+      "bus_factor": 1,
+      "last_touch": "2026-03-07T00:24:12-07:00",
+      "sensitivity_tags": [
+        "auth"
+      ],
+      "top_owner": "anno3007@colorado.edu"
+    }
+  ],
+  "stats": {
+    "commits": 336,
+    "people": 2,
+    "files": 450,
+    "edges": 1269,
+    "cochange_edges": 443
+  }
+}

@@ -24,6 +24,18 @@ const PROVIDER_JSON_ID_REGEX =
   /((?:"(?:\w*_id|id)"|\b(?:\w*_id|id)\b)\s*:\s*)(?:"(\d{8,})"|\b(\d{8,})\b)/gi;
 const DISALLOWED_RECEIPT_REGEX =
   /(UUID=|PARTUUID=|\/dev\/disk\/by-id\/|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\b[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}\b|(\baction\s+|\/v2\/actions\/)\d{8,}\b|(?:"(?:\w*_id|id)"|\b(?:\w*_id|id)\b)\s*:\s*(?:"\d{8,}"|\b\d{8,}\b))/i;
+const SECRET_ENV_KEY_PATTERN =
+  String.raw`[A-Z0-9_]*(?:PASSWORD|TOKEN|SECRET|PRIVATE_KEY|ACCESS_KEY|API_KEY|APP_PASSWORD|ANONYMIZATION_SALT|DATABASE_URL|REDIS_URL|CONNECTION_STRING|SSH_KEY)[A-Z0-9_]*`;
+const SECRET_ENV_ASSIGNMENT_REGEX = new RegExp(
+  String.raw`^(\s*(?:export\s+)?${SECRET_ENV_KEY_PATTERN}\s*=\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\r\n]*)`,
+  'gim',
+);
+const SECRET_ENV_ASSIGNMENT_DIRTY_REGEX = new RegExp(
+  String.raw`^\s*(?:export\s+)?${SECRET_ENV_KEY_PATTERN}\s*=\s*(?!\[REDACTED\]\s*(?:$|#))(?:\"[^"\r\n]*\"|'[^'\r\n]*'|[^\r\n]+)`,
+  'im',
+);
+const CREDENTIAL_URL_REGEX = /\b([a-z][a-z0-9+.-]*:\/\/)([^:\s/@]+):([^@\s/]+)@/gi;
+const CREDENTIAL_URL_DIRTY_REGEX = /\b([a-z][a-z0-9+.-]*:\/\/)([^:\s/@]+):([^@\s/]+)@/i;
 const providerIdTokens = new Map();
 const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
 
@@ -84,6 +96,8 @@ function providerIdToken(rawValue) {
 
 export function sanitizeReceiptContent(content) {
   return content
+    .replace(SECRET_ENV_ASSIGNMENT_REGEX, '$1[REDACTED]')
+    .replace(CREDENTIAL_URL_REGEX, '$1[REDACTED]@')
     .replace(DEVICE_BY_ID_REGEX, '[REDACTED]')
     .replace(UUID_FIELD_REGEX, (_match, key) => `${key}:[REDACTED]`)
     .replace(CANONICAL_UUID_REGEX, '[REDACTED]')
@@ -93,6 +107,14 @@ export function sanitizeReceiptContent(content) {
       const rawValue = quotedValue || bareValue;
       return `${prefix}"${providerIdToken(rawValue)}"`;
     });
+}
+
+function containsDisallowedReceiptContent(content) {
+  return (
+    DISALLOWED_RECEIPT_REGEX.test(content) ||
+    SECRET_ENV_ASSIGNMENT_DIRTY_REGEX.test(content) ||
+    CREDENTIAL_URL_DIRTY_REGEX.test(content)
+  );
 }
 
 function main() {
@@ -134,11 +156,11 @@ function main() {
 
       const original = utf8Decoder.decode(originalBuffer);
       const sanitized = sanitizeReceiptContent(original);
-      const wasDirty = sanitized !== original || DISALLOWED_RECEIPT_REGEX.test(original);
+      const wasDirty = sanitized !== original || containsDisallowedReceiptContent(original);
       if (!wasDirty) {
         continue;
       }
-      if (DISALLOWED_RECEIPT_REGEX.test(sanitized)) {
+      if (containsDisallowedReceiptContent(sanitized)) {
         throw new Error('sanitized content still contains disallowed stable identifiers');
       }
 

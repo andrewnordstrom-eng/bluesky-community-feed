@@ -21,6 +21,10 @@ This document covers operational and contributor security expectations for this 
 ## Secrets and credentials
 
 - Never commit `.env`.
+- Never print a full environment file during incident response. To inspect deployed
+  key names, use a key-name-only command such as
+  `sudo awk -F= '/^[A-Za-z_][A-Za-z0-9_]*=/ {print $1}' /opt/bluesky-feed/.env`
+  and then run `npm run receipts:verify` before committing receipts.
 - Use Bluesky **app passwords** only; never use account main passwords.
 - Keep database/Redis credentials unique and strong.
 - Rotate `BSKY_APP_PASSWORD`/`BOT_APP_PASSWORD` if leaked.
