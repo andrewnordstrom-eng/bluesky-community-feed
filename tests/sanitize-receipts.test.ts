@@ -220,6 +220,29 @@ describe('sanitizeReceiptContent', () => {
     expect(result.stderr).toContain('dirty-env.txt');
   });
 
+  it('cli --check fails on dotenv-style secret assignment edge cases', () => {
+    const cases = [
+      ['empty-value.txt', 'DATABASE_URL=\n'],
+      ['inline-comment.txt', 'DATABASE_URL=secret # db\n'],
+      ['lowercase-key.txt', 'database_url=postgresql://feed:db-password@example.internal/feed\n'],
+      ['quoted-equals.txt', 'PASSWORD="pass=word"\n'],
+    ];
+
+    for (const [fileName, content] of cases) {
+      const receiptsRoot = mkdtempSync(path.join(tmpdir(), 'receipt-sanitize-env-edge-'));
+      writeFileSync(path.join(receiptsRoot, fileName), content);
+
+      const result = spawnSync(process.execPath, [sanitizeScriptPath, '--check'], {
+        encoding: 'utf8',
+        env: { ...process.env, RECEIPTS_ROOT: receiptsRoot },
+      });
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('Receipt sanitizer found unredacted stable identifiers');
+      expect(result.stderr).toContain(fileName);
+    }
+  });
+
   it('cli --check respects the provider JSON id digit boundary', () => {
     const cleanReceiptsRoot = mkdtempSync(path.join(tmpdir(), 'receipt-sanitize-boundary-clean-'));
     writeFileSync(path.join(cleanReceiptsRoot, 'safe-json.txt'), '{"id":"1234567"}\n');

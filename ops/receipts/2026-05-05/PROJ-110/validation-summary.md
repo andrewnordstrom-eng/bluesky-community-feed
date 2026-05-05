@@ -12,6 +12,12 @@ Date: 2026-05-05
 - `npm run build`: passed.
 - `npm audit --audit-level=moderate`: passed, `0` vulnerabilities.
 - `npm test -- --run` with non-secret dummy test env and normal localhost bind permissions: passed, `70` test files and `472` tests.
+- `cd web && npm run lint`: passed after the axios update.
+- `cd web && npm run build`: passed after the axios update.
+- `cd web && npm audit --audit-level=moderate`: passed after the axios update, `0` vulnerabilities.
+- `.github/workflows/daily-health.yml`: static inspection confirms
+  `VPS_SSH_HOST_KEY` is validated as required and `StrictHostKeyChecking=yes` is
+  always used for SSH health probes.
 
 ## Hosted Validation
 

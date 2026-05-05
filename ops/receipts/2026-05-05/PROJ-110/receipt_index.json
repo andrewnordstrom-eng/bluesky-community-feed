@@ -5,7 +5,7 @@
   "artifacts": [
     {
       "path": "ops/receipts/2026-05-05/PROJ-110/secret-exposure-response.md",
-      "sha256": "5ea16acc6128a39099aead86bce8829da040002ab69394430e75482c07d25cd7"
+      "sha256": "dcf0970ec2a4618baa2f048734113e28367083f273d311bdcf738895d023d1ee"
     },
     {
       "path": "ops/receipts/2026-05-05/PROJ-110/bluesky-community-feed-threat-model.md",
@@ -13,15 +13,15 @@
     },
     {
       "path": "ops/receipts/2026-05-05/PROJ-110/security-ownership-summary.json",
-      "sha256": "2aca61f34bc30363bfe2c5ca668ba89d278c12a2eb25a023177b71020aaa6708"
+      "sha256": "0a7dec23d0c3fa6ea5cc2c1d7996b1948b7e2e271b2f8324970e987aadcc65a3"
     },
     {
       "path": "ops/receipts/2026-05-05/PROJ-110/security-best-practices-summary.md",
-      "sha256": "3ad590569cde1ab29c44d08c349a017726f80f0db725a17909765d96701f10c7"
+      "sha256": "2e454b9c92b05245a00c3dbbeb3504dba46a703c15a62c0549ebf47710a92bb4"
     },
     {
       "path": "ops/receipts/2026-05-05/PROJ-110/validation-summary.md",
-      "sha256": "1a8226d74fb40c1847548a793e59adc7dc05671c2e23fe2b01eeed861f33a532"
+      "sha256": "f72244fd2ad4e4ba208b9290bed42fdb2d713dacce4b604d82c7b4fd717c5cf5"
     }
   ],
   "hosted_workflow_receipts": [

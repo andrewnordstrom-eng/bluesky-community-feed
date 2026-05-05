@@ -19,6 +19,9 @@ The following were also hardened because the service health gate was already red
 - GitHub Actions `VPS_SSH_KEY`: replaced with a fresh repo-level SSH key.
 - GitHub Actions `VPS_SSH_HOST_KEY`: added so health checks use pinned host-key
   verification instead of first-use trust.
+- `.github/workflows/daily-health.yml`: hardened so `VPS_SSH_HOST_KEY` is a
+  required secret and the health workflow always uses
+  `StrictHostKeyChecking=yes`.
 
 No raw secret values were intentionally recorded in this receipt.
 
@@ -76,3 +79,5 @@ No raw secret values were intentionally recorded in this receipt.
   exposure pattern.
 - `docs/SECURITY.md` now instructs operators to inspect deployed env key names
   only and run receipt verification before committing evidence.
+- `.github/workflows/daily-health.yml` now fails validation when
+  `VPS_SSH_HOST_KEY` is missing instead of falling back to `accept-new`.

@@ -23,6 +23,7 @@ jobs:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_SSH_HOST_KEY: ${{ secrets.VPS_SSH_HOST_KEY }}
         run: |
           missing=0
           if [ -z "${DATABASE_URL:-}" ]; then
@@ -41,6 +42,10 @@ jobs:
             echo "::error title=Missing secret::Required repository secret VPS_SSH_KEY is not set. Add it in Settings -> Secrets and variables -> Actions."
             missing=1
           fi
+          if [ -z "${VPS_SSH_HOST_KEY:-}" ]; then
+            echo "::error title=Missing secret::Required repository secret VPS_SSH_HOST_KEY is not set. Add it in Settings -> Secrets and variables -> Actions."
+            missing=1
+          fi
           if [ "$missing" -ne 0 ]; then
             exit 1
           fi
@@ -55,13 +60,9 @@ jobs:
           chmod 700 "$HOME/.ssh"
           printf '%s\n' "${VPS_SSH_KEY}" > "$HOME/.ssh/id_ed25519"
           chmod 600 "$HOME/.ssh/id_ed25519"
-          if [ -n "${VPS_SSH_HOST_KEY:-}" ]; then
-            printf '%s\n' "${VPS_SSH_HOST_KEY}" > "$HOME/.ssh/known_hosts"
-            chmod 644 "$HOME/.ssh/known_hosts"
-            echo "SSH_STRICT_OPTS=-o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts" >> "$GITHUB_ENV"
-          else
-            echo "SSH_STRICT_OPTS=-o StrictHostKeyChecking=accept-new" >> "$GITHUB_ENV"
-          fi
+          printf '%s\n' "${VPS_SSH_HOST_KEY}" > "$HOME/.ssh/known_hosts"
+          chmod 644 "$HOME/.ssh/known_hosts"
+          echo "SSH_STRICT_OPTS=-o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts" >> "$GITHUB_ENV"
 
       - name: Check epoch status on VPS
         env:
