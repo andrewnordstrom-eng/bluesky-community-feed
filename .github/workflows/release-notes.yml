@@ -10,4 +10,4 @@ permissions:
 
 jobs:
   release-notes:
-    uses: andrewnordstrom-eng/.github-public/.github/workflows/release-notes.yml@3aaa6ed6e1feef3410e1c5bbdbfa669d43ca39db
+    uses: andrewnordstrom-eng/.github-public/.github/workflows/release-notes.yml@50211138be3f46fcc71f51aca669a3bced13de17
