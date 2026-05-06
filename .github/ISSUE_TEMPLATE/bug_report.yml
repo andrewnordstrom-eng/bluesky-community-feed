@@ -1,0 +1,33 @@
+name: Bug Report
+description: Report a defect with reproducible steps.
+title: "[Bug]: "
+labels: [bug, needs-triage]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What is broken and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction Steps
+      description: Step-by-step instructions to reproduce.
+    validations:
+      required: true
+  - type: input
+    id: impact
+    attributes:
+      label: Impact
+      description: User/system impact (low/medium/high).
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      description: Conditions that must be true when fixed.
+    validations:
+      required: true
