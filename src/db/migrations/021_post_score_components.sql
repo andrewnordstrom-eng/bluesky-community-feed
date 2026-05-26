@@ -26,10 +26,9 @@ CREATE TABLE IF NOT EXISTS post_score_components (
     PRIMARY KEY (post_uri, epoch_id, component_key)
 );
 
--- Hot lookup: "give me every component's score for this post at this epoch"
--- (used by transparency/post-explain.ts and counterfactual.ts in PROJ-817).
-CREATE INDEX IF NOT EXISTS idx_psc_post ON post_score_components(post_uri, epoch_id);
-
 -- Aggregation lookup: "give me every post's value for this component at this epoch"
 -- (used by feed-stats.ts and audit-analysis.ts in PROJ-817).
+-- The "post + epoch" lookup pattern is served by the PRIMARY KEY (which is itself
+-- a btree on (post_uri, epoch_id, component_key) whose leading columns cover the
+-- (post_uri, epoch_id) prefix), so no secondary index is needed for that path.
 CREATE INDEX IF NOT EXISTS idx_psc_epoch_key ON post_score_components(epoch_id, component_key);
