@@ -12,6 +12,7 @@ import { logger } from '../lib/logger.js';
 import { config } from '../config.js';
 import { aggregateVotes, aggregateContentVotes, aggregateTopicWeights } from './aggregation.js';
 import { GovernanceWeights, weightsToVotePayload, ContentRules } from './governance.types.js';
+import { writeEpochWeights } from './weight-longtable.js';
 import { postAnnouncementSafe } from '../bot/safe-poster.js';
 import { invalidateContentRulesCache } from './content-filter.js';
 import { runScoringPipeline } from '../scoring/pipeline.js';
@@ -343,6 +344,13 @@ export async function closeCurrentEpochAndCreateNext(): Promise<number> {
 
     const newEpochId = newEpoch.rows[0].id;
 
+    // 5b. Dual-write the per-component weights into governance_epoch_weights
+    // (PROJ-815 / P2). Wide columns remain authoritative through P4; the long
+    // table converges via this dual-write plus the backfill script.
+    if (config.GOVERNANCE_LONGTABLE_DUALWRITE_ENABLED) {
+      await writeEpochWeights(client, newEpochId, newWeights);
+    }
+
     // 6. Audit log - epoch closed
     const oldWeights: GovernanceWeights = {
       recency: currentEpoch.recency_weight,
@@ -594,6 +602,13 @@ export async function forceEpochTransition(): Promise<number> {
     );
 
     const newEpochId = newEpoch.rows[0].id;
+
+    // 5b. Dual-write the per-component weights into governance_epoch_weights
+    // (PROJ-815 / P2). Same eventual-consistency contract as the non-forced
+    // transition path above.
+    if (config.GOVERNANCE_LONGTABLE_DUALWRITE_ENABLED) {
+      await writeEpochWeights(client, newEpochId, newWeights);
+    }
 
     // 6. Audit log - epoch closed
     const oldWeights: GovernanceWeights = {
