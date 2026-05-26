@@ -212,4 +212,102 @@ describe('scoring pipeline long-table dual-write (PROJ-814)', () => {
     expect(sql).toMatch(/weighted = EXCLUDED\.weighted/);
     expect(sql).toMatch(/scored_at = NOW\(\)/);
   });
+
+  it('skips the long-table write when there are no candidate posts to score', async () => {
+    // No posts in the scoring window → storeScore is never called → no
+    // long-table INSERT, even though the dual-write flag is on.
+    dbQueryMock
+      .mockResolvedValueOnce({ rows: [buildEpochRow({ id: 1 })] }) // getActiveEpoch
+      .mockResolvedValueOnce({ rows: [] })                          // getPostsForScoring (empty)
+      .mockResolvedValueOnce({ rows: [] })                          // writeToRedisFromDb
+      .mockResolvedValueOnce({ rows: [] });                         // updateCurrentRunScope
+
+    await runScoringPipeline();
+
+    expect(findCall('INSERT INTO post_scores')).toBeUndefined();
+    expect(findCall('INSERT INTO post_score_components')).toBeUndefined();
+  });
+
+  it('issues exactly one long-table INSERT per scored post', async () => {
+    // Score 3 posts; expect 3 wide-INSERT calls and 3 long-INSERT calls
+    // (one batched VALUES INSERT per post, each carrying N component rows).
+    const postRows = [
+      buildPostRow({ uri: 'at://did:plc:test/post/count-1' }),
+      buildPostRow({ uri: 'at://did:plc:test/post/count-2' }),
+      buildPostRow({ uri: 'at://did:plc:test/post/count-3' }),
+    ];
+
+    dbQueryMock
+      .mockResolvedValueOnce({ rows: [buildEpochRow({ id: 1 })] }) // getActiveEpoch
+      .mockResolvedValueOnce({ rows: postRows })                    // getPostsForScoring
+      // For each post: bridging engager query, wide INSERT, long INSERT.
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      // writeToRedisFromDb + updateCurrentRunScope
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await runScoringPipeline();
+
+    const wideCount = dbQueryMock.mock.calls.filter((c: unknown[]) =>
+      String(c[0]).includes('INSERT INTO post_scores')
+    ).length;
+    const longCount = dbQueryMock.mock.calls.filter((c: unknown[]) =>
+      String(c[0]).includes('INSERT INTO post_score_components')
+    ).length;
+
+    expect(wideCount).toBe(3);
+    expect(longCount).toBe(3);
+  });
+
+  it('continues the scoring loop when the long-table INSERT throws', async () => {
+    // Long-table failure must not crash the pipeline. The wide row should have
+    // been written for the failing post (storeScore writes wide first), and
+    // subsequent posts should still process. This is the documented eventual-
+    // consistency contract: backfill or the next cycle converges the gap.
+    const failPost = buildPostRow({ uri: 'at://did:plc:test/post/long-fails' });
+    const okPost = buildPostRow({ uri: 'at://did:plc:test/post/long-ok' });
+
+    dbQueryMock.mockImplementation(async (sql: unknown, _params?: unknown[]) => {
+      const text = String(sql);
+      if (text.includes('FROM governance_epochs') || text.includes('WHERE status')) {
+        return { rows: [buildEpochRow({ id: 1 })] };
+      }
+      if (text.includes('FROM posts p') && text.includes('LEFT JOIN post_engagement')) {
+        return { rows: [failPost, okPost] };
+      }
+      if (text.includes('INSERT INTO post_score_components')) {
+        // Fail only the first long-table write; succeed on the second.
+        const longCount = dbQueryMock.mock.calls.filter((c: unknown[]) =>
+          String(c[0]).includes('INSERT INTO post_score_components')
+        ).length;
+        if (longCount === 1) {
+          throw new Error('simulated long-table INSERT failure');
+        }
+        return { rows: [] };
+      }
+      return { rows: [] };
+    });
+
+    await expect(runScoringPipeline()).resolves.toBeUndefined();
+
+    // Both posts should have had a wide-row INSERT attempted.
+    const wideInserts = dbQueryMock.mock.calls.filter((c: unknown[]) =>
+      String(c[0]).includes('INSERT INTO post_scores')
+    );
+    expect(wideInserts.length).toBe(2);
+
+    // Both long-table INSERT attempts happen; one threw, the loop continued.
+    const longInserts = dbQueryMock.mock.calls.filter((c: unknown[]) =>
+      String(c[0]).includes('INSERT INTO post_score_components')
+    );
+    expect(longInserts.length).toBe(2);
+  });
 });
