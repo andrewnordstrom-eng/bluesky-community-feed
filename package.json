@@ -24,9 +24,14 @@
     "backfill-topics": "tsx scripts/backfill-topics.ts",
     "report:pdf": "python3 scripts/generate-report-pdf.py",
     "build:mcp-local": "if [ -f src/mcp-local/tsconfig.json ]; then cd src/mcp-local && npx tsc -p tsconfig.json; else echo 'src/mcp-local not present; skipping build:mcp-local'; fi",
-    "verify": "npm run build && npm test -- --run && npm run cli:build && npm run build:mcp-local && cd web && npm run lint && npm run build",
+    "sdk:build": "cd packages/feed-sdk && tsc -p tsconfig.json",
+    "sdk:clean": "cd packages/feed-sdk && rm -rf dist",
+    "verify": "npm run build && npm test -- --run && npm run cli:build && npm run build:mcp-local && npm run sdk:build && cd web && npm run lint && npm run build",
     "prepare": "husky"
   },
+  "workspaces": [
+    "packages/*"
+  ],
   "dependencies": {
     "@atproto/api": "^0.19.13",
     "@atproto/crypto": "^0.4.0",
