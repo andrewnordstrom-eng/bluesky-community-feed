@@ -226,11 +226,21 @@ async function backfillTable(
 async function main(): Promise<void> {
   const args = parseArgs();
 
+  // Require DATABASE_URL explicitly. The pg Pool would otherwise silently
+  // fall back to PGHOST/PGUSER/PGDATABASE env vars (or localhost defaults),
+  // which is dangerous in a backfill context — a typo could rewrite a
+  // local dev DB or fail with a cryptic connection error.
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    console.error('DATABASE_URL is required. Set it in .env or your shell.');
+    process.exit(2);
+  }
+
   console.log(
     `Backfill governance weights: batchSize=${args.batchSize}, table=${args.table}, limit=${args.limit ?? 'none'}, dryRun=${args.dryRun}`
   );
 
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const pool = new Pool({ connectionString });
 
   try {
     let epochStats: BackfillStats | null = null;

@@ -176,6 +176,45 @@ describe('governance long-table dual-write (PROJ-815)', () => {
       });
       expect(findCall('INSERT INTO governance_vote_weights')).toBeUndefined();
     });
+
+    it('propagates db.query errors instead of swallowing them', async () => {
+      // The caller (routes/vote.ts) is responsible for the
+      // logger.warn-and-continue eventual-consistency behavior; the helper
+      // itself must surface failures so callers can decide whether to swallow.
+      dbQueryMock.mockReset();
+      dbQueryMock.mockRejectedValueOnce(new Error('db connection lost'));
+
+      await expect(
+        writeVoteWeights('vote-uuid-err', {
+          recency: 0.2,
+          engagement: 0.2,
+          bridging: 0.2,
+          sourceDiversity: 0.2,
+          relevance: 0.2,
+        })
+      ).rejects.toThrow('db connection lost');
+    });
+  });
+
+  describe('writeEpochWeights error propagation', () => {
+    it('propagates client.query errors so the outer transaction can roll back', async () => {
+      // Epoch dual-write runs inside an existing BEGIN/COMMIT block in
+      // epoch-manager.ts. If the long-table INSERT throws, the helper must
+      // surface it so the surrounding transaction rolls back atomically.
+      const failingClient = {
+        query: vi.fn().mockRejectedValueOnce(new Error('long-table insert failed')),
+      } as unknown as Parameters<typeof writeEpochWeights>[0];
+
+      await expect(
+        writeEpochWeights(failingClient, 7, {
+          recency: 0.2,
+          engagement: 0.2,
+          bridging: 0.2,
+          sourceDiversity: 0.2,
+          relevance: 0.2,
+        })
+      ).rejects.toThrow('long-table insert failed');
+    });
   });
 
   describe('aggregateVotes read-flag branch', () => {
@@ -267,6 +306,24 @@ describe('governance long-table dual-write (PROJ-815)', () => {
       for (const key of ['recency', 'engagement', 'bridging', 'sourceDiversity', 'relevance'] as const) {
         expect(longResult![key]).toBeCloseTo(wideResult![key], 9);
       }
+    });
+
+    it('returns null on empty-input wide path', async () => {
+      configMock.GOVERNANCE_LONGTABLE_READ_ENABLED = false;
+      dbQueryMock.mockResolvedValueOnce({ rows: [{ count: 0 }] }); // keyword-only count
+      dbQueryMock.mockResolvedValueOnce({ rows: [] });              // wide votes query
+
+      const result = await aggregateVotes(99);
+      expect(result).toBeNull();
+    });
+
+    it('returns null on empty-input long path (parity with wide)', async () => {
+      configMock.GOVERNANCE_LONGTABLE_READ_ENABLED = true;
+      dbQueryMock.mockResolvedValueOnce({ rows: [{ count: 0 }] }); // keyword-only count
+      dbQueryMock.mockResolvedValueOnce({ rows: [] });              // long votes query
+
+      const result = await aggregateVotes(99);
+      expect(result).toBeNull();
     });
 
     it('excludes votes missing any component (long-path filter parity)', async () => {
