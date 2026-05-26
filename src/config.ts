@@ -57,6 +57,14 @@ const ConfigSchema = z.object({
   SCORING_CANDIDATE_LIMIT: z.coerce.number().min(100).default(5_000),
   SCORING_TIMEOUT_MS: z.coerce.number().min(30_000).default(240_000),
   FEED_MAX_POSTS: z.coerce.number().default(1000),
+  /**
+   * Dual-write post score decomposition into the long-table post_score_components
+   * (migration 021) in addition to the wide columns in post_scores. Default on once
+   * shipped; turned off only for incident response. Removed entirely in PROJ-819 (P5)
+   * after the wide columns are dropped. See PROJ-814 for the packet that introduced
+   * this flag.
+   */
+  SCORE_LONGTABLE_DUALWRITE_ENABLED: zodEnvBool(true),
 
   // Topic embedding classifier
   /** Enable semantic embedding classifier at ingestion time. */
