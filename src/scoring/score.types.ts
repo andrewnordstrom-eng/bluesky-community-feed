@@ -5,17 +5,17 @@
  * These types enforce the GOLDEN RULE: always store raw, weight, AND weighted values.
  */
 
+import type { GovernanceWeights } from '../shared/api-types.js';
+
 /**
- * The five scoring components.
- * Each value should be normalized to 0.0-1.0 range.
+ * Per-component score map: `Record<componentKey, value 0..1>`. Was a 5-field
+ * interface before PROJ-816; now reuses the registry-driven shape from
+ * GovernanceWeights so the type contract no longer fossilizes a 5-component
+ * assumption. The 5 production keys (recency, engagement, bridging,
+ * sourceDiversity, relevance) are validated at runtime via
+ * `REGISTERED_COMPONENT_KEYS` in src/scoring/registry.ts.
  */
-export interface ScoreComponents {
-  recency: number;
-  engagement: number;
-  bridging: number;
-  sourceDiversity: number;
-  relevance: number;
-}
+export type ScoreComponents = GovernanceWeights;
 
 /**
  * Complete score decomposition for a post.
@@ -45,15 +45,18 @@ export interface ScoredPost {
 /**
  * Governance epoch with weights.
  * Represents the current algorithm configuration.
+ *
+ * PROJ-816: the 5 named `*Weight: number` fields were replaced with a single
+ * `weights: GovernanceWeights` map keyed by registered component_key. Today
+ * the live registry still produces 5 keys (recency, engagement, bridging,
+ * sourceDiversity, relevance); the shape change is what unblocks future
+ * additions. PROJ-817 (P4) flips `toGovernanceEpoch` to read from the
+ * `governance_epoch_weights` long table when the flag is on.
  */
 export interface GovernanceEpoch {
   id: number;
   status: 'active' | 'voting' | 'closed';
-  recencyWeight: number;
-  engagementWeight: number;
-  bridgingWeight: number;
-  sourceDiversityWeight: number;
-  relevanceWeight: number;
+  weights: GovernanceWeights;
   voteCount: number;
   createdAt: Date;
   closedAt: Date | null;
@@ -87,16 +90,23 @@ export interface PostForScoring {
 
 /**
  * Convert snake_case DB row to camelCase GovernanceEpoch.
+ *
+ * PROJ-816: projects the 5 wide weight columns into `weights` as a Record map.
+ * PROJ-817 (P4) is responsible for the flag-gated long-table source switch
+ * (which requires async DB access and is therefore done at the query layer,
+ * not in this synchronous row-to-object helper).
  */
 export function toGovernanceEpoch(row: Record<string, unknown>): GovernanceEpoch {
   return {
     id: row.id as number,
     status: row.status as 'active' | 'voting' | 'closed',
-    recencyWeight: row.recency_weight as number,
-    engagementWeight: row.engagement_weight as number,
-    bridgingWeight: row.bridging_weight as number,
-    sourceDiversityWeight: row.source_diversity_weight as number,
-    relevanceWeight: row.relevance_weight as number,
+    weights: {
+      recency: row.recency_weight as number,
+      engagement: row.engagement_weight as number,
+      bridging: row.bridging_weight as number,
+      sourceDiversity: row.source_diversity_weight as number,
+      relevance: row.relevance_weight as number,
+    },
     voteCount: row.vote_count as number,
     createdAt: new Date(row.created_at as string),
     closedAt: row.closed_at ? new Date(row.closed_at as string) : null,

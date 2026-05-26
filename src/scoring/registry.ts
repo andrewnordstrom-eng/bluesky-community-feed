@@ -34,6 +34,18 @@ export const DEFAULT_COMPONENTS: readonly ScoringComponent[] = [
 ];
 
 /**
+ * The canonical set of registered component keys.
+ *
+ * PROJ-816: surfaced as a Set so the vote route and other callers can do O(1)
+ * runtime validation of incoming component keys. Pairs with the type widening
+ * of `GovernanceWeightKey` from a literal union to `string` — keys are now
+ * validated at runtime rather than at compile time.
+ */
+export const REGISTERED_COMPONENT_KEYS: ReadonlySet<string> = new Set(
+  DEFAULT_COMPONENTS.map((c) => c.key)
+);
+
+/**
  * Validate that the registry is consistent with votable-params.
  * Throws if a component key is missing from votable-params or vice versa.
  * Called at module load to catch drift immediately.
