@@ -44,10 +44,22 @@ interface CliArgs {
   table: TargetTable;
 }
 
+/** Parse a positive integer CLI value, exiting with a clear error on bad input.
+ *
+ * `Number.parseInt` is intentionally lenient: it accepts `"10foo"` (returns 10),
+ * `"1.5"` (returns 1), `"2e3"` (returns 2), etc. by stopping at the first
+ * non-numeric character. We pre-reject anything that isn't purely digits so the
+ * validator actually catches typos and malformed flags. */
 function parsePositiveInt(flag: string, raw: string, opts: { min?: number } = {}): number {
-  const value = Number.parseInt(raw, 10);
   const min = opts.min ?? 1;
-  if (!Number.isFinite(value) || Number.isNaN(value) || value < min) {
+  if (!/^\d+$/.test(raw)) {
+    console.error(
+      `Invalid value for ${flag}: ${JSON.stringify(raw)} — expected a positive integer.`
+    );
+    process.exit(2);
+  }
+  const value = Number.parseInt(raw, 10);
+  if (!Number.isFinite(value) || value < min) {
     console.error(
       `Invalid value for ${flag}: ${JSON.stringify(raw)} — expected an integer >= ${min}.`
     );
