@@ -194,6 +194,70 @@ describe('governance long-table dual-write (PROJ-815)', () => {
         })
       ).rejects.toThrow('db connection lost');
     });
+
+    it('accepts boundary weights at exactly 0 and 1 (CHECK boundary parity)', async () => {
+      // The long table's CHECK (weight >= 0 AND weight <= 1) is inclusive on
+      // both ends. The writer must not silently filter out exact 0 or 1 — those
+      // are legal values and a future "civility" component could plausibly emit
+      // a 0 weight if it has no opinion.
+      await writeVoteWeights('vote-uuid-boundary', {
+        recency: 0,
+        engagement: 1,
+        bridging: 0.0,
+        sourceDiversity: 1.0,
+        relevance: 0.5,
+      });
+
+      const call = findCall('INSERT INTO governance_vote_weights');
+      expect(call).toBeDefined();
+      const params = call![1] as unknown[];
+      expect(params.length).toBe(5 * 3);
+
+      // Spot-check the actual values appear in the parameter list, not silently dropped.
+      const weights = params.filter((_, i) => i % 3 === 2);
+      expect(weights).toEqual(expect.arrayContaining([0, 1, 0.0, 1.0, 0.5]));
+    });
+
+    it('does not leak parameters between concurrent writeVoteWeights calls', async () => {
+      // Concurrent writers must each see their own vote_id and weight set in
+      // the INSERT — the helper builds parameter arrays per-call and should
+      // not share state. Run two writes in parallel and verify each call's
+      // parameter list carries only its own vote_id.
+      dbQueryMock.mockReset();
+      dbQueryMock.mockResolvedValue({ rows: [] });
+
+      await Promise.all([
+        writeVoteWeights('vote-concurrent-A', {
+          recency: 0.5,
+          engagement: 0.5,
+          bridging: 0,
+          sourceDiversity: 0,
+          relevance: 0,
+        }),
+        writeVoteWeights('vote-concurrent-B', {
+          recency: 0,
+          engagement: 0,
+          bridging: 0.3,
+          sourceDiversity: 0.3,
+          relevance: 0.4,
+        }),
+      ]);
+
+      const longCalls = dbQueryMock.mock.calls.filter((c: unknown[]) =>
+        String(c[0]).includes('INSERT INTO governance_vote_weights')
+      );
+      expect(longCalls.length).toBe(2);
+
+      // Each call's vote_id parameters (positions 0, 3, 6, …) should be only one of the two ids.
+      for (const [, params] of longCalls) {
+        const voteIds = (params as unknown[]).filter((_, i) => i % 3 === 0);
+        const unique = new Set(voteIds);
+        expect(unique.size).toBe(1);
+        expect(['vote-concurrent-A', 'vote-concurrent-B']).toContain(
+          [...unique][0]
+        );
+      }
+    });
   });
 
   describe('writeEpochWeights error propagation', () => {
