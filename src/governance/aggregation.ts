@@ -6,6 +6,7 @@
  */
 
 import { db } from '../db/client.js';
+import { config } from '../config.js';
 import { GOVERNANCE_WEIGHT_VOTE_FIELDS, VOTABLE_WEIGHT_PARAMS } from '../config/votable-params.js';
 import { logger } from '../lib/logger.js';
 import { GovernanceWeights, normalizeWeights, ContentRules, emptyContentRules } from './governance.types.js';
@@ -49,19 +50,29 @@ export async function aggregateVotes(epochId: number): Promise<GovernanceWeights
     [epochId]
   );
 
-  const votes = await db.query(
-    `SELECT recency_weight, engagement_weight, bridging_weight,
-            source_diversity_weight, relevance_weight
-     FROM governance_votes
-     WHERE epoch_id = $1
-       AND recency_weight IS NOT NULL
-       AND engagement_weight IS NOT NULL
-       AND bridging_weight IS NOT NULL
-       AND source_diversity_weight IS NOT NULL
-       AND relevance_weight IS NOT NULL
-     ORDER BY voted_at`,
-    [epochId]
-  );
+  // Read the per-vote weight rows. Two source paths share the same downstream
+  // shape (one object per vote with the 5 *_weight keys), gated by the
+  // PROJ-815 read flag.
+  //
+  // Wide path (default): SELECT the 5 named columns from governance_votes.
+  // Long path: pivot governance_vote_weights into the same shape in JS so the
+  // trim/mean logic below stays unchanged. The flag flips to on in PROJ-817
+  // (P4) after parity tests across every consumer pass.
+  const votes = config.GOVERNANCE_LONGTABLE_READ_ENABLED
+    ? await fetchWeightVotesFromLongTable(epochId)
+    : await db.query(
+        `SELECT recency_weight, engagement_weight, bridging_weight,
+                source_diversity_weight, relevance_weight
+         FROM governance_votes
+         WHERE epoch_id = $1
+           AND recency_weight IS NOT NULL
+           AND engagement_weight IS NOT NULL
+           AND bridging_weight IS NOT NULL
+           AND source_diversity_weight IS NOT NULL
+           AND relevance_weight IS NOT NULL
+         ORDER BY voted_at`,
+        [epochId]
+      );
 
   const n = votes.rows.length;
   const keywordOnlyVoteCount = keywordOnlyVotesResult.rows[0]?.count ?? 0;
@@ -123,6 +134,73 @@ export async function aggregateVotes(epochId: number): Promise<GovernanceWeights
   logger.info({ epochId, aggregated: normalized }, 'Vote aggregation complete');
 
   return normalized;
+}
+
+/**
+ * Long-table read path for aggregateVotes (PROJ-815 / P2).
+ *
+ * Pivots governance_vote_weights (one row per vote × component_key) into the
+ * same per-vote wide-shape that the SELECT-from-governance_votes path returns,
+ * so the trim/mean logic in aggregateVotes can stay component-agnostic.
+ *
+ * The "ALL 5 components present" filter from the wide path becomes
+ * "vote has rows for every registered weight key" here; votes missing any
+ * component are excluded (mirrors `recency_weight IS NOT NULL AND …` semantics).
+ *
+ * Gated by GOVERNANCE_LONGTABLE_READ_ENABLED. Off by default in this packet;
+ * flipped to true in PROJ-817 (P4) once parity tests pass across all consumers.
+ */
+async function fetchWeightVotesFromLongTable(
+  epochId: number
+): Promise<{ rows: Array<Record<string, number>> }> {
+  const result = await db.query<{
+    vote_id: string;
+    component_key: string;
+    weight: number;
+  }>(
+    `SELECT gvw.vote_id, gvw.component_key, gvw.weight
+     FROM governance_vote_weights gvw
+     JOIN governance_votes gv ON gv.id = gvw.vote_id
+     WHERE gv.epoch_id = $1
+     ORDER BY gv.voted_at, gvw.component_key`,
+    [epochId]
+  );
+
+  // Pivot into per-vote rows keyed by component_key. We use Map (instead of
+  // an object) to preserve the voted_at insertion order from the SQL ORDER BY
+  // — the trimmed-mean computation doesn't depend on it but downstream callers
+  // assume "ORDER BY voted_at" is stable.
+  const perVote = new Map<string, Record<string, number>>();
+  for (const row of result.rows) {
+    const existing = perVote.get(row.vote_id);
+    if (existing) {
+      existing[row.component_key] = row.weight;
+    } else {
+      perVote.set(row.vote_id, { [row.component_key]: row.weight });
+    }
+  }
+
+  // Project to the wide-column shape consumers expect. Drop votes that don't
+  // have a value for every registered component (the long-path equivalent of
+  // "IS NOT NULL" on each of the 5 wide columns in the SQL above).
+  const requiredKeys = VOTABLE_WEIGHT_PARAMS.map((p) => p.key);
+  const rows: Array<Record<string, number>> = [];
+  for (const [, partial] of perVote) {
+    if (requiredKeys.some((key) => partial[key] === undefined)) {
+      continue;
+    }
+    // Translate camelCase keys (component_key as stored) to the snake_case
+    // `_weight` field names the existing trim/mean loop reads. After PROJ-816
+    // (P3) makes the in-memory shape `Record<>`-based, this translation goes
+    // away.
+    const wideShape: Record<string, number> = {};
+    for (const param of VOTABLE_WEIGHT_PARAMS) {
+      wideShape[param.voteField] = partial[param.key];
+    }
+    rows.push(wideShape);
+  }
+
+  return { rows };
 }
 
 /**

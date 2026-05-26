@@ -75,6 +75,23 @@ const ConfigSchema = z.object({
   // Governance
   GOVERNANCE_MIN_VOTES: z.coerce.number().default(5),
   GOVERNANCE_PERIOD_HOURS: z.coerce.number().default(168),
+  /**
+   * Dual-write governance epoch and vote weights into the long-table side tables
+   * (governance_epoch_weights / governance_vote_weights from migration 022) in
+   * addition to the wide weight columns. Default on once shipped; turned off
+   * only for incident response. Removed entirely in PROJ-819 (P5) after the
+   * wide columns are dropped. See PROJ-815 for the packet that introduced this
+   * flag.
+   */
+  GOVERNANCE_LONGTABLE_DUALWRITE_ENABLED: zodEnvBool(true),
+  /**
+   * Read the trimmed-mean aggregation input from governance_vote_weights
+   * instead of the 5 wide weight columns. Default off in PROJ-815 (P2);
+   * flipped to true at the end of PROJ-817 (P4) once parity tests are green
+   * across every consumer. See PROJ-815 for the packet that introduced this
+   * flag.
+   */
+  GOVERNANCE_LONGTABLE_READ_ENABLED: zodEnvBool(false),
 
   // Bluesky API
   BSKY_IDENTIFIER: z.string(),
