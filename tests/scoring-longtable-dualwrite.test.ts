@@ -21,6 +21,7 @@ const {
   getCurrentContentRulesMock,
   hasActiveContentRulesMock,
   updateScoringStatusMock,
+  loggerErrorMock,
   configMock,
 } = vi.hoisted(() => ({
   dbQueryMock: vi.fn(),
@@ -32,6 +33,7 @@ const {
   getCurrentContentRulesMock: vi.fn(),
   hasActiveContentRulesMock: vi.fn(),
   updateScoringStatusMock: vi.fn(),
+  loggerErrorMock: vi.fn(),
   configMock: {
     SCORING_WINDOW_HOURS: 48,
     FEED_MAX_POSTS: 300,
@@ -73,7 +75,7 @@ vi.mock('../src/lib/logger.js', () => ({
   logger: {
     info: vi.fn(),
     warn: vi.fn(),
-    error: vi.fn(),
+    error: loggerErrorMock,
     debug: vi.fn(),
   },
 }));
@@ -309,5 +311,20 @@ describe('scoring pipeline long-table dual-write (PROJ-814)', () => {
       String(c[0]).includes('INSERT INTO post_score_components')
     );
     expect(longInserts.length).toBe(2);
+
+    // Error-logging contract: scoreAllPosts logs each scoring failure via
+    // logger.error (see pipeline.ts "Failed to score post"). Lock in that the
+    // simulated long-table failure produced exactly one such error log so a
+    // future refactor that swallows the log silently is caught here.
+    const failureLogs = loggerErrorMock.mock.calls.filter((call: unknown[]) => {
+      const arg = call[0] as { err?: unknown } | undefined;
+      return (
+        arg !== undefined &&
+        typeof arg === 'object' &&
+        'err' in arg &&
+        String(call[1]).includes('Failed to score post')
+      );
+    });
+    expect(failureLogs.length).toBe(1);
   });
 });
