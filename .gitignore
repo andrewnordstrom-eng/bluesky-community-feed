@@ -71,3 +71,7 @@ data/exports/
 /TASKING.md
 /Prompts/
 /copilot-instructions.md
+
+# Local agent overlays
+/.agent-admission/
+/.githooks/
