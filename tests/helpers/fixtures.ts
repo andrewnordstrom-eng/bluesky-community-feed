@@ -33,18 +33,23 @@ export function buildPost(overrides?: Partial<PostForScoring>): PostForScoring {
 }
 
 /**
- * Build a GovernanceEpoch with equal weights (0.2 each).
- * All fields can be overridden via the overrides parameter.
+ * Build a GovernanceEpoch with equal weights (0.2 each across the default
+ * 5-component registry).
+ *
+ * PROJ-816: weights moved from 5 named fields into a `weights: Record<>` map.
+ * Pass `{ weights: { recency: 0.5, ... } }` in overrides to vary weights.
  */
 export function buildEpoch(overrides?: Partial<GovernanceEpoch>): GovernanceEpoch {
   return {
     id: 1,
     status: 'active',
-    recencyWeight: 0.2,
-    engagementWeight: 0.2,
-    bridgingWeight: 0.2,
-    sourceDiversityWeight: 0.2,
-    relevanceWeight: 0.2,
+    weights: {
+      recency: 0.2,
+      engagement: 0.2,
+      bridging: 0.2,
+      sourceDiversity: 0.2,
+      relevance: 0.2,
+    },
     voteCount: 10,
     createdAt: new Date(),
     closedAt: null,

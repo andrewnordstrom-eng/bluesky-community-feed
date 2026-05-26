@@ -518,31 +518,26 @@ async function scoreAllPosts(
   return scored;
 }
 
-/** Type-safe weight lookup from GovernanceEpoch by component key. */
-const WEIGHT_ACCESSORS: Record<GovernanceWeightKey, (e: GovernanceEpoch) => number> = {
-  recency: (e) => e.recencyWeight,
-  engagement: (e) => e.engagementWeight,
-  bridging: (e) => e.bridgingWeight,
-  sourceDiversity: (e) => e.sourceDiversityWeight,
-  relevance: (e) => e.relevanceWeight,
-};
-
 /**
  * Score a single post using all registered components.
+ *
+ * PROJ-816: looks up weights via the `epoch.weights` Record map instead of
+ * the now-removed WEIGHT_ACCESSORS table. Adding a 6th component to the
+ * registry no longer requires editing this file.
  */
 async function scorePost(
   post: PostForScoring,
   epoch: GovernanceEpoch,
   context: ScoringContext
 ): Promise<ScoredPost> {
-  const raw = {} as ScoreComponents;
-  const weights = {} as ScoreComponents;
-  const weighted = {} as ScoreComponents;
+  const raw: ScoreComponents = {};
+  const weights: ScoreComponents = {};
+  const weighted: ScoreComponents = {};
   let total = 0;
 
   for (const component of DEFAULT_COMPONENTS) {
     const rawScore = await component.score(post, context);
-    const weight = WEIGHT_ACCESSORS[component.key](epoch);
+    const weight = epoch.weights[component.key] ?? 0;
     const weightedScore = rawScore * weight;
 
     raw[component.key] = rawScore;
