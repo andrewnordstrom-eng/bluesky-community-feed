@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { adminApi, type WeightImpactPost, type WeightImpactResponse } from '../../api/admin';
 
 const COMPONENT_LABELS: Record<string, string> = {
@@ -33,7 +33,7 @@ export function WeightImpactPanel() {
   const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState<MessageState | null>(null);
 
-  async function fetchImpact() {
+  const fetchImpact = useCallback(async () => {
     setIsLoading(true);
     try {
       const response = await adminApi.getWeightImpact(20);
@@ -48,10 +48,26 @@ export function WeightImpactPanel() {
     } finally {
       setIsLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
-    void fetchImpact();
+    async function loadImpact() {
+      setIsLoading(true);
+      try {
+        const response = await adminApi.getWeightImpact(20);
+        setData(response);
+        setMessage(null);
+      } catch (error) {
+        setData(null);
+        setMessage({
+          type: 'error',
+          text: error instanceof Error ? error.message : 'Failed to load weight impact analysis',
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    void loadImpact();
   }, []);
 
   const sensitivityRows = useMemo(() => {

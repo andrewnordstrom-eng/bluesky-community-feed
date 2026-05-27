@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { adminApi } from '../../api/admin';
 import { ConfirmModal } from './ConfirmModal';
 
@@ -48,16 +48,24 @@ export function ContentFiltersCard({
 }: ContentFiltersCardProps) {
   const [localInclude, setLocalInclude] = useState(includeKeywords);
   const [localExclude, setLocalExclude] = useState(excludeKeywords);
+  const [prevIncludeKeywords, setPrevIncludeKeywords] = useState(includeKeywords);
+  const [prevExcludeKeywords, setPrevExcludeKeywords] = useState(excludeKeywords);
   const [activeForm, setActiveForm] = useState<KeywordType | null>(null);
   const [keywordInput, setKeywordInput] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [pendingRemove, setPendingRemove] = useState<{ type: KeywordType; keyword: string } | null>(null);
 
-  useEffect(() => {
+  // Sync local state with props when props change (React-recommended pattern for
+  // resetting state from props without an Effect).
+  if (includeKeywords !== prevIncludeKeywords) {
+    setPrevIncludeKeywords(includeKeywords);
     setLocalInclude(includeKeywords);
+  }
+  if (excludeKeywords !== prevExcludeKeywords) {
+    setPrevExcludeKeywords(excludeKeywords);
     setLocalExclude(excludeKeywords);
-  }, [includeKeywords, excludeKeywords]);
+  }
 
   const includeSet = useMemo(() => new Set(localInclude), [localInclude]);
   const excludeSet = useMemo(() => new Set(localExclude), [localExclude]);

@@ -83,8 +83,26 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   // Check session on mount
   useEffect(() => {
-    checkSession();
-  }, [checkSession]);
+    async function loadSession() {
+      setIsLoading(true);
+
+      try {
+        const session = await authApi.getSession();
+        setIsAuthenticated(session.authenticated);
+        setUserDid(session.did);
+        setUserHandle(session.handle);
+        setError(null);
+      } catch {
+        // Session invalid or expired
+        setIsAuthenticated(false);
+        setUserDid(null);
+        setUserHandle(null);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    void loadSession();
+  }, []);
 
   const value: AuthContextType = {
     isAuthenticated,

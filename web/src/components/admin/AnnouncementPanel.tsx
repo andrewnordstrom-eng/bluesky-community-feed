@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { adminApi } from '../../api/admin';
 import type { Announcement } from '../../api/admin';
 import { formatRelative } from '../../utils/format';
@@ -13,7 +13,7 @@ export function AnnouncementPanel() {
   const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  async function fetchAnnouncements() {
+  const fetchAnnouncements = useCallback(async () => {
     try {
       const data = await adminApi.getAnnouncements();
       setAnnouncements(data.announcements);
@@ -22,10 +22,20 @@ export function AnnouncementPanel() {
     } finally {
       setIsLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
-    fetchAnnouncements();
+    async function loadAnnouncements() {
+      try {
+        const data = await adminApi.getAnnouncements();
+        setAnnouncements(data.announcements);
+      } catch (err) {
+        console.error('Failed to fetch announcements', err);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    void loadAnnouncements();
   }, []);
 
   async function handlePost() {

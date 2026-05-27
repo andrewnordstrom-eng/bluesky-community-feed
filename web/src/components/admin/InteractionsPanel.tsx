@@ -35,31 +35,32 @@ export function InteractionsPanel() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  async function fetchAll() {
-    try {
-      const [ov, sd, eg, ec, kp] = await Promise.all([
-        adminApi.getInteractionOverview(),
-        adminApi.getScrollDepth(),
-        adminApi.getEngagement(),
-        adminApi.getEpochComparison(),
-        adminApi.getKeywordPerformance(),
-      ]);
-      setOverview(ov);
-      setScrollDepth(sd);
-      setEngagement(eg);
-      setEpochComparison(ec);
-      setKeywordPerf(kp);
-      setError(null);
-    } catch {
-      setError('Failed to load interaction data');
-    } finally {
-      setIsLoading(false);
-    }
-  }
-
   useEffect(() => {
-    fetchAll();
-    const interval = setInterval(fetchAll, 30000);
+    async function fetchAll() {
+      try {
+        const [ov, sd, eg, ec, kp] = await Promise.all([
+          adminApi.getInteractionOverview(),
+          adminApi.getScrollDepth(),
+          adminApi.getEngagement(),
+          adminApi.getEpochComparison(),
+          adminApi.getKeywordPerformance(),
+        ]);
+        setOverview(ov);
+        setScrollDepth(sd);
+        setEngagement(eg);
+        setEpochComparison(ec);
+        setKeywordPerf(kp);
+        setError(null);
+      } catch {
+        setError('Failed to load interaction data');
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    void fetchAll();
+    const interval = setInterval(() => {
+      void fetchAll();
+    }, 30000);
     return () => clearInterval(interval);
   }, []);
 
