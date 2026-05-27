@@ -76,16 +76,19 @@ function parseArgs(): CliArgs {
   let table: TargetTable = 'both';
 
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--batch-size' && args[i + 1]) {
-      batchSize = parsePositiveInt('--batch-size', args[i + 1], { min: 1 });
+    if (args[i] === '--batch-size') {
+      // Use `?? ''` so a missing or empty value flows into parsePositiveInt
+      // and surfaces a clear "Invalid value" error instead of silently
+      // falling back to the default.
+      batchSize = parsePositiveInt('--batch-size', args[i + 1] ?? '', { min: 1 });
       i++;
-    } else if (args[i] === '--limit' && args[i + 1]) {
-      limit = parsePositiveInt('--limit', args[i + 1], { min: 1 });
+    } else if (args[i] === '--limit') {
+      limit = parsePositiveInt('--limit', args[i + 1] ?? '', { min: 1 });
       i++;
     } else if (args[i] === '--dry-run') {
       dryRun = true;
-    } else if (args[i] === '--table' && args[i + 1]) {
-      const candidate = args[i + 1] as TargetTable;
+    } else if (args[i] === '--table') {
+      const candidate = (args[i + 1] ?? '') as TargetTable;
       if (candidate !== 'epochs' && candidate !== 'votes' && candidate !== 'both') {
         console.error(`Invalid --table value: ${JSON.stringify(candidate)} — expected epochs|votes|both.`);
         process.exit(2);
