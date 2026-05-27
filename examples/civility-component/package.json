@@ -1,0 +1,25 @@
+{
+  "name": "@corgi-example/civility-component",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Example external scoring component for the bluesky-community-feed. Proof-of-concept that the @corgi/feed-sdk public contract is sufficient to author a custom component without touching internal paths.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist",
+    "test": "npm run build && node --test dist/civility.test.js"
+  },
+  "dependencies": {
+    "@corgi/feed-sdk": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "tsx": "^4.19.0"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "license": "MIT"
+}

@@ -31,7 +31,8 @@
     "prepare": "husky"
   },
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "examples/*"
   ],
   "dependencies": {
     "@atproto/api": "^0.19.13",
