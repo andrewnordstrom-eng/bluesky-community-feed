@@ -87,7 +87,20 @@ WEIGHT_COLUMNS = [
 # SQL for the 3 data pulls (separated by marker in SSH output)
 MARKER = "---REPORT-MARKER---"
 
-POSTS_SQL = """
+def _env_bool(name: str, default: bool = False) -> bool:
+    """Match the TS zodEnvBool semantics: only "true"/"1" count as true."""
+    raw = os.environ.get(name, "")
+    if isinstance(raw, str):
+        return raw.lower() == "true" or raw == "1"
+    return default
+
+
+# Long-table reads are gated by the same env-var flags the TypeScript service
+# honors (PROJ-814 added SCORE_LONGTABLE_*; PROJ-815 added GOVERNANCE_LONGTABLE_*).
+# When the report generator is run as a sibling of the backend, the same .env
+# determines which branch fires.
+
+_POSTS_SQL_WIDE = """
 COPY (
   SELECT
     p.uri, LEFT(p.text, 200) as text, p.author_did,
@@ -117,7 +130,53 @@ COPY (
 ) TO STDOUT WITH CSV HEADER
 """.strip().replace("\n", " ")
 
-EPOCH_SQL = """
+_POSTS_SQL_LONG = """
+COPY (
+  SELECT
+    p.uri, LEFT(p.text, 200) as text, p.author_did,
+    p.embed_url,
+    p.topic_vector::text as topics,
+    p.classification_method,
+    ps.total_score,
+    MAX(psc.raw) FILTER (WHERE psc.component_key = 'recency') as recency_score,
+    MAX(psc.raw) FILTER (WHERE psc.component_key = 'engagement') as engagement_score,
+    MAX(psc.raw) FILTER (WHERE psc.component_key = 'bridging') as bridging_score,
+    MAX(psc.raw) FILTER (WHERE psc.component_key = 'sourceDiversity') as source_diversity_score,
+    MAX(psc.raw) FILTER (WHERE psc.component_key = 'relevance') as relevance_score,
+    MAX(psc.weight) FILTER (WHERE psc.component_key = 'recency') as recency_weight,
+    MAX(psc.weight) FILTER (WHERE psc.component_key = 'engagement') as engagement_weight,
+    MAX(psc.weight) FILTER (WHERE psc.component_key = 'bridging') as bridging_weight,
+    MAX(psc.weight) FILTER (WHERE psc.component_key = 'sourceDiversity') as source_diversity_weight,
+    MAX(psc.weight) FILTER (WHERE psc.component_key = 'relevance') as relevance_weight,
+    MAX(psc.weighted) FILTER (WHERE psc.component_key = 'recency') as recency_weighted,
+    MAX(psc.weighted) FILTER (WHERE psc.component_key = 'engagement') as engagement_weighted,
+    MAX(psc.weighted) FILTER (WHERE psc.component_key = 'bridging') as bridging_weighted,
+    MAX(psc.weighted) FILTER (WHERE psc.component_key = 'sourceDiversity') as source_diversity_weighted,
+    MAX(psc.weighted) FILTER (WHERE psc.component_key = 'relevance') as relevance_weighted,
+    COALESCE(pe.like_count,0) as likes,
+    COALESCE(pe.repost_count,0) as reposts,
+    COALESCE(pe.reply_count,0) as replies
+  FROM post_scores ps
+  JOIN posts p ON p.uri = ps.post_uri
+  LEFT JOIN post_engagement pe ON pe.post_uri = ps.post_uri
+  LEFT JOIN post_score_components psc
+    ON psc.post_uri = ps.post_uri AND psc.epoch_id = ps.epoch_id
+  WHERE ps.epoch_id = (
+    SELECT id FROM governance_epochs
+    WHERE status='active' ORDER BY id DESC LIMIT 1
+  )
+    AND p.deleted = FALSE
+  GROUP BY p.uri, p.text, p.author_did, p.embed_url, p.topic_vector,
+           p.classification_method, ps.total_score,
+           pe.like_count, pe.repost_count, pe.reply_count
+  ORDER BY ps.total_score DESC
+  LIMIT 1000
+) TO STDOUT WITH CSV HEADER
+""".strip().replace("\n", " ")
+
+POSTS_SQL = _POSTS_SQL_LONG if _env_bool("SCORE_LONGTABLE_READ_ENABLED") else _POSTS_SQL_WIDE
+
+_EPOCH_SQL_WIDE = """
 SELECT row_to_json(e) FROM (
   SELECT id, status,
     recency_weight, engagement_weight, bridging_weight,
@@ -127,6 +186,25 @@ SELECT row_to_json(e) FROM (
   WHERE status='active' ORDER BY id DESC LIMIT 1
 ) e
 """.strip().replace("\n", " ")
+
+_EPOCH_SQL_LONG = """
+SELECT row_to_json(e) FROM (
+  SELECT e.id, e.status,
+    MAX(ew.weight) FILTER (WHERE ew.component_key = 'recency') as recency_weight,
+    MAX(ew.weight) FILTER (WHERE ew.component_key = 'engagement') as engagement_weight,
+    MAX(ew.weight) FILTER (WHERE ew.component_key = 'bridging') as bridging_weight,
+    MAX(ew.weight) FILTER (WHERE ew.component_key = 'sourceDiversity') as source_diversity_weight,
+    MAX(ew.weight) FILTER (WHERE ew.component_key = 'relevance') as relevance_weight,
+    e.vote_count, e.topic_weights::text as topic_weights, e.created_at::text
+  FROM governance_epochs e
+  LEFT JOIN governance_epoch_weights ew ON ew.epoch_id = e.id
+  WHERE e.status='active'
+  GROUP BY e.id, e.status, e.vote_count, e.topic_weights, e.created_at
+  ORDER BY e.id DESC LIMIT 1
+) e
+""".strip().replace("\n", " ")
+
+EPOCH_SQL = _EPOCH_SQL_LONG if _env_bool("GOVERNANCE_LONGTABLE_READ_ENABLED") else _EPOCH_SQL_WIDE
 
 STATS_SQL = """
 SELECT row_to_json(s) FROM (
