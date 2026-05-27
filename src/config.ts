@@ -70,11 +70,12 @@ const ConfigSchema = z.object({
    * of the 15 wide columns in post_scores. PROJ-817 (P4) wired every consumer
    * (transparency, admin, governance, debug, export, Python report generators)
    * through storage-agnostic helpers that branch on this flag and produce the
-   * same response shape on both paths. The default is intentionally kept at
-   * false in P4 until parity tests cover every migrated consumer; the default
-   * flip will land in a follow-up commit. Removed entirely in PROJ-819 (P5).
+   * same response shape on both paths. Default is `true` post-flip — parity
+   * is contract-tested in tests/score-reader-parity.test.ts (6 helpers ×
+   * wide vs long). Rollback in incident response = set this env var to false.
+   * Removed entirely in PROJ-819 (P5).
    */
-  SCORE_LONGTABLE_READ_ENABLED: zodEnvBool(false),
+  SCORE_LONGTABLE_READ_ENABLED: zodEnvBool(true),
 
   // Topic embedding classifier
   /** Enable semantic embedding classifier at ingestion time. */
@@ -100,12 +101,13 @@ const ConfigSchema = z.object({
    * of the 5 wide weight columns. PROJ-817 (P4) wired admin status, admin
    * governance, admin epochs, governance routes, scheduler, debug, and the
    * research exports through storage-agnostic helpers that branch on this
-   * flag and produce identical responses on both paths. The default is
-   * intentionally kept at false in P4 until parity tests cover every
-   * migrated consumer; the default flip will land in a follow-up commit.
-   * See PROJ-815 for the packet that introduced this flag.
+   * flag and produce identical responses on both paths. Default is `true`
+   * post-flip — parity is contract-tested in
+   * tests/score-reader-parity.test.ts. Rollback in incident response =
+   * set this env var to false. See PROJ-815 for the packet that introduced
+   * this flag.
    */
-  GOVERNANCE_LONGTABLE_READ_ENABLED: zodEnvBool(false),
+  GOVERNANCE_LONGTABLE_READ_ENABLED: zodEnvBool(true),
 
   // Bluesky API
   BSKY_IDENTIFIER: z.string(),

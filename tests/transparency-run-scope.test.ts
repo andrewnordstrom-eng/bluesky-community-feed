@@ -85,38 +85,45 @@ describe('transparency routes current-run scoping', () => {
   });
 
   it('scopes post explanation rank calculations to current run', async () => {
+    // Post-PROJ-817 with read flag flipped to true:
+    //   0: epoch lookup
+    //   1: current-scoring-run scope
+    //   2: readPostScore long-path #1 — post_scores header
+    //   3: readPostScore long-path #2 — post_score_components SELECT
+    //   4: rank query (total_score)  ← assertion target
+    //   5: countPostsWithComponentAbove long-path JOIN  ← assertion target
+    //   6: topic_vector (try-block, non-fatal)
+    //   7: topic_weights (try-block, non-fatal)
     dbQueryMock
-      .mockResolvedValueOnce({ rows: [{ id: 3 }] })
+      .mockResolvedValueOnce({ rows: [{ id: 3, description: 'epoch' }] })
       .mockResolvedValueOnce({ rows: [{ value: { run_id: 'run-3', epoch_id: 3 } }] })
       .mockResolvedValueOnce({
         rows: [
           {
             post_uri: 'at://did:plc:a/app.bsky.feed.post/1',
             epoch_id: 3,
-            epoch_description: 'epoch',
             total_score: 0.7,
-            recency_score: 0.8,
-            engagement_score: 0.6,
-            bridging_score: 0.5,
-            source_diversity_score: 0.4,
-            relevance_score: 0.3,
-            recency_weight: 0.2,
-            engagement_weight: 0.2,
-            bridging_weight: 0.2,
-            source_diversity_weight: 0.2,
-            relevance_weight: 0.2,
-            recency_weighted: 0.16,
-            engagement_weighted: 0.12,
-            bridging_weighted: 0.1,
-            source_diversity_weighted: 0.08,
-            relevance_weighted: 0.06,
             scored_at: '2026-02-09T00:00:00.000Z',
+            classification_method: 'keyword',
             component_details: { run_id: 'run-3' },
           },
         ],
       })
+      .mockResolvedValueOnce({
+        rows: [
+          { component_key: 'recency', raw: '0.8', weight: '0.2', weighted: '0.16' },
+          { component_key: 'engagement', raw: '0.6', weight: '0.2', weighted: '0.12' },
+          { component_key: 'bridging', raw: '0.5', weight: '0.2', weighted: '0.1' },
+          { component_key: 'sourceDiversity', raw: '0.4', weight: '0.2', weighted: '0.08' },
+          { component_key: 'relevance', raw: '0.3', weight: '0.2', weighted: '0.06' },
+        ],
+      })
       .mockResolvedValueOnce({ rows: [{ rank: '2' }] })
-      .mockResolvedValueOnce({ rows: [{ rank: '5' }] });
+      .mockResolvedValueOnce({ rows: [{ count: '4' }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+    // Safety net for any unscripted call — prevents undefined.rows throws.
+    dbQueryMock.mockResolvedValue({ rows: [] });
 
     const app = Fastify();
     registerPostExplainRoute(app);
@@ -127,8 +134,10 @@ describe('transparency routes current-run scoping', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(String(dbQueryMock.mock.calls[3]?.[0])).toContain("component_details->>'run_id'");
+    // Rank-by-total query (call 4) and counterfactual long-path JOIN (call 5)
+    // both filter on component_details->>'run_id' when a scoped run exists.
     expect(String(dbQueryMock.mock.calls[4]?.[0])).toContain("component_details->>'run_id'");
+    expect(String(dbQueryMock.mock.calls[5]?.[0])).toContain("component_details->>'run_id'");
 
     await app.close();
   });

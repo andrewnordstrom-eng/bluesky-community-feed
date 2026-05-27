@@ -222,7 +222,9 @@ export function registerPostExplainRoute(app: FastifyInstance): void {
             community_governed_rank: rank,
             difference: pureEngagementRank - rank,
           },
-          scored_at: record.scoredAt,
+          // Response schema declares string/date-time; readPostScore returns a Date.
+          // Coerce to ISO string so Fastify validation accepts the payload.
+          scored_at: record.scoredAt.toISOString(),
           component_details: record.componentDetails,
           classification_method: record.classificationMethod,
         };

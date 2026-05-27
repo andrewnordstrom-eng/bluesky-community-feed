@@ -48,16 +48,16 @@ describe('admin status route', () => {
           },
         ],
       })
-      // 2. readEpochWeights wide-path query (GOVERNANCE_LONGTABLE_READ_ENABLED defaults false)
+      // 2. readEpochWeights long-path: epoch-exists check (post-flag-flip default true)
+      .mockResolvedValueOnce({ rows: [{ id: 2 }] })
+      // 3. readEpochWeights long-path: governance_epoch_weights SELECT
       .mockResolvedValueOnce({
         rows: [
-          {
-            recency_weight: '0.2',
-            engagement_weight: '0.2',
-            bridging_weight: '0.2',
-            source_diversity_weight: '0.2',
-            relevance_weight: '0.2',
-          },
+          { component_key: 'recency', weight: '0.2' },
+          { component_key: 'engagement', weight: '0.2' },
+          { component_key: 'bridging', weight: '0.2' },
+          { component_key: 'sourceDiversity', weight: '0.2' },
+          { component_key: 'relevance', weight: '0.2' },
         ],
       })
       .mockResolvedValueOnce({ rows: [{ count: '4' }] })

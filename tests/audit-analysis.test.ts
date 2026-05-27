@@ -61,16 +61,16 @@ describe('admin weight impact audit endpoint', () => {
       .mockResolvedValueOnce({
         rows: [{ id: 2 }],
       })
-      // 2. readEpochWeights wide-path query (GOVERNANCE_LONGTABLE_READ_ENABLED defaults false)
+      // 2. readEpochWeights long-path: epoch-exists check (post-flag-flip default true)
+      .mockResolvedValueOnce({ rows: [{ id: 2 }] })
+      // 3. readEpochWeights long-path: governance_epoch_weights SELECT
       .mockResolvedValueOnce({
         rows: [
-          {
-            recency_weight: '0.22',
-            engagement_weight: '0.2',
-            bridging_weight: '0.32',
-            source_diversity_weight: '0.16',
-            relevance_weight: '0.1',
-          },
+          { component_key: 'recency', weight: '0.22' },
+          { component_key: 'engagement', weight: '0.2' },
+          { component_key: 'bridging', weight: '0.32' },
+          { component_key: 'sourceDiversity', weight: '0.16' },
+          { component_key: 'relevance', weight: '0.1' },
         ],
       })
       // 3. run-scope query
@@ -144,11 +144,11 @@ describe('admin weight impact audit endpoint', () => {
     expect(body.weightSensitivity).toHaveProperty('engagement');
     expect(body.analyzedPosts).toBe(3);
     expect(redisZRevRangeMock).toHaveBeenCalledWith('feed:current', 0, 99, 'WITHSCORES');
-    // Post-PROJ-817: one extra call for readEpochWeights wide-path query
-    // inserted between the epoch fetch (call 0) and the run-scope query
-    // (now call 2). The score query is at call 3 — assertion below adjusted.
-    expect(dbQueryMock).toHaveBeenCalledTimes(4);
-    expect(String(dbQueryMock.mock.calls[3]?.[0])).toContain("component_details->>'run_id'");
+    // Post-PROJ-817 with flag flipped: two extra calls for readEpochWeights
+    // long-path (id-check + governance_epoch_weights SELECT). The score
+    // query is at call index 4.
+    expect(dbQueryMock).toHaveBeenCalledTimes(5);
+    expect(String(dbQueryMock.mock.calls[4]?.[0])).toContain("component_details->>'run_id'");
 
     await app.close();
   });
