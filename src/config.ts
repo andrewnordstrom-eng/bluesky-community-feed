@@ -67,10 +67,12 @@ const ConfigSchema = z.object({
   SCORE_LONGTABLE_DUALWRITE_ENABLED: zodEnvBool(true),
   /**
    * Read post-score decomposition from post_score_components (long table) instead
-   * of the 15 wide columns in post_scores. Default off through the P4 bake-in
-   * window so transparency/admin/report consumers can switch incrementally and
-   * verify parity. The default flips to true at the end of PROJ-817 (P4) once
-   * every consumer has a parity test passing. Removed entirely in PROJ-819 (P5).
+   * of the 15 wide columns in post_scores. PROJ-817 (P4) wired every consumer
+   * (transparency, admin, governance, debug, export, Python report generators)
+   * through storage-agnostic helpers that branch on this flag and produce the
+   * same response shape on both paths. The default is intentionally kept at
+   * false in P4 until parity tests cover every migrated consumer; the default
+   * flip will land in a follow-up commit. Removed entirely in PROJ-819 (P5).
    */
   SCORE_LONGTABLE_READ_ENABLED: zodEnvBool(false),
 
@@ -93,11 +95,15 @@ const ConfigSchema = z.object({
    */
   GOVERNANCE_LONGTABLE_DUALWRITE_ENABLED: zodEnvBool(true),
   /**
-   * Read the trimmed-mean aggregation input from governance_vote_weights
-   * instead of the 5 wide weight columns. Default off in PROJ-815 (P2);
-   * flipped to true at the end of PROJ-817 (P4) once parity tests are green
-   * across every consumer. See PROJ-815 for the packet that introduced this
-   * flag.
+   * Read governance epoch weights and aggregation input from the long-table
+   * side tables (governance_epoch_weights / governance_vote_weights) instead
+   * of the 5 wide weight columns. PROJ-817 (P4) wired admin status, admin
+   * governance, admin epochs, governance routes, scheduler, debug, and the
+   * research exports through storage-agnostic helpers that branch on this
+   * flag and produce identical responses on both paths. The default is
+   * intentionally kept at false in P4 until parity tests cover every
+   * migrated consumer; the default flip will land in a follow-up commit.
+   * See PROJ-815 for the packet that introduced this flag.
    */
   GOVERNANCE_LONGTABLE_READ_ENABLED: zodEnvBool(false),
 
