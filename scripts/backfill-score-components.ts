@@ -70,15 +70,18 @@ function parseArgs(): CliArgs {
   let dryRun = false;
 
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--batch-size' && args[i + 1]) {
-      batchSize = parsePositiveInt('--batch-size', args[i + 1], { min: 1 });
+    if (args[i] === '--batch-size') {
+      // Use `?? ''` so a missing or empty value flows into parsePositiveInt
+      // and surfaces a clear "--batch-size requires a value" style error
+      // instead of silently falling back to the default.
+      batchSize = parsePositiveInt('--batch-size', args[i + 1] ?? '', { min: 1 });
       i++;
-    } else if (args[i] === '--epoch-id' && args[i + 1]) {
+    } else if (args[i] === '--epoch-id') {
       // epoch_id is SERIAL PRIMARY KEY in governance_epochs (>=1).
-      epochId = parsePositiveInt('--epoch-id', args[i + 1], { min: 1 });
+      epochId = parsePositiveInt('--epoch-id', args[i + 1] ?? '', { min: 1 });
       i++;
-    } else if (args[i] === '--limit' && args[i + 1]) {
-      limit = parsePositiveInt('--limit', args[i + 1], { min: 1 });
+    } else if (args[i] === '--limit') {
+      limit = parsePositiveInt('--limit', args[i + 1] ?? '', { min: 1 });
       i++;
     } else if (args[i] === '--dry-run') {
       dryRun = true;
