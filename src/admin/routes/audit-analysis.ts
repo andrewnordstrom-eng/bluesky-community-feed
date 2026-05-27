@@ -7,10 +7,12 @@
 import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
+import { config } from '../../config.js';
 import { db } from '../../db/client.js';
 import { redis } from '../../db/redis.js';
 import { adminSecurity, ErrorResponseSchema } from '../../lib/openapi.js';
 import { GovernanceWeights, normalizeWeights } from '../../governance/governance.types.js';
+import { readEpochWeights } from '../../governance/weight-longtable.js';
 
 type ComponentKey = keyof GovernanceWeights;
 
@@ -364,13 +366,11 @@ export function registerAuditAnalysisRoutes(app: FastifyInstance): void {
 
     const { limit } = parseResult.data;
 
-    const epochResult = await db.query<EpochRow>(
-      `SELECT id,
-              recency_weight,
-              engagement_weight,
-              bridging_weight,
-              source_diversity_weight,
-              relevance_weight
+    // Fetch the epoch row without the 5 weight columns; per-component
+    // weights come from the storage-agnostic helper so this route works
+    // the same under wide-column and long-table storage.
+    const epochResult = await db.query<Pick<EpochRow, 'id'>>(
+      `SELECT id
        FROM governance_epochs
        WHERE status IN ('active', 'voting')
        ORDER BY id DESC
@@ -385,7 +385,8 @@ export function registerAuditAnalysisRoutes(app: FastifyInstance): void {
     }
 
     const epoch = epochResult.rows[0];
-    const currentWeights = toWeights(epoch);
+    const fetchedWeights = await readEpochWeights({ epochId: epoch.id });
+    const currentWeights = (fetchedWeights ?? {}) as GovernanceWeights;
     const runScope = await getCurrentScoringRunScope();
 
     let feedEntries: string[];
@@ -431,23 +432,44 @@ export function registerAuditAnalysisRoutes(app: FastifyInstance): void {
       runScopeClause = `AND ps.component_details->>'run_id' = $${scoreParams.length}`;
     }
 
-    const scoreResult = await db.query<ScoreRow>(
-      `SELECT
-        ps.post_uri,
-        p.text,
-        ps.total_score,
-        ps.recency_score,
-        ps.engagement_score,
-        ps.bridging_score,
-        ps.source_diversity_score,
-        ps.relevance_score
-       FROM post_scores ps
-       LEFT JOIN posts p ON p.uri = ps.post_uri
-       WHERE ps.epoch_id = $1
-         AND ps.post_uri = ANY($2::text[])
-         ${runScopeClause}`,
-      scoreParams
-    );
+    // SELECT the 5 raw component scores per post: wide path reads the named
+    // columns; long path pivots from post_score_components via FILTER
+    // aggregates so the resulting ScoreRow shape is identical. After PROJ-819
+    // (P5) drops the wide columns, only the long path remains.
+    const scoreSql = config.SCORE_LONGTABLE_READ_ENABLED
+      ? `SELECT
+           ps.post_uri,
+           MAX(p.text) AS text,
+           MAX(ps.total_score) AS total_score,
+           MAX(psc.raw) FILTER (WHERE psc.component_key = 'recency') AS recency_score,
+           MAX(psc.raw) FILTER (WHERE psc.component_key = 'engagement') AS engagement_score,
+           MAX(psc.raw) FILTER (WHERE psc.component_key = 'bridging') AS bridging_score,
+           MAX(psc.raw) FILTER (WHERE psc.component_key = 'sourceDiversity') AS source_diversity_score,
+           MAX(psc.raw) FILTER (WHERE psc.component_key = 'relevance') AS relevance_score
+         FROM post_scores ps
+         LEFT JOIN posts p ON p.uri = ps.post_uri
+         LEFT JOIN post_score_components psc
+           ON psc.post_uri = ps.post_uri AND psc.epoch_id = ps.epoch_id
+         WHERE ps.epoch_id = $1
+           AND ps.post_uri = ANY($2::text[])
+           ${runScopeClause}
+         GROUP BY ps.post_uri`
+      : `SELECT
+           ps.post_uri,
+           p.text,
+           ps.total_score,
+           ps.recency_score,
+           ps.engagement_score,
+           ps.bridging_score,
+           ps.source_diversity_score,
+           ps.relevance_score
+         FROM post_scores ps
+         LEFT JOIN posts p ON p.uri = ps.post_uri
+         WHERE ps.epoch_id = $1
+           AND ps.post_uri = ANY($2::text[])
+           ${runScopeClause}`;
+
+    const scoreResult = await db.query<ScoreRow>(scoreSql, scoreParams);
 
     const scoreMap = new Map(scoreResult.rows.map((row) => [row.post_uri, row]));
 
