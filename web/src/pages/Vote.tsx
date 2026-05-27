@@ -78,6 +78,7 @@ export function Vote() {
   }, [currentEpoch, currentPhase]);
 
   useEffect(() => {
+    let isMounted = true;
     // Load current epoch and user's vote
     async function loadData() {
       try {
@@ -86,6 +87,7 @@ export function Vote() {
 
         // Get current epoch
         const epoch = await weightsApi.getCurrentEpoch();
+        if (!isMounted) return;
         setCurrentEpoch(epoch);
 
         // Set initial weights to current epoch weights (convert from snake_case)
@@ -98,9 +100,12 @@ export function Vote() {
         });
 
         // Check if user has voted (if authenticated)
+        // Capture topicWeights here so we don't need a second voteApi.getVote() call later.
+        let existingTopicWeights: Record<string, number> | null = null;
         if (isAuthenticated) {
           try {
             const voteData = await voteApi.getVote();
+            if (!isMounted) return;
             if (voteData.vote) {
               setHasVoted(true);
               setLastVoteTime(voteData.voted_at);
@@ -117,7 +122,12 @@ export function Vote() {
             if (voteData.contentVote) {
               setContentVote(voteData.contentVote);
             }
+            // Capture topic weights for later (after topic catalog loads)
+            if (voteData.topicWeights) {
+              existingTopicWeights = voteData.topicWeights;
+            }
           } catch {
+            if (!isMounted) return;
             // User hasn't voted yet
             setHasVoted(false);
           }
@@ -126,6 +136,7 @@ export function Vote() {
         // Load current community content rules
         try {
           const contentRules = await voteApi.getContentRules();
+          if (!isMounted) return;
           setCurrentContentRules(contentRules);
         } catch {
           // Content rules endpoint might not exist yet
@@ -134,30 +145,29 @@ export function Vote() {
         // Load topic catalog (graceful degradation: hide topics tab if unavailable)
         try {
           const catalog = await voteApi.getTopicCatalog();
+          if (!isMounted) return;
           setTopicCatalog(catalog.topics);
-          // If user has existing topic votes, populate them
-          if (isAuthenticated) {
-            try {
-              const voteData = await voteApi.getVote();
-              if (voteData.topicWeights && Object.keys(voteData.topicWeights).length > 0) {
-                setTopicValues(voteData.topicWeights);
-                setTouchedTopics(new Set(Object.keys(voteData.topicWeights)));
-              }
-            } catch {
-              // No existing topic votes
-            }
+          // If user has existing topic votes, populate them (from the first getVote call)
+          if (existingTopicWeights && Object.keys(existingTopicWeights).length > 0) {
+            setTopicValues(existingTopicWeights);
+            setTouchedTopics(new Set(Object.keys(existingTopicWeights)));
           }
         } catch {
+          if (!isMounted) return;
           // Topic catalog unavailable — hide topics tab
           setTopicCatalog(null);
         }
       } catch (err: unknown) {
+        if (!isMounted) return;
         setError(extractErrorMessage(err, 'Failed to load data'));
       } finally {
-        setIsLoadingData(false);
+        if (isMounted) setIsLoadingData(false);
       }
     }
     void loadData();
+    return () => {
+      isMounted = false;
+    };
   }, [isAuthenticated]);
 
   // Keep voting phase status fresh without resetting in-progress form edits.

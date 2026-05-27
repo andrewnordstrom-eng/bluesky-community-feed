@@ -36,7 +36,11 @@ export function InteractionsPanel() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let isMounted = true;
+    let inFlight = false;
     async function fetchAll() {
+      if (!isMounted || inFlight) return;
+      inFlight = true;
       try {
         const [ov, sd, eg, ec, kp] = await Promise.all([
           adminApi.getInteractionOverview(),
@@ -45,6 +49,7 @@ export function InteractionsPanel() {
           adminApi.getEpochComparison(),
           adminApi.getKeywordPerformance(),
         ]);
+        if (!isMounted) return;
         setOverview(ov);
         setScrollDepth(sd);
         setEngagement(eg);
@@ -52,16 +57,21 @@ export function InteractionsPanel() {
         setKeywordPerf(kp);
         setError(null);
       } catch {
+        if (!isMounted) return;
         setError('Failed to load interaction data');
       } finally {
-        setIsLoading(false);
+        if (isMounted) setIsLoading(false);
+        inFlight = false;
       }
     }
     void fetchAll();
     const interval = setInterval(() => {
       void fetchAll();
     }, 30000);
-    return () => clearInterval(interval);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
   }, []);
 
   if (isLoading) {

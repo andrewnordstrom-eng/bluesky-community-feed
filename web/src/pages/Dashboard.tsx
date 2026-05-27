@@ -132,9 +132,13 @@ export function Dashboard() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let isMounted = true;
+    let inFlight = false;
     let initialLoadComplete = false;
 
     async function loadData(silent: boolean) {
+      if (!isMounted || inFlight) return;
+      inFlight = true;
       try {
         if (!silent) {
           setIsLoading(true);
@@ -146,6 +150,8 @@ export function Dashboard() {
           transparencyApi.getEpochHistory(2),
         ]);
 
+        if (!isMounted) return;
+
         setStats(statsData);
         setAuditLog(auditData.entries);
         setEpochHistory(historyData.epochs);
@@ -154,20 +160,25 @@ export function Dashboard() {
         // Load topic catalog (public endpoint, no auth)
         try {
           const catalog = await voteApi.getTopicCatalog();
+          if (!isMounted) return;
           setTopicData(catalog);
         } catch {
           // Topic catalog unavailable — skip
         }
       } catch (err: unknown) {
+        if (!isMounted) return;
         if (!silent || !initialLoadComplete) {
           setError(getErrorMessage(err, 'Failed to load dashboard data'));
         }
       } finally {
-        if (!silent) {
-          setIsLoading(false);
+        if (isMounted) {
+          if (!silent) {
+            setIsLoading(false);
+          }
+          initialLoadComplete = true;
+          setHasInitialLoad(true);
         }
-        initialLoadComplete = true;
-        setHasInitialLoad(true);
+        inFlight = false;
       }
     }
 
@@ -177,7 +188,10 @@ export function Dashboard() {
       void loadData(true);
     }, 60_000);
 
-    return () => window.clearInterval(interval);
+    return () => {
+      isMounted = false;
+      window.clearInterval(interval);
+    };
   }, []);
 
   const latestRoundUpdate = useMemo(

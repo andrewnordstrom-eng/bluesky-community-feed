@@ -23,14 +23,21 @@ export function FeedHealth() {
   }, []);
 
   useEffect(() => {
+    let isMounted = true;
+    let inFlight = false;
     async function loadHealth() {
+      if (!isMounted || inFlight) return;
+      inFlight = true;
       try {
         const data = await adminApi.getFeedHealth();
+        if (!isMounted) return;
         setHealth(data);
       } catch {
+        if (!isMounted) return;
         setMessage({ type: 'error', text: 'Failed to load feed health' });
       } finally {
-        setIsLoading(false);
+        if (isMounted) setIsLoading(false);
+        inFlight = false;
       }
     }
     void loadHealth();
@@ -39,7 +46,10 @@ export function FeedHealth() {
     const interval = setInterval(() => {
       void loadHealth();
     }, 30000);
-    return () => clearInterval(interval);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
   }, []);
 
   async function handleRescore() {

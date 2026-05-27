@@ -69,15 +69,21 @@ export function SchedulingCard({ round, onUpdate, onNotify }: SchedulingCardProp
   }, [onNotify]);
 
   useEffect(() => {
+    let isMounted = true;
     async function fetchScheduledVotes() {
       try {
         const response = await adminApi.getVoteSchedule();
+        if (!isMounted) return;
         setScheduledVotes(response.scheduledVotes);
       } catch (error) {
+        if (!isMounted) return;
         onNotify('error', error instanceof Error ? error.message : 'Failed to load vote schedule');
       }
     }
     void fetchScheduledVotes();
+    return () => {
+      isMounted = false;
+    };
   }, [onNotify]);
 
   async function handleScheduleVote() {

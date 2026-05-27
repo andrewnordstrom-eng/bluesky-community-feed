@@ -54,9 +54,12 @@ export function useAdminStatus() {
       return;
     }
 
+    let isMounted = true;
+
     async function loadStatus() {
       // Avoid admin endpoint probes for logged-out users.
       if (!isAuthenticated) {
+        if (!isMounted) return;
         setStatus(null);
         setError(null);
         setStatusLoading(false);
@@ -64,11 +67,14 @@ export function useAdminStatus() {
       }
 
       try {
+        if (!isMounted) return;
         setStatusLoading(true);
         const data = await adminApi.getStatus();
+        if (!isMounted) return;
         setStatus(data);
         setError(null);
       } catch (err) {
+        if (!isMounted) return;
         // 401/403 means user is authenticated but not admin (or session expired).
         if (isAxiosError(err) && (err.response?.status === 401 || err.response?.status === 403)) {
           setStatus(null);
@@ -78,11 +84,15 @@ export function useAdminStatus() {
         setError(err instanceof Error ? err.message : 'Failed to fetch status');
         setStatus(null);
       } finally {
-        setStatusLoading(false);
+        if (isMounted) setStatusLoading(false);
       }
     }
 
     void loadStatus();
+
+    return () => {
+      isMounted = false;
+    };
   }, [authLoading, isAuthenticated]);
 
   return {
