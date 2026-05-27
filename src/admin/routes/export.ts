@@ -33,6 +33,97 @@ import type {
 } from '../../shared/export-types.js';
 
 // ============================================================================
+// Export SQL — wide vs long-table variants
+// ============================================================================
+//
+// The export wire format (CSV/JSON columns) is FIXED at the 5-component shape
+// for backward-compat with downstream research consumers. Both query variants
+// below emit the same column names; the long variants pivot from the
+// normalized side tables (governance_vote_weights and post_score_components)
+// via FILTER aggregates so consumers cannot tell which storage produced the
+// row. PROJ-819 (P5) drops the wide columns and only the long variants
+// remain.
+
+const VOTE_EXPORT_SQL_WIDE = `
+  SELECT gv.voter_did, gv.epoch_id, gv.recency_weight, gv.engagement_weight,
+         bridging_weight, source_diversity_weight, relevance_weight,
+         include_keywords, exclude_keywords, topic_weight_votes, voted_at
+  FROM governance_votes gv
+  JOIN subscribers s ON s.did = gv.voter_did
+  WHERE gv.epoch_id = $1
+    AND s.research_consent IS TRUE
+  ORDER BY gv.voted_at
+`;
+
+const VOTE_EXPORT_SQL_LONG = `
+  SELECT gv.voter_did, gv.epoch_id,
+         MAX(vw.weight) FILTER (WHERE vw.component_key = 'recency') AS recency_weight,
+         MAX(vw.weight) FILTER (WHERE vw.component_key = 'engagement') AS engagement_weight,
+         MAX(vw.weight) FILTER (WHERE vw.component_key = 'bridging') AS bridging_weight,
+         MAX(vw.weight) FILTER (WHERE vw.component_key = 'sourceDiversity') AS source_diversity_weight,
+         MAX(vw.weight) FILTER (WHERE vw.component_key = 'relevance') AS relevance_weight,
+         gv.include_keywords, gv.exclude_keywords, gv.topic_weight_votes, gv.voted_at
+  FROM governance_votes gv
+  JOIN subscribers s ON s.did = gv.voter_did
+  LEFT JOIN governance_vote_weights vw ON vw.vote_id = gv.id
+  WHERE gv.epoch_id = $1
+    AND s.research_consent IS TRUE
+  GROUP BY gv.voter_did, gv.epoch_id, gv.include_keywords, gv.exclude_keywords, gv.topic_weight_votes, gv.voted_at
+  ORDER BY gv.voted_at
+`;
+
+function voteExportSql(): string {
+  return config.GOVERNANCE_LONGTABLE_READ_ENABLED ? VOTE_EXPORT_SQL_LONG : VOTE_EXPORT_SQL_WIDE;
+}
+
+const SCORE_EXPORT_SQL_WIDE_BASE = `
+  SELECT ps.post_uri, ps.epoch_id,
+         ps.recency_score, ps.engagement_score, ps.bridging_score,
+         ps.source_diversity_score, ps.relevance_score,
+         ps.recency_weight, ps.engagement_weight, ps.bridging_weight,
+         ps.source_diversity_weight, ps.relevance_weight,
+         ps.recency_weighted, ps.engagement_weighted, ps.bridging_weighted,
+         ps.source_diversity_weighted, ps.relevance_weighted,
+         ps.total_score, p.topic_vector, ps.classification_method, ps.scored_at
+  FROM post_scores ps
+  LEFT JOIN posts p ON ps.post_uri = p.uri
+  WHERE ps.epoch_id = $1
+  ORDER BY ps.total_score DESC
+`;
+
+const SCORE_EXPORT_SQL_LONG_BASE = `
+  SELECT ps.post_uri, ps.epoch_id,
+         MAX(psc.raw) FILTER (WHERE psc.component_key = 'recency') AS recency_score,
+         MAX(psc.raw) FILTER (WHERE psc.component_key = 'engagement') AS engagement_score,
+         MAX(psc.raw) FILTER (WHERE psc.component_key = 'bridging') AS bridging_score,
+         MAX(psc.raw) FILTER (WHERE psc.component_key = 'sourceDiversity') AS source_diversity_score,
+         MAX(psc.raw) FILTER (WHERE psc.component_key = 'relevance') AS relevance_score,
+         MAX(psc.weight) FILTER (WHERE psc.component_key = 'recency') AS recency_weight,
+         MAX(psc.weight) FILTER (WHERE psc.component_key = 'engagement') AS engagement_weight,
+         MAX(psc.weight) FILTER (WHERE psc.component_key = 'bridging') AS bridging_weight,
+         MAX(psc.weight) FILTER (WHERE psc.component_key = 'sourceDiversity') AS source_diversity_weight,
+         MAX(psc.weight) FILTER (WHERE psc.component_key = 'relevance') AS relevance_weight,
+         MAX(psc.weighted) FILTER (WHERE psc.component_key = 'recency') AS recency_weighted,
+         MAX(psc.weighted) FILTER (WHERE psc.component_key = 'engagement') AS engagement_weighted,
+         MAX(psc.weighted) FILTER (WHERE psc.component_key = 'bridging') AS bridging_weighted,
+         MAX(psc.weighted) FILTER (WHERE psc.component_key = 'sourceDiversity') AS source_diversity_weighted,
+         MAX(psc.weighted) FILTER (WHERE psc.component_key = 'relevance') AS relevance_weighted,
+         ps.total_score, p.topic_vector, ps.classification_method, ps.scored_at
+  FROM post_scores ps
+  LEFT JOIN posts p ON ps.post_uri = p.uri
+  LEFT JOIN post_score_components psc
+    ON psc.post_uri = ps.post_uri AND psc.epoch_id = ps.epoch_id
+  WHERE ps.epoch_id = $1
+  GROUP BY ps.post_uri, ps.epoch_id, ps.total_score, p.topic_vector, ps.classification_method, ps.scored_at
+  ORDER BY ps.total_score DESC
+`;
+
+function scoreExportSql(opts: { withPagination: boolean }): string {
+  const base = config.SCORE_LONGTABLE_READ_ENABLED ? SCORE_EXPORT_SQL_LONG_BASE : SCORE_EXPORT_SQL_WIDE_BASE;
+  return opts.withPagination ? `${base} LIMIT $2 OFFSET $3` : base;
+}
+
+// ============================================================================
 // Zod Schemas
 // ============================================================================
 
@@ -339,17 +430,7 @@ export function registerExportRoutes(app: FastifyInstance): void {
     }
     const { epoch_id, format } = parsed.data;
 
-    const result = await db.query(
-      `SELECT gv.voter_did, gv.epoch_id, gv.recency_weight, gv.engagement_weight,
-              bridging_weight, source_diversity_weight, relevance_weight,
-              include_keywords, exclude_keywords, topic_weight_votes, voted_at
-       FROM governance_votes gv
-       JOIN subscribers s ON s.did = gv.voter_did
-       WHERE gv.epoch_id = $1
-         AND s.research_consent IS TRUE
-       ORDER BY gv.voted_at`,
-      [epoch_id]
-    );
+    const result = await db.query(voteExportSql(), [epoch_id]);
 
     const records = result.rows.map(mapVoteRow);
 
@@ -398,22 +479,7 @@ export function registerExportRoutes(app: FastifyInstance): void {
     }
     const { epoch_id, format, limit, offset } = parsed.data;
 
-    const result = await db.query(
-      `SELECT ps.post_uri, ps.epoch_id,
-              ps.recency_score, ps.engagement_score, ps.bridging_score,
-              ps.source_diversity_score, ps.relevance_score,
-              ps.recency_weight, ps.engagement_weight, ps.bridging_weight,
-              ps.source_diversity_weight, ps.relevance_weight,
-              ps.recency_weighted, ps.engagement_weighted, ps.bridging_weighted,
-              ps.source_diversity_weighted, ps.relevance_weighted,
-              ps.total_score, p.topic_vector, ps.classification_method, ps.scored_at
-       FROM post_scores ps
-       LEFT JOIN posts p ON ps.post_uri = p.uri
-       WHERE ps.epoch_id = $1
-       ORDER BY ps.total_score DESC
-       LIMIT $2 OFFSET $3`,
-      [epoch_id, limit, offset]
-    );
+    const result = await db.query(scoreExportSql({ withPagination: true }), [epoch_id, limit, offset]);
 
     const records = result.rows.map(mapScoreRow);
 
@@ -700,17 +766,7 @@ export function registerExportRoutes(app: FastifyInstance): void {
     archive.pipe(reply.raw);
 
     // 1. Votes CSV
-    const votes = await db.query(
-      `SELECT gv.voter_did, gv.epoch_id, gv.recency_weight, gv.engagement_weight,
-              bridging_weight, source_diversity_weight, relevance_weight,
-              include_keywords, exclude_keywords, topic_weight_votes, voted_at
-       FROM governance_votes gv
-       JOIN subscribers s ON s.did = gv.voter_did
-       WHERE gv.epoch_id = $1
-         AND s.research_consent IS TRUE
-       ORDER BY gv.voted_at`,
-      [epoch_id]
-    );
+    const votes = await db.query(voteExportSql(), [epoch_id]);
     const votesCsv = buildCsvString(
       VOTE_COLUMNS,
       votes.rows.map(mapVoteRow),
@@ -719,20 +775,7 @@ export function registerExportRoutes(app: FastifyInstance): void {
     archive.append(votesCsv, { name: 'votes.csv' });
 
     // 2. Scores CSV (all rows for this epoch, chunked if needed)
-    const scores = await db.query(
-      `SELECT ps.post_uri, ps.epoch_id,
-              ps.recency_score, ps.engagement_score, ps.bridging_score,
-              ps.source_diversity_score, ps.relevance_score,
-              ps.recency_weight, ps.engagement_weight, ps.bridging_weight,
-              ps.source_diversity_weight, ps.relevance_weight,
-              ps.recency_weighted, ps.engagement_weighted, ps.bridging_weighted,
-              ps.source_diversity_weighted, ps.relevance_weighted,
-              ps.total_score, p.topic_vector, ps.classification_method, ps.scored_at
-       FROM post_scores ps
-       LEFT JOIN posts p ON ps.post_uri = p.uri
-       WHERE ps.epoch_id = $1 ORDER BY ps.total_score DESC`,
-      [epoch_id]
-    );
+    const scores = await db.query(scoreExportSql({ withPagination: false }), [epoch_id]);
     const scoresCsv = buildCsvString(
       SCORE_COLUMNS,
       scores.rows.map(mapScoreRow),
