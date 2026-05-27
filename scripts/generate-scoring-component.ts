@@ -148,14 +148,26 @@ function main(): void {
   console.log('Updated: src/config/votable-params.ts');
 
   // 4. Print reminders
+  //
+  // History: pre-PROJ-816 this list had 7 manual steps including
+  // type-system edits and DDL on `post_scores` + `governance_epochs`.
+  // PROJ-814 / PROJ-815 long-tabled the schema, PROJ-816 widened the
+  // type contract to `Record<string, number>`, and PROJ-819 will drop
+  // the legacy wide columns. After that landing, this list is the
+  // honest minimum needed to add a new component.
   console.log('\n--- Remaining manual steps ---');
-  console.log(`1. Add '${camelName}' to GovernanceWeightKey union in src/shared/api-types.ts`);
-  console.log(`2. Add '${snakeName}_weight' to VotableWeightParam.voteField union in src/config/votable-params.ts`);
-  console.log(`3. Add '${camelName}' field to GovernanceWeights interface in src/shared/api-types.ts`);
-  console.log(`4. Add matching entry to web/src/config/votable-params.ts`);
-  console.log(`5. Create DB migration: ALTER TABLE post_scores ADD COLUMN ${snakeName}_raw REAL, ${snakeName}_weight REAL, ${snakeName}_weighted REAL`);
-  console.log(`6. ALTER TABLE governance_epochs ADD COLUMN ${snakeName}_weight REAL DEFAULT 0.1`);
-  console.log(`7. Run: npm run build && npm test -- --run`);
+  console.log(`1. (Optional) Seed an initial epoch weight for '${camelName}':`);
+  console.log(`     INSERT INTO governance_epoch_weights (epoch_id, component_key, weight)`);
+  console.log(`     VALUES (<epoch_id>, '${camelName}', 0.1) ON CONFLICT DO NOTHING;`);
+  console.log(`   If you skip this, the component contributes 0 until votes shift the epoch.`);
+  console.log(`2. Run: npm run build && npm test -- --run`);
+  console.log('');
+  console.log(`The registry drift check (src/scoring/registry.ts) will validate at module`);
+  console.log(`load that '${camelName}' is registered in both DEFAULT_COMPONENTS and`);
+  console.log(`VOTABLE_WEIGHT_PARAMS, and reject any mismatch with a clear error.`);
+  console.log('');
+  console.log('See docs/contributing-scoring-components.md (PROJ-820) for the full');
+  console.log('contribution flow including the @corgi/feed-sdk external author path.');
 }
 
 main();
