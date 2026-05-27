@@ -34,6 +34,7 @@ describe('admin status route', () => {
 
   it('uses feed:current for scored post count', async () => {
     dbQueryMock
+      // 1. epoch query (post-PROJ-817: no weight columns selected; those come from readEpochWeights)
       .mockResolvedValueOnce({
         rows: [
           {
@@ -42,13 +43,20 @@ describe('admin status route', () => {
             phase: 'running',
             voting_ends_at: null,
             auto_transition: false,
+            content_rules: { include_keywords: [], exclude_keywords: [] },
+            created_at: '2026-02-09T00:00:00.000Z',
+          },
+        ],
+      })
+      // 2. readEpochWeights wide-path query (GOVERNANCE_LONGTABLE_READ_ENABLED defaults false)
+      .mockResolvedValueOnce({
+        rows: [
+          {
             recency_weight: '0.2',
             engagement_weight: '0.2',
             bridging_weight: '0.2',
             source_diversity_weight: '0.2',
             relevance_weight: '0.2',
-            content_rules: { include_keywords: [], exclude_keywords: [] },
-            created_at: '2026-02-09T00:00:00.000Z',
           },
         ],
       })
