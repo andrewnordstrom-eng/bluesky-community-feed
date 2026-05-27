@@ -65,6 +65,14 @@ const ConfigSchema = z.object({
    * this flag.
    */
   SCORE_LONGTABLE_DUALWRITE_ENABLED: zodEnvBool(true),
+  /**
+   * Read post-score decomposition from post_score_components (long table) instead
+   * of the 15 wide columns in post_scores. Default off through the P4 bake-in
+   * window so transparency/admin/report consumers can switch incrementally and
+   * verify parity. The default flips to true at the end of PROJ-817 (P4) once
+   * every consumer has a parity test passing. Removed entirely in PROJ-819 (P5).
+   */
+  SCORE_LONGTABLE_READ_ENABLED: zodEnvBool(false),
 
   // Topic embedding classifier
   /** Enable semantic embedding classifier at ingestion time. */
