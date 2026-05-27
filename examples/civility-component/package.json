@@ -12,7 +12,7 @@
     "test": "npm run build && node --test dist/civility.test.js"
   },
   "dependencies": {
-    "@corgi/feed-sdk": "*"
+    "@corgi/feed-sdk": "file:../../packages/feed-sdk"
   },
   "devDependencies": {
     "typescript": "^5.7.0",

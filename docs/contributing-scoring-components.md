@@ -126,7 +126,7 @@ project, file an issue describing:
 - **Acceptance criteria:** Falsifiable checks that pass when the
   component is correctly integrated.
 
-Follow the [Issue Quality Rubric](../../.github/ops/ISSUE_QUALITY_RUBRIC.md)
+Follow the [Issue Quality Rubric](https://github.com/andrewnordstrom-eng/.github/blob/main/ops/ISSUE_QUALITY_RUBRIC.md)
 shape. Add the `agent-task` label if the work is implementation-ready.
 
 ### 5. Open the PR
@@ -214,4 +214,4 @@ separate repo, run your own CI.
 - Working example: [`examples/civility-component/`](../examples/civility-component/)
 - Registry: [`src/scoring/registry.ts`](../src/scoring/registry.ts)
 - Vote-UI param config: [`src/config/votable-params.ts`](../src/config/votable-params.ts)
-- Issue quality rubric: [`.github/ops/ISSUE_QUALITY_RUBRIC.md`](../../.github/ops/ISSUE_QUALITY_RUBRIC.md)
+- Issue quality rubric: [`.github/ops/ISSUE_QUALITY_RUBRIC.md`](https://github.com/andrewnordstrom-eng/.github/blob/main/ops/ISSUE_QUALITY_RUBRIC.md)

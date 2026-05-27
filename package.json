@@ -12,7 +12,7 @@
     "stress": "tsx tests/stress/run.ts",
     "generate-feed-did": "tsx scripts/generate-feed-did.ts",
     "publish-feed": "tsx scripts/publish-feed.ts",
-    "test": "vitest",
+    "test": "npm run sdk:build && vitest tests",
     "generate:component": "tsx scripts/generate-scoring-component.ts",
     "generate:route": "tsx scripts/generate-route.ts",
     "cli": "cd cli && npx tsx src/index.ts",
