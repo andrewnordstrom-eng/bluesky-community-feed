@@ -285,7 +285,7 @@ describe('governance long-table dual-write (PROJ-815)', () => {
     it('reads from governance_votes wide columns when flag is off', async () => {
       configMock.GOVERNANCE_LONGTABLE_READ_ENABLED = false;
 
-      dbQueryMock.mockResolvedValueOnce({ rows: [{ count: 0 }] }); // keyword-only query
+      dbQueryMock.mockResolvedValueOnce({ rows: [{ count: '0' }] }); // keyword-only query
       dbQueryMock.mockResolvedValueOnce({
         rows: [
           {
@@ -308,7 +308,7 @@ describe('governance long-table dual-write (PROJ-815)', () => {
     it('reads from governance_vote_weights long table when flag is on', async () => {
       configMock.GOVERNANCE_LONGTABLE_READ_ENABLED = true;
 
-      dbQueryMock.mockResolvedValueOnce({ rows: [{ count: 0 }] }); // keyword-only query
+      dbQueryMock.mockResolvedValueOnce({ rows: [{ count: '0' }] }); // keyword-only query
       dbQueryMock.mockResolvedValueOnce({
         rows: [
           { vote_id: 'v1', component_key: 'recency', weight: 0.2 },
@@ -336,7 +336,7 @@ describe('governance long-table dual-write (PROJ-815)', () => {
       // Wide path
       configMock.GOVERNANCE_LONGTABLE_READ_ENABLED = false;
       dbQueryMock.mockReset();
-      dbQueryMock.mockResolvedValueOnce({ rows: [{ count: 0 }] });
+      dbQueryMock.mockResolvedValueOnce({ rows: [{ count: '0' }] });
       dbQueryMock.mockResolvedValueOnce({
         rows: votes.map((v) => ({
           recency_weight: v.recency,
@@ -351,7 +351,7 @@ describe('governance long-table dual-write (PROJ-815)', () => {
       // Long path with the same votes pivoted to long shape
       configMock.GOVERNANCE_LONGTABLE_READ_ENABLED = true;
       dbQueryMock.mockReset();
-      dbQueryMock.mockResolvedValueOnce({ rows: [{ count: 0 }] });
+      dbQueryMock.mockResolvedValueOnce({ rows: [{ count: '0' }] });
       dbQueryMock.mockResolvedValueOnce({
         rows: votes.flatMap((v, i) => [
           { vote_id: `v${i}`, component_key: 'recency', weight: v.recency },
@@ -374,7 +374,7 @@ describe('governance long-table dual-write (PROJ-815)', () => {
 
     it('returns null on empty-input wide path', async () => {
       configMock.GOVERNANCE_LONGTABLE_READ_ENABLED = false;
-      dbQueryMock.mockResolvedValueOnce({ rows: [{ count: 0 }] }); // keyword-only count
+      dbQueryMock.mockResolvedValueOnce({ rows: [{ count: '0' }] }); // keyword-only count
       dbQueryMock.mockResolvedValueOnce({ rows: [] });              // wide votes query
 
       const result = await aggregateVotes(99);
@@ -383,8 +383,30 @@ describe('governance long-table dual-write (PROJ-815)', () => {
 
     it('returns null on empty-input long path (parity with wide)', async () => {
       configMock.GOVERNANCE_LONGTABLE_READ_ENABLED = true;
-      dbQueryMock.mockResolvedValueOnce({ rows: [{ count: 0 }] }); // keyword-only count
+      dbQueryMock.mockResolvedValueOnce({ rows: [{ count: '0' }] }); // keyword-only count
       dbQueryMock.mockResolvedValueOnce({ rows: [] });              // long votes query
+
+      const result = await aggregateVotes(99);
+      expect(result).toBeNull();
+    });
+
+    // Regression: aggregateVotes must decide null/non-null from the actual
+    // eligible-votes set, NOT from the keyword-only count. pg returns int8 as
+    // string; mocking COUNT(*) as '2' with an empty vote rowset must still
+    // produce null on both code paths.
+    it('returns null when keyword-count is positive but eligible votes is empty (wide path)', async () => {
+      configMock.GOVERNANCE_LONGTABLE_READ_ENABLED = false;
+      dbQueryMock.mockResolvedValueOnce({ rows: [{ count: '2' }] }); // positive keyword count
+      dbQueryMock.mockResolvedValueOnce({ rows: [] });               // wide votes query: empty
+
+      const result = await aggregateVotes(99);
+      expect(result).toBeNull();
+    });
+
+    it('returns null when keyword-count is positive but eligible votes is empty (long path)', async () => {
+      configMock.GOVERNANCE_LONGTABLE_READ_ENABLED = true;
+      dbQueryMock.mockResolvedValueOnce({ rows: [{ count: '2' }] }); // positive keyword count
+      dbQueryMock.mockResolvedValueOnce({ rows: [] });               // long votes query: empty
 
       const result = await aggregateVotes(99);
       expect(result).toBeNull();
@@ -395,7 +417,7 @@ describe('governance long-table dual-write (PROJ-815)', () => {
       // wide path uses "AND xxx_weight IS NOT NULL" for each column; the long
       // path's equivalent is "vote has rows for every registered key".
       configMock.GOVERNANCE_LONGTABLE_READ_ENABLED = true;
-      dbQueryMock.mockResolvedValueOnce({ rows: [{ count: 0 }] });
+      dbQueryMock.mockResolvedValueOnce({ rows: [{ count: '0' }] });
       dbQueryMock.mockResolvedValueOnce({
         rows: [
           // complete vote
