@@ -215,6 +215,126 @@ async function readPostScoreFromLongTable({
 }
 
 /**
+ * Per-post score row for batch reads — what the counterfactual route and
+ * feed-stats consume. Includes only the fields they need; lighter than the
+ * full PostScoreRecord (no scoredAt, no componentDetails).
+ */
+export interface BatchPostScoreRow {
+  postUri: string;
+  totalScore: number;
+  components: Record<string, ComponentScoreTriple>;
+}
+
+/**
+ * Read top-N posts for an epoch with their per-component decomposition.
+ *
+ * Returns rows sorted by total_score DESC. Used by counterfactual (which
+ * recomputes scores with alternate weights) and other batch consumers.
+ *
+ * Behind SCORE_LONGTABLE_READ_ENABLED:
+ *   - false: SELECT all 15 wide columns + total_score from post_scores.
+ *   - true: SELECT total_score from post_scores joined with
+ *     post_score_components, pivoted via jsonb_object_agg per row.
+ *
+ * Either path returns the same uniform shape.
+ */
+export async function readPostScoresForEpoch(options: {
+  epochId: number;
+  limit: number;
+  runId?: string;
+}): Promise<BatchPostScoreRow[]> {
+  const { epochId, limit, runId } = options;
+
+  if (config.SCORE_LONGTABLE_READ_ENABLED) {
+    const params: unknown[] = [epochId];
+    let runClause = '';
+    if (runId) {
+      params.push(runId);
+      runClause = `AND ps.component_details->>'run_id' = $${params.length}`;
+    }
+    params.push(limit);
+
+    const result = await db.query<{
+      post_uri: string;
+      total_score: string;
+      components_raw: Record<string, string> | null;
+      components_weight: Record<string, string> | null;
+      components_weighted: Record<string, string> | null;
+    }>(
+      `SELECT
+         ps.post_uri,
+         ps.total_score,
+         jsonb_object_agg(psc.component_key, psc.raw) FILTER (WHERE psc.component_key IS NOT NULL) AS components_raw,
+         jsonb_object_agg(psc.component_key, psc.weight) FILTER (WHERE psc.component_key IS NOT NULL) AS components_weight,
+         jsonb_object_agg(psc.component_key, psc.weighted) FILTER (WHERE psc.component_key IS NOT NULL) AS components_weighted
+       FROM post_scores ps
+       LEFT JOIN post_score_components psc
+         ON psc.post_uri = ps.post_uri AND psc.epoch_id = ps.epoch_id
+       WHERE ps.epoch_id = $1 ${runClause}
+       GROUP BY ps.post_uri, ps.total_score
+       ORDER BY ps.total_score DESC
+       LIMIT $${params.length}`,
+      params
+    );
+
+    return result.rows.map((row) => {
+      const components: Record<string, ComponentScoreTriple> = {};
+      const rawMap = row.components_raw ?? {};
+      const weightMap = row.components_weight ?? {};
+      const weightedMap = row.components_weighted ?? {};
+      for (const key of Object.keys(rawMap)) {
+        components[key] = {
+          raw: parseFloat(String(rawMap[key] ?? 0)),
+          weight: parseFloat(String(weightMap[key] ?? 0)),
+          weighted: parseFloat(String(weightedMap[key] ?? 0)),
+        };
+      }
+      return {
+        postUri: row.post_uri,
+        totalScore: parseFloat(row.total_score),
+        components,
+      };
+    });
+  }
+
+  const params: unknown[] = [epochId];
+  let runClause = '';
+  if (runId) {
+    params.push(runId);
+    runClause = `AND component_details->>'run_id' = $${params.length}`;
+  }
+  params.push(limit);
+
+  const result = await db.query<Record<string, unknown>>(
+    `SELECT post_uri, total_score,
+            recency_score, engagement_score, bridging_score, source_diversity_score, relevance_score,
+            recency_weight, engagement_weight, bridging_weight, source_diversity_weight, relevance_weight,
+            recency_weighted, engagement_weighted, bridging_weighted, source_diversity_weighted, relevance_weighted
+     FROM post_scores
+     WHERE epoch_id = $1 ${runClause}
+     ORDER BY total_score DESC
+     LIMIT $${params.length}`,
+    params
+  );
+
+  return result.rows.map((row) => {
+    const components: Record<string, ComponentScoreTriple> = {};
+    for (const [key, rawCol, weightCol, weightedCol] of WIDE_COMPONENT_COLUMNS) {
+      components[key] = {
+        raw: parseFloat(String(row[rawCol] ?? 0)),
+        weight: parseFloat(String(row[weightCol] ?? 0)),
+        weighted: parseFloat(String(row[weightedCol] ?? 0)),
+      };
+    }
+    return {
+      postUri: String(row.post_uri),
+      totalScore: parseFloat(String(row.total_score)),
+      components,
+    };
+  });
+}
+
+/**
  * Count posts in an epoch whose value for a single component exceeds a
  * threshold. Used by counterfactual ranking (e.g. "how many posts have a
  * higher engagement score than this one").
