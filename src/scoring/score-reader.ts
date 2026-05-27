@@ -335,6 +335,104 @@ export async function readPostScoresForEpoch(options: {
 }
 
 /**
+ * Per-component aggregates for an epoch.
+ */
+export interface EpochComponentStats {
+  avg: number;
+  median: number;
+  count: number;
+}
+
+/**
+ * Aggregate (avg + median + count) of a single component's raw score across
+ * an epoch. Returns `null` if no rows match (no posts scored, or no
+ * registered component matched the key).
+ *
+ * Used by feed-stats (avg/median for bridging, avg for engagement) and other
+ * transparency surfaces that summarize per-component distributions.
+ */
+export async function readEpochComponentStats(options: {
+  epochId: number;
+  componentKey: string;
+  runId?: string;
+}): Promise<EpochComponentStats | null> {
+  const { epochId, componentKey, runId } = options;
+
+  if (config.SCORE_LONGTABLE_READ_ENABLED) {
+    const params: unknown[] = [epochId, componentKey];
+    let runClause = '';
+    if (runId) {
+      // The run_id filter lives on post_scores.component_details. Long-table
+      // rows don't carry it directly, so join through post_scores.
+      params.push(runId);
+      runClause = `AND ps.component_details->>'run_id' = $${params.length}`;
+    }
+    const result = await db.query<{
+      avg: string | null;
+      median: string | null;
+      count: string;
+    }>(
+      `SELECT
+         AVG(psc.raw)::text as avg,
+         PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY psc.raw)::text as median,
+         COUNT(*)::text as count
+       FROM post_score_components psc
+       ${runClause ? `JOIN post_scores ps ON ps.post_uri = psc.post_uri AND ps.epoch_id = psc.epoch_id` : ''}
+       WHERE psc.epoch_id = $1 AND psc.component_key = $2
+         ${runClause}`,
+      params
+    );
+    const row = result.rows[0];
+    const count = parseInt(row?.count ?? '0', 10);
+    if (count === 0 || row?.avg === null || row?.median === null) {
+      return null;
+    }
+    return {
+      avg: parseFloat(row.avg),
+      median: parseFloat(row.median),
+      count,
+    };
+  }
+
+  // Wide path — map camelCase key to snake_case column.
+  const prefix = COMPONENT_KEY_TO_WIDE_PREFIX[componentKey];
+  if (!prefix) {
+    return null;
+  }
+  const column = `${prefix}_score`;
+  const params: unknown[] = [epochId];
+  let runClause = '';
+  if (runId) {
+    params.push(runId);
+    runClause = `AND component_details->>'run_id' = $${params.length}`;
+  }
+  const result = await db.query<{
+    avg: string | null;
+    median: string | null;
+    count: string;
+  }>(
+    `SELECT
+       AVG(${column})::text as avg,
+       PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ${column})::text as median,
+       COUNT(*)::text as count
+     FROM post_scores
+     WHERE epoch_id = $1
+       ${runClause}`,
+    params
+  );
+  const row = result.rows[0];
+  const count = parseInt(row?.count ?? '0', 10);
+  if (count === 0 || row?.avg === null || row?.median === null) {
+    return null;
+  }
+  return {
+    avg: parseFloat(row.avg),
+    median: parseFloat(row.median),
+    count,
+  };
+}
+
+/**
  * Count posts in an epoch whose value for a single component exceeds a
  * threshold. Used by counterfactual ranking (e.g. "how many posts have a
  * higher engagement score than this one").
