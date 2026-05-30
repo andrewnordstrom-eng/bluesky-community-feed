@@ -356,6 +356,12 @@ describe('votable-params record shape (PROJ-816)', () => {
       expect([...GOVERNANCE_WEIGHT_VOTE_FIELDS].sort()).toEqual(scoringVoteFields);
     });
 
+    it('accepts the current 5-field wide vote shape', () => {
+      expect(() => {
+        assertWideVoteFieldCount(GOVERNANCE_WEIGHT_VOTE_FIELDS);
+      }).not.toThrow();
+    });
+
     it('fails fast if the wide vote insert is asked to handle a sixth weight', () => {
       expect(() => {
         assertWideVoteFieldCount([
