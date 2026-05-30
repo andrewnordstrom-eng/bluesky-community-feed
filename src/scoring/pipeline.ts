@@ -50,6 +50,9 @@ let lastScoredEpochId: number | null = null;
 // Count incremental runs since last full rescore (triggers periodic full rescore for recency decay)
 let incrementalRunCount = 0;
 
+// Avoid repeated warnings when a rollout exposes a missing dynamic component weight.
+let missingWeightWarned = new Set<string>();
+
 /**
  * Get the timestamp of the last successful scoring run.
  */
@@ -64,6 +67,7 @@ export function __resetPipelineState(): void {
   lastSuccessfulRunAt = null;
   lastScoredEpochId = null;
   incrementalRunCount = 0;
+  missingWeightWarned = new Set<string>();
 }
 
 /**
@@ -537,11 +541,22 @@ async function scorePost(
 
   for (const component of DEFAULT_COMPONENTS) {
     const rawScore = await component.score(post, context);
-    const weight = epoch.weights[component.key] ?? 0;
-    const weightedScore = rawScore * weight;
+    const weight = epoch.weights[component.key];
+    if (weight === undefined) {
+      const warningKey = `${epoch.id}:${component.key}`;
+      if (!missingWeightWarned.has(warningKey)) {
+        missingWeightWarned.add(warningKey);
+        logger.warn(
+          { epochId: epoch.id, componentKey: component.key },
+          'Missing governance weight for scoring component; falling back to zero'
+        );
+      }
+    }
+    const resolvedWeight = weight ?? 0;
+    const weightedScore = rawScore * resolvedWeight;
 
     raw[component.key] = rawScore;
-    weights[component.key] = weight;
+    weights[component.key] = resolvedWeight;
     weighted[component.key] = weightedScore;
     total += weightedScore;
   }

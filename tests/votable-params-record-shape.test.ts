@@ -51,6 +51,17 @@ import {
 import { REGISTERED_COMPONENT_KEYS } from '../src/scoring/registry.js';
 
 describe('votable-params record shape (PROJ-816)', () => {
+  function registeredWeights(value: number): Record<string, number> {
+    return Object.fromEntries(
+      VOTABLE_WEIGHT_PARAMS.map((p) => [p.voteField, value])
+    );
+  }
+
+  function expectInvalidVoteBody(bodyText: string): void {
+    const body = JSON.parse(bodyText) as { error: string };
+    expect(body.error).toBe('InvalidVote');
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
     getAuthenticatedDidMock.mockResolvedValue('did:plc:alice');
@@ -63,6 +74,9 @@ describe('votable-params record shape (PROJ-816)', () => {
       }
       if (text.includes('FROM governance_epochs')) {
         return { rows: [{ id: 1, status: 'active', phase: 'voting' }] };
+      }
+      if (text.includes('INSERT INTO governance_votes')) {
+        return { rows: [{ id: 'vote-uuid-1', is_new_vote: true }] };
       }
       return { rows: [] };
     });
@@ -155,12 +169,21 @@ describe('votable-params record shape (PROJ-816)', () => {
         headers: { 'content-type': 'application/json' },
       });
 
-      // Should not be rejected for unregistered keys — exact downstream code
-      // matters less than NOT seeing 400 UnregisteredWeightKey here.
-      if (res.statusCode === 400) {
-        const body = JSON.parse(res.body) as { error: string };
-        expect(body.error).not.toBe('UnregisteredWeightKey');
-      }
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.body) as {
+        success: boolean;
+        epoch_id: number;
+        weights: Record<string, number>;
+      };
+      expect(body.success).toBe(true);
+      expect(body.epoch_id).toBe(1);
+      expect(body.weights).toEqual({
+        recency: 0.2,
+        engagement: 0.2,
+        bridging: 0.2,
+        sourceDiversity: 0.2,
+        relevance: 0.2,
+      });
     });
 
     it('rejects multiple unregistered keys with all of them listed in the error', async () => {
@@ -206,11 +229,101 @@ describe('votable-params record shape (PROJ-816)', () => {
         headers: { 'content-type': 'application/json' },
       });
 
-      // Must not be rejected for the unregistered-key reason.
-      if (res.statusCode === 400) {
-        const body = JSON.parse(res.body) as { error: string };
-        expect(body.error).not.toBe('UnregisteredWeightKey');
-      }
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.body) as {
+        success: boolean;
+        epoch_id: number;
+        weights: Record<string, number>;
+      };
+      expect(body.success).toBe(true);
+      expect(body.epoch_id).toBe(1);
+      expect(body.weights).toEqual({
+        recency: 0.2,
+        engagement: 0.2,
+        bridging: 0.2,
+        sourceDiversity: 0.2,
+        relevance: 0.2,
+      });
+    });
+
+    it('rejects registered weights that do not sum to 1.0', async () => {
+      const app = buildTestApp();
+      registerVoteRoute(app);
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/governance/vote',
+        payload: registeredWeights(0.1),
+        headers: { 'content-type': 'application/json' },
+      });
+
+      expect(res.statusCode).toBe(400);
+      expectInvalidVoteBody(res.body);
+    });
+
+    it('rejects partial registered weight submissions', async () => {
+      const app = buildTestApp();
+      registerVoteRoute(app);
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/governance/vote',
+        payload: { recency_weight: 1.0 },
+        headers: { 'content-type': 'application/json' },
+      });
+
+      expect(res.statusCode).toBe(400);
+      expectInvalidVoteBody(res.body);
+    });
+
+    it('rejects registered weight values outside the allowed range', async () => {
+      const app = buildTestApp();
+      registerVoteRoute(app);
+
+      const payload = {
+        ...registeredWeights(0.2),
+        recency_weight: 1.5,
+      };
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/governance/vote',
+        payload,
+        headers: { 'content-type': 'application/json' },
+      });
+
+      expect(res.statusCode).toBe(400);
+      expectInvalidVoteBody(res.body);
+    });
+
+    it('rejects empty vote payloads', async () => {
+      const app = buildTestApp();
+      registerVoteRoute(app);
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/governance/vote',
+        payload: {},
+        headers: { 'content-type': 'application/json' },
+      });
+
+      expect(res.statusCode).toBe(400);
+      expectInvalidVoteBody(res.body);
+    });
+
+    it('treats non-snake registered key variants as absent from the intake contract', async () => {
+      const app = buildTestApp();
+      registerVoteRoute(app);
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/governance/vote',
+        payload: { sourceDiversity: 0.2 },
+        headers: { 'content-type': 'application/json' },
+      });
+
+      expect(res.statusCode).toBe(400);
+      expectInvalidVoteBody(res.body);
     });
   });
 
@@ -230,6 +343,13 @@ describe('votable-params record shape (PROJ-816)', () => {
         'source_diversity_weight',
         'relevance_weight',
       ]);
+    });
+
+    it('keeps route vote-field allowlist aligned with scoring registry keys', () => {
+      const scoringVoteFields = [...REGISTERED_COMPONENT_KEYS]
+        .map((key) => voteFieldForKey(key))
+        .sort();
+      expect([...GOVERNANCE_WEIGHT_VOTE_FIELDS].sort()).toEqual(scoringVoteFields);
     });
   });
 });
