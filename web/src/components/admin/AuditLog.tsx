@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { adminApi } from '../../api/admin';
 import type { AuditEntry } from '../../api/admin';
 import { formatActionName, formatRelative, truncateDid } from '../../utils/format';
@@ -134,24 +134,23 @@ export function AuditLog() {
   const [filter, setFilter] = useState({ action: '', limit: 50 });
   const [isLoading, setIsLoading] = useState(true);
 
-  const fetchLog = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const data = await adminApi.getAuditLog(filter);
-      setEntries(data.entries || []);
-      setTotal(data.total || 0);
-    } catch (error) {
-      console.error('Failed to fetch audit log', error);
-      setEntries([]);
-      setTotal(0);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [filter]);
-
   useEffect(() => {
+    async function fetchLog() {
+      setIsLoading(true);
+      try {
+        const data = await adminApi.getAuditLog(filter);
+        setEntries(data.entries || []);
+        setTotal(data.total || 0);
+      } catch (error) {
+        console.error('Failed to fetch audit log', error);
+        setEntries([]);
+        setTotal(0);
+      } finally {
+        setIsLoading(false);
+      }
+    }
     void fetchLog();
-  }, [fetchLog]);
+  }, [filter]);
 
   const transitionImpacts = useMemo(() => {
     return entries

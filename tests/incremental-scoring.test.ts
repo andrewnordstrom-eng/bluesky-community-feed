@@ -156,7 +156,9 @@ describe('incremental scoring pipeline', () => {
       .mockResolvedValueOnce({ rows: [postRow] })           // getPostsForScoring (full)
       // scoreBridging engager query (for the scored post)
       .mockResolvedValueOnce({ rows: [] })
-      // storeScore upsert
+      // storeScore: wide-row upsert into post_scores
+      .mockResolvedValueOnce({ rows: [] })
+      // storeScore: long-table dual-write into post_score_components (PROJ-814)
       .mockResolvedValueOnce({ rows: [] })
       // writeToRedisFromDb: returns the scored post from DB
       .mockResolvedValueOnce({
