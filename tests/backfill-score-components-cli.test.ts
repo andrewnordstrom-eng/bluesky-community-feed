@@ -18,6 +18,7 @@ import { describe, expect, it } from 'vitest';
 const SCRIPT = path.resolve('scripts', 'backfill-score-components.ts');
 const TSX = path.resolve('node_modules', '.bin', 'tsx');
 const SENTINEL = 'postgresql://sentinel-user:sentinel-pass@sentinel-host:6543/sentinel-db';
+const UNSAFE_INTEGER = '9007199254740993';
 
 /**
  * Guard against a subprocess that never actually spawned (tsx not found,
@@ -29,7 +30,10 @@ function assertSpawnCompleted(result: SpawnSyncReturns<string>): void {
   expect(result.status).not.toBeNull();
 }
 
-function runScript(args: string[], envOverrides: Record<string, string | undefined>) {
+function runScript(
+  args: string[],
+  envOverrides: Record<string, string | undefined>
+): SpawnSyncReturns<string> {
   const env = { ...process.env, ...envOverrides };
   // Explicitly delete keys whose override value is undefined so the spawned
   // process sees the var as absent, not as the literal string "undefined".
@@ -117,6 +121,27 @@ describe('backfill-score-components CLI: argument validation', () => {
     assertSpawnCompleted(result);
     expect(result.status).toBe(2);
     expect(result.stderr).toMatch(/--batch-size/);
+  });
+
+  it('rejects --batch-size with an unsafe integer value', () => {
+    const result = runScript(['--batch-size', UNSAFE_INTEGER], { DATABASE_URL: SENTINEL });
+    assertSpawnCompleted(result);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toMatch(/Invalid value for --batch-size/);
+  });
+
+  it('rejects --epoch-id with an unsafe integer value', () => {
+    const result = runScript(['--epoch-id', UNSAFE_INTEGER], { DATABASE_URL: SENTINEL });
+    assertSpawnCompleted(result);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toMatch(/Invalid value for --epoch-id/);
+  });
+
+  it('rejects --limit with an unsafe integer value', () => {
+    const result = runScript(['--limit', UNSAFE_INTEGER], { DATABASE_URL: SENTINEL });
+    assertSpawnCompleted(result);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toMatch(/Invalid value for --limit/);
   });
 
   it('rejects an unknown flag', () => {
