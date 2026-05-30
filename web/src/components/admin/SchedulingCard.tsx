@@ -51,7 +51,9 @@ function toPhase(round: RoundSummary | null): 'running' | 'voting' | 'results' {
 
 export function SchedulingCard({ round, onUpdate, onNotify }: SchedulingCardProps) {
   const [scheduledVotes, setScheduledVotes] = useState<ScheduledVote[]>([]);
-  const [startsAtInput, setStartsAtInput] = useState(toInputDateTime(new Date(Date.now() + 24 * 60 * 60 * 1000)));
+  const [startsAtInput, setStartsAtInput] = useState(() =>
+    toInputDateTime(new Date(Date.now() + 24 * 60 * 60 * 1000))
+  );
   const [durationHours, setDurationHours] = useState(72);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -67,8 +69,22 @@ export function SchedulingCard({ round, onUpdate, onNotify }: SchedulingCardProp
   }, [onNotify]);
 
   useEffect(() => {
-    void loadSchedule();
-  }, [loadSchedule]);
+    let isMounted = true;
+    async function fetchScheduledVotes() {
+      try {
+        const response = await adminApi.getVoteSchedule();
+        if (!isMounted) return;
+        setScheduledVotes(response.scheduledVotes);
+      } catch (error) {
+        if (!isMounted) return;
+        onNotify('error', error instanceof Error ? error.message : 'Failed to load vote schedule');
+      }
+    }
+    void fetchScheduledVotes();
+    return () => {
+      isMounted = false;
+    };
+  }, [onNotify]);
 
   async function handleScheduleVote() {
     setIsSaving(true);

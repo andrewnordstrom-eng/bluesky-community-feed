@@ -95,8 +95,8 @@ jobs:
 
             const packageJson = JSON.parse(fs.readFileSync("web/package.json", "utf8"));
             const axiosVersion = packageJson.dependencies?.axios;
-            if (axiosVersion !== "1.15.2") {
-              throw new Error(`web/package.json must pin axios to exact 1.15.2; found ${axiosVersion ?? "missing"}`);
+            if (axiosVersion !== "1.16.0") {
+              throw new Error(`web/package.json must pin axios to exact 1.16.0; found ${axiosVersion ?? "missing"}`);
             }
           '
 

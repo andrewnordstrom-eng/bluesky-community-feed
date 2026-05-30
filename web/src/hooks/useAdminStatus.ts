@@ -14,20 +14,24 @@ import { useAuth } from '../contexts/useAuth';
 export function useAdminStatus() {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [status, setStatus] = useState<AdminStatus | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [statusLoading, setStatusLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // While auth is loading we should report loading too; once auth is settled,
+  // we surface the local status fetch state.
+  const isLoading = authLoading || statusLoading;
 
   const fetchStatus = useCallback(async () => {
     // Avoid admin endpoint probes for logged-out users.
     if (!isAuthenticated) {
       setStatus(null);
       setError(null);
-      setIsLoading(false);
+      setStatusLoading(false);
       return;
     }
 
     try {
-      setIsLoading(true);
+      setStatusLoading(true);
       const data = await adminApi.getStatus();
       setStatus(data);
       setError(null);
@@ -41,18 +45,55 @@ export function useAdminStatus() {
       setError(err instanceof Error ? err.message : 'Failed to fetch status');
       setStatus(null);
     } finally {
-      setIsLoading(false);
+      setStatusLoading(false);
     }
   }, [isAuthenticated]);
 
   useEffect(() => {
     if (authLoading) {
-      setIsLoading(true);
       return;
     }
 
-    fetchStatus();
-  }, [authLoading, fetchStatus]);
+    let isMounted = true;
+
+    async function loadStatus() {
+      // Avoid admin endpoint probes for logged-out users.
+      if (!isAuthenticated) {
+        if (!isMounted) return;
+        setStatus(null);
+        setError(null);
+        setStatusLoading(false);
+        return;
+      }
+
+      try {
+        if (!isMounted) return;
+        setStatusLoading(true);
+        const data = await adminApi.getStatus();
+        if (!isMounted) return;
+        setStatus(data);
+        setError(null);
+      } catch (err) {
+        if (!isMounted) return;
+        // 401/403 means user is authenticated but not admin (or session expired).
+        if (isAxiosError(err) && (err.response?.status === 401 || err.response?.status === 403)) {
+          setStatus(null);
+          setError(null);
+          return;
+        }
+        setError(err instanceof Error ? err.message : 'Failed to fetch status');
+        setStatus(null);
+      } finally {
+        if (isMounted) setStatusLoading(false);
+      }
+    }
+
+    void loadStatus();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [authLoading, isAuthenticated]);
 
   return {
     status,

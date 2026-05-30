@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { adminApi } from '../../api/admin';
 import type { FeedHealth as FeedHealthType } from '../../api/admin';
 import { formatNumber, formatRelative, formatDate } from '../../utils/format';
@@ -11,7 +11,7 @@ export function FeedHealth() {
   const [isReconnectingJetstream, setIsReconnectingJetstream] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  async function fetchHealth() {
+  const fetchHealth = useCallback(async () => {
     try {
       const data = await adminApi.getFeedHealth();
       setHealth(data);
@@ -20,14 +20,36 @@ export function FeedHealth() {
     } finally {
       setIsLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
-    fetchHealth();
+    let isMounted = true;
+    let inFlight = false;
+    async function loadHealth() {
+      if (!isMounted || inFlight) return;
+      inFlight = true;
+      try {
+        const data = await adminApi.getFeedHealth();
+        if (!isMounted) return;
+        setHealth(data);
+      } catch {
+        if (!isMounted) return;
+        setMessage({ type: 'error', text: 'Failed to load feed health' });
+      } finally {
+        if (isMounted) setIsLoading(false);
+        inFlight = false;
+      }
+    }
+    void loadHealth();
 
     // Refresh every 30 seconds
-    const interval = setInterval(fetchHealth, 30000);
-    return () => clearInterval(interval);
+    const interval = setInterval(() => {
+      void loadHealth();
+    }, 30000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
   }, []);
 
   async function handleRescore() {
