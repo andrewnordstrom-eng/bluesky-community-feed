@@ -41,7 +41,11 @@ vi.mock('../src/lib/logger.js', () => ({
   },
 }));
 
-import { registerVoteRoute } from '../src/governance/routes/vote.js';
+import {
+  WideVoteFieldCountError,
+  assertWideVoteFieldCount,
+  registerVoteRoute,
+} from '../src/governance/routes/vote.js';
 import { buildTestApp } from './helpers/app.js';
 import {
   GOVERNANCE_WEIGHT_VOTE_FIELDS,
@@ -350,6 +354,15 @@ describe('votable-params record shape (PROJ-816)', () => {
         .map((key) => voteFieldForKey(key))
         .sort();
       expect([...GOVERNANCE_WEIGHT_VOTE_FIELDS].sort()).toEqual(scoringVoteFields);
+    });
+
+    it('fails fast if the wide vote insert is asked to handle a sixth weight', () => {
+      expect(() => {
+        assertWideVoteFieldCount([
+          ...GOVERNANCE_WEIGHT_VOTE_FIELDS,
+          'civility_weight',
+        ]);
+      }).toThrow(WideVoteFieldCountError);
     });
   });
 });

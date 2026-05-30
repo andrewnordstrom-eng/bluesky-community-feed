@@ -36,6 +36,26 @@ const weightFieldSchemas = Object.fromEntries(
   ])
 ) as Record<string, z.ZodOptional<z.ZodNumber>>;
 
+const EXPECTED_WIDE_WEIGHT_COUNT = 5;
+
+export class WideVoteFieldCountError extends Error {
+  constructor(actualCount: number) {
+    super(
+      `Vote route wide-column INSERT supports exactly ${EXPECTED_WIDE_WEIGHT_COUNT} weights, ` +
+      `but ${actualCount} are registered. Update the INSERT/UPSERT before adding components.`
+    );
+    this.name = 'WideVoteFieldCountError';
+  }
+}
+
+export function assertWideVoteFieldCount(fields: readonly string[]): void {
+  if (fields.length !== EXPECTED_WIDE_WEIGHT_COUNT) {
+    throw new WideVoteFieldCountError(fields.length);
+  }
+}
+
+assertWideVoteFieldCount(GOVERNANCE_WEIGHT_VOTE_FIELDS);
+
 /**
  * Zod schema for vote validation.
  * Weights must be 0.0-1.0 and sum to 1.0.
