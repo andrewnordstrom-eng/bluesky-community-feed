@@ -36,13 +36,31 @@ const weightFieldSchemas = Object.fromEntries(
   ])
 ) as Record<string, z.ZodOptional<z.ZodNumber>>;
 
-const EXPECTED_WIDE_WEIGHT_COUNT = 5;
+/**
+ * The exact ordered wide-column weight fields the INSERT/UPSERT binds
+ * positionally to `$3..$7`. Order MUST match the column list and the
+ * `...GOVERNANCE_WEIGHT_VOTE_FIELDS.map(...)` parameter binding below.
+ *
+ * PROJ-816 widened `voteField` to `string`, so the compiler no longer catches a
+ * reorder or rename that keeps the count at 5 — which would silently write a
+ * weight into the wrong column. The guard asserts identity + order, not just
+ * cardinality, so positional drift fails fast at module load.
+ */
+const EXPECTED_WIDE_WEIGHT_FIELDS = [
+  'recency_weight',
+  'engagement_weight',
+  'bridging_weight',
+  'source_diversity_weight',
+  'relevance_weight',
+] as const;
+const EXPECTED_WIDE_WEIGHT_COUNT = EXPECTED_WIDE_WEIGHT_FIELDS.length;
 
 export class WideVoteFieldCountError extends Error {
-  constructor(actualCount: number) {
+  constructor(actualCount: number, detail?: string) {
     super(
-      `Vote route wide-column INSERT supports exactly ${EXPECTED_WIDE_WEIGHT_COUNT} weights, ` +
-      `but ${actualCount} are registered. Update the INSERT/UPSERT before adding components.`
+      `Vote route wide-column INSERT expects exactly ${EXPECTED_WIDE_WEIGHT_COUNT} ordered weight fields ` +
+      `[${EXPECTED_WIDE_WEIGHT_FIELDS.join(', ')}], but ${detail ?? `${actualCount} are registered`}. ` +
+      `Update the INSERT/UPSERT before adding or reordering components.`
     );
     this.name = 'WideVoteFieldCountError';
   }
@@ -51,6 +69,13 @@ export class WideVoteFieldCountError extends Error {
 export function assertWideVoteFieldCount(fields: readonly string[]): void {
   if (fields.length !== EXPECTED_WIDE_WEIGHT_COUNT) {
     throw new WideVoteFieldCountError(fields.length);
+  }
+  const mismatch = EXPECTED_WIDE_WEIGHT_FIELDS.findIndex((name, i) => fields[i] !== name);
+  if (mismatch !== -1) {
+    throw new WideVoteFieldCountError(
+      fields.length,
+      `field ${mismatch} is "${fields[mismatch]}" (expected "${EXPECTED_WIDE_WEIGHT_FIELDS[mismatch]}")`
+    );
   }
 }
 

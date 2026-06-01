@@ -541,8 +541,12 @@ async function scorePost(
 
   for (const component of DEFAULT_COMPONENTS) {
     const rawScore = await component.score(post, context);
-    const weight = epoch.weights[component.key];
-    if (weight === undefined) {
+    // PROJ-816: GovernanceWeights is Record<string, number>, so `weights[key]`
+    // type-checks as `number` even when the key is absent. Use an own-property
+    // check so the "unmapped component key → 0 + warning" path is sound rather
+    // than relying on a `=== undefined` comparison the types claim can't happen.
+    const hasWeight = Object.prototype.hasOwnProperty.call(epoch.weights, component.key);
+    if (!hasWeight) {
       const warningKey = `${epoch.id}:${component.key}`;
       if (!missingWeightWarned.has(warningKey)) {
         missingWeightWarned.add(warningKey);
@@ -552,7 +556,7 @@ async function scorePost(
         );
       }
     }
-    const resolvedWeight = weight ?? 0;
+    const resolvedWeight = hasWeight ? epoch.weights[component.key] : 0;
     const weightedScore = rawScore * resolvedWeight;
 
     raw[component.key] = rawScore;

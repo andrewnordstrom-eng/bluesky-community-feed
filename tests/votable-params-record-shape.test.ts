@@ -52,7 +52,11 @@ import {
   VOTABLE_WEIGHT_PARAMS,
   voteFieldForKey,
 } from '../src/config/votable-params.js';
-import { REGISTERED_COMPONENT_KEYS } from '../src/scoring/registry.js';
+import {
+  REGISTERED_COMPONENT_KEYS,
+  WIDE_COLUMN_COMPONENT_KEYS,
+  assertWideColumnsRegistered,
+} from '../src/scoring/registry.js';
 
 describe('votable-params record shape (PROJ-816)', () => {
   function registeredWeights(value: number): Record<string, number> {
@@ -280,13 +284,17 @@ describe('votable-params record shape (PROJ-816)', () => {
       expectInvalidVoteBody(res.body);
     });
 
-    it('rejects registered weight values outside the allowed range', async () => {
+    it('rejects a registered weight below its per-field minimum (isolated from the sum-to-1.0 refine)', async () => {
       const app = buildTestApp();
       registerVoteRoute(app);
 
+      // Sum stays exactly 1.0 (-0.1 + 0.275*4) so the 400 is attributable to the
+      // per-field min(0) bound, not the sum-to-1.0 invariant. (A `1.5` payload
+      // would sum to 2.3 and could be rejected by the sum refine alone, so it
+      // cannot prove the per-field range is enforced.)
       const payload = {
-        ...registeredWeights(0.2),
-        recency_weight: 1.5,
+        ...registeredWeights(0.275),
+        recency_weight: -0.1,
       };
 
       const res = await app.inject({
@@ -369,6 +377,22 @@ describe('votable-params record shape (PROJ-816)', () => {
           'civility_weight',
         ]);
       }).toThrow(WideVoteFieldCountError);
+    });
+
+    it('accepts the live registry for wide-column coverage', () => {
+      expect(() => assertWideColumnsRegistered()).not.toThrow();
+      for (const key of WIDE_COLUMN_COMPONENT_KEYS) {
+        expect(REGISTERED_COMPONENT_KEYS.has(key)).toBe(true);
+      }
+    });
+
+    it('throws if a wide-column key drifts out of the registry', () => {
+      // Simulate a renamed/removed registry key (e.g. 'recency') while the
+      // post_scores wide columns still expect it.
+      const driftedRegistry = new Set(
+        [...REGISTERED_COMPONENT_KEYS].filter((k) => k !== 'recency')
+      );
+      expect(() => assertWideColumnsRegistered(driftedRegistry)).toThrow(/recency/);
     });
   });
 });
