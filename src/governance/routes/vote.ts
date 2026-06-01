@@ -27,6 +27,7 @@ import {
   normalizeKeywords,
 } from '../governance.types.js';
 import type { VotePayload } from '../governance.types.js';
+import { writeVoteWeights } from '../weight-longtable.js';
 
 const weightFieldSchemas = Object.fromEntries(
   VOTABLE_WEIGHT_PARAMS.map((param) => [
@@ -307,7 +308,25 @@ export function registerVoteRoute(app: FastifyInstance): void {
       );
 
       const isNewVote = voteResult.rows[0].is_new_vote;
+      const voteId = voteResult.rows[0].id as string;
       const auditAction = isNewVote ? 'vote_cast' : 'vote_updated';
+
+      // 6b. Dual-write per-component weights into governance_vote_weights
+      // (PROJ-815 / P2). Only when the submission carried weights; keyword-only
+      // updates leave prior long-table rows in place, mirroring the COALESCE
+      // semantics of the wide-row UPSERT above. A failure here does NOT roll
+      // back the wide row — same eventual-consistency contract as PROJ-814.
+      // Backfill (scripts/backfill-governance-weights.ts) converges any gap.
+      if (config.GOVERNANCE_LONGTABLE_DUALWRITE_ENABLED && normalized) {
+        try {
+          await writeVoteWeights(voteId, normalized);
+        } catch (longTableErr) {
+          logger.warn(
+            { err: longTableErr, voteId, epochId },
+            'Long-table vote weight write failed; wide row remains authoritative'
+          );
+        }
+      }
 
       // 7. Log to audit trail with appropriate action
       await db.query(
