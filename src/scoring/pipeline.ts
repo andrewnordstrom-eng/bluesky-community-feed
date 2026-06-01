@@ -562,6 +562,17 @@ async function scorePost(
  * Store the decomposed score to the database.
  * GOLDEN RULE: Store raw, weight, AND weighted values for every component.
  *
+ * Writes the existing 15-column wide row into post_scores. When
+ * SCORE_LONGTABLE_DUALWRITE_ENABLED is on, additionally writes N rows — one
+ * per registered component — into post_score_components (migration 021).
+ *
+ * The two writes are NOT transactionally atomic. The wide row remains
+ * authoritative through PROJ-817 (P4 reader migration), so a failure between
+ * the two writes leaves the wide-authoritative path consistent; the missing
+ * long-table rows converge via the next scoring cycle (both INSERTs use
+ * ON CONFLICT) or via scripts/backfill-score-components.ts. PROJ-819 (P5)
+ * removes the wide columns and this code path together.
+ *
  * @param scoredPost - Post with computed scores
  * @param epoch - Current governance epoch
  * @param runId - Unique identifier for this scoring run
@@ -618,6 +629,55 @@ async function storeScore(
       JSON.stringify({ run_id: runId, classification_method: classificationMethod }),
       classificationMethod,
     ]
+  );
+
+  if (config.SCORE_LONGTABLE_DUALWRITE_ENABLED) {
+    await storeScoreComponents(uri, epoch.id, raw, weights, weighted);
+  }
+}
+
+/**
+ * Dual-write the per-component decomposition into post_score_components (added
+ * in migration 021). One row per registered scoring component. ON CONFLICT
+ * upserts so a rescore overwrites prior decomposition for the same
+ * (post_uri, epoch_id, component_key) tuple, and a backfill of an existing row
+ * is a no-op when the script has already inserted it.
+ */
+async function storeScoreComponents(
+  postUri: string,
+  epochId: number,
+  raw: ScoreComponents,
+  weights: ScoreComponents,
+  weighted: ScoreComponents
+): Promise<void> {
+  // Build the VALUES list dynamically. After PROJ-816 (P3) makes ScoreComponents
+  // Record-shaped, this loop naturally iterates whatever components the
+  // registry produced. Today it iterates exactly 5; tomorrow it may iterate N.
+  const keys = Object.keys(raw) as GovernanceWeightKey[];
+  if (keys.length === 0) {
+    return;
+  }
+
+  const params: unknown[] = [];
+  const placeholders: string[] = [];
+  for (const key of keys) {
+    const offset = params.length;
+    params.push(postUri, epochId, key, raw[key], weights[key], weighted[key]);
+    placeholders.push(
+      `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6})`
+    );
+  }
+
+  await db.query(
+    `INSERT INTO post_score_components
+       (post_uri, epoch_id, component_key, raw, weight, weighted)
+     VALUES ${placeholders.join(', ')}
+     ON CONFLICT (post_uri, epoch_id, component_key) DO UPDATE SET
+       raw = EXCLUDED.raw,
+       weight = EXCLUDED.weight,
+       weighted = EXCLUDED.weighted,
+       scored_at = NOW()`,
+    params
   );
 }
 
