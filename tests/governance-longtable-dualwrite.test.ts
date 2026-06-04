@@ -176,13 +176,116 @@ describe('governance long-table dual-write (PROJ-815)', () => {
       });
       expect(findCall('INSERT INTO governance_vote_weights')).toBeUndefined();
     });
+
+    it('propagates db.query errors instead of swallowing them', async () => {
+      // The caller (routes/vote.ts) is responsible for the
+      // logger.warn-and-continue eventual-consistency behavior; the helper
+      // itself must surface failures so callers can decide whether to swallow.
+      dbQueryMock.mockReset();
+      dbQueryMock.mockRejectedValueOnce(new Error('db connection lost'));
+
+      await expect(
+        writeVoteWeights('vote-uuid-err', {
+          recency: 0.2,
+          engagement: 0.2,
+          bridging: 0.2,
+          sourceDiversity: 0.2,
+          relevance: 0.2,
+        })
+      ).rejects.toThrow('db connection lost');
+    });
+
+    it('accepts boundary weights at exactly 0 and 1 (CHECK boundary parity)', async () => {
+      // The long table's CHECK (weight >= 0 AND weight <= 1) is inclusive on
+      // both ends. The writer must not silently filter out exact 0 or 1 — those
+      // are legal values and a future "civility" component could plausibly emit
+      // a 0 weight if it has no opinion.
+      await writeVoteWeights('vote-uuid-boundary', {
+        recency: 0,
+        engagement: 1,
+        bridging: 0.0,
+        sourceDiversity: 1.0,
+        relevance: 0.5,
+      });
+
+      const call = findCall('INSERT INTO governance_vote_weights');
+      expect(call).toBeDefined();
+      const params = call![1] as unknown[];
+      expect(params.length).toBe(5 * 3);
+
+      // Spot-check the actual values appear in the parameter list, not silently dropped.
+      const weights = params.filter((_, i) => i % 3 === 2);
+      expect(weights).toEqual(expect.arrayContaining([0, 1, 0.0, 1.0, 0.5]));
+    });
+
+    it('does not leak parameters between concurrent writeVoteWeights calls', async () => {
+      // Concurrent writers must each see their own vote_id and weight set in
+      // the INSERT — the helper builds parameter arrays per-call and should
+      // not share state. Run two writes in parallel and verify each call's
+      // parameter list carries only its own vote_id.
+      dbQueryMock.mockReset();
+      dbQueryMock.mockResolvedValue({ rows: [] });
+
+      await Promise.all([
+        writeVoteWeights('vote-concurrent-A', {
+          recency: 0.5,
+          engagement: 0.5,
+          bridging: 0,
+          sourceDiversity: 0,
+          relevance: 0,
+        }),
+        writeVoteWeights('vote-concurrent-B', {
+          recency: 0,
+          engagement: 0,
+          bridging: 0.3,
+          sourceDiversity: 0.3,
+          relevance: 0.4,
+        }),
+      ]);
+
+      const longCalls = dbQueryMock.mock.calls.filter((c: unknown[]) =>
+        String(c[0]).includes('INSERT INTO governance_vote_weights')
+      );
+      expect(longCalls.length).toBe(2);
+
+      // Each call's vote_id parameters (positions 0, 3, 6, …) should be only one of the two ids.
+      for (const [, params] of longCalls) {
+        const voteIds = (params as unknown[]).filter((_, i) => i % 3 === 0);
+        const unique = new Set(voteIds);
+        expect(unique.size).toBe(1);
+        expect(['vote-concurrent-A', 'vote-concurrent-B']).toContain(
+          [...unique][0]
+        );
+      }
+    });
+  });
+
+  describe('writeEpochWeights error propagation', () => {
+    it('propagates client.query errors so the outer transaction can roll back', async () => {
+      // Epoch dual-write runs inside an existing BEGIN/COMMIT block in
+      // epoch-manager.ts. If the long-table INSERT throws, the helper must
+      // surface it so the surrounding transaction rolls back atomically.
+      const failingClient = {
+        query: vi.fn().mockRejectedValueOnce(new Error('long-table insert failed')),
+      } as unknown as Parameters<typeof writeEpochWeights>[0];
+
+      await expect(
+        writeEpochWeights(failingClient, 7, {
+          recency: 0.2,
+          engagement: 0.2,
+          bridging: 0.2,
+          sourceDiversity: 0.2,
+          relevance: 0.2,
+        })
+      ).rejects.toThrow('long-table insert failed');
+    });
   });
 
   describe('aggregateVotes read-flag branch', () => {
     it('reads from governance_votes wide columns when flag is off', async () => {
       configMock.GOVERNANCE_LONGTABLE_READ_ENABLED = false;
 
-      dbQueryMock.mockResolvedValueOnce({ rows: [{ count: 0 }] }); // keyword-only query
+      dbQueryMock.mockResolvedValueOnce({ rows: [{ count: '0' }] }); // keyword-only query
       dbQueryMock.mockResolvedValueOnce({
         rows: [
           {
@@ -205,7 +308,7 @@ describe('governance long-table dual-write (PROJ-815)', () => {
     it('reads from governance_vote_weights long table when flag is on', async () => {
       configMock.GOVERNANCE_LONGTABLE_READ_ENABLED = true;
 
-      dbQueryMock.mockResolvedValueOnce({ rows: [{ count: 0 }] }); // keyword-only query
+      dbQueryMock.mockResolvedValueOnce({ rows: [{ count: '0' }] }); // keyword-only query
       dbQueryMock.mockResolvedValueOnce({
         rows: [
           { vote_id: 'v1', component_key: 'recency', weight: 0.2 },
@@ -233,7 +336,7 @@ describe('governance long-table dual-write (PROJ-815)', () => {
       // Wide path
       configMock.GOVERNANCE_LONGTABLE_READ_ENABLED = false;
       dbQueryMock.mockReset();
-      dbQueryMock.mockResolvedValueOnce({ rows: [{ count: 0 }] });
+      dbQueryMock.mockResolvedValueOnce({ rows: [{ count: '0' }] });
       dbQueryMock.mockResolvedValueOnce({
         rows: votes.map((v) => ({
           recency_weight: v.recency,
@@ -248,7 +351,7 @@ describe('governance long-table dual-write (PROJ-815)', () => {
       // Long path with the same votes pivoted to long shape
       configMock.GOVERNANCE_LONGTABLE_READ_ENABLED = true;
       dbQueryMock.mockReset();
-      dbQueryMock.mockResolvedValueOnce({ rows: [{ count: 0 }] });
+      dbQueryMock.mockResolvedValueOnce({ rows: [{ count: '0' }] });
       dbQueryMock.mockResolvedValueOnce({
         rows: votes.flatMap((v, i) => [
           { vote_id: `v${i}`, component_key: 'recency', weight: v.recency },
@@ -269,12 +372,52 @@ describe('governance long-table dual-write (PROJ-815)', () => {
       }
     });
 
+    it('returns null on empty-input wide path', async () => {
+      configMock.GOVERNANCE_LONGTABLE_READ_ENABLED = false;
+      dbQueryMock.mockResolvedValueOnce({ rows: [{ count: '0' }] }); // keyword-only count
+      dbQueryMock.mockResolvedValueOnce({ rows: [] });              // wide votes query
+
+      const result = await aggregateVotes(99);
+      expect(result).toBeNull();
+    });
+
+    it('returns null on empty-input long path (parity with wide)', async () => {
+      configMock.GOVERNANCE_LONGTABLE_READ_ENABLED = true;
+      dbQueryMock.mockResolvedValueOnce({ rows: [{ count: '0' }] }); // keyword-only count
+      dbQueryMock.mockResolvedValueOnce({ rows: [] });              // long votes query
+
+      const result = await aggregateVotes(99);
+      expect(result).toBeNull();
+    });
+
+    // Regression: aggregateVotes must decide null/non-null from the actual
+    // eligible-votes set, NOT from the keyword-only count. pg returns int8 as
+    // string; mocking COUNT(*) as '2' with an empty vote rowset must still
+    // produce null on both code paths.
+    it('returns null when keyword-count is positive but eligible votes is empty (wide path)', async () => {
+      configMock.GOVERNANCE_LONGTABLE_READ_ENABLED = false;
+      dbQueryMock.mockResolvedValueOnce({ rows: [{ count: '2' }] }); // positive keyword count
+      dbQueryMock.mockResolvedValueOnce({ rows: [] });               // wide votes query: empty
+
+      const result = await aggregateVotes(99);
+      expect(result).toBeNull();
+    });
+
+    it('returns null when keyword-count is positive but eligible votes is empty (long path)', async () => {
+      configMock.GOVERNANCE_LONGTABLE_READ_ENABLED = true;
+      dbQueryMock.mockResolvedValueOnce({ rows: [{ count: '2' }] }); // positive keyword count
+      dbQueryMock.mockResolvedValueOnce({ rows: [] });               // long votes query: empty
+
+      const result = await aggregateVotes(99);
+      expect(result).toBeNull();
+    });
+
     it('excludes votes missing any component (long-path filter parity)', async () => {
       // One vote has all 5 components, the other is missing 'relevance'. The
       // wide path uses "AND xxx_weight IS NOT NULL" for each column; the long
       // path's equivalent is "vote has rows for every registered key".
       configMock.GOVERNANCE_LONGTABLE_READ_ENABLED = true;
-      dbQueryMock.mockResolvedValueOnce({ rows: [{ count: 0 }] });
+      dbQueryMock.mockResolvedValueOnce({ rows: [{ count: '0' }] });
       dbQueryMock.mockResolvedValueOnce({
         rows: [
           // complete vote

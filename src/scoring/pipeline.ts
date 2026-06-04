@@ -50,6 +50,9 @@ let lastScoredEpochId: number | null = null;
 // Count incremental runs since last full rescore (triggers periodic full rescore for recency decay)
 let incrementalRunCount = 0;
 
+// Avoid repeated warnings when a rollout exposes a missing dynamic component weight.
+let missingWeightWarned = new Set<string>();
+
 /**
  * Get the timestamp of the last successful scoring run.
  */
@@ -64,6 +67,7 @@ export function __resetPipelineState(): void {
   lastSuccessfulRunAt = null;
   lastScoredEpochId = null;
   incrementalRunCount = 0;
+  missingWeightWarned = new Set<string>();
 }
 
 /**
@@ -522,7 +526,7 @@ async function scoreAllPosts(
  * Score a single post using all registered components.
  *
  * PROJ-816: looks up weights via the `epoch.weights` Record map instead of
- * the now-removed WEIGHT_ACCESSORS table. Adding a 6th component to the
+ * the removed fixed-key accessor table. Adding a 6th component to the
  * registry no longer requires editing this file.
  */
 async function scorePost(
@@ -537,11 +541,26 @@ async function scorePost(
 
   for (const component of DEFAULT_COMPONENTS) {
     const rawScore = await component.score(post, context);
-    const weight = epoch.weights[component.key] ?? 0;
-    const weightedScore = rawScore * weight;
+    // PROJ-816: GovernanceWeights is Record<string, number>, so `weights[key]`
+    // type-checks as `number` even when the key is absent. Use an own-property
+    // check so the "unmapped component key → 0 + warning" path is sound rather
+    // than relying on a `=== undefined` comparison the types claim can't happen.
+    const hasWeight = Object.prototype.hasOwnProperty.call(epoch.weights, component.key);
+    if (!hasWeight) {
+      const warningKey = `${epoch.id}:${component.key}`;
+      if (!missingWeightWarned.has(warningKey)) {
+        missingWeightWarned.add(warningKey);
+        logger.warn(
+          { epochId: epoch.id, componentKey: component.key },
+          'Missing governance weight for scoring component; falling back to zero'
+        );
+      }
+    }
+    const resolvedWeight = hasWeight ? epoch.weights[component.key] : 0;
+    const weightedScore = rawScore * resolvedWeight;
 
     raw[component.key] = rawScore;
-    weights[component.key] = weight;
+    weights[component.key] = resolvedWeight;
     weighted[component.key] = weightedScore;
     total += weightedScore;
   }

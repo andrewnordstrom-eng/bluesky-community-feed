@@ -9,7 +9,7 @@
  * implement a component, write a unit test against the contract, and have the
  * implementation drop cleanly into the live registry.
  *
- * See `docs/adr/0001-extensible-scoring-components.md` for the architectural
+ * See `docs/adr/ADR-0001-extensible-scoring-components.md` for the architectural
  * rationale, and `docs/contributing-scoring-components.md` (PROJ-820 / P7) for
  * the end-to-end contribution flow.
  */

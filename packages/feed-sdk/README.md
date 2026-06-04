@@ -64,6 +64,6 @@ literal-union widening to `string`.
 ## Architecture context
 
 For the rationale behind the registry-driven, long-table-backed contract, see
-[`docs/adr/0001-extensible-scoring-components.md`](../../docs/adr/0001-extensible-scoring-components.md).
+[`docs/adr/ADR-0001-extensible-scoring-components.md`](../../docs/adr/ADR-0001-extensible-scoring-components.md).
 
 License: MIT.
