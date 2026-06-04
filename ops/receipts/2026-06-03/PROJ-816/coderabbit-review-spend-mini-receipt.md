@@ -19,7 +19,7 @@ PR #225 has crossed that threshold.
 
 ## CodeRabbit Gate Snapshot
 
-- Current hosted PR head: `478c4418d5b060ff7d753e28a153997a79503f44`.
+- Hosted PR head at receipt time: `478c4418d5b060ff7d753e28a153997a79503f44`.
 - Latest known CodeRabbit review SHA: `2ef6c681f969c73ff8ec92996ee85fa6bd5ae257`.
 - Review rounds: `8`.
 - Manual triggers: `11`.
