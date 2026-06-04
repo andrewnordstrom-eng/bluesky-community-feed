@@ -1,0 +1,39 @@
+{
+  "name": "@corgi/feed-sdk",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Public type contract and helpers for implementing custom scoring components for the bluesky-community-feed",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "bluesky",
+    "atproto",
+    "feed-generator",
+    "recsys",
+    "scoring",
+    "sdk"
+  ],
+  "author": "Andrew Nordstrom",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}
