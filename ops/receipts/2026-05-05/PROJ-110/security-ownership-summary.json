@@ -5,7 +5,7 @@
   "orphaned_sensitive_code": [],
   "hidden_owners": [
     {
-      "person": "anno3007@colorado.edu",
+      "person": "owner:AndrewNordstrom",
       "name": "AndrewNordstrom",
       "controls": "100% of auth code",
       "category": "auth",
@@ -20,7 +20,7 @@
       "sensitivity_tags": [
         "auth"
       ],
-      "top_owner": "anno3007@colorado.edu"
+      "top_owner": "owner:AndrewNordstrom"
     }
   ],
   "stats": {

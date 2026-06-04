@@ -9,15 +9,15 @@
     },
     {
       "path": "ops/receipts/2026-05-05/PROJ-110/bluesky-community-feed-threat-model.md",
-      "sha256": "cfc352d62076f59b49e78e422a4487fb34ce61de70b14ced15491b6c2d81dc61"
+      "sha256": "ad673a6a8932862327def9c6db5879802a7c2bf383d82d7e7268b4a12cfe44bc"
     },
     {
       "path": "ops/receipts/2026-05-05/PROJ-110/security-ownership-summary.json",
-      "sha256": "0a7dec23d0c3fa6ea5cc2c1d7996b1948b7e2e271b2f8324970e987aadcc65a3"
+      "sha256": "9b64ad98b69fdf997ad46a2508b6e358d4b5ed7d15c910e31fb3b22687eecff7"
     },
     {
       "path": "ops/receipts/2026-05-05/PROJ-110/security-best-practices-summary.md",
-      "sha256": "2e454b9c92b05245a00c3dbbeb3504dba46a703c15a62c0549ebf47710a92bb4"
+      "sha256": "adc944b0bbc878c81729988070700d84eb53478486e406546d78dd37b550cc62"
     },
     {
       "path": "ops/receipts/2026-05-05/PROJ-110/validation-summary.md",

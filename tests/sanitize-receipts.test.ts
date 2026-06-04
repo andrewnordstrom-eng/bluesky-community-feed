@@ -26,6 +26,10 @@ function providerTokens(content: string): string[] {
   return content.match(PROVIDER_TOKEN_REGEX) ?? [];
 }
 
+function removeReceiptsRoot(receiptsRoot: string): void {
+  rmSync(receiptsRoot, { recursive: true, force: true });
+}
+
 describe('sanitizeReceiptContent', () => {
   beforeEach(() => {
     resetReceiptSanitizerState();
@@ -175,6 +179,22 @@ describe('sanitizeReceiptContent', () => {
     expect(sanitized).not.toContain('default:redis-password');
   });
 
+  it('redacts credential-bearing URL edge cases without changing public URLs', () => {
+    const content = [
+      'https://public.example.com/feed',
+      'https://user:p%40ss=word%23123@example.internal/path?ok=1',
+      'mongodb+srv://writer:token-value@cluster.example.internal/db',
+    ].join('\n');
+
+    const sanitized = sanitizeReceiptContent(content);
+
+    expect(sanitized).toContain('https://public.example.com/feed');
+    expect(sanitized).toContain('https://[REDACTED]@example.internal/path?ok=1');
+    expect(sanitized).toContain('mongodb+srv://[REDACTED]@cluster.example.internal/db');
+    expect(sanitized).not.toContain('user:p%40ss=word');
+    expect(sanitized).not.toContain('writer:token-value');
+  });
+
   it('cli --check fails on dirty receipt files and reports the path', () => {
     const receiptsRoot = mkdtempSync(path.join(tmpdir(), 'receipt-sanitize-dirty-'));
     const receiptPath = path.join(receiptsRoot, 'dirty.txt');
@@ -208,16 +228,20 @@ describe('sanitizeReceiptContent', () => {
   it('cli --check fails on dotenv-style secret assignments', () => {
     const receiptsRoot = mkdtempSync(path.join(tmpdir(), 'receipt-sanitize-env-dirty-'));
     const receiptPath = path.join(receiptsRoot, 'dirty-env.txt');
-    writeFileSync(receiptPath, 'DATABASE_URL=postgresql://feed:db-password@example.internal/feed\n');
+    try {
+      writeFileSync(receiptPath, 'DATABASE_URL=postgresql://feed:db-password@example.internal/feed\n');
 
-    const result = spawnSync(process.execPath, [sanitizeScriptPath, '--check'], {
-      encoding: 'utf8',
-      env: { ...process.env, RECEIPTS_ROOT: receiptsRoot },
-    });
+      const result = spawnSync(process.execPath, [sanitizeScriptPath, '--check'], {
+        encoding: 'utf8',
+        env: { ...process.env, RECEIPTS_ROOT: receiptsRoot },
+      });
 
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain('Receipt sanitizer found unredacted stable identifiers');
-    expect(result.stderr).toContain('dirty-env.txt');
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('Receipt sanitizer found unredacted stable identifiers');
+      expect(result.stderr).toContain('dirty-env.txt');
+    } finally {
+      removeReceiptsRoot(receiptsRoot);
+    }
   });
 
   it('cli --check fails on dotenv-style secret assignment edge cases', () => {
@@ -230,16 +254,39 @@ describe('sanitizeReceiptContent', () => {
 
     for (const [fileName, content] of cases) {
       const receiptsRoot = mkdtempSync(path.join(tmpdir(), 'receipt-sanitize-env-edge-'));
-      writeFileSync(path.join(receiptsRoot, fileName), content);
+      try {
+        writeFileSync(path.join(receiptsRoot, fileName), content);
+
+        const result = spawnSync(process.execPath, [sanitizeScriptPath, '--check'], {
+          encoding: 'utf8',
+          env: { ...process.env, RECEIPTS_ROOT: receiptsRoot },
+        });
+
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain('Receipt sanitizer found unredacted stable identifiers');
+        expect(result.stderr).toContain(fileName);
+      } finally {
+        removeReceiptsRoot(receiptsRoot);
+      }
+    }
+  });
+
+  it('cli --check passes on non-secret dotenv-style public assignments', () => {
+    const receiptsRoot = mkdtempSync(path.join(tmpdir(), 'receipt-sanitize-env-public-'));
+    const fileName = 'public-base-url.txt';
+    try {
+      writeFileSync(path.join(receiptsRoot, fileName), 'PUBLIC_BASE_URL=https://feed.corgi.network\n');
 
       const result = spawnSync(process.execPath, [sanitizeScriptPath, '--check'], {
         encoding: 'utf8',
         env: { ...process.env, RECEIPTS_ROOT: receiptsRoot },
       });
 
-      expect(result.status).toBe(1);
-      expect(result.stderr).toContain('Receipt sanitizer found unredacted stable identifiers');
-      expect(result.stderr).toContain(fileName);
+      expect(result.status).toBe(0);
+      expect(result.stderr).not.toContain('Receipt sanitizer found unredacted stable identifiers');
+      expect(result.stderr).not.toContain(fileName);
+    } finally {
+      removeReceiptsRoot(receiptsRoot);
     }
   });
 

@@ -77,89 +77,98 @@ export function Vote() {
     return 'Voting is currently closed while the current algorithm settings run.';
   }, [currentEpoch, currentPhase]);
 
-  // Load current epoch and user's vote
-  const loadData = useCallback(async () => {
-    try {
-      setIsLoadingData(true);
-      setError(null);
-
-      // Get current epoch
-      const epoch = await weightsApi.getCurrentEpoch();
-      setCurrentEpoch(epoch);
-
-      // Set initial weights to current epoch weights (convert from snake_case)
-      setWeights({
-        recency: epoch.weights.recency,
-        engagement: epoch.weights.engagement,
-        bridging: epoch.weights.bridging,
-        sourceDiversity: epoch.weights.source_diversity,
-        relevance: epoch.weights.relevance,
-      });
-
-      // Check if user has voted (if authenticated)
-      if (isAuthenticated) {
-        try {
-          const voteData = await voteApi.getVote();
-          if (voteData.vote) {
-            setHasVoted(true);
-            setLastVoteTime(voteData.voted_at);
-            // Use their existing vote as initial weights
-            setWeights({
-              recency: voteData.vote.recency,
-              engagement: voteData.vote.engagement,
-              bridging: voteData.vote.bridging,
-              sourceDiversity: voteData.vote.sourceDiversity,
-              relevance: voteData.vote.relevance,
-            });
-          }
-          // Load user's content vote if exists
-          if (voteData.contentVote) {
-            setContentVote(voteData.contentVote);
-          }
-        } catch {
-          // User hasn't voted yet
-          setHasVoted(false);
-        }
-      }
-
-      // Load current community content rules
+  useEffect(() => {
+    let isMounted = true;
+    // Load current epoch and user's vote
+    async function loadData() {
       try {
-        const contentRules = await voteApi.getContentRules();
-        setCurrentContentRules(contentRules);
-      } catch {
-        // Content rules endpoint might not exist yet
-      }
+        setIsLoadingData(true);
+        setError(null);
 
-      // Load topic catalog (graceful degradation: hide topics tab if unavailable)
-      try {
-        const catalog = await voteApi.getTopicCatalog();
-        setTopicCatalog(catalog.topics);
-        // If user has existing topic votes, populate them
+        // Get current epoch
+        const epoch = await weightsApi.getCurrentEpoch();
+        if (!isMounted) return;
+        setCurrentEpoch(epoch);
+
+        // Set initial weights to current epoch weights (convert from snake_case)
+        setWeights({
+          recency: epoch.weights.recency,
+          engagement: epoch.weights.engagement,
+          bridging: epoch.weights.bridging,
+          sourceDiversity: epoch.weights.source_diversity,
+          relevance: epoch.weights.relevance,
+        });
+
+        // Check if user has voted (if authenticated)
+        // Capture topicWeights here so we don't need a second voteApi.getVote() call later.
+        let existingTopicWeights: Record<string, number> | null = null;
         if (isAuthenticated) {
           try {
             const voteData = await voteApi.getVote();
-            if (voteData.topicWeights && Object.keys(voteData.topicWeights).length > 0) {
-              setTopicValues(voteData.topicWeights);
-              setTouchedTopics(new Set(Object.keys(voteData.topicWeights)));
+            if (!isMounted) return;
+            if (voteData.vote) {
+              setHasVoted(true);
+              setLastVoteTime(voteData.voted_at);
+              // Use their existing vote as initial weights
+              setWeights({
+                recency: voteData.vote.recency,
+                engagement: voteData.vote.engagement,
+                bridging: voteData.vote.bridging,
+                sourceDiversity: voteData.vote.sourceDiversity,
+                relevance: voteData.vote.relevance,
+              });
+            }
+            // Load user's content vote if exists
+            if (voteData.contentVote) {
+              setContentVote(voteData.contentVote);
+            }
+            // Capture topic weights for later (after topic catalog loads)
+            if (voteData.topicWeights) {
+              existingTopicWeights = voteData.topicWeights;
             }
           } catch {
-            // No existing topic votes
+            if (!isMounted) return;
+            // User hasn't voted yet
+            setHasVoted(false);
           }
         }
-      } catch {
-        // Topic catalog unavailable — hide topics tab
-        setTopicCatalog(null);
-      }
-    } catch (err: unknown) {
-      setError(extractErrorMessage(err, 'Failed to load data'));
-    } finally {
-      setIsLoadingData(false);
-    }
-  }, [isAuthenticated]);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+        // Load current community content rules
+        try {
+          const contentRules = await voteApi.getContentRules();
+          if (!isMounted) return;
+          setCurrentContentRules(contentRules);
+        } catch {
+          // Content rules endpoint might not exist yet
+        }
+
+        // Load topic catalog (graceful degradation: hide topics tab if unavailable)
+        try {
+          const catalog = await voteApi.getTopicCatalog();
+          if (!isMounted) return;
+          setTopicCatalog(catalog.topics);
+          // If user has existing topic votes, populate them (from the first getVote call)
+          if (existingTopicWeights && Object.keys(existingTopicWeights).length > 0) {
+            setTopicValues(existingTopicWeights);
+            setTouchedTopics(new Set(Object.keys(existingTopicWeights)));
+          }
+        } catch {
+          if (!isMounted) return;
+          // Topic catalog unavailable — hide topics tab
+          setTopicCatalog(null);
+        }
+      } catch (err: unknown) {
+        if (!isMounted) return;
+        setError(extractErrorMessage(err, 'Failed to load data'));
+      } finally {
+        if (isMounted) setIsLoadingData(false);
+      }
+    }
+    void loadData();
+    return () => {
+      isMounted = false;
+    };
+  }, [isAuthenticated]);
 
   // Keep voting phase status fresh without resetting in-progress form edits.
   useEffect(() => {

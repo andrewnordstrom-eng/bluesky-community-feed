@@ -32,8 +32,21 @@ export function GovernancePanel() {
   }, []);
 
   useEffect(() => {
-    void fetchGovernanceStatus();
-  }, [fetchGovernanceStatus]);
+    async function loadGovernanceStatus() {
+      try {
+        const response = await adminApi.getGovernanceStatus();
+        setData(response);
+      } catch (error) {
+        setMessage({
+          type: 'error',
+          text: error instanceof Error ? error.message : 'Failed to load governance status',
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    void loadGovernanceStatus();
+  }, []);
 
   function handleNotify(type: 'success' | 'error', text: string) {
     setMessage({ type, text });

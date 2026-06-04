@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ScoreRadar } from '../components/ScoreRadar';
 import { TopicWeightChart } from '../components/TopicWeightChart';
@@ -131,51 +131,68 @@ export function Dashboard() {
   const [hasInitialLoad, setHasInitialLoad] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const loadData = useCallback(async (silent = false) => {
-    try {
-      if (!silent) {
-        setIsLoading(true);
-      }
-
-      const [statsData, auditData, historyData] = await Promise.all([
-        transparencyApi.getStats(),
-        transparencyApi.getAuditLog({ limit: 8 }),
-        transparencyApi.getEpochHistory(2),
-      ]);
-
-      setStats(statsData);
-      setAuditLog(auditData.entries);
-      setEpochHistory(historyData.epochs);
-      setError(null);
-
-      // Load topic catalog (public endpoint, no auth)
-      try {
-        const catalog = await voteApi.getTopicCatalog();
-        setTopicData(catalog);
-      } catch {
-        // Topic catalog unavailable — skip
-      }
-    } catch (err: unknown) {
-      if (!silent || !hasInitialLoad) {
-        setError(getErrorMessage(err, 'Failed to load dashboard data'));
-      }
-    } finally {
-      if (!silent) {
-        setIsLoading(false);
-      }
-      setHasInitialLoad(true);
-    }
-  }, [hasInitialLoad]);
-
   useEffect(() => {
+    let isMounted = true;
+    let inFlight = false;
+    let initialLoadComplete = false;
+
+    async function loadData(silent: boolean) {
+      if (!isMounted || inFlight) return;
+      inFlight = true;
+      try {
+        if (!silent) {
+          setIsLoading(true);
+        }
+
+        const [statsData, auditData, historyData] = await Promise.all([
+          transparencyApi.getStats(),
+          transparencyApi.getAuditLog({ limit: 8 }),
+          transparencyApi.getEpochHistory(2),
+        ]);
+
+        if (!isMounted) return;
+
+        setStats(statsData);
+        setAuditLog(auditData.entries);
+        setEpochHistory(historyData.epochs);
+        setError(null);
+
+        // Load topic catalog (public endpoint, no auth)
+        try {
+          const catalog = await voteApi.getTopicCatalog();
+          if (!isMounted) return;
+          setTopicData(catalog);
+        } catch {
+          // Topic catalog unavailable — skip
+        }
+      } catch (err: unknown) {
+        if (!isMounted) return;
+        if (!silent || !initialLoadComplete) {
+          setError(getErrorMessage(err, 'Failed to load dashboard data'));
+        }
+      } finally {
+        if (isMounted) {
+          if (!silent) {
+            setIsLoading(false);
+          }
+          initialLoadComplete = true;
+          setHasInitialLoad(true);
+        }
+        inFlight = false;
+      }
+    }
+
     void loadData(false);
 
     const interval = window.setInterval(() => {
       void loadData(true);
     }, 60_000);
 
-    return () => window.clearInterval(interval);
-  }, [loadData]);
+    return () => {
+      isMounted = false;
+      window.clearInterval(interval);
+    };
+  }, []);
 
   const latestRoundUpdate = useMemo(
     () => deriveLatestRoundUpdate(epochHistory),

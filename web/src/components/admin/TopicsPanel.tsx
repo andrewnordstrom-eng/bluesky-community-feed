@@ -5,7 +5,7 @@
  * Supports add, edit, deactivate/reactivate, and classification preview.
  */
 
-import { useState, useEffect } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { adminApi } from '../../api/admin';
 import type { AdminTopic, ClassifyResult } from '../../api/admin';
 import { Skeleton } from '../Skeleton';
@@ -42,7 +42,7 @@ export function TopicsPanel() {
   const [classifyResult, setClassifyResult] = useState<ClassifyResult | null>(null);
   const [isClassifying, setIsClassifying] = useState(false);
 
-  async function fetchTopics() {
+  const fetchTopics = useCallback(async () => {
     try {
       const data = await adminApi.getTopics();
       setTopics(data);
@@ -51,10 +51,20 @@ export function TopicsPanel() {
     } finally {
       setIsLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
-    fetchTopics();
+    async function loadTopics() {
+      try {
+        const data = await adminApi.getTopics();
+        setTopics(data);
+      } catch (err) {
+        console.error('Failed to fetch topics', err);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    void loadTopics();
   }, []);
 
   function startEdit(topic: AdminTopic) {

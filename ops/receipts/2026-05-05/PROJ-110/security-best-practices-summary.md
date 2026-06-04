@@ -122,6 +122,19 @@ lint, build, and audit passed after the update.
 - Create and install a fresh Bluesky app password out of band if bot posting or
   feed publish scripts are needed.
 - Keep the sanitizer in `npm run docs:verify`.
+- Harden backup retention so uncompressed/raw `.sql` dumps cannot accumulate.
+  Verification receipt target: capture the backup script/config path, retention
+  policy, timestamped command, and pass/fail output in the follow-up packet.
+- Add disk-pressure alert thresholds with warning before service impact.
+  Verification receipt target: capture the threshold values, alert destination,
+  timestamped check command, and pass/fail output in the follow-up packet.
+- Repair or recreate Docker network `corgi-network` and verify
+  `corgi-workers.service` can start. Verification receipt target: capture
+  `docker network inspect`, systemd status, timestamp, and pass/fail output in
+  the follow-up packet.
+- Add feed auto-recovery checks tied to external uptime monitors. Verification
+  receipt target: capture local readiness, public health, monitor ping/fail
+  behavior, timestamp, and pass/fail output in the follow-up packet.
 - Track Jetstream queue-saturation warnings separately under operations if they
   persist; they were observed during post-restart logs, but readiness, public
   health, and hosted Daily Health Check all passed.

@@ -98,6 +98,10 @@ Likelihood: medium. Impact: high. Priority: high.
 
 Daily Health Check was failing on SSH public-key authentication, and the workflow
 fell back to `StrictHostKeyChecking=accept-new` when no host-key secret existed.
+Production CI must now fail closed when `VPS_SSH_HOST_KEY` is missing or when
+the presented host key does not match the pinned value. `StrictHostKeyChecking`
+must remain `yes`; `StrictHostKeyChecking=accept-new` is prohibited in
+production workflows.
 
 Mitigation applied:
 
@@ -125,6 +129,14 @@ Mitigation applied:
 
 - Create a new Bluesky app password out of band, then update deployed env without
   exposing the value in chat, screenshots, shell history, or receipts.
+- [ ] Backup rotation hardening. Owner: TBD. Due: TBD. Ensure uncompressed/raw
+  `.sql` dumps cannot accumulate outside the deterministic gzip retention path.
+- [ ] Disk-pressure alerting thresholds. Owner: TBD. Due: TBD. Alert before
+  service impact at the documented warning and critical disk thresholds.
+- [ ] Repair Docker `corgi-network` dependency for `corgi-workers.service`.
+  Owner: TBD. Due: TBD. Verify the service can start after the network exists.
+- [ ] Feed auto-recovery tied to external uptime monitors. Owner: TBD. Due: TBD.
+  Correlate local readiness, public health, and monitor pings during failures.
 - Track persistent Jetstream saturation separately if it continues after the
   service settles.
 - Keep sanitizer coverage in the docs verification lane so future receipts fail

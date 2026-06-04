@@ -55,12 +55,16 @@ export function WeightsCard({ weights, onUpdate, onNotify }: WeightsCardProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState<GovernanceWeights | null>(weights);
   const [displayWeights, setDisplayWeights] = useState<GovernanceWeights | null>(weights);
+  const [prevWeights, setPrevWeights] = useState<GovernanceWeights | null>(weights);
   const [isSaving, setIsSaving] = useState(false);
 
-  useEffect(() => {
+  // Sync local state with the latest weights prop (React-recommended pattern
+  // for resetting state from props without an Effect).
+  if (weights !== prevWeights) {
+    setPrevWeights(weights);
     setDraft(weights);
     setDisplayWeights(weights);
-  }, [weights]);
+  }
 
   useEffect(() => {
     function handleEscape(event: KeyboardEvent) {
