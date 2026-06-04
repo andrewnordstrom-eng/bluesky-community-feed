@@ -84,5 +84,42 @@ export function validateRegistry(components: readonly ScoringComponent[]): void 
   }
 }
 
+/**
+ * The component keys the `post_scores` wide columns (and the `storeScore` writer
+ * in src/scoring/pipeline.ts) depend on. PROJ-816 widened `GovernanceWeightKey`
+ * to `string`, so a renamed/removed registry key is no longer a compile error;
+ * without this guard it would write `undefined` → NULL into a NOT NULL wide
+ * column and the post would be silently dropped by `scoreAllPosts`' per-post
+ * catch. PROJ-819 (P5) removes the wide columns and this coupling.
+ */
+export const WIDE_COLUMN_COMPONENT_KEYS: readonly string[] = [
+  'recency',
+  'engagement',
+  'bridging',
+  'sourceDiversity',
+  'relevance',
+];
+
+/**
+ * Assert every wide-column key the writer relies on is a registered component,
+ * so registry↔wide-column drift fails fast at load instead of silently
+ * inserting NULLs (and dropping rows) in production.
+ */
+export function assertWideColumnsRegistered(
+  registeredKeys: ReadonlySet<string> = REGISTERED_COMPONENT_KEYS,
+  wideKeys: readonly string[] = WIDE_COLUMN_COMPONENT_KEYS
+): void {
+  for (const key of wideKeys) {
+    if (!registeredKeys.has(key)) {
+      throw new Error(
+        `post_scores wide column "${key}" has no matching registered scoring ` +
+        `component; storeScore would write NULL into a NOT NULL column. ` +
+        `Update the registry and the wide columns together.`
+      );
+    }
+  }
+}
+
 // Validate at module load to catch drift early
 validateRegistry(DEFAULT_COMPONENTS);
+assertWideColumnsRegistered();

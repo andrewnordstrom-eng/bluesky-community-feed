@@ -41,14 +41,22 @@ vi.mock('../src/lib/logger.js', () => ({
   },
 }));
 
-import { registerVoteRoute } from '../src/governance/routes/vote.js';
+import {
+  WideVoteFieldCountError,
+  assertWideVoteFieldCount,
+  registerVoteRoute,
+} from '../src/governance/routes/vote.js';
 import { buildTestApp } from './helpers/app.js';
 import {
   GOVERNANCE_WEIGHT_VOTE_FIELDS,
   VOTABLE_WEIGHT_PARAMS,
   voteFieldForKey,
 } from '../src/config/votable-params.js';
-import { REGISTERED_COMPONENT_KEYS } from '../src/scoring/registry.js';
+import {
+  REGISTERED_COMPONENT_KEYS,
+  WIDE_COLUMN_COMPONENT_KEYS,
+  assertWideColumnsRegistered,
+} from '../src/scoring/registry.js';
 
 async function postVote(payload: unknown) {
   const app = buildTestApp();
@@ -66,11 +74,23 @@ async function postVote(payload: unknown) {
 }
 
 describe('votable-params record shape (PROJ-816)', () => {
+  function registeredWeights(value: number): Record<string, number> {
+    return Object.fromEntries(
+      VOTABLE_WEIGHT_PARAMS.map((p) => [p.voteField, value])
+    );
+  }
+
+  function expectInvalidVoteBody(bodyText: string): void {
+    const body = JSON.parse(bodyText) as { error: string; message: string };
+    expect(body.error).toBe('InvalidVote');
+    expect(body.message).toContain('Invalid vote weights');
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
     getAuthenticatedDidMock.mockResolvedValue('did:plc:alice');
     isParticipantApprovedMock.mockResolvedValue(true);
-    // Active subscriber + active voting epoch
+    // Active subscriber + active voting epoch.
     dbQueryMock.mockImplementation(async (sql: unknown) => {
       const text = String(sql);
       if (text.includes('FROM subscribers')) {
@@ -78,6 +98,9 @@ describe('votable-params record shape (PROJ-816)', () => {
       }
       if (text.includes('FROM governance_epochs')) {
         return { rows: [{ id: 1, status: 'active', phase: 'voting' }] };
+      }
+      if (text.includes('INSERT INTO governance_votes')) {
+        return { rows: [{ id: 'vote-uuid-1', is_new_vote: true }] };
       }
       return { rows: [] };
     });
@@ -120,7 +143,6 @@ describe('votable-params record shape (PROJ-816)', () => {
         bridging_weight: 0.2,
         source_diversity_weight: 0.2,
         relevance_weight: 0.1,
-        // Unregistered key — must be rejected, not silently dropped.
         civility_weight: 0.1,
       });
 
@@ -128,38 +150,31 @@ describe('votable-params record shape (PROJ-816)', () => {
       const body = JSON.parse(res.body) as { error: string; message: string };
       expect(body.error).toBe('UnregisteredWeightKey');
       expect(body.message).toContain('civility_weight');
-      // Surfacing the registered set lets the caller self-correct.
       expect(body.message).toContain('recency_weight');
     });
 
     it('accepts the registered weight fields', async () => {
-      // Make the DB upsert succeed so the path doesn't 500 elsewhere.
-      dbQueryMock.mockImplementation(async (sql: unknown) => {
-        const text = String(sql);
-        if (text.includes('FROM subscribers')) {
-          return { rows: [{ did: 'did:plc:alice' }] };
-        }
-        if (text.includes('FROM governance_epochs')) {
-          return { rows: [{ id: 1, status: 'active', phase: 'voting' }] };
-        }
-        if (text.includes('INSERT INTO governance_votes')) {
-          return { rows: [{ id: 'vote-uuid-1', is_new_vote: true }] };
-        }
-        return { rows: [] };
-      });
-
       const validPayload = Object.fromEntries(
         VOTABLE_WEIGHT_PARAMS.map((p) => [p.voteField, 0.2])
       );
 
       const res = await postVote(validPayload);
 
-      // Should not be rejected for unregistered keys — exact downstream code
-      // matters less than NOT seeing 400 UnregisteredWeightKey here.
-      if (res.statusCode === 400) {
-        const body = JSON.parse(res.body) as { error: string };
-        expect(body.error).not.toBe('UnregisteredWeightKey');
-      }
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.body) as {
+        success: boolean;
+        epoch_id: number;
+        weights: Record<string, number>;
+      };
+      expect(body.success).toBe(true);
+      expect(body.epoch_id).toBe(1);
+      expect(body.weights).toEqual({
+        recency: 0.2,
+        engagement: 0.2,
+        bridging: 0.2,
+        sourceDiversity: 0.2,
+        relevance: 0.2,
+      });
     });
 
     it('rejects multiple unregistered keys with all of them listed in the error', async () => {
@@ -176,39 +191,70 @@ describe('votable-params record shape (PROJ-816)', () => {
       expect(body.message).toContain('toxicity_risk_weight');
     });
 
-    it('allows non-_weight fields the API recognizes (forward-compat for extras)', async () => {
-      // The check only rejects *_weight unknowns; other unknown fields are
-      // tolerated and stripped by Zod. This ensures the validator doesn't
-      // become so strict it blocks forward-compatible additions.
+    it('allows non-_weight fields the API recognizes', async () => {
       const res = await postVote({
         recency_weight: 0.2,
         engagement_weight: 0.2,
         bridging_weight: 0.2,
         source_diversity_weight: 0.2,
         relevance_weight: 0.2,
-        some_future_extension: 'hello', // not a _weight field; tolerated
+        some_future_extension: 'hello',
       });
 
-      // Must not be rejected for the unregistered-key reason.
-      if (res.statusCode === 400) {
-        const body = JSON.parse(res.body) as { error: string };
-        expect(body.error).not.toBe('UnregisteredWeightKey');
-      }
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.body) as {
+        success: boolean;
+        epoch_id: number;
+        weights: Record<string, number>;
+      };
+      expect(body.success).toBe(true);
+      expect(body.epoch_id).toBe(1);
+      expect(body.weights).toEqual({
+        recency: 0.2,
+        engagement: 0.2,
+        bridging: 0.2,
+        sourceDiversity: 0.2,
+        relevance: 0.2,
+      });
+    });
+
+    it('rejects registered weights that do not sum to 1.0', async () => {
+      const res = await postVote(registeredWeights(0.1));
+
+      expect(res.statusCode).toBe(400);
+      expectInvalidVoteBody(res.body);
+    });
+
+    it('rejects partial registered weight submissions', async () => {
+      const res = await postVote({ recency_weight: 1.0 });
+
+      expect(res.statusCode).toBe(400);
+      expectInvalidVoteBody(res.body);
+    });
+
+    it('rejects a registered weight below its per-field minimum when the sum is otherwise valid', async () => {
+      const payload = {
+        ...registeredWeights(0.275),
+        recency_weight: -0.1,
+      };
+
+      const res = await postVote(payload);
+
+      expect(res.statusCode).toBe(400);
+      expectInvalidVoteBody(res.body);
     });
 
     it.each([
       ['empty payload', {}],
       ['numeric string weight', { recency_weight: '0.2' }],
       ['null weight', { recency_weight: null }],
-      ['below range weight', { recency_weight: -0.1 }],
       ['above range weight', { recency_weight: 1.1 }],
+      ['non-snake registered key variant', { sourceDiversity: 0.2 }],
     ])('returns 400 InvalidVote for invalid registered weight payload: %s', async (_name, payload) => {
       const res = await postVote(payload);
 
       expect(res.statusCode).toBe(400);
-      const body = JSON.parse(res.body) as { error: string; message: string };
-      expect(body.error).toBe('InvalidVote');
-      expect(body.message).toContain('Invalid vote weights');
+      expectInvalidVoteBody(res.body);
     });
   });
 
@@ -220,7 +266,6 @@ describe('votable-params record shape (PROJ-816)', () => {
     });
 
     it('exports the snake_case names in the legacy GOVERNANCE_WEIGHT_VOTE_FIELDS array', () => {
-      // Sanity check: the array shape consumers depend on hasn't changed.
       expect(GOVERNANCE_WEIGHT_VOTE_FIELDS).toEqual([
         'recency_weight',
         'engagement_weight',
@@ -228,6 +273,42 @@ describe('votable-params record shape (PROJ-816)', () => {
         'source_diversity_weight',
         'relevance_weight',
       ]);
+    });
+
+    it('keeps route vote-field allowlist aligned with scoring registry keys', () => {
+      const scoringVoteFields = [...REGISTERED_COMPONENT_KEYS]
+        .map((key) => voteFieldForKey(key))
+        .sort();
+      expect([...GOVERNANCE_WEIGHT_VOTE_FIELDS].sort()).toEqual(scoringVoteFields);
+    });
+
+    it('accepts the current 5-field wide vote shape', () => {
+      expect(() => {
+        assertWideVoteFieldCount(GOVERNANCE_WEIGHT_VOTE_FIELDS);
+      }).not.toThrow();
+    });
+
+    it('fails fast if the wide vote insert is asked to handle a sixth weight', () => {
+      expect(() => {
+        assertWideVoteFieldCount([
+          ...GOVERNANCE_WEIGHT_VOTE_FIELDS,
+          'civility_weight',
+        ]);
+      }).toThrow(WideVoteFieldCountError);
+    });
+
+    it('accepts the live registry for wide-column coverage', () => {
+      expect(() => assertWideColumnsRegistered()).not.toThrow();
+      for (const key of WIDE_COLUMN_COMPONENT_KEYS) {
+        expect(REGISTERED_COMPONENT_KEYS.has(key)).toBe(true);
+      }
+    });
+
+    it('throws if a wide-column key drifts out of the registry', () => {
+      const driftedRegistry = new Set(
+        [...REGISTERED_COMPONENT_KEYS].filter((k) => k !== 'recency')
+      );
+      expect(() => assertWideColumnsRegistered(driftedRegistry)).toThrow(/recency/);
     });
   });
 });

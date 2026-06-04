@@ -88,6 +88,15 @@ export interface PostForScoring {
   classificationMethod?: 'keyword' | 'embedding';
 }
 
+function weightFromRow(row: Record<string, unknown>, field: string): number {
+  const value = row[field];
+  if (value === null || value === undefined) {
+    return 0;
+  }
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? numericValue : 0;
+}
+
 /**
  * Convert snake_case DB row to camelCase GovernanceEpoch.
  *
@@ -101,11 +110,11 @@ export function toGovernanceEpoch(row: Record<string, unknown>): GovernanceEpoch
     id: row.id as number,
     status: row.status as 'active' | 'voting' | 'closed',
     weights: {
-      recency: row.recency_weight as number,
-      engagement: row.engagement_weight as number,
-      bridging: row.bridging_weight as number,
-      sourceDiversity: row.source_diversity_weight as number,
-      relevance: row.relevance_weight as number,
+      recency: weightFromRow(row, 'recency_weight'),
+      engagement: weightFromRow(row, 'engagement_weight'),
+      bridging: weightFromRow(row, 'bridging_weight'),
+      sourceDiversity: weightFromRow(row, 'source_diversity_weight'),
+      relevance: weightFromRow(row, 'relevance_weight'),
     },
     voteCount: row.vote_count as number,
     createdAt: new Date(row.created_at as string),
