@@ -57,7 +57,8 @@ export interface PostExplanation {
     community_governed_rank: number;
     difference: number;
   };
-  scored_at: Date;
+  /** ISO 8601 timestamp (matches the route's response schema: string format date-time). */
+  scored_at: string;
   component_details: Record<string, unknown> | null;
   /** Whether this score used "keyword" (winkNLP) or "embedding" (Tier 2 semantic) classification. */
   classification_method?: 'keyword' | 'embedding';

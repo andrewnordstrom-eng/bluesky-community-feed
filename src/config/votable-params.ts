@@ -10,15 +10,35 @@ import type {
   VotableWeightParam as SharedVotableWeightParam,
 } from '../shared/api-types.js';
 
-/** Backend-specific extension with DB column mapping. */
+/**
+ * Backend-specific extension with DB column mapping.
+ *
+ * PROJ-816: `voteField` widened from a 5-value literal union to `string`.
+ * The value is computed from `key` at array-construction time via
+ * `voteFieldForKey(key)` so adding a new component is no longer a TypeScript
+ * compile error. The field is removed entirely in PROJ-819 (P5) once the
+ * wide columns are dropped.
+ */
 export interface VotableWeightParam extends SharedVotableWeightParam {
-  voteField: 'recency_weight' | 'engagement_weight' | 'bridging_weight' | 'source_diversity_weight' | 'relevance_weight';
+  voteField: string;
+}
+
+/**
+ * Compute the snake_case wide-column name for a given component key.
+ * Used by both the static `VOTABLE_WEIGHT_PARAMS` array below and by any
+ * future generated component entry. Lives here so the convention is in one
+ * place.
+ */
+export function voteFieldForKey(key: GovernanceWeightKey): string {
+  // camelCase → snake_case, then suffix _weight
+  const snake = key.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase();
+  return `${snake}_weight`;
 }
 
 export const VOTABLE_WEIGHT_PARAMS: readonly VotableWeightParam[] = [
   {
     key: 'recency',
-    voteField: 'recency_weight',
+    voteField: voteFieldForKey('recency'),
     label: 'Recency',
     description: 'Favor newer posts over older posts',
     min: 0,
@@ -27,7 +47,7 @@ export const VOTABLE_WEIGHT_PARAMS: readonly VotableWeightParam[] = [
   },
   {
     key: 'engagement',
-    voteField: 'engagement_weight',
+    voteField: voteFieldForKey('engagement'),
     label: 'Engagement',
     description: 'Favor posts with likes, replies, and reposts',
     min: 0,
@@ -36,7 +56,7 @@ export const VOTABLE_WEIGHT_PARAMS: readonly VotableWeightParam[] = [
   },
   {
     key: 'bridging',
-    voteField: 'bridging_weight',
+    voteField: voteFieldForKey('bridging'),
     label: 'Bridging',
     description: 'Favor posts that bridge communities',
     min: 0,
@@ -45,7 +65,7 @@ export const VOTABLE_WEIGHT_PARAMS: readonly VotableWeightParam[] = [
   },
   {
     key: 'sourceDiversity',
-    voteField: 'source_diversity_weight',
+    voteField: voteFieldForKey('sourceDiversity'),
     label: 'Source Diversity',
     description: 'Avoid over-concentration from a small set of authors',
     min: 0,
@@ -54,7 +74,7 @@ export const VOTABLE_WEIGHT_PARAMS: readonly VotableWeightParam[] = [
   },
   {
     key: 'relevance',
-    voteField: 'relevance_weight',
+    voteField: voteFieldForKey('relevance'),
     label: 'Relevance',
     description: 'Favor posts matching feed themes',
     min: 0,
@@ -62,9 +82,15 @@ export const VOTABLE_WEIGHT_PARAMS: readonly VotableWeightParam[] = [
     defaultValue: 0.2,
   },
   // GENERATOR_PARAM_ANCHOR — do not remove
-] as const;
+];
 
-export type GovernanceWeightVoteField = (typeof VOTABLE_WEIGHT_PARAMS)[number]['voteField'];
+/**
+ * Backwards-compat alias for `string` — the literal union of 5 wide-column
+ * snake_case names was the source of truth before PROJ-816 widened it.
+ * Kept so callers that imported `GovernanceWeightVoteField` keep working;
+ * removed entirely in PROJ-819 (P5) along with the wide columns.
+ */
+export type GovernanceWeightVoteField = string;
 
 export { type GovernanceWeightKey } from '../shared/api-types.js';
 export const GOVERNANCE_WEIGHT_KEYS = VOTABLE_WEIGHT_PARAMS.map((param) => param.key) as ReadonlyArray<GovernanceWeightKey>;
