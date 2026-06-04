@@ -1,0 +1,75 @@
+name: examples-build
+
+# Validates every example component under examples/* still builds and
+# tests cleanly against the published @corgi/feed-sdk surface. If the SDK
+# loses an export an external contributor relies on, this workflow breaks
+# the PR before merge.
+#
+# Added in PROJ-820 (P7) — the proof-of-extensibility gate for the
+# recsys plug-in story documented in docs/contributing-scoring-components.md.
+
+on:
+  pull_request:
+    paths:
+      - 'packages/feed-sdk/**'
+      - 'examples/**'
+      - '.github/workflows/examples-build.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'packages/feed-sdk/**'
+      - 'examples/**'
+
+permissions:
+  contents: read
+
+jobs:
+  build-examples:
+    name: Build & test examples/*
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install monorepo deps (root only)
+        # Examples don't need the full monorepo install — they only depend on
+        # the SDK, which is in packages/feed-sdk/ as a workspace. The SDK's
+        # dist is built below before each example builds against it.
+        run: npm ci --no-audit --no-fund
+
+      - name: Build SDK
+        run: npm run sdk:build
+
+      - name: Build & test each example
+        run: |
+          set -euo pipefail
+          if [ ! -d examples ]; then
+            echo "No examples/ directory; nothing to validate."
+            exit 0
+          fi
+          shopt -s nullglob
+          for example in examples/*/; do
+            name="$(basename "$example")"
+            echo "::group::example: $name"
+            (
+              cd "$example"
+              if [ -f tsconfig.json ]; then
+                echo "→ tsc build"
+                ../../node_modules/.bin/tsc -p tsconfig.json
+              fi
+              if [ -f package.json ] && grep -q '"test"' package.json; then
+                echo "→ npm test"
+                npm test --silent
+              else
+                echo "→ no test script defined; skipping"
+              fi
+            )
+            echo "::endgroup::"
+          done
