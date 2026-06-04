@@ -5,7 +5,7 @@
  * Supports adding by DID or Bluesky handle, and soft-removing participants.
  */
 
-import { useState, useEffect } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { adminApi } from '../../api/admin';
 import type { Participant } from '../../api/admin';
 import { formatRelative } from '../../utils/format';
@@ -20,7 +20,7 @@ export function ParticipantsPanel() {
   const [removingDid, setRemovingDid] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  async function fetchParticipants() {
+  const fetchParticipants = useCallback(async () => {
     try {
       const data = await adminApi.getParticipants();
       setParticipants(data.participants);
@@ -29,10 +29,20 @@ export function ParticipantsPanel() {
     } finally {
       setIsLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
-    fetchParticipants();
+    async function loadParticipants() {
+      try {
+        const data = await adminApi.getParticipants();
+        setParticipants(data.participants);
+      } catch (err) {
+        console.error('Failed to fetch participants', err);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    void loadParticipants();
   }, []);
 
   async function handleAdd(e: React.FormEvent) {

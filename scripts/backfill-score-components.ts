@@ -43,17 +43,18 @@ interface CliArgs {
  * `Number.parseInt` is intentionally lenient: it accepts `"10foo"` (returns 10),
  * `"1.5"` (returns 1), `"2e3"` (returns 2), etc. by stopping at the first
  * non-numeric character. We pre-reject anything that isn't purely digits so the
- * validator actually catches typos and malformed flags. */
-function parsePositiveInt(flag: string, raw: string, opts: { min?: number } = {}): number {
-  const min = opts.min ?? 1;
+ * validator actually catches typos and malformed flags, then reject unsafe
+ * integers so rounded values cannot target the wrong epoch or workload. */
+function parsePositiveInt(flag: string, raw: string, opts: { min: number }): number {
+  const min = opts.min;
   if (!/^\d+$/.test(raw)) {
     console.error(
       `Invalid value for ${flag}: ${JSON.stringify(raw)} — expected a positive integer.`
     );
     process.exit(2);
   }
-  const value = Number.parseInt(raw, 10);
-  if (!Number.isFinite(value) || value < min) {
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < min) {
     console.error(
       `Invalid value for ${flag}: ${JSON.stringify(raw)} — expected an integer >= ${min}.`
     );
@@ -70,15 +71,18 @@ function parseArgs(): CliArgs {
   let dryRun = false;
 
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--batch-size' && args[i + 1]) {
-      batchSize = parsePositiveInt('--batch-size', args[i + 1], { min: 1 });
+    if (args[i] === '--batch-size') {
+      // Use `?? ''` so a missing or empty value flows into parsePositiveInt
+      // and surfaces a clear "--batch-size requires a value" style error
+      // instead of silently falling back to the default.
+      batchSize = parsePositiveInt('--batch-size', args[i + 1] ?? '', { min: 1 });
       i++;
-    } else if (args[i] === '--epoch-id' && args[i + 1]) {
+    } else if (args[i] === '--epoch-id') {
       // epoch_id is SERIAL PRIMARY KEY in governance_epochs (>=1).
-      epochId = parsePositiveInt('--epoch-id', args[i + 1], { min: 1 });
+      epochId = parsePositiveInt('--epoch-id', args[i + 1] ?? '', { min: 1 });
       i++;
-    } else if (args[i] === '--limit' && args[i + 1]) {
-      limit = parsePositiveInt('--limit', args[i + 1], { min: 1 });
+    } else if (args[i] === '--limit') {
+      limit = parsePositiveInt('--limit', args[i + 1] ?? '', { min: 1 });
       i++;
     } else if (args[i] === '--dry-run') {
       dryRun = true;
@@ -118,11 +122,21 @@ interface WideRow {
 async function main(): Promise<void> {
   const { batchSize, epochId, limit, dryRun } = parseArgs();
 
+  // Require DATABASE_URL explicitly. The pg Pool would otherwise silently
+  // fall back to PGHOST/PGUSER/PGDATABASE env vars (or localhost defaults),
+  // which is dangerous in a backfill context — a typo could rewrite a
+  // local dev DB or fail with a cryptic connection error.
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    console.error('DATABASE_URL is required. Set it in .env or your shell.');
+    process.exit(2);
+  }
+
   console.log(
     `Backfill score components: batchSize=${batchSize}, epochId=${epochId ?? 'all'}, limit=${limit ?? 'none'}, dryRun=${dryRun}`
   );
 
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const pool = new Pool({ connectionString });
 
   let totalRowsScanned = 0;
   let totalRowsInserted = 0;

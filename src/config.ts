@@ -63,7 +63,7 @@ const ConfigSchema = z.object({
    * shipped; turned off only for incident response. Removed entirely in PROJ-819 (P5)
    * after the wide columns are dropped. See PROJ-814 for the packet that introduced
    * this flag.
-   */
+  */
   SCORE_LONGTABLE_DUALWRITE_ENABLED: zodEnvBool(true),
   /**
    * Read post-score decomposition from post_score_components (long table) instead
