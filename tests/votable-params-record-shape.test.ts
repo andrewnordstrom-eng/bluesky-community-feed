@@ -58,6 +58,21 @@ import {
   assertWideColumnsRegistered,
 } from '../src/scoring/registry.js';
 
+async function postVote(payload: unknown) {
+  const app = buildTestApp();
+  registerVoteRoute(app);
+  try {
+    return await app.inject({
+      method: 'POST',
+      url: '/api/governance/vote',
+      payload,
+      headers: { 'content-type': 'application/json' },
+    });
+  } finally {
+    await app.close();
+  }
+}
+
 describe('votable-params record shape (PROJ-816)', () => {
   function registeredWeights(value: number): Record<string, number> {
     return Object.fromEntries(
@@ -66,15 +81,16 @@ describe('votable-params record shape (PROJ-816)', () => {
   }
 
   function expectInvalidVoteBody(bodyText: string): void {
-    const body = JSON.parse(bodyText) as { error: string };
+    const body = JSON.parse(bodyText) as { error: string; message: string };
     expect(body.error).toBe('InvalidVote');
+    expect(body.message).toContain('Invalid vote weights');
   }
 
   beforeEach(() => {
     vi.clearAllMocks();
     getAuthenticatedDidMock.mockResolvedValue('did:plc:alice');
     isParticipantApprovedMock.mockResolvedValue(true);
-    // Active subscriber + active voting epoch
+    // Active subscriber + active voting epoch.
     dbQueryMock.mockImplementation(async (sql: unknown) => {
       const text = String(sql);
       if (text.includes('FROM subscribers')) {
@@ -121,61 +137,28 @@ describe('votable-params record shape (PROJ-816)', () => {
 
   describe('vote route rejects unregistered weight keys', () => {
     it('returns 400 UnregisteredWeightKey when an unknown `*_weight` field is submitted', async () => {
-      const app = buildTestApp();
-      registerVoteRoute(app);
-
-      const res = await app.inject({
-        method: 'POST',
-        url: '/api/governance/vote',
-        payload: {
-          recency_weight: 0.2,
-          engagement_weight: 0.2,
-          bridging_weight: 0.2,
-          source_diversity_weight: 0.2,
-          relevance_weight: 0.1,
-          // Unregistered key — must be rejected, not silently dropped.
-          civility_weight: 0.1,
-        },
-        headers: { 'content-type': 'application/json' },
+      const res = await postVote({
+        recency_weight: 0.2,
+        engagement_weight: 0.2,
+        bridging_weight: 0.2,
+        source_diversity_weight: 0.2,
+        relevance_weight: 0.1,
+        civility_weight: 0.1,
       });
 
       expect(res.statusCode).toBe(400);
       const body = JSON.parse(res.body) as { error: string; message: string };
       expect(body.error).toBe('UnregisteredWeightKey');
       expect(body.message).toContain('civility_weight');
-      // Surfacing the registered set lets the caller self-correct.
       expect(body.message).toContain('recency_weight');
     });
 
     it('accepts the registered weight fields', async () => {
-      const app = buildTestApp();
-      registerVoteRoute(app);
-
-      // Make the DB upsert succeed so the path doesn't 500 elsewhere.
-      dbQueryMock.mockImplementation(async (sql: unknown) => {
-        const text = String(sql);
-        if (text.includes('FROM subscribers')) {
-          return { rows: [{ did: 'did:plc:alice' }] };
-        }
-        if (text.includes('FROM governance_epochs')) {
-          return { rows: [{ id: 1, status: 'active', phase: 'voting' }] };
-        }
-        if (text.includes('INSERT INTO governance_votes')) {
-          return { rows: [{ id: 'vote-uuid-1', is_new_vote: true }] };
-        }
-        return { rows: [] };
-      });
-
       const validPayload = Object.fromEntries(
         VOTABLE_WEIGHT_PARAMS.map((p) => [p.voteField, 0.2])
       );
 
-      const res = await app.inject({
-        method: 'POST',
-        url: '/api/governance/vote',
-        payload: validPayload,
-        headers: { 'content-type': 'application/json' },
-      });
+      const res = await postVote(validPayload);
 
       expect(res.statusCode).toBe(200);
       const body = JSON.parse(res.body) as {
@@ -195,18 +178,10 @@ describe('votable-params record shape (PROJ-816)', () => {
     });
 
     it('rejects multiple unregistered keys with all of them listed in the error', async () => {
-      const app = buildTestApp();
-      registerVoteRoute(app);
-
-      const res = await app.inject({
-        method: 'POST',
-        url: '/api/governance/vote',
-        payload: {
-          recency_weight: 0.5,
-          civility_weight: 0.3,
-          toxicity_risk_weight: 0.2,
-        },
-        headers: { 'content-type': 'application/json' },
+      const res = await postVote({
+        recency_weight: 0.5,
+        civility_weight: 0.3,
+        toxicity_risk_weight: 0.2,
       });
 
       expect(res.statusCode).toBe(400);
@@ -216,25 +191,14 @@ describe('votable-params record shape (PROJ-816)', () => {
       expect(body.message).toContain('toxicity_risk_weight');
     });
 
-    it('allows non-_weight fields the API recognizes (forward-compat for extras)', async () => {
-      // The check only rejects *_weight unknowns; other unknown fields are
-      // tolerated and stripped by Zod. This ensures the validator doesn't
-      // become so strict it blocks forward-compatible additions.
-      const app = buildTestApp();
-      registerVoteRoute(app);
-
-      const res = await app.inject({
-        method: 'POST',
-        url: '/api/governance/vote',
-        payload: {
-          recency_weight: 0.2,
-          engagement_weight: 0.2,
-          bridging_weight: 0.2,
-          source_diversity_weight: 0.2,
-          relevance_weight: 0.2,
-          some_future_extension: 'hello', // not a _weight field; tolerated
-        },
-        headers: { 'content-type': 'application/json' },
+    it('allows non-_weight fields the API recognizes', async () => {
+      const res = await postVote({
+        recency_weight: 0.2,
+        engagement_weight: 0.2,
+        bridging_weight: 0.2,
+        source_diversity_weight: 0.2,
+        relevance_weight: 0.2,
+        some_future_extension: 'hello',
       });
 
       expect(res.statusCode).toBe(200);
@@ -255,84 +219,39 @@ describe('votable-params record shape (PROJ-816)', () => {
     });
 
     it('rejects registered weights that do not sum to 1.0', async () => {
-      const app = buildTestApp();
-      registerVoteRoute(app);
-
-      const res = await app.inject({
-        method: 'POST',
-        url: '/api/governance/vote',
-        payload: registeredWeights(0.1),
-        headers: { 'content-type': 'application/json' },
-      });
+      const res = await postVote(registeredWeights(0.1));
 
       expect(res.statusCode).toBe(400);
       expectInvalidVoteBody(res.body);
     });
 
     it('rejects partial registered weight submissions', async () => {
-      const app = buildTestApp();
-      registerVoteRoute(app);
-
-      const res = await app.inject({
-        method: 'POST',
-        url: '/api/governance/vote',
-        payload: { recency_weight: 1.0 },
-        headers: { 'content-type': 'application/json' },
-      });
+      const res = await postVote({ recency_weight: 1.0 });
 
       expect(res.statusCode).toBe(400);
       expectInvalidVoteBody(res.body);
     });
 
-    it('rejects a registered weight below its per-field minimum (isolated from the sum-to-1.0 refine)', async () => {
-      const app = buildTestApp();
-      registerVoteRoute(app);
-
-      // Sum stays exactly 1.0 (-0.1 + 0.275*4) so the 400 is attributable to the
-      // per-field min(0) bound, not the sum-to-1.0 invariant. (A `1.5` payload
-      // would sum to 2.3 and could be rejected by the sum refine alone, so it
-      // cannot prove the per-field range is enforced.)
+    it('rejects a registered weight below its per-field minimum when the sum is otherwise valid', async () => {
       const payload = {
         ...registeredWeights(0.275),
         recency_weight: -0.1,
       };
 
-      const res = await app.inject({
-        method: 'POST',
-        url: '/api/governance/vote',
-        payload,
-        headers: { 'content-type': 'application/json' },
-      });
+      const res = await postVote(payload);
 
       expect(res.statusCode).toBe(400);
       expectInvalidVoteBody(res.body);
     });
 
-    it('rejects empty vote payloads', async () => {
-      const app = buildTestApp();
-      registerVoteRoute(app);
-
-      const res = await app.inject({
-        method: 'POST',
-        url: '/api/governance/vote',
-        payload: {},
-        headers: { 'content-type': 'application/json' },
-      });
-
-      expect(res.statusCode).toBe(400);
-      expectInvalidVoteBody(res.body);
-    });
-
-    it('treats non-snake registered key variants as absent from the intake contract', async () => {
-      const app = buildTestApp();
-      registerVoteRoute(app);
-
-      const res = await app.inject({
-        method: 'POST',
-        url: '/api/governance/vote',
-        payload: { sourceDiversity: 0.2 },
-        headers: { 'content-type': 'application/json' },
-      });
+    it.each([
+      ['empty payload', {}],
+      ['numeric string weight', { recency_weight: '0.2' }],
+      ['null weight', { recency_weight: null }],
+      ['above range weight', { recency_weight: 1.1 }],
+      ['non-snake registered key variant', { sourceDiversity: 0.2 }],
+    ])('returns 400 InvalidVote for invalid registered weight payload: %s', async (_name, payload) => {
+      const res = await postVote(payload);
 
       expect(res.statusCode).toBe(400);
       expectInvalidVoteBody(res.body);
@@ -347,7 +266,6 @@ describe('votable-params record shape (PROJ-816)', () => {
     });
 
     it('exports the snake_case names in the legacy GOVERNANCE_WEIGHT_VOTE_FIELDS array', () => {
-      // Sanity check: the array shape consumers depend on hasn't changed.
       expect(GOVERNANCE_WEIGHT_VOTE_FIELDS).toEqual([
         'recency_weight',
         'engagement_weight',
@@ -387,8 +305,6 @@ describe('votable-params record shape (PROJ-816)', () => {
     });
 
     it('throws if a wide-column key drifts out of the registry', () => {
-      // Simulate a renamed/removed registry key (e.g. 'recency') while the
-      // post_scores wide columns still expect it.
       const driftedRegistry = new Set(
         [...REGISTERED_COMPONENT_KEYS].filter((k) => k !== 'recency')
       );

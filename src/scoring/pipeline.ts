@@ -526,7 +526,7 @@ async function scoreAllPosts(
  * Score a single post using all registered components.
  *
  * PROJ-816: looks up weights via the `epoch.weights` Record map instead of
- * the now-removed WEIGHT_ACCESSORS table. Adding a 6th component to the
+ * the removed fixed-key accessor table. Adding a 6th component to the
  * registry no longer requires editing this file.
  */
 async function scorePost(

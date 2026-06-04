@@ -10,6 +10,7 @@ import { redis } from '../../db/redis.js';
 import { config } from '../../config.js';
 import { adminSecurity } from '../../lib/openapi.js';
 import { getCurrentContentRules } from '../../governance/content-filter.js';
+import { readEpochWeights } from '../../governance/weight-longtable.js';
 
 export function registerStatusRoutes(app: FastifyInstance): void {
   /**
@@ -98,7 +99,9 @@ export function registerStatusRoutes(app: FastifyInstance): void {
       },
     },
   }, async (_request: FastifyRequest, reply: FastifyReply) => {
-    // Get current epoch
+    // Get current epoch — fetch the post-level fields here; per-component
+    // weights come from the storage-agnostic readEpochWeights helper so this
+    // route works the same under both wide-column and long-table storage.
     const epochResult = await db.query(`
       SELECT
         id,
@@ -106,11 +109,6 @@ export function registerStatusRoutes(app: FastifyInstance): void {
         phase,
         voting_ends_at,
         auto_transition,
-        recency_weight,
-        engagement_weight,
-        bridging_weight,
-        source_diversity_weight,
-        relevance_weight,
         content_rules,
         created_at
       FROM governance_epochs
@@ -120,6 +118,7 @@ export function registerStatusRoutes(app: FastifyInstance): void {
     `);
 
     const currentEpoch = epochResult.rows[0] || null;
+    const epochWeights = currentEpoch ? await readEpochWeights({ epochId: currentEpoch.id }) : null;
 
     // Get vote count for current epoch
     let voteCount = 0;
@@ -187,13 +186,7 @@ export function registerStatusRoutes(app: FastifyInstance): void {
               votingEndsAt: currentEpoch.voting_ends_at,
               autoTransition: currentEpoch.auto_transition || false,
               voteCount,
-              weights: {
-                recency: parseFloat(currentEpoch.recency_weight),
-                engagement: parseFloat(currentEpoch.engagement_weight),
-                bridging: parseFloat(currentEpoch.bridging_weight),
-                sourceDiversity: parseFloat(currentEpoch.source_diversity_weight),
-                relevance: parseFloat(currentEpoch.relevance_weight),
-              },
+              weights: epochWeights ?? {},
               contentRules: currentEpoch.content_rules || { include_keywords: [], exclude_keywords: [] },
               createdAt: currentEpoch.created_at,
             }
