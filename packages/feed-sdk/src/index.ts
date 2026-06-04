@@ -188,9 +188,55 @@ export function createComponent(spec: {
     key: spec.key,
     name: spec.name,
     async score(post, context) {
-      return spec.score(post, context);
+      const result = await scoreWithDiagnostics(
+        spec.key,
+        spec.score,
+        post,
+        context
+      );
+      if (!Number.isFinite(result) || result < 0 || result > 1) {
+        throw new RangeError(
+          `Scoring component "${spec.key}" returned out-of-range score ${result}; expected 0.0 to 1.0`
+        );
+      }
+      return result;
     },
   };
+}
+
+class ScoringComponentScoreError extends Error {
+  constructor(componentKey: string, sourceError: unknown) {
+    super(
+      `Scoring component "${componentKey}" failed: ${messageFromError(sourceError)}`
+    );
+    this.name = 'ScoringComponentScoreError';
+  }
+}
+
+function messageFromError(error: unknown): string {
+  if (error instanceof Error && error.message.length > 0) {
+    return error.message;
+  }
+  if (error instanceof Error) {
+    return error.name;
+  }
+  return String(error);
+}
+
+async function scoreWithDiagnostics(
+  componentKey: string,
+  score: (
+    post: PostForScoring,
+    context: ScoringContext
+  ) => number | Promise<number>,
+  post: PostForScoring,
+  context: ScoringContext
+): Promise<number> {
+  try {
+    return await score(post, context);
+  } catch (error) {
+    throw new ScoringComponentScoreError(componentKey, error);
+  }
 }
 
 /**

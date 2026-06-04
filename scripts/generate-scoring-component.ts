@@ -158,7 +158,8 @@ function main(): void {
   console.log('\n--- Remaining manual steps ---');
   console.log(`1. (Optional) Seed an initial epoch weight for '${camelName}':`);
   console.log(`     INSERT INTO governance_epoch_weights (epoch_id, component_key, weight)`);
-  console.log(`     VALUES (<epoch_id>, '${camelName}', 0.1) ON CONFLICT DO NOTHING;`);
+  console.log(`     VALUES (1, '${camelName}', 0.1) ON CONFLICT DO NOTHING;`);
+  console.log(`   Epoch 1 is seeded for immediate contribution per ADR-0001.`);
   console.log(`   If you skip this, the component contributes 0 until votes shift the epoch.`);
   console.log(`2. Run: npm run build && npm test -- --run`);
   console.log('');

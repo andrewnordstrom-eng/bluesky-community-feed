@@ -48,12 +48,53 @@ comment mutation is authorized by this receipt.
 
 ## Split Decision
 
-The PR is not being split at this step because the final diff against
-`origin/main` is a focused SDK/documentation package (`12` files: SDK package,
-ADR, repo-contract link, generator guidance, fixture, and package locks).
+The PR was not split at this receipt point because the diff against
+`origin/main` was a focused SDK/documentation package (`13` files then: SDK
+package, ADR, repo-contract link, generator guidance, fixture, and package
+locks).
 The hosted deterministic checks pass, and the live blocker is CodeRabbit quota,
 not review complexity or unresolved findings. Splitting would not reduce the
 vendor rate-limit cause.
+
+## Current-Head CodeRabbit Closeout Addendum
+
+After CodeRabbit reviewed head `72ac4c70e078a2198a0f6220a02d603d1f571f14`,
+the four current-head findings were addressed with:
+
+- `createComponent` now awaits the user score function, wraps score-function
+  throws/rejections with the component key and original message, and rejects
+  non-finite or out-of-range scores with a keyed `RangeError`.
+- The generator SQL example now seeds epoch `1` and states that epoch 1 is the
+  immediate-contribution seed per ADR-0001.
+- The external fixture now compiles through
+  `tests/fixtures/example-external-component.tsconfig.json` with `strict: true`,
+  `moduleResolution: "NodeNext"`, and package-export resolution against
+  `@corgi/feed-sdk`.
+- The receipt file-count wording now records the CodeRabbit-observed `13` files
+  as historical receipt-point metadata rather than a moving current-PR count.
+
+Fresh closeout validation:
+
+- Root `npm ci` completed after removing a stale local `node_modules` tree:
+  `471` packages installed/audited and `found 0 vulnerabilities`.
+- Web `npm ci` completed: `225` packages installed/audited and
+  `found 0 vulnerabilities`.
+- `npm run sdk:build` passed.
+- `npm run sdk:fixture` passed via
+  `tsc -p tests/fixtures/example-external-component.tsconfig.json`.
+- `npm test -- tests/feed-sdk-create-component.test.ts --run` passed:
+  `1` test file and `4` tests.
+- Sandbox `npm run verify` reached Vitest but failed on sandboxed local network
+  restrictions (`listen EPERM` on `127.0.0.1`, Redis connect `EPERM`).
+- Escalated `npm run verify` passed outside the sandbox: TypeScript build
+  passed, Vitest reported `77` files and `563` tests passed, CLI build passed,
+  `src/mcp-local` build skipped because absent, SDK build passed, external
+  fixture compile passed, web lint passed, and web build passed.
+- `npm run docs:verify` passed: `13` tracked docs, `24` markdown files scanned,
+  and `35` receipt files checked.
+- Root `npm audit --omit=dev`, web `npm audit --omit=dev`, and SDK
+  `npm audit --audit-level=high` each reported `found 0 vulnerabilities`.
+- `git diff --check` passed.
 
 ## Validation
 
