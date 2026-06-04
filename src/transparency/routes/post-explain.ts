@@ -81,6 +81,18 @@ export function registerPostExplainRoute(app: FastifyInstance): void {
                     raw_score: { type: 'number' },
                     weight: { type: 'number' },
                     weighted: { type: 'number' },
+                    topicBreakdown: {
+                      type: 'object',
+                      additionalProperties: {
+                        type: 'object',
+                        properties: {
+                          postScore: { type: 'number' },
+                          communityWeight: { type: 'number' },
+                          contribution: { type: 'number' },
+                        },
+                        required: ['postScore', 'communityWeight', 'contribution'],
+                      },
+                    },
                   },
                 },
               },
@@ -207,6 +219,13 @@ export function registerPostExplainRoute(app: FastifyInstance): void {
             weighted: triple.weighted,
           };
           governanceWeightsResponse[wireKey] = triple.weight;
+        }
+
+        if (Number.isNaN(record.scoredAt.getTime())) {
+          return reply.code(503).send({
+            error: 'ScoreTimestampInvalid',
+            message: 'Stored score timestamp is invalid for this post',
+          });
         }
 
         const explanation: PostExplanation = {

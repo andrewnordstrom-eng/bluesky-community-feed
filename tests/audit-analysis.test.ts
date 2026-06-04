@@ -61,16 +61,14 @@ describe('admin weight impact audit endpoint', () => {
       .mockResolvedValueOnce({
         rows: [{ id: 2 }],
       })
-      // 2. readEpochWeights long-path: epoch-exists check (post-flag-flip default true)
-      .mockResolvedValueOnce({ rows: [{ id: 2 }] })
-      // 3. readEpochWeights long-path: governance_epoch_weights SELECT
+      // 2. readEpochWeights long-path: governance epoch + weights in one LEFT JOIN
       .mockResolvedValueOnce({
         rows: [
-          { component_key: 'recency', weight: '0.22' },
-          { component_key: 'engagement', weight: '0.2' },
-          { component_key: 'bridging', weight: '0.32' },
-          { component_key: 'sourceDiversity', weight: '0.16' },
-          { component_key: 'relevance', weight: '0.1' },
+          { epoch_id: 2, component_key: 'recency', weight: '0.22' },
+          { epoch_id: 2, component_key: 'engagement', weight: '0.2' },
+          { epoch_id: 2, component_key: 'bridging', weight: '0.32' },
+          { epoch_id: 2, component_key: 'sourceDiversity', weight: '0.16' },
+          { epoch_id: 2, component_key: 'relevance', weight: '0.1' },
         ],
       })
       // 3. run-scope query
@@ -144,11 +142,8 @@ describe('admin weight impact audit endpoint', () => {
     expect(body.weightSensitivity).toHaveProperty('engagement');
     expect(body.analyzedPosts).toBe(3);
     expect(redisZRevRangeMock).toHaveBeenCalledWith('feed:current', 0, 99, 'WITHSCORES');
-    // Post-PROJ-817 with flag flipped: two extra calls for readEpochWeights
-    // long-path (id-check + governance_epoch_weights SELECT). The score
-    // query is at call index 4.
-    expect(dbQueryMock).toHaveBeenCalledTimes(5);
-    expect(String(dbQueryMock.mock.calls[4]?.[0])).toContain("component_details->>'run_id'");
+    expect(dbQueryMock).toHaveBeenCalledTimes(4);
+    expect(String(dbQueryMock.mock.calls[3]?.[0])).toContain("component_details->>'run_id'");
 
     await app.close();
   });

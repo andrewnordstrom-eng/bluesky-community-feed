@@ -92,6 +92,14 @@ function toWeights(row: EpochRow): GovernanceWeights {
   };
 }
 
+function isCompleteWeights(weights: Record<string, number> | null): weights is GovernanceWeights {
+  if (!weights) {
+    return false;
+  }
+
+  return COMPONENT_KEYS.every((key) => Number.isFinite(weights[key]));
+}
+
 function toRawScores(row: ScoreRow): ScoreVector {
   return {
     recency: toNumber(row.recency_score),
@@ -386,7 +394,13 @@ export function registerAuditAnalysisRoutes(app: FastifyInstance): void {
 
     const epoch = epochResult.rows[0];
     const fetchedWeights = await readEpochWeights({ epochId: epoch.id });
-    const currentWeights = (fetchedWeights ?? {}) as GovernanceWeights;
+    if (!isCompleteWeights(fetchedWeights)) {
+      return reply.code(503).send({
+        error: 'WeightsUnavailable',
+        message: 'Governance weights not available for current epoch',
+      });
+    }
+    const currentWeights = fetchedWeights;
     const runScope = await getCurrentScoringRunScope();
 
     let feedEntries: string[];

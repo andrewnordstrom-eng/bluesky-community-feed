@@ -187,10 +187,11 @@ async function readPostScoreFromLongTable({
     weight: string;
     weighted: string;
   }>(
-    `SELECT component_key, raw, weight, weighted
-     FROM post_score_components
-     WHERE post_uri = $1 AND epoch_id = $2`,
-    [postUri, epochId]
+    `SELECT psc.component_key, psc.raw, psc.weight, psc.weighted
+     FROM post_score_components psc
+     JOIN post_scores ps ON ps.post_uri = psc.post_uri AND ps.epoch_id = psc.epoch_id
+     WHERE psc.post_uri = $1 AND psc.epoch_id = $2 ${runClause}`,
+    params
   );
 
   const components: Record<string, ComponentScoreTriple> = {};

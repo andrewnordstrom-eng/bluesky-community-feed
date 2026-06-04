@@ -152,6 +152,50 @@ describe('readPostScore parity', () => {
     expect(wide).toBeNull();
     expect(long).toBeNull();
   });
+
+  it('long path applies runId filtering to the component query', async () => {
+    configMock.SCORE_LONGTABLE_READ_ENABLED = true;
+    dbQueryMock
+      .mockResolvedValueOnce({ rows: [LONG_POST_HEADER] })
+      .mockResolvedValueOnce({ rows: LONG_POST_COMPONENT_ROWS });
+
+    const result = await readPostScore({
+      postUri: POST_URI,
+      epochId: EPOCH_ID,
+      runId: 'run-xyz',
+    });
+
+    expect(result).not.toBeNull();
+    expect(String(dbQueryMock.mock.calls[1]?.[0])).toContain('JOIN post_scores ps');
+    expect(String(dbQueryMock.mock.calls[1]?.[0])).toContain("ps.component_details->>'run_id'");
+    expect(dbQueryMock.mock.calls[1]?.[1]).toEqual([POST_URI, EPOCH_ID, 'run-xyz']);
+  });
+
+  it('wide and long paths reject with the same DB error contract', async () => {
+    const dbError = new Error('score read failed');
+
+    configMock.SCORE_LONGTABLE_READ_ENABLED = false;
+    dbQueryMock.mockRejectedValueOnce(dbError);
+    await expect(readPostScore({ postUri: POST_URI, epochId: EPOCH_ID })).rejects.toThrow(
+      'score read failed'
+    );
+
+    dbQueryMock.mockReset();
+    configMock.SCORE_LONGTABLE_READ_ENABLED = true;
+    dbQueryMock.mockRejectedValueOnce(dbError);
+    await expect(readPostScore({ postUri: POST_URI, epochId: EPOCH_ID })).rejects.toThrow(
+      'score read failed'
+    );
+
+    dbQueryMock.mockReset();
+    configMock.SCORE_LONGTABLE_READ_ENABLED = true;
+    dbQueryMock
+      .mockResolvedValueOnce({ rows: [LONG_POST_HEADER] })
+      .mockRejectedValueOnce(dbError);
+    await expect(readPostScore({ postUri: POST_URI, epochId: EPOCH_ID })).rejects.toThrow(
+      'score read failed'
+    );
+  });
 });
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -297,9 +341,9 @@ describe('readEpochWeights parity', () => {
 
     dbQueryMock.mockReset();
     configMock.GOVERNANCE_LONGTABLE_READ_ENABLED = true;
-    dbQueryMock
-      .mockResolvedValueOnce({ rows: [{ id: EPOCH_ID }] })
-      .mockResolvedValueOnce({ rows: LONG_EPOCH_WEIGHT_ROWS });
+    dbQueryMock.mockResolvedValueOnce({
+      rows: LONG_EPOCH_WEIGHT_ROWS.map((row) => ({ ...row, epoch_id: EPOCH_ID })),
+    });
     const long = await readEpochWeights({ epochId: EPOCH_ID });
 
     expect(long).toEqual(wide);
@@ -324,6 +368,23 @@ describe('readEpochWeights parity', () => {
 
     expect(wide).toBeNull();
     expect(long).toBeNull();
+  });
+
+  it('wide and long paths reject with the same DB error contract', async () => {
+    const dbError = new Error('epoch weights failed');
+
+    configMock.GOVERNANCE_LONGTABLE_READ_ENABLED = false;
+    dbQueryMock.mockRejectedValueOnce(dbError);
+    await expect(readEpochWeights({ epochId: EPOCH_ID })).rejects.toThrow(
+      'epoch weights failed'
+    );
+
+    dbQueryMock.mockReset();
+    configMock.GOVERNANCE_LONGTABLE_READ_ENABLED = true;
+    dbQueryMock.mockRejectedValueOnce(dbError);
+    await expect(readEpochWeights({ epochId: EPOCH_ID })).rejects.toThrow(
+      'epoch weights failed'
+    );
   });
 });
 

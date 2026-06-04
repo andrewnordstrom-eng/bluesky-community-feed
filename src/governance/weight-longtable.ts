@@ -109,20 +109,25 @@ export async function readEpochWeights(options: {
   const { epochId } = options;
 
   if (config.GOVERNANCE_LONGTABLE_READ_ENABLED) {
-    const existsResult = await db.query<{ id: number }>(
-      `SELECT id FROM governance_epochs WHERE id = $1`,
+    const result = await db.query<{
+      epoch_id: number | null;
+      component_key: string | null;
+      weight: string | null;
+    }>(
+      `SELECT ge.id AS epoch_id, gew.component_key, gew.weight
+       FROM governance_epochs ge
+       LEFT JOIN governance_epoch_weights gew ON gew.epoch_id = ge.id
+       WHERE ge.id = $1`,
       [epochId]
     );
-    if (existsResult.rows.length === 0) {
+    if (result.rows.length === 0) {
       return null;
     }
-    const weightsResult = await db.query<{ component_key: string; weight: string }>(
-      `SELECT component_key, weight FROM governance_epoch_weights WHERE epoch_id = $1`,
-      [epochId]
-    );
     const out: Record<string, number> = {};
-    for (const row of weightsResult.rows) {
-      out[row.component_key] = parseFloat(row.weight);
+    for (const row of result.rows) {
+      if (row.component_key !== null && row.weight !== null) {
+        out[row.component_key] = parseFloat(row.weight);
+      }
     }
     return out;
   }

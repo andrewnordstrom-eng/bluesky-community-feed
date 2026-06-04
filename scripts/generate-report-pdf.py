@@ -88,12 +88,12 @@ WEIGHT_COLUMNS = [
 
 MARKER = "---REPORT-MARKER---"
 
-def _env_bool(name: str, default: bool = False) -> bool:
+def _env_bool(name: str, default: bool) -> bool:
     """Match the TS zodEnvBool semantics: only "true"/"1" count as true."""
-    raw = os.environ.get(name, "")
-    if isinstance(raw, str):
-        return raw.lower() == "true" or raw == "1"
-    return default
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.lower() == "true" or raw == "1"
 
 
 # Long-table reads are gated by the same env-var flags the TypeScript service
@@ -177,7 +177,7 @@ COPY (
 ) TO STDOUT WITH CSV HEADER
 """.strip().replace("\n", " ")
 
-POSTS_SQL = _POSTS_SQL_LONG if _env_bool("SCORE_LONGTABLE_READ_ENABLED") else _POSTS_SQL_WIDE
+POSTS_SQL = _POSTS_SQL_LONG if _env_bool("SCORE_LONGTABLE_READ_ENABLED", True) else _POSTS_SQL_WIDE
 
 _EPOCH_SQL_WIDE = """
 SELECT row_to_json(e) FROM (
@@ -207,7 +207,7 @@ SELECT row_to_json(e) FROM (
 ) e
 """.strip().replace("\n", " ")
 
-EPOCH_SQL = _EPOCH_SQL_LONG if _env_bool("GOVERNANCE_LONGTABLE_READ_ENABLED") else _EPOCH_SQL_WIDE
+EPOCH_SQL = _EPOCH_SQL_LONG if _env_bool("GOVERNANCE_LONGTABLE_READ_ENABLED", True) else _EPOCH_SQL_WIDE
 
 STATS_SQL = """
 SELECT row_to_json(s) FROM (

@@ -50,6 +50,21 @@ import {
 } from '../src/config/votable-params.js';
 import { REGISTERED_COMPONENT_KEYS } from '../src/scoring/registry.js';
 
+async function postVote(payload: unknown) {
+  const app = buildTestApp();
+  registerVoteRoute(app);
+  try {
+    return await app.inject({
+      method: 'POST',
+      url: '/api/governance/vote',
+      payload,
+      headers: { 'content-type': 'application/json' },
+    });
+  } finally {
+    await app.close();
+  }
+}
+
 describe('votable-params record shape (PROJ-816)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -99,22 +114,14 @@ describe('votable-params record shape (PROJ-816)', () => {
 
   describe('vote route rejects unregistered weight keys', () => {
     it('returns 400 UnregisteredWeightKey when an unknown `*_weight` field is submitted', async () => {
-      const app = buildTestApp();
-      registerVoteRoute(app);
-
-      const res = await app.inject({
-        method: 'POST',
-        url: '/api/governance/vote',
-        payload: {
-          recency_weight: 0.2,
-          engagement_weight: 0.2,
-          bridging_weight: 0.2,
-          source_diversity_weight: 0.2,
-          relevance_weight: 0.1,
-          // Unregistered key — must be rejected, not silently dropped.
-          civility_weight: 0.1,
-        },
-        headers: { 'content-type': 'application/json' },
+      const res = await postVote({
+        recency_weight: 0.2,
+        engagement_weight: 0.2,
+        bridging_weight: 0.2,
+        source_diversity_weight: 0.2,
+        relevance_weight: 0.1,
+        // Unregistered key — must be rejected, not silently dropped.
+        civility_weight: 0.1,
       });
 
       expect(res.statusCode).toBe(400);
@@ -126,9 +133,6 @@ describe('votable-params record shape (PROJ-816)', () => {
     });
 
     it('accepts the registered weight fields', async () => {
-      const app = buildTestApp();
-      registerVoteRoute(app);
-
       // Make the DB upsert succeed so the path doesn't 500 elsewhere.
       dbQueryMock.mockImplementation(async (sql: unknown) => {
         const text = String(sql);
@@ -148,12 +152,7 @@ describe('votable-params record shape (PROJ-816)', () => {
         VOTABLE_WEIGHT_PARAMS.map((p) => [p.voteField, 0.2])
       );
 
-      const res = await app.inject({
-        method: 'POST',
-        url: '/api/governance/vote',
-        payload: validPayload,
-        headers: { 'content-type': 'application/json' },
-      });
+      const res = await postVote(validPayload);
 
       // Should not be rejected for unregistered keys — exact downstream code
       // matters less than NOT seeing 400 UnregisteredWeightKey here.
@@ -164,18 +163,10 @@ describe('votable-params record shape (PROJ-816)', () => {
     });
 
     it('rejects multiple unregistered keys with all of them listed in the error', async () => {
-      const app = buildTestApp();
-      registerVoteRoute(app);
-
-      const res = await app.inject({
-        method: 'POST',
-        url: '/api/governance/vote',
-        payload: {
-          recency_weight: 0.5,
-          civility_weight: 0.3,
-          toxicity_risk_weight: 0.2,
-        },
-        headers: { 'content-type': 'application/json' },
+      const res = await postVote({
+        recency_weight: 0.5,
+        civility_weight: 0.3,
+        toxicity_risk_weight: 0.2,
       });
 
       expect(res.statusCode).toBe(400);
@@ -189,21 +180,13 @@ describe('votable-params record shape (PROJ-816)', () => {
       // The check only rejects *_weight unknowns; other unknown fields are
       // tolerated and stripped by Zod. This ensures the validator doesn't
       // become so strict it blocks forward-compatible additions.
-      const app = buildTestApp();
-      registerVoteRoute(app);
-
-      const res = await app.inject({
-        method: 'POST',
-        url: '/api/governance/vote',
-        payload: {
-          recency_weight: 0.2,
-          engagement_weight: 0.2,
-          bridging_weight: 0.2,
-          source_diversity_weight: 0.2,
-          relevance_weight: 0.2,
-          some_future_extension: 'hello', // not a _weight field; tolerated
-        },
-        headers: { 'content-type': 'application/json' },
+      const res = await postVote({
+        recency_weight: 0.2,
+        engagement_weight: 0.2,
+        bridging_weight: 0.2,
+        source_diversity_weight: 0.2,
+        relevance_weight: 0.2,
+        some_future_extension: 'hello', // not a _weight field; tolerated
       });
 
       // Must not be rejected for the unregistered-key reason.
@@ -211,6 +194,21 @@ describe('votable-params record shape (PROJ-816)', () => {
         const body = JSON.parse(res.body) as { error: string };
         expect(body.error).not.toBe('UnregisteredWeightKey');
       }
+    });
+
+    it.each([
+      ['empty payload', {}],
+      ['numeric string weight', { recency_weight: '0.2' }],
+      ['null weight', { recency_weight: null }],
+      ['below range weight', { recency_weight: -0.1 }],
+      ['above range weight', { recency_weight: 1.1 }],
+    ])('returns 400 InvalidVote for invalid registered weight payload: %s', async (_name, payload) => {
+      const res = await postVote(payload);
+
+      expect(res.statusCode).toBe(400);
+      const body = JSON.parse(res.body) as { error: string; message: string };
+      expect(body.error).toBe('InvalidVote');
+      expect(body.message).toContain('Invalid vote weights');
     });
   });
 

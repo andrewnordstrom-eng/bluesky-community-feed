@@ -180,11 +180,11 @@ export function registerCounterfactualRoute(app: FastifyInstance): void {
         });
 
         const currentWeights = {
-          recency: parseFloat(epoch.recency_weight),
-          engagement: parseFloat(epoch.engagement_weight),
-          bridging: parseFloat(epoch.bridging_weight),
-          source_diversity: parseFloat(epoch.source_diversity_weight),
-          relevance: parseFloat(epoch.relevance_weight),
+          recency: parseFloat(epoch.recency_weight) || 0,
+          engagement: parseFloat(epoch.engagement_weight) || 0,
+          bridging: parseFloat(epoch.bridging_weight) || 0,
+          source_diversity: parseFloat(epoch.source_diversity_weight) || 0,
+          relevance: parseFloat(epoch.relevance_weight) || 0,
         };
 
         if (batchRows.length === 0) {

@@ -48,16 +48,14 @@ describe('admin status route', () => {
           },
         ],
       })
-      // 2. readEpochWeights long-path: epoch-exists check (post-flag-flip default true)
-      .mockResolvedValueOnce({ rows: [{ id: 2 }] })
-      // 3. readEpochWeights long-path: governance_epoch_weights SELECT
+      // 2. readEpochWeights long-path: governance epoch + weights in one LEFT JOIN
       .mockResolvedValueOnce({
         rows: [
-          { component_key: 'recency', weight: '0.2' },
-          { component_key: 'engagement', weight: '0.2' },
-          { component_key: 'bridging', weight: '0.2' },
-          { component_key: 'sourceDiversity', weight: '0.2' },
-          { component_key: 'relevance', weight: '0.2' },
+          { epoch_id: 2, component_key: 'recency', weight: '0.2' },
+          { epoch_id: 2, component_key: 'engagement', weight: '0.2' },
+          { epoch_id: 2, component_key: 'bridging', weight: '0.2' },
+          { epoch_id: 2, component_key: 'sourceDiversity', weight: '0.2' },
+          { epoch_id: 2, component_key: 'relevance', weight: '0.2' },
         ],
       })
       .mockResolvedValueOnce({ rows: [{ count: '4' }] })
