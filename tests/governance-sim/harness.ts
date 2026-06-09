@@ -133,3 +133,32 @@ export function runScenario(name: string, ballots: WeightVote[]): ScenarioResult
   if (weights === null) throw new Error(`Scenario "${name}" has no votes`);
   return { name, voters: ballots.length, weights, dominant: dominantComponent(weights) };
 }
+
+export interface BreakEven {
+  /** Smallest sockpuppet count that flips the dominant component, or null if it never flips up to maxK. */
+  breakEvenK: number | null;
+  /** breakEvenK as a fraction of the resulting (honest + sybil) electorate, or null. */
+  breakEvenPct: number | null;
+  baselineDominant: keyof GovernanceWeights;
+}
+
+/**
+ * Sweep sockpuppet counts to find the smallest Sybil flood that flips the adopted
+ * dominant component away from the honest baseline. Deterministic given `honest`.
+ */
+export function sybilBreakEven(
+  honest: WeightVote[],
+  attacker: WeightVote,
+  maxK: number = honest.length
+): BreakEven {
+  const baseline = combineVoteWeights(honest);
+  if (baseline === null) throw new Error('sybilBreakEven: empty honest electorate');
+  const baselineDominant = dominantComponent(baseline);
+  for (let k = 1; k <= maxK; k++) {
+    const w = combineVoteWeights([...honest, ...sybilSockpuppets(attacker, k)])!;
+    if (dominantComponent(w) !== baselineDominant) {
+      return { breakEvenK: k, breakEvenPct: k / (honest.length + k), baselineDominant };
+    }
+  }
+  return { breakEvenK: null, breakEvenPct: null, baselineDominant };
+}

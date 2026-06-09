@@ -15,6 +15,7 @@ import {
   extremeBallot,
   runScenario,
   l1Shift,
+  sybilBreakEven,
 } from './governance-sim/harness.js';
 
 const SEED = 0xc0ffee;
@@ -48,6 +49,18 @@ describe('governance simulation — Sybil resistance (PROJ-1048)', () => {
     const large = l1Shift(largeSybil.weights, baseline.weights);
     expect(large).toBeGreaterThan(small * 2);
     expect(large).toBeGreaterThan(0.05);
+  });
+
+  it('quantifies the Sybil break-even threshold (deterministic)', () => {
+    const be = sybilBreakEven(honest(), attacker, 60);
+    // eslint-disable-next-line no-console
+    console.log(
+      `  Sybil break-even: K=${be.breakEvenK} sockpuppets = ` +
+        `${((be.breakEvenPct ?? 0) * 100).toFixed(1)}% of the electorate flips ${be.baselineDominant} -> relevance`
+    );
+    expect(be.breakEvenK).not.toBeNull();
+    // the ~10% trim should force the attacker to control more than the trim window
+    expect(be.breakEvenPct!).toBeGreaterThan(0.05);
   });
 
   it('prints the outcome shifts (informational)', () => {
