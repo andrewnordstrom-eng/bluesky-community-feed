@@ -9,14 +9,13 @@ import { db } from '../db/client.js';
 import { config } from '../config.js';
 import { GOVERNANCE_WEIGHT_VOTE_FIELDS, VOTABLE_WEIGHT_PARAMS } from '../config/votable-params.js';
 import { logger } from '../lib/logger.js';
-import { GovernanceWeights, normalizeWeights, ContentRules, emptyContentRules } from './governance.types.js';
+import { GovernanceWeights, ContentRules, emptyContentRules } from './governance.types.js';
+import { combineVoteWeights, type WeightVote } from './aggregation-core.js';
 
 /**
  * Weight component names for iteration.
  */
 const WEIGHT_COMPONENTS = GOVERNANCE_WEIGHT_VOTE_FIELDS;
-
-type WeightComponent = (typeof WEIGHT_COMPONENTS)[number];
 
 /**
  * Aggregate votes for an epoch using trimmed mean.
@@ -91,45 +90,18 @@ export async function aggregateVotes(epochId: number): Promise<GovernanceWeights
 
   logger.info({ epochId, voteCount: n }, 'Aggregating votes');
 
-  // Calculate trim count (10% from each end)
-  const trimPct = 0.1;
-  const trimCount = Math.floor(n * trimPct);
+  // Trimmed-mean aggregation lives in a pure, testable core (see aggregation-core.ts).
+  const weightVotes = votes.rows.map(
+    (v: Record<string, number>) =>
+      Object.fromEntries(WEIGHT_COMPONENTS.map((c) => [c, v[c]] as const)) as WeightVote
+  );
+  const normalized = combineVoteWeights(weightVotes);
 
-  // For small vote counts, don't trim (need at least 10 votes to trim 1 from each end)
-  const effectiveTrimCount = n >= 10 ? trimCount : 0;
-
-  const aggregated = Object.fromEntries(
-    WEIGHT_COMPONENTS.map((component) => [component, 0] as const)
-  ) as Record<WeightComponent, number>;
-
-  for (const component of WEIGHT_COMPONENTS) {
-    const values = votes.rows
-      .map((v: Record<string, number>) => v[component])
-      .sort((a: number, b: number) => a - b);
-
-    // Trim extremes
-    const trimmed =
-      effectiveTrimCount > 0
-        ? values.slice(effectiveTrimCount, n - effectiveTrimCount)
-        : values;
-
-    // Calculate mean
-    const mean = trimmed.reduce((sum: number, v: number) => sum + v, 0) / trimmed.length;
-    aggregated[component] = mean;
-
-    logger.debug(
-      { component, original: values.length, trimmed: trimmed.length, mean },
-      'Component aggregation'
-    );
+  // n > 0 was checked above, so this is defensive only.
+  if (normalized === null) {
+    logger.warn({ epochId }, 'No votes to aggregate');
+    return null;
   }
-
-  // Convert to GovernanceWeights
-  const weights = Object.fromEntries(
-    VOTABLE_WEIGHT_PARAMS.map((param) => [param.key, aggregated[param.voteField]] as const)
-  ) as unknown as GovernanceWeights;
-
-  // Normalize to ensure exact sum of 1.0
-  const normalized = normalizeWeights(weights);
 
   logger.info({ epochId, aggregated: normalized }, 'Vote aggregation complete');
 
