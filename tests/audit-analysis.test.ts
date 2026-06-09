@@ -57,18 +57,21 @@ describe('admin weight impact audit endpoint', () => {
     ]);
 
     dbQueryMock
+      // 1. epoch query (post-PROJ-817: no weight columns — those come from readEpochWeights)
+      .mockResolvedValueOnce({
+        rows: [{ id: 2 }],
+      })
+      // 2. readEpochWeights long-path: governance epoch + weights in one LEFT JOIN
       .mockResolvedValueOnce({
         rows: [
-          {
-            id: 2,
-            recency_weight: 0.22,
-            engagement_weight: 0.2,
-            bridging_weight: 0.32,
-            source_diversity_weight: 0.16,
-            relevance_weight: 0.1,
-          },
+          { epoch_id: 2, component_key: 'recency', weight: '0.22' },
+          { epoch_id: 2, component_key: 'engagement', weight: '0.2' },
+          { epoch_id: 2, component_key: 'bridging', weight: '0.32' },
+          { epoch_id: 2, component_key: 'sourceDiversity', weight: '0.16' },
+          { epoch_id: 2, component_key: 'relevance', weight: '0.1' },
         ],
       })
+      // 3. run-scope query
       .mockResolvedValueOnce({
         rows: [
           {
@@ -139,8 +142,8 @@ describe('admin weight impact audit endpoint', () => {
     expect(body.weightSensitivity).toHaveProperty('engagement');
     expect(body.analyzedPosts).toBe(3);
     expect(redisZRevRangeMock).toHaveBeenCalledWith('feed:current', 0, 99, 'WITHSCORES');
-    expect(dbQueryMock).toHaveBeenCalledTimes(3);
-    expect(String(dbQueryMock.mock.calls[2]?.[0])).toContain("component_details->>'run_id'");
+    expect(dbQueryMock).toHaveBeenCalledTimes(4);
+    expect(String(dbQueryMock.mock.calls[3]?.[0])).toContain("component_details->>'run_id'");
 
     await app.close();
   });

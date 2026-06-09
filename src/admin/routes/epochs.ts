@@ -15,6 +15,7 @@ import { db } from '../../db/client.js';
 import { getAdminDid } from '../../auth/admin.js';
 import { config } from '../../config.js';
 import { forceEpochTransition, triggerEpochTransition } from '../../governance/epoch-manager.js';
+import { readEpochWeightsForMultipleEpochs } from '../../governance/weight-longtable.js';
 import { logger } from '../../lib/logger.js';
 
 const UpdateEpochSchema = z.object({
@@ -32,17 +33,15 @@ export function registerEpochRoutes(app: FastifyInstance): void {
    * List all epochs with details
    */
   app.get('/epochs', async (_request: FastifyRequest, reply: FastifyReply) => {
+    // List N epochs without their weight columns; per-component weights come
+    // from the storage-agnostic batch reader so this route works the same
+    // under both wide-column and long-table storage.
     const result = await db.query(`
       SELECT
         e.id,
         e.status,
         e.voting_ends_at,
         e.auto_transition,
-        e.recency_weight,
-        e.engagement_weight,
-        e.bridging_weight,
-        e.source_diversity_weight,
-        e.relevance_weight,
         e.content_rules,
         e.created_at,
         e.closed_at,
@@ -54,19 +53,16 @@ export function registerEpochRoutes(app: FastifyInstance): void {
       LIMIT 20
     `);
 
+    const epochIds = result.rows.map((row) => row.id as number);
+    const weightsByEpoch = await readEpochWeightsForMultipleEpochs({ epochIds });
+
     return reply.send({
       epochs: result.rows.map((row) => ({
         id: row.id,
         status: row.status,
         votingEndsAt: row.voting_ends_at,
         autoTransition: row.auto_transition,
-        weights: {
-          recency: parseFloat(row.recency_weight),
-          engagement: parseFloat(row.engagement_weight),
-          bridging: parseFloat(row.bridging_weight),
-          sourceDiversity: parseFloat(row.source_diversity_weight),
-          relevance: parseFloat(row.relevance_weight),
-        },
+        weights: weightsByEpoch[row.id] ?? {},
         contentRules: row.content_rules,
         voteCount: parseInt(row.vote_count, 10),
         createdAt: row.created_at,
@@ -169,18 +165,38 @@ export function registerEpochRoutes(app: FastifyInstance): void {
 
     const body = parseResult.data;
 
-    // Get current epoch info before transition
+    // Get current epoch info before transition. The "weight votes" count
+    // (votes that include a complete weight vector, as opposed to
+    // content-only votes that only touch include/exclude keywords) is
+    // computed differently for each storage backend:
+    //   - Wide path: a vote is a "weight vote" iff all 5 named columns are
+    //     non-null (legacy behavior).
+    //   - Long path: a vote is a "weight vote" iff it has any rows in
+    //     governance_vote_weights (the writer skips null/undefined values,
+    //     so a vote with all-null weights is not represented).
+    //
+    // After PROJ-819 (P5) the wide columns are dropped and only the long
+    // branch remains.
+    const weightVoteCountSql = config.GOVERNANCE_LONGTABLE_READ_ENABLED
+      ? `(SELECT COUNT(*)::int
+          FROM governance_votes v
+          WHERE v.epoch_id = governance_epochs.id
+            AND EXISTS (
+              SELECT 1 FROM governance_vote_weights vw WHERE vw.vote_id = v.id
+            ))`
+      : `(SELECT COUNT(*)::int
+          FROM governance_votes
+          WHERE epoch_id = governance_epochs.id
+            AND recency_weight IS NOT NULL
+            AND engagement_weight IS NOT NULL
+            AND bridging_weight IS NOT NULL
+            AND source_diversity_weight IS NOT NULL
+            AND relevance_weight IS NOT NULL)`;
+
     const current = await db.query(`
       SELECT id,
         (SELECT COUNT(*)::int FROM governance_votes WHERE epoch_id = governance_epochs.id) as vote_count,
-        (SELECT COUNT(*)::int
-         FROM governance_votes
-         WHERE epoch_id = governance_epochs.id
-           AND recency_weight IS NOT NULL
-           AND engagement_weight IS NOT NULL
-           AND bridging_weight IS NOT NULL
-           AND source_diversity_weight IS NOT NULL
-           AND relevance_weight IS NOT NULL) as weight_vote_count
+        ${weightVoteCountSql} as weight_vote_count
       FROM governance_epochs
       WHERE status IN ('active', 'voting')
       ORDER BY id DESC
