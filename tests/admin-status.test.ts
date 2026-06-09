@@ -34,6 +34,7 @@ describe('admin status route', () => {
 
   it('uses feed:current for scored post count', async () => {
     dbQueryMock
+      // 1. epoch query (post-PROJ-817: no weight columns selected; those come from readEpochWeights)
       .mockResolvedValueOnce({
         rows: [
           {
@@ -42,14 +43,19 @@ describe('admin status route', () => {
             phase: 'running',
             voting_ends_at: null,
             auto_transition: false,
-            recency_weight: '0.2',
-            engagement_weight: '0.2',
-            bridging_weight: '0.2',
-            source_diversity_weight: '0.2',
-            relevance_weight: '0.2',
             content_rules: { include_keywords: [], exclude_keywords: [] },
             created_at: '2026-02-09T00:00:00.000Z',
           },
+        ],
+      })
+      // 2. readEpochWeights long-path: governance epoch + weights in one LEFT JOIN
+      .mockResolvedValueOnce({
+        rows: [
+          { epoch_id: 2, component_key: 'recency', weight: '0.2' },
+          { epoch_id: 2, component_key: 'engagement', weight: '0.2' },
+          { epoch_id: 2, component_key: 'bridging', weight: '0.2' },
+          { epoch_id: 2, component_key: 'sourceDiversity', weight: '0.2' },
+          { epoch_id: 2, component_key: 'relevance', weight: '0.2' },
         ],
       })
       .mockResolvedValueOnce({ rows: [{ count: '4' }] })

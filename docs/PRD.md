@@ -22,11 +22,17 @@ algorithm, and cannot audit the consequences of policy changes.
 - Subscribers can vote on ranking weights and content rules through a usable
   governance surface.
 - The ranking pipeline persists full score decomposition so every result is
-  explainable.
+  explainable — in a normalized long table that supports any-N components,
+  not a 5-column fossilized schema.
 - Feed serving stays production-fast while governance and transparency remain
   research-grade and auditable.
 - The system can support research workflows such as consent-aware exports and
   participant gating without forking a separate product architecture.
+- The scoring contract is genuinely pluggable: third-party authors can
+  implement and propose a new component using only the `@corgi/feed-sdk`
+  public type surface, with no internal-path imports and no schema
+  migration. See [`docs/contributing-scoring-components.md`](contributing-scoring-components.md)
+  and [`examples/civility-component/`](../examples/civility-component/).
 
 ## Non-goals
 

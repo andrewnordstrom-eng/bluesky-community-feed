@@ -16,8 +16,147 @@
  */
 
 import type { PoolClient } from 'pg';
+import { config } from '../config.js';
 import { db } from '../db/client.js';
 import type { GovernanceWeightKey } from '../shared/api-types.js';
+
+/**
+ * Read the registered weight vector for N governance epochs in a single
+ * query, returning Record<epochId, Record<componentKey, weight>>. Used by
+ * admin/epochs.ts which lists 20 epochs at a time and would otherwise
+ * incur 20 readEpochWeights round-trips.
+ *
+ * Behind GOVERNANCE_LONGTABLE_READ_ENABLED:
+ *   - false: SELECT id, recency_weight, ... FROM governance_epochs WHERE id IN (...)
+ *   - true: SELECT epoch_id, component_key, weight FROM governance_epoch_weights WHERE epoch_id IN (...)
+ *
+ * Epochs in the input list that have no rows return an empty {} for their
+ * weights (the caller can detect "no weights yet" by `Object.keys(...).length === 0`).
+ */
+export async function readEpochWeightsForMultipleEpochs(options: {
+  epochIds: number[];
+}): Promise<Record<number, Record<GovernanceWeightKey, number>>> {
+  const { epochIds } = options;
+  if (epochIds.length === 0) {
+    return {};
+  }
+
+  const out: Record<number, Record<string, number>> = {};
+  for (const id of epochIds) {
+    out[id] = {};
+  }
+
+  if (config.GOVERNANCE_LONGTABLE_READ_ENABLED) {
+    const result = await db.query<{
+      epoch_id: number;
+      component_key: string;
+      weight: string;
+    }>(
+      `SELECT epoch_id, component_key, weight
+       FROM governance_epoch_weights
+       WHERE epoch_id = ANY($1::int[])`,
+      [epochIds]
+    );
+    for (const row of result.rows) {
+      out[row.epoch_id][row.component_key] = parseFloat(row.weight);
+    }
+    return out;
+  }
+
+  const result = await db.query<{
+    id: number;
+    recency_weight: string;
+    engagement_weight: string;
+    bridging_weight: string;
+    source_diversity_weight: string;
+    relevance_weight: string;
+  }>(
+    `SELECT id, recency_weight, engagement_weight, bridging_weight,
+            source_diversity_weight, relevance_weight
+     FROM governance_epochs
+     WHERE id = ANY($1::int[])`,
+    [epochIds]
+  );
+  for (const row of result.rows) {
+    out[row.id] = {
+      recency: parseFloat(row.recency_weight),
+      engagement: parseFloat(row.engagement_weight),
+      bridging: parseFloat(row.bridging_weight),
+      sourceDiversity: parseFloat(row.source_diversity_weight),
+      relevance: parseFloat(row.relevance_weight),
+    };
+  }
+  return out;
+}
+
+/**
+ * Read the registered weight vector for a governance epoch. Returns
+ * keys in the registry's camelCase form (recency, engagement, bridging,
+ * sourceDiversity, relevance, plus any future components).
+ *
+ * Behind GOVERNANCE_LONGTABLE_READ_ENABLED:
+ *   - false (default through P4 bake-in): SELECT the 5 wide columns from
+ *     governance_epochs and project them.
+ *   - true (default after PROJ-817 flag flip): SELECT from
+ *     governance_epoch_weights long table and pivot.
+ *
+ * Returns null if no epoch row exists. Returns an empty object if the epoch
+ * row exists but no weight rows have been written yet (early in transition).
+ */
+export async function readEpochWeights(options: {
+  epochId: number;
+}): Promise<Record<GovernanceWeightKey, number> | null> {
+  const { epochId } = options;
+
+  if (config.GOVERNANCE_LONGTABLE_READ_ENABLED) {
+    const result = await db.query<{
+      epoch_id: number | null;
+      component_key: string | null;
+      weight: string | null;
+    }>(
+      `SELECT ge.id AS epoch_id, gew.component_key, gew.weight
+       FROM governance_epochs ge
+       LEFT JOIN governance_epoch_weights gew ON gew.epoch_id = ge.id
+       WHERE ge.id = $1`,
+      [epochId]
+    );
+    if (result.rows.length === 0) {
+      return null;
+    }
+    const out: Record<string, number> = {};
+    for (const row of result.rows) {
+      if (row.component_key !== null && row.weight !== null) {
+        out[row.component_key] = parseFloat(row.weight);
+      }
+    }
+    return out;
+  }
+
+  const result = await db.query<{
+    recency_weight: string;
+    engagement_weight: string;
+    bridging_weight: string;
+    source_diversity_weight: string;
+    relevance_weight: string;
+  }>(
+    `SELECT recency_weight, engagement_weight, bridging_weight,
+            source_diversity_weight, relevance_weight
+     FROM governance_epochs
+     WHERE id = $1`,
+    [epochId]
+  );
+  const row = result.rows[0];
+  if (!row) {
+    return null;
+  }
+  return {
+    recency: parseFloat(row.recency_weight),
+    engagement: parseFloat(row.engagement_weight),
+    bridging: parseFloat(row.bridging_weight),
+    sourceDiversity: parseFloat(row.source_diversity_weight),
+    relevance: parseFloat(row.relevance_weight),
+  };
+}
 
 /**
  * Build the (placeholders, params) tuple for a batched VALUES clause of N

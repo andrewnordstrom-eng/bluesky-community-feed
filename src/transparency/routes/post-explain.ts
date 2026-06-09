@@ -13,6 +13,10 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { db } from '../../db/client.js';
 import { logger } from '../../lib/logger.js';
 import { ErrorResponseSchema } from '../../lib/openapi.js';
+import {
+  countPostsWithComponentAbove,
+  readPostScore,
+} from '../../scoring/score-reader.js';
 import type { PostExplanation, TopicBreakdownEntry } from '../transparency.types.js';
 
 interface CurrentScoringRunValue {
@@ -77,18 +81,25 @@ export function registerPostExplainRoute(app: FastifyInstance): void {
                     raw_score: { type: 'number' },
                     weight: { type: 'number' },
                     weighted: { type: 'number' },
+                    topicBreakdown: {
+                      type: 'object',
+                      additionalProperties: {
+                        type: 'object',
+                        properties: {
+                          postScore: { type: 'number' },
+                          communityWeight: { type: 'number' },
+                          contribution: { type: 'number' },
+                        },
+                        required: ['postScore', 'communityWeight', 'contribution'],
+                      },
+                    },
                   },
                 },
               },
               governance_weights: {
                 type: 'object',
-                properties: {
-                  recency: { type: 'number' },
-                  engagement: { type: 'number' },
-                  bridging: { type: 'number' },
-                  source_diversity: { type: 'number' },
-                  relevance: { type: 'number' },
-                },
+                description: 'Per-component weight vector from the current governance epoch.',
+                additionalProperties: { type: 'number' },
               },
               counterfactual: {
                 type: 'object',
@@ -123,8 +134,8 @@ export function registerPostExplainRoute(app: FastifyInstance): void {
       }
 
       try {
-        const epochResult = await db.query<{ id: number }>(
-          `SELECT id
+        const epochResult = await db.query<{ id: number; description: string | null }>(
+          `SELECT id, description
            FROM governance_epochs
            WHERE status = 'active'
            ORDER BY id DESC
@@ -139,52 +150,42 @@ export function registerPostExplainRoute(app: FastifyInstance): void {
         }
 
         const epochId = epochResult.rows[0].id;
+        const epochDescription = epochResult.rows[0].description;
         const runScope = await getCurrentScoringRunScope();
+        const runIdFilter = runScope?.epochId === epochId ? runScope.runId : undefined;
 
-        // Get the most recent score for this post in the active epoch/current run
-        const scoreParams: unknown[] = [decodedUri, epochId];
-        let runScopeClause = '';
-        if (runScope?.epochId === epochId) {
-          scoreParams.push(runScope.runId);
-          runScopeClause = `AND ps.component_details->>'run_id' = $${scoreParams.length}`;
-        }
+        // Decomposed score via the storage-agnostic reader. Behind
+        // SCORE_LONGTABLE_READ_ENABLED it reads from post_score_components;
+        // off, it reads the wide columns. Same shape either way.
+        const record = await readPostScore({
+          postUri: decodedUri,
+          epochId,
+          runId: runIdFilter,
+        });
 
-        const scoreResult = await db.query(
-          `SELECT ps.*, ge.description as epoch_description
-           FROM post_scores ps
-           JOIN governance_epochs ge ON ps.epoch_id = ge.id
-           WHERE ps.post_uri = $1
-             AND ps.epoch_id = $2
-             ${runScopeClause}
-           ORDER BY ps.scored_at DESC
-           LIMIT 1`,
-          scoreParams
-        );
-
-        if (scoreResult.rows.length === 0) {
+        if (!record) {
           return reply.code(404).send({
             error: 'NotFound',
             message: 'Score not found for this post. The post may not have been scored yet.',
           });
         }
 
-        const s = scoreResult.rows[0];
         const scopedRunId =
-          s.component_details &&
-          typeof s.component_details === 'object' &&
-          typeof (s.component_details as { run_id?: unknown }).run_id === 'string'
-            ? (s.component_details as { run_id: string }).run_id
+          record.componentDetails &&
+          typeof (record.componentDetails as { run_id?: unknown }).run_id === 'string'
+            ? (record.componentDetails as { run_id: string }).run_id
             : null;
 
-        // Get rank position (how many posts have higher scores in same epoch)
-        const rankParams: unknown[] = [s.epoch_id, s.total_score];
+        // Get rank position. total_score lives on post_scores in both storage
+        // shapes (denormalized for the hot path), so this query is unchanged.
+        const rankParams: unknown[] = [record.epochId, record.totalScore];
         let rankRunClause = '';
         if (scopedRunId) {
           rankParams.push(scopedRunId);
           rankRunClause = `AND component_details->>'run_id' = $${rankParams.length}`;
         }
 
-        const rankResult = await db.query(
+        const rankResult = await db.query<{ rank: string }>(
           `SELECT COUNT(*) + 1 as rank
            FROM post_scores
            WHERE epoch_id = $1 AND total_score > $2
@@ -192,73 +193,59 @@ export function registerPostExplainRoute(app: FastifyInstance): void {
           rankParams
         );
 
-        // Compute counterfactual: what would rank be with pure engagement?
-        const engagementRankParams: unknown[] = [s.epoch_id, s.engagement_score];
-        let engagementRunClause = '';
-        if (scopedRunId) {
-          engagementRankParams.push(scopedRunId);
-          engagementRunClause = `AND component_details->>'run_id' = $${engagementRankParams.length}`;
-        }
-
-        const engagementRankResult = await db.query(
-          `SELECT COUNT(*) + 1 as rank
-           FROM post_scores
-           WHERE epoch_id = $1 AND engagement_score > $2
-             ${engagementRunClause}`,
-          engagementRankParams
-        );
+        // Counterfactual: rank under pure engagement scoring.
+        const engagementComponent = record.components.engagement;
+        const pureEngagementRank = engagementComponent
+          ? await countPostsWithComponentAbove({
+              epochId: record.epochId,
+              componentKey: 'engagement',
+              threshold: engagementComponent.raw,
+              runId: scopedRunId ?? undefined,
+            }) + 1
+          : 0;
 
         const rank = parseInt(rankResult.rows[0].rank, 10);
-        const pureEngagementRank = parseInt(engagementRankResult.rows[0].rank, 10);
+
+        // Build the response components in the wire-format shape (snake_case
+        // outer key, raw_score/weight/weighted inner). Map sourceDiversity →
+        // source_diversity for backward-compat with existing API consumers.
+        const componentsResponse: PostExplanation['components'] = {} as PostExplanation['components'];
+        const governanceWeightsResponse: Record<string, number> = {};
+        for (const [key, triple] of Object.entries(record.components)) {
+          const wireKey = key === 'sourceDiversity' ? 'source_diversity' : key;
+          componentsResponse[wireKey as keyof typeof componentsResponse] = {
+            raw_score: triple.raw,
+            weight: triple.weight,
+            weighted: triple.weighted,
+          };
+          governanceWeightsResponse[wireKey] = triple.weight;
+        }
+
+        if (Number.isNaN(record.scoredAt.getTime())) {
+          return reply.code(503).send({
+            error: 'ScoreTimestampInvalid',
+            message: 'Stored score timestamp is invalid for this post',
+          });
+        }
 
         const explanation: PostExplanation = {
-          post_uri: s.post_uri,
-          epoch_id: s.epoch_id,
-          epoch_description: s.epoch_description,
-          total_score: parseFloat(s.total_score),
+          post_uri: record.postUri,
+          epoch_id: record.epochId,
+          epoch_description: epochDescription,
+          total_score: record.totalScore,
           rank,
-          components: {
-            recency: {
-              raw_score: parseFloat(s.recency_score),
-              weight: parseFloat(s.recency_weight),
-              weighted: parseFloat(s.recency_weighted),
-            },
-            engagement: {
-              raw_score: parseFloat(s.engagement_score),
-              weight: parseFloat(s.engagement_weight),
-              weighted: parseFloat(s.engagement_weighted),
-            },
-            bridging: {
-              raw_score: parseFloat(s.bridging_score),
-              weight: parseFloat(s.bridging_weight),
-              weighted: parseFloat(s.bridging_weighted),
-            },
-            source_diversity: {
-              raw_score: parseFloat(s.source_diversity_score),
-              weight: parseFloat(s.source_diversity_weight),
-              weighted: parseFloat(s.source_diversity_weighted),
-            },
-            relevance: {
-              raw_score: parseFloat(s.relevance_score),
-              weight: parseFloat(s.relevance_weight),
-              weighted: parseFloat(s.relevance_weighted),
-            },
-          },
-          governance_weights: {
-            recency: parseFloat(s.recency_weight),
-            engagement: parseFloat(s.engagement_weight),
-            bridging: parseFloat(s.bridging_weight),
-            source_diversity: parseFloat(s.source_diversity_weight),
-            relevance: parseFloat(s.relevance_weight),
-          },
+          components: componentsResponse,
+          governance_weights: governanceWeightsResponse as PostExplanation['governance_weights'],
           counterfactual: {
             pure_engagement_rank: pureEngagementRank,
             community_governed_rank: rank,
             difference: pureEngagementRank - rank,
           },
-          scored_at: s.scored_at,
-          component_details: s.component_details,
-          classification_method: (s.classification_method as 'keyword' | 'embedding') ?? 'keyword',
+          // Response schema declares string/date-time; readPostScore returns a Date.
+          // Coerce to ISO string so Fastify validation accepts the payload.
+          scored_at: record.scoredAt.toISOString(),
+          component_details: record.componentDetails,
+          classification_method: record.classificationMethod,
         };
 
         // Enrich relevance component with per-topic breakdown

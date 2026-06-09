@@ -267,6 +267,8 @@ See `docs/OPERABILITY.md`, `docs/runbooks/operator-quickstart.md`, and
 | Operator quickstart | `docs/runbooks/operator-quickstart.md` |
 | Incident response | `docs/runbooks/incident-response.md` |
 | ADR index | `docs/adr/README.md` |
+| Extensible scoring ADR | `docs/adr/ADR-0001-extensible-scoring-components.md` |
+| Feed SDK package | `packages/feed-sdk/` |
 | Product requirements / strategy | `docs/PRD.md` |
 | Legacy system overview | `docs/SYSTEM_OVERVIEW.md` |
 | Deployment guide | `docs/DEPLOYMENT.md` |

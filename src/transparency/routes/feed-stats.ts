@@ -11,6 +11,7 @@
  */
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { config } from '../../config.js';
 import { db } from '../../db/client.js';
 import { logger } from '../../lib/logger.js';
 import { ErrorResponseSchema } from '../../lib/openapi.js';
@@ -124,7 +125,11 @@ export function registerFeedStatsRoute(app: FastifyInstance): void {
       const epochId = epoch.id;
       const runScope = await getCurrentScoringRunScope();
 
-      // Aggregate metrics for current epoch
+      // Aggregate metrics for current epoch. The wide-column path is the
+      // original single-query aggregation; the long-table path uses FILTER
+      // expressions over post_score_components for per-component aggregates
+      // while keeping total_score / author_did on post_scores. Both paths
+      // emit one query that returns the same six fields.
       const statsParams: unknown[] = [epochId];
       let runScopeClause = '';
       if (runScope && runScope.epochId === epochId) {
@@ -132,22 +137,38 @@ export function registerFeedStatsRoute(app: FastifyInstance): void {
         runScopeClause = `AND ps.component_details->>'run_id' = $${statsParams.length}`;
       }
 
-      const statsResult = await db.query(
-        `
-        SELECT
-          COUNT(*) as total_posts,
-          COUNT(DISTINCT p.author_did) as unique_authors,
-          AVG(ps.bridging_score) as avg_bridging,
-          AVG(ps.engagement_score) as avg_engagement,
-          PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ps.bridging_score) as median_bridging,
-          PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ps.total_score) as median_total
-        FROM post_scores ps
-        JOIN posts p ON ps.post_uri = p.uri
-        WHERE ps.epoch_id = $1
-          ${runScopeClause}
-        `,
-        statsParams
-      );
+      const statsSql = config.SCORE_LONGTABLE_READ_ENABLED
+        ? `
+          SELECT
+            COUNT(DISTINCT ps.post_uri) as total_posts,
+            COUNT(DISTINCT p.author_did) as unique_authors,
+            AVG(psc.raw) FILTER (WHERE psc.component_key = 'bridging') as avg_bridging,
+            AVG(psc.raw) FILTER (WHERE psc.component_key = 'engagement') as avg_engagement,
+            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY psc.raw)
+              FILTER (WHERE psc.component_key = 'bridging') as median_bridging,
+            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ps.total_score) as median_total
+          FROM post_scores ps
+          JOIN posts p ON ps.post_uri = p.uri
+          LEFT JOIN post_score_components psc
+            ON psc.post_uri = ps.post_uri AND psc.epoch_id = ps.epoch_id
+          WHERE ps.epoch_id = $1
+            ${runScopeClause}
+          `
+        : `
+          SELECT
+            COUNT(*) as total_posts,
+            COUNT(DISTINCT p.author_did) as unique_authors,
+            AVG(ps.bridging_score) as avg_bridging,
+            AVG(ps.engagement_score) as avg_engagement,
+            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ps.bridging_score) as median_bridging,
+            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ps.total_score) as median_total
+          FROM post_scores ps
+          JOIN posts p ON ps.post_uri = p.uri
+          WHERE ps.epoch_id = $1
+            ${runScopeClause}
+          `;
+
+      const statsResult = await db.query(statsSql, statsParams);
 
       // Vote count for current epoch
       const voteCountResult = await db.query(
