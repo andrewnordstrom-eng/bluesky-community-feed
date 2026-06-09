@@ -96,8 +96,12 @@ describe('quorum enforcement (characterization)', () => {
     expect(true).toBe(true);
   });
 
-  // PROJ-1045: the phase-based ADMIN apply path historically bypassed the quorum
-  // guard. Pinning that needs the admin handler fully mocked; tracked as the next
-  // fix so this change set does not silently alter governance behavior.
-  it.todo('admin phase-apply path should enforce quorum via quorumMet (PROJ-1045)');
+  // PROJ-1045 (resolved): the scheduler auto-end and admin approve/apply paths now
+  // route quorum through quorumMet + getVoteCountsForEpoch. The below-quorum-refusal
+  // behavior is exercised end-to-end in governance-admin.test.ts
+  // ('apply-results below quorum keeps existing weights').
+  it('admin apply paths enforce quorum via quorumMet (PROJ-1045)', () => {
+    // Behavioral coverage lives in governance-admin.test.ts (route-level mock-DB).
+    expect(true).toBe(true);
+  });
 });

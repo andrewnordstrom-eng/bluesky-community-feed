@@ -23,7 +23,13 @@ import { invalidateContentRulesCache } from '../../governance/content-filter.js'
 import { aggregateContentVotes, aggregateVotes } from '../../governance/aggregation.js';
 import { readEpochWeightsForMultipleEpochs } from '../../governance/weight-longtable.js';
 import { tryTriggerManualScoringRun } from '../../scoring/scheduler.js';
-import { forceEpochTransition, triggerEpochTransition } from '../../governance/epoch-manager.js';
+import {
+  forceEpochTransition,
+  triggerEpochTransition,
+  getVoteCountsForEpoch,
+} from '../../governance/epoch-manager.js';
+import { quorumMet } from '../../governance/governance-decisions.js';
+import { config } from '../../config.js';
 import {
   announceResultsApproved,
   announceVoteScheduled,
@@ -750,10 +756,22 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
         });
       }
 
+      // PROJ-1045: only adopt the proposed (vote-derived) weights when quorum
+      // (weight-eligible votes >= GOVERNANCE_MIN_VOTES) is met; else keep prior.
+      const { weightEligible } = await getVoteCountsForEpoch(client, epoch.id);
+      const hasQuorum = quorumMet(weightEligible, config.GOVERNANCE_MIN_VOTES);
       const oldWeights = toWeights(epoch);
       const oldContentRules = toContentRules((epoch.content_rules ?? null) as any);
-      const newWeights = toProposedWeights(epoch.proposed_weights) ?? oldWeights;
+      const newWeights = hasQuorum
+        ? (toProposedWeights(epoch.proposed_weights) ?? oldWeights)
+        : oldWeights;
       const newContentRules = toProposedContentRules(epoch.proposed_content_rules) ?? oldContentRules;
+      if (!hasQuorum && weightEligible > 0) {
+        logger.info(
+          { epochId: epoch.id, weightEligible, minVotes: config.GOVERNANCE_MIN_VOTES },
+          'Quorum not met on approve-results; keeping prior weights (insufficient_votes)'
+        );
+      }
 
       const updatedResult = await client.query<GovernanceEpochRow>(
         `UPDATE governance_epochs
@@ -1687,13 +1705,26 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
 
       let nextWeights = previousWeights;
       let nextRules = previousRules;
+      let appliedWeights = false;
 
-      if (voteCount > 0) {
+      // PROJ-1045: gate vote-derived WEIGHTS on quorum (weight-eligible votes);
+      // below quorum keep prior weights. Content-rule aggregation keeps its own
+      // any-vote gate (separate mechanism, out of scope).
+      const { weightEligible } = await getVoteCountsForEpoch(client, epoch.id);
+      if (quorumMet(weightEligible, config.GOVERNANCE_MIN_VOTES)) {
         const aggregatedWeights = await aggregateVotes(epoch.id);
         if (aggregatedWeights) {
           nextWeights = aggregatedWeights;
+          appliedWeights = true;
         }
+      } else if (weightEligible > 0) {
+        logger.info(
+          { epochId: epoch.id, weightEligible, minVotes: config.GOVERNANCE_MIN_VOTES },
+          'Quorum not met on apply-results; keeping prior weights (insufficient_votes)'
+        );
+      }
 
+      if (voteCount > 0) {
         nextRules = await aggregateContentVotes(epoch.id);
       }
 
@@ -1753,7 +1784,7 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
       return reply.send({
         success: true,
         voteCount,
-        appliedWeights: voteCount > 0,
+        appliedWeights,
         weights: nextWeights,
         contentRules: nextRules,
         round: mapRound(updatedResult.rows[0], voteCount),

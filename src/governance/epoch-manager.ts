@@ -61,7 +61,10 @@ function toFiniteNumber(value: unknown): number {
   return 0;
 }
 
-async function getVoteCountsForEpoch(queryable: SqlQueryable, epochId: number): Promise<VoteCounts> {
+export async function getVoteCountsForEpoch(
+  queryable: SqlQueryable,
+  epochId: number
+): Promise<VoteCounts> {
   const result = await queryable.query<{ total: string; weight_eligible: string }>(
     `SELECT
       COUNT(*)::int AS total,

@@ -11,6 +11,7 @@ const {
   tryTriggerManualScoringRunMock,
   forceEpochTransitionMock,
   triggerEpochTransitionMock,
+  getVoteCountsForEpochMock,
 } = vi.hoisted(() => ({
   dbQueryMock: vi.fn(),
   dbConnectMock: vi.fn(),
@@ -21,6 +22,7 @@ const {
   tryTriggerManualScoringRunMock: vi.fn(),
   forceEpochTransitionMock: vi.fn(),
   triggerEpochTransitionMock: vi.fn(),
+  getVoteCountsForEpochMock: vi.fn(),
 }));
 
 vi.mock('../src/db/client.js', () => ({
@@ -50,6 +52,7 @@ vi.mock('../src/scoring/scheduler.js', () => ({
 vi.mock('../src/governance/epoch-manager.js', () => ({
   forceEpochTransition: forceEpochTransitionMock,
   triggerEpochTransition: triggerEpochTransitionMock,
+  getVoteCountsForEpoch: getVoteCountsForEpochMock,
 }));
 
 import { registerGovernanceRoutes } from '../src/admin/routes/governance.js';
@@ -86,6 +89,7 @@ describe('admin governance routes', () => {
     tryTriggerManualScoringRunMock.mockReset();
     forceEpochTransitionMock.mockReset();
     triggerEpochTransitionMock.mockReset();
+    getVoteCountsForEpochMock.mockReset();
 
     dbConnectMock.mockResolvedValue({
       query: clientQueryMock,
@@ -98,6 +102,7 @@ describe('admin governance routes', () => {
     aggregateContentVotesMock.mockResolvedValue({ includeKeywords: [], excludeKeywords: [] });
     forceEpochTransitionMock.mockResolvedValue(8);
     triggerEpochTransitionMock.mockResolvedValue({ success: true, newEpochId: 8 });
+    getVoteCountsForEpochMock.mockResolvedValue({ total: 0, weightEligible: 0 });
   });
 
   it('rejects keyword add when keyword has special characters', async () => {
@@ -287,6 +292,133 @@ describe('admin governance routes', () => {
     );
     expect(auditInsert).toBeTruthy();
 
+    await app.close();
+  });
+
+  it('apply-results below quorum keeps existing weights (PROJ-1045)', async () => {
+    // 2 weight-eligible votes, quorum is 5 → must NOT adopt vote-derived weights.
+    getVoteCountsForEpochMock.mockResolvedValue({ total: 2, weightEligible: 2 });
+    aggregateVotesMock.mockResolvedValue({
+      recency: 0.6,
+      engagement: 0.1,
+      bridging: 0.1,
+      sourceDiversity: 0.1,
+      relevance: 0.1,
+    });
+    clientQueryMock
+      .mockResolvedValueOnce({ rows: [] }) // BEGIN
+      .mockResolvedValueOnce({ rows: [epochRow()] }) // getCurrentEpochForUpdate
+      .mockResolvedValueOnce({ rows: [{ count: '2' }] }) // vote_count COUNT(*)
+      .mockResolvedValueOnce({ rows: [epochRow()] }) // UPDATE ... RETURNING
+      .mockResolvedValueOnce({ rows: [] }) // audit INSERT
+      .mockResolvedValueOnce({ rows: [] }); // COMMIT
+
+    const app = Fastify();
+    registerGovernanceRoutes(app);
+    const response = await app.inject({ method: 'POST', url: '/governance/apply-results' });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      success: true,
+      appliedWeights: false,
+      weights: { recency: 0.2, engagement: 0.2, bridging: 0.2, sourceDiversity: 0.2, relevance: 0.2 },
+    });
+    // quorum gate short-circuits before aggregation
+    expect(aggregateVotesMock).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it('apply-results at quorum adopts the aggregated weights', async () => {
+    getVoteCountsForEpochMock.mockResolvedValue({ total: 6, weightEligible: 6 });
+    const applied = {
+      recency: 0.6,
+      engagement: 0.1,
+      bridging: 0.1,
+      sourceDiversity: 0.1,
+      relevance: 0.1,
+    };
+    aggregateVotesMock.mockResolvedValue(applied);
+    clientQueryMock
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [epochRow()] })
+      .mockResolvedValueOnce({ rows: [{ count: '6' }] })
+      .mockResolvedValueOnce({ rows: [epochRow()] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const app = Fastify();
+    registerGovernanceRoutes(app);
+    const response = await app.inject({ method: 'POST', url: '/governance/apply-results' });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ success: true, appliedWeights: true, weights: applied });
+    expect(aggregateVotesMock).toHaveBeenCalledWith(7); // epoch id from epochRow()
+    await app.close();
+  });
+
+  it('approve-results below quorum keeps existing weights (PROJ-1045)', async () => {
+    // proposed weights exist, but 2 weight-eligible votes < quorum 5 → not adopted.
+    getVoteCountsForEpochMock.mockResolvedValue({ total: 2, weightEligible: 2 });
+    const proposed = {
+      recency: 0.6,
+      engagement: 0.1,
+      bridging: 0.1,
+      sourceDiversity: 0.1,
+      relevance: 0.1,
+    };
+    const epoch = epochRow({ phase: 'results', proposed_weights: proposed });
+    clientQueryMock
+      .mockResolvedValueOnce({ rows: [] }) // BEGIN
+      .mockResolvedValueOnce({ rows: [epoch] }) // getCurrentEpochForUpdate
+      .mockResolvedValueOnce({ rows: [epoch] }) // UPDATE ... RETURNING
+      .mockResolvedValueOnce({ rows: [{ total: '2', content: '0' }] }) // getVoteCounts
+      .mockResolvedValueOnce({ rows: [] }) // audit INSERT
+      .mockResolvedValueOnce({ rows: [] }); // COMMIT
+
+    const app = Fastify();
+    registerGovernanceRoutes(app);
+    const response = await app.inject({
+      method: 'POST',
+      url: '/governance/approve-results',
+      payload: { announce: false },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      success: true,
+      weights: { recency: 0.2, engagement: 0.2, bridging: 0.2, sourceDiversity: 0.2, relevance: 0.2 },
+    });
+    await app.close();
+  });
+
+  it('approve-results at quorum adopts the proposed weights', async () => {
+    getVoteCountsForEpochMock.mockResolvedValue({ total: 6, weightEligible: 6 });
+    const proposed = {
+      recency: 0.6,
+      engagement: 0.1,
+      bridging: 0.1,
+      sourceDiversity: 0.1,
+      relevance: 0.1,
+    };
+    const epoch = epochRow({ phase: 'results', proposed_weights: proposed });
+    clientQueryMock
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [epoch] })
+      .mockResolvedValueOnce({ rows: [epoch] })
+      .mockResolvedValueOnce({ rows: [{ total: '6', content: '0' }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const app = Fastify();
+    registerGovernanceRoutes(app);
+    const response = await app.inject({
+      method: 'POST',
+      url: '/governance/approve-results',
+      payload: { announce: false },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ success: true, weights: proposed });
     await app.close();
   });
 });

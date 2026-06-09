@@ -11,6 +11,9 @@ import cron from 'node-cron';
 import type { PoolClient } from 'pg';
 import { db } from '../db/client.js';
 import { aggregateContentVotes, aggregateVotes } from '../governance/aggregation.js';
+import { getVoteCountsForEpoch } from '../governance/epoch-manager.js';
+import { quorumMet } from '../governance/governance-decisions.js';
+import { config } from '../config.js';
 import { readEpochWeights } from '../governance/weight-longtable.js';
 import { toContentRules, type ContentRules, type GovernanceWeights } from '../governance/governance.types.js';
 import {
@@ -226,11 +229,20 @@ async function closeExpiredVotingWindows(): Promise<{ transitioned: number; erro
       let proposedWeights = currentWeights;
       let proposedRules = currentRules;
 
-      if (voteCounts.total > 0) {
+      // PROJ-1045: only propose vote-derived weights when quorum (weight-eligible
+      // votes >= GOVERNANCE_MIN_VOTES) is met; below quorum keep prior weights
+      // (proposedWeights already = currentWeights).
+      const weightEligibleVotes = (await getVoteCountsForEpoch(client, epoch.id)).weightEligible;
+      if (quorumMet(weightEligibleVotes, config.GOVERNANCE_MIN_VOTES)) {
         const aggregatedWeights = await aggregateVotes(epoch.id);
         if (aggregatedWeights) {
           proposedWeights = aggregatedWeights;
         }
+      } else if (weightEligibleVotes > 0) {
+        logger.info(
+          { epochId: epoch.id, weightEligibleVotes, minVotes: config.GOVERNANCE_MIN_VOTES },
+          'Quorum not met on scheduler auto-end; keeping prior weights (insufficient_votes)'
+        );
       }
 
       if (voteCounts.content > 0) {
