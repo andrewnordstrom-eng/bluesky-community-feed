@@ -12,22 +12,27 @@
 // Governance Weight Types
 // ============================================================================
 
-/** Union of all governance weight parameter keys. */
-export type GovernanceWeightKey =
-  | 'recency'
-  | 'engagement'
-  | 'bridging'
-  | 'sourceDiversity'
-  | 'relevance';
+/**
+ * Identifier for a governance-voted scoring weight.
+ *
+ * Was a string-literal union of exactly 5 names (`recency`, `engagement`,
+ * `bridging`, `sourceDiversity`, `relevance`) before PROJ-816. Widened to
+ * `string` so the type contract no longer fossilizes a 5-component
+ * assumption. Runtime validity is enforced by `validateRegistry` /
+ * `REGISTERED_COMPONENT_KEYS` in `src/scoring/registry.ts`, which rejects
+ * unregistered keys on vote intake.
+ */
+export type GovernanceWeightKey = string;
 
-/** Weight vector for the scoring algorithm. All values 0.0–1.0, sum to 1.0. */
-export interface GovernanceWeights {
-  recency: number;
-  engagement: number;
-  bridging: number;
-  sourceDiversity: number;
-  relevance: number;
-}
+/**
+ * Weight vector for the scoring algorithm. All values 0.0–1.0, sum to 1.0.
+ *
+ * Was a 5-field interface before PROJ-816; now a `Record<>` keyed by
+ * `GovernanceWeightKey` so adding a 6th component is purely a registry
+ * change. Live registry still has 5 components today — this is the contract
+ * change that unblocks future additions.
+ */
+export type GovernanceWeights = Record<GovernanceWeightKey, number>;
 
 /**
  * Configuration for a votable weight parameter.

@@ -21,6 +21,7 @@ import {
 } from '../../governance/governance.types.js';
 import { invalidateContentRulesCache } from '../../governance/content-filter.js';
 import { aggregateContentVotes, aggregateVotes } from '../../governance/aggregation.js';
+import { readEpochWeightsForMultipleEpochs } from '../../governance/weight-longtable.js';
 import { tryTriggerManualScoringRun } from '../../scoring/scheduler.js';
 import { forceEpochTransition, triggerEpochTransition } from '../../governance/epoch-manager.js';
 import {
@@ -179,7 +180,21 @@ function toNumber(value: number | string): number {
   return typeof value === 'number' ? value : parseFloat(value);
 }
 
-function toWeights(row: GovernanceEpochRow): GovernanceWeights {
+/**
+ * Project a governance-epoch row to a Record<>-shaped weights object.
+ *
+ * The `override` parameter is the storage-agnostic path: callers fetch
+ * weights via readEpochWeightsForMultipleEpochs (or readEpochWeights for a
+ * single epoch) and pass them here. The wide-column fallback is the legacy
+ * path used by callers that still SELECT recency_weight..relevance_weight
+ * inline. After PROJ-819 (P5) drops the wide columns, the fallback path
+ * becomes a runtime error indicator; every caller is migrated to the
+ * override path before then.
+ */
+function toWeights(row: GovernanceEpochRow, override?: Record<string, number>): GovernanceWeights {
+  if (override) {
+    return override as GovernanceWeights;
+  }
   return {
     recency: toNumber(row.recency_weight),
     engagement: toNumber(row.engagement_weight),
@@ -279,7 +294,11 @@ function sanitizeSingleKeyword(rawKeyword: string): string {
   return normalized[0];
 }
 
-function mapRound(row: GovernanceEpochRow, voteCount: number) {
+function mapRound(
+  row: GovernanceEpochRow,
+  voteCount: number,
+  weightsOverride?: Record<string, number>
+) {
   const contentRules = toContentRules((row.content_rules ?? null) as any);
 
   return {
@@ -297,7 +316,7 @@ function mapRound(row: GovernanceEpochRow, voteCount: number) {
     proposedWeights: toProposedWeights(row.proposed_weights),
     proposedContentRules: toProposedContentRules(row.proposed_content_rules),
     autoTransition: row.auto_transition,
-    weights: toWeights(row),
+    weights: toWeights(row, weightsOverride),
     contentRules: {
       includeKeywords: contentRules.includeKeywords,
       excludeKeywords: contentRules.excludeKeywords,
@@ -383,6 +402,9 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
       },
     },
   }, async (_request: FastifyRequest, reply: FastifyReply) => {
+    // List N rounds without the 5 weight columns; per-component weights come
+    // from the storage-agnostic batch reader so this route works the same
+    // under both wide-column and long-table storage.
     const roundsResult = await db.query<GovernanceEpochRow & { vote_count: string }>(
       `SELECT
         e.id,
@@ -396,11 +418,6 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
         e.proposed_weights,
         e.proposed_content_rules,
         e.auto_transition,
-        e.recency_weight,
-        e.engagement_weight,
-        e.bridging_weight,
-        e.source_diversity_weight,
-        e.relevance_weight,
         e.content_rules,
         e.created_at,
         e.closed_at,
@@ -412,7 +429,11 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
        LIMIT 30`
     );
 
-    const rounds = roundsResult.rows.map((row) => mapRound(row, parseInt(row.vote_count, 10)));
+    const roundEpochIds = roundsResult.rows.map((row) => row.id);
+    const weightsByEpoch = await readEpochWeightsForMultipleEpochs({ epochIds: roundEpochIds });
+    const rounds = roundsResult.rows.map((row) =>
+      mapRound(row, parseInt(row.vote_count, 10), weightsByEpoch[row.id])
+    );
     const currentRound = rounds.find((round) => round.status === 'active' || round.status === 'voting') ?? null;
 
     return reply.send({
