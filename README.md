@@ -34,13 +34,13 @@ A production Bluesky custom feed where subscribers democratically vote on rankin
 ## Features
 
 **Governance**
-- Community voting on 5 ranking components: recency, engagement, bridging, source diversity, relevance
+- Community voting on ranking components: starts with recency, engagement, bridging, source diversity, relevance — the registry accepts arbitrary additions (see [Contributing a scoring component](docs/contributing-scoring-components.md))
 - Content-rule voting with include/exclude keywords
 - Epoch-based governance lifecycle with trimmed-mean aggregation
 - Append-only audit log (DB-enforced, no edits or deletes)
 
 **Scoring & Transparency**
-- Full score decomposition persisted per post per epoch (15 numeric columns: raw, weight, weighted for each component)
+- Full score decomposition persisted per post per epoch — raw, weight, weighted for every registered component, in a normalized long table
 - Transparency endpoints: per-post explanations, counterfactual analysis, feed-level statistics
 - Redis-backed feed serving with snapshot cursors (<50ms response time)
 
@@ -65,8 +65,8 @@ A production Bluesky custom feed where subscribers democratically vote on rankin
 - Research data export: votes, scores, engagement, epochs, audit log (CSV/JSON)
 
 **Engineering**
-- 400+ automated tests (unit, integration, stress) with PR-gated CI
-- Modular scoring component interface (plug in new algorithms without touching the pipeline)
+- 500+ automated tests (unit, integration, stress) with PR-gated CI
+- Genuinely pluggable scoring components: implement the `ScoringComponent` interface from `@corgi/feed-sdk`, register, ship. No schema migration required. See the [contribution guide](docs/contributing-scoring-components.md) and the [civility example](examples/civility-component/) for an end-to-end walk-through. ADR-0001 covers the design.
 - Pre-commit hooks (husky + lint-staged + tsc)
 - Dependabot for automated dependency updates
 - CodeQL + npm audit gates on pull requests

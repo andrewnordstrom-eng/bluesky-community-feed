@@ -15,6 +15,7 @@ import { zodToJsonSchema } from 'zod-to-json-schema';
 import { db } from '../../db/client.js';
 import { logger } from '../../lib/logger.js';
 import { ErrorResponseSchema } from '../../lib/openapi.js';
+import { readPostScoresForEpoch } from '../../scoring/score-reader.js';
 import type { CounterfactualResult, CounterfactualPost } from '../transparency.types.js';
 
 // Query params schema - weights must sum to 1.0
@@ -165,48 +166,31 @@ export function registerCounterfactualRoute(app: FastifyInstance): void {
         const epoch = epochResult.rows[0];
         const epochId = epoch.id;
         const runScope = await getCurrentScoringRunScope();
+        const runIdFilter =
+          runScope && runScope.epochId === epochId ? runScope.runId : undefined;
 
-        // Fetch top posts with raw scores from current epoch
-        // We fetch more than limit to compare rankings properly
+        // Fetch top posts with per-component raw scores from current epoch via
+        // the storage-agnostic batch reader. Fetch more than limit so rank
+        // comparisons against the alternate weights are meaningful.
         const fetchLimit = Math.min(limit * 2, 1000);
+        const batchRows = await readPostScoresForEpoch({
+          epochId,
+          limit: fetchLimit,
+          runId: runIdFilter,
+        });
 
-        const postsParams: unknown[] = [epochId];
-        let runScopeClause = '';
-        if (runScope && runScope.epochId === epochId) {
-          postsParams.push(runScope.runId);
-          runScopeClause = `AND component_details->>'run_id' = $${postsParams.length}`;
-        }
-        postsParams.push(fetchLimit);
+        const currentWeights = {
+          recency: parseFloat(epoch.recency_weight) || 0,
+          engagement: parseFloat(epoch.engagement_weight) || 0,
+          bridging: parseFloat(epoch.bridging_weight) || 0,
+          source_diversity: parseFloat(epoch.source_diversity_weight) || 0,
+          relevance: parseFloat(epoch.relevance_weight) || 0,
+        };
 
-        const postsResult = await db.query(
-          `
-          SELECT
-            post_uri,
-            recency_score,
-            engagement_score,
-            bridging_score,
-            source_diversity_score,
-            relevance_score,
-            total_score
-          FROM post_scores
-          WHERE epoch_id = $1
-            ${runScopeClause}
-          ORDER BY total_score DESC
-          LIMIT $${postsParams.length}
-          `,
-          postsParams
-        );
-
-        if (postsResult.rows.length === 0) {
+        if (batchRows.length === 0) {
           return reply.send({
             alternate_weights: { recency, engagement, bridging, source_diversity, relevance },
-            current_weights: {
-              recency: parseFloat(epoch.recency_weight),
-              engagement: parseFloat(epoch.engagement_weight),
-              bridging: parseFloat(epoch.bridging_weight),
-              source_diversity: parseFloat(epoch.source_diversity_weight),
-              relevance: parseFloat(epoch.relevance_weight),
-            },
+            current_weights: currentWeights,
             posts: [],
             summary: {
               total_posts: 0,
@@ -219,18 +203,34 @@ export function registerCounterfactualRoute(app: FastifyInstance): void {
           });
         }
 
-        // Calculate counterfactual scores using stored raw scores
-        const postsWithCounterfactual = postsResult.rows.map((row, originalRank) => ({
-          post_uri: row.post_uri,
-          original_score: parseFloat(row.total_score),
-          original_rank: originalRank + 1,
-          counterfactual_score:
-            parseFloat(row.recency_score) * recency +
-            parseFloat(row.engagement_score) * engagement +
-            parseFloat(row.bridging_score) * bridging +
-            parseFloat(row.source_diversity_score) * source_diversity +
-            parseFloat(row.relevance_score) * relevance,
-        }));
+        // Map alternate-weight payload (wire-shape, snake_case keys) to the
+        // registry-shape camelCase keys used by the score-reader. Future
+        // components added via PROJ-820 contribution flow plug in by extending
+        // this map.
+        const altWeightsByRegKey: Record<string, number> = {
+          recency,
+          engagement,
+          bridging,
+          sourceDiversity: source_diversity,
+          relevance,
+        };
+
+        // Calculate counterfactual scores from the per-component raw scores.
+        const postsWithCounterfactual = batchRows.map((row, originalRank) => {
+          let counterfactual_score = 0;
+          for (const [regKey, weight] of Object.entries(altWeightsByRegKey)) {
+            const triple = row.components[regKey];
+            if (triple) {
+              counterfactual_score += triple.raw * weight;
+            }
+          }
+          return {
+            post_uri: row.postUri,
+            original_score: row.totalScore,
+            original_rank: originalRank + 1,
+            counterfactual_score,
+          };
+        });
 
         // Sort by counterfactual score to get new ranking
         const sortedByCounterfactual = [...postsWithCounterfactual].sort(
@@ -277,13 +277,7 @@ export function registerCounterfactualRoute(app: FastifyInstance): void {
 
         const result: CounterfactualResult = {
           alternate_weights: { recency, engagement, bridging, source_diversity, relevance },
-          current_weights: {
-            recency: parseFloat(epoch.recency_weight),
-            engagement: parseFloat(epoch.engagement_weight),
-            bridging: parseFloat(epoch.bridging_weight),
-            source_diversity: parseFloat(epoch.source_diversity_weight),
-            relevance: parseFloat(epoch.relevance_weight),
-          },
+          current_weights: currentWeights,
           posts,
           summary: {
             total_posts: posts.length,

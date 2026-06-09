@@ -18,6 +18,8 @@ import {
   filterPosts,
   getCurrentContentRules,
 } from '../../governance/content-filter.js';
+import { readEpochWeights } from '../../governance/weight-longtable.js';
+import { readPostScoresForEpoch } from '../../scoring/score-reader.js';
 
 export function registerDebugRoutes(app: FastifyInstance): void {
   // Always require admin auth — debug endpoints expose epoch data, vote counts,
@@ -115,28 +117,27 @@ export function registerDebugRoutes(app: FastifyInstance): void {
         [currentEpoch.id]
       );
 
-      // Get sample scored posts (top 3 by score)
-      const sample = await db.query(
-        `SELECT
-          post_uri,
-          total_score,
-          recency_score,
-          engagement_score,
-          bridging_score,
-          source_diversity_score,
-          relevance_score,
-          recency_weight,
-          engagement_weight,
-          bridging_weight,
-          source_diversity_weight,
-          relevance_weight,
-          scored_at
-        FROM post_scores
-        WHERE epoch_id = $1
-        ORDER BY total_score DESC
-        LIMIT 3`,
-        [currentEpoch.id]
-      );
+      // Get sample scored posts (top 3 by score) via the storage-agnostic
+      // batch reader so this route works the same under wide and long-table
+      // storage. Includes scored_at — fetched per-uri below (cheap; top-3).
+      const sampleRows = await readPostScoresForEpoch({
+        epochId: currentEpoch.id,
+        limit: 3,
+      });
+      const scoredAtByUri = sampleRows.length > 0
+        ? (await db.query<{ post_uri: string; scored_at: string }>(
+            `SELECT post_uri, scored_at
+             FROM post_scores
+             WHERE epoch_id = $1 AND post_uri = ANY($2::text[])`,
+            [currentEpoch.id, sampleRows.map((r) => r.postUri)]
+          )).rows.reduce<Record<string, string>>((acc, r) => {
+            acc[r.post_uri] = r.scored_at;
+            return acc;
+          }, {})
+        : {};
+
+      // Active epoch weights via storage-agnostic helper.
+      const activeWeights = await readEpochWeights({ epochId: currentEpoch.id }) ?? {};
 
       // Get feed size from Redis
       const feedSize = await redis.zcard('feed:current');
@@ -146,42 +147,40 @@ export function registerDebugRoutes(app: FastifyInstance): void {
         `SELECT COUNT(*) as count FROM subscribers WHERE is_active = TRUE`
       );
 
+      // Wire-shape mapping: registry camelCase keys → snake_case wire labels
+      // (sourceDiversity → source_diversity); other keys pass through.
+      const wireKey = (regKey: string) => (regKey === 'sourceDiversity' ? 'source_diversity' : regKey);
+      const wireWeights: Record<string, number> = {};
+      for (const [k, v] of Object.entries(activeWeights)) {
+        wireWeights[wireKey(k)] = v;
+      }
+
       return reply.send({
         current_epoch: {
           id: currentEpoch.id,
           status: currentEpoch.status,
           created_at: currentEpoch.created_at,
         },
-        active_weights: {
-          recency: currentEpoch.recency_weight,
-          engagement: currentEpoch.engagement_weight,
-          bridging: currentEpoch.bridging_weight,
-          source_diversity: currentEpoch.source_diversity_weight,
-          relevance: currentEpoch.relevance_weight,
-        },
+        active_weights: wireWeights,
         votes_this_epoch: parseInt(votes.rows[0].count),
         subscriber_count: parseInt(subscribers.rows[0].count),
         last_scoring_run: lastScore.rows[0]?.last_run || null,
         feed_size: feedSize,
-        sample_post_scores: sample.rows.map((row) => ({
-          uri: row.post_uri,
-          total_score: parseFloat(row.total_score),
-          scores: {
-            recency: parseFloat(row.recency_score),
-            engagement: parseFloat(row.engagement_score),
-            bridging: parseFloat(row.bridging_score),
-            source_diversity: parseFloat(row.source_diversity_score),
-            relevance: parseFloat(row.relevance_score),
-          },
-          weights_used: {
-            recency: parseFloat(row.recency_weight),
-            engagement: parseFloat(row.engagement_weight),
-            bridging: parseFloat(row.bridging_weight),
-            source_diversity: parseFloat(row.source_diversity_weight),
-            relevance: parseFloat(row.relevance_weight),
-          },
-          scored_at: row.scored_at,
-        })),
+        sample_post_scores: sampleRows.map((row) => {
+          const scores: Record<string, number> = {};
+          const weights: Record<string, number> = {};
+          for (const [k, triple] of Object.entries(row.components)) {
+            scores[wireKey(k)] = triple.raw;
+            weights[wireKey(k)] = triple.weight;
+          }
+          return {
+            uri: row.postUri,
+            total_score: row.totalScore,
+            scores,
+            weights_used: weights,
+            scored_at: scoredAtByUri[row.postUri] ?? null,
+          };
+        }),
         weights_source: `governance_epochs.id=${currentEpoch.id}`,
       });
     } catch (err) {

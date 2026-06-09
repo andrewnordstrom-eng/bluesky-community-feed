@@ -325,30 +325,60 @@ export function registerEpochsRoute(app: FastifyInstance): void {
       [epochId]
     );
 
-    // Get vote distribution (aggregate stats, not individual votes for privacy)
-    const voteStats = await db.query(
-      `SELECT
-        AVG(recency_weight) as avg_recency,
-        AVG(engagement_weight) as avg_engagement,
-        AVG(bridging_weight) as avg_bridging,
-        AVG(source_diversity_weight) as avg_source_diversity,
-        AVG(relevance_weight) as avg_relevance,
-        MIN(recency_weight) as min_recency,
-        MAX(recency_weight) as max_recency,
-        MIN(engagement_weight) as min_engagement,
-        MAX(engagement_weight) as max_engagement,
-        MIN(bridging_weight) as min_bridging,
-        MAX(bridging_weight) as max_bridging,
-        MIN(source_diversity_weight) as min_source_diversity,
-        MAX(source_diversity_weight) as max_source_diversity,
-        MIN(relevance_weight) as min_relevance,
-        MAX(relevance_weight) as max_relevance
-       FROM governance_votes
-       WHERE epoch_id = $1`,
-      [epochId]
-    );
-
-    const stats = voteStats.rows[0];
+    // Get vote distribution (aggregate stats, not individual votes for privacy).
+    // Inline-conditional on GOVERNANCE_LONGTABLE_READ_ENABLED so the wire-shape
+    // remains the legacy 5×3 dict (avg/min/max × 5 components). Long branch
+    // pivots from governance_vote_weights via FILTER expressions.
+    const stats: Record<string, string | null> = config.GOVERNANCE_LONGTABLE_READ_ENABLED
+      ? await (async () => {
+          const result = await db.query<Record<string, string | null>>(
+            `SELECT
+              AVG(vw.weight) FILTER (WHERE vw.component_key = 'recency') as avg_recency,
+              AVG(vw.weight) FILTER (WHERE vw.component_key = 'engagement') as avg_engagement,
+              AVG(vw.weight) FILTER (WHERE vw.component_key = 'bridging') as avg_bridging,
+              AVG(vw.weight) FILTER (WHERE vw.component_key = 'sourceDiversity') as avg_source_diversity,
+              AVG(vw.weight) FILTER (WHERE vw.component_key = 'relevance') as avg_relevance,
+              MIN(vw.weight) FILTER (WHERE vw.component_key = 'recency') as min_recency,
+              MAX(vw.weight) FILTER (WHERE vw.component_key = 'recency') as max_recency,
+              MIN(vw.weight) FILTER (WHERE vw.component_key = 'engagement') as min_engagement,
+              MAX(vw.weight) FILTER (WHERE vw.component_key = 'engagement') as max_engagement,
+              MIN(vw.weight) FILTER (WHERE vw.component_key = 'bridging') as min_bridging,
+              MAX(vw.weight) FILTER (WHERE vw.component_key = 'bridging') as max_bridging,
+              MIN(vw.weight) FILTER (WHERE vw.component_key = 'sourceDiversity') as min_source_diversity,
+              MAX(vw.weight) FILTER (WHERE vw.component_key = 'sourceDiversity') as max_source_diversity,
+              MIN(vw.weight) FILTER (WHERE vw.component_key = 'relevance') as min_relevance,
+              MAX(vw.weight) FILTER (WHERE vw.component_key = 'relevance') as max_relevance
+             FROM governance_vote_weights vw
+             JOIN governance_votes v ON v.id = vw.vote_id
+             WHERE v.epoch_id = $1`,
+            [epochId]
+          );
+          return result.rows[0] ?? {};
+        })()
+      : await (async () => {
+          const result = await db.query<Record<string, string | null>>(
+            `SELECT
+              AVG(recency_weight) as avg_recency,
+              AVG(engagement_weight) as avg_engagement,
+              AVG(bridging_weight) as avg_bridging,
+              AVG(source_diversity_weight) as avg_source_diversity,
+              AVG(relevance_weight) as avg_relevance,
+              MIN(recency_weight) as min_recency,
+              MAX(recency_weight) as max_recency,
+              MIN(engagement_weight) as min_engagement,
+              MAX(engagement_weight) as max_engagement,
+              MIN(bridging_weight) as min_bridging,
+              MAX(bridging_weight) as max_bridging,
+              MIN(source_diversity_weight) as min_source_diversity,
+              MAX(source_diversity_weight) as max_source_diversity,
+              MIN(relevance_weight) as min_relevance,
+              MAX(relevance_weight) as max_relevance
+             FROM governance_votes
+             WHERE epoch_id = $1`,
+            [epochId]
+          );
+          return result.rows[0] ?? {};
+        })();
 
     return reply.send({
       id: epoch.id,
@@ -367,32 +397,32 @@ export function registerEpochsRoute(app: FastifyInstance): void {
         parseInt(voteCount.rows[0].count) > 0
           ? {
               average: {
-                recency: parseFloat(stats.avg_recency) || 0,
-                engagement: parseFloat(stats.avg_engagement) || 0,
-                bridging: parseFloat(stats.avg_bridging) || 0,
-                sourceDiversity: parseFloat(stats.avg_source_diversity) || 0,
-                relevance: parseFloat(stats.avg_relevance) || 0,
+                recency: parseFloat(stats.avg_recency ?? '0') || 0,
+                engagement: parseFloat(stats.avg_engagement ?? '0') || 0,
+                bridging: parseFloat(stats.avg_bridging ?? '0') || 0,
+                sourceDiversity: parseFloat(stats.avg_source_diversity ?? '0') || 0,
+                relevance: parseFloat(stats.avg_relevance ?? '0') || 0,
               },
               range: {
                 recency: {
-                  min: parseFloat(stats.min_recency) || 0,
-                  max: parseFloat(stats.max_recency) || 0,
+                  min: parseFloat(stats.min_recency ?? '0') || 0,
+                  max: parseFloat(stats.max_recency ?? '0') || 0,
                 },
                 engagement: {
-                  min: parseFloat(stats.min_engagement) || 0,
-                  max: parseFloat(stats.max_engagement) || 0,
+                  min: parseFloat(stats.min_engagement ?? '0') || 0,
+                  max: parseFloat(stats.max_engagement ?? '0') || 0,
                 },
                 bridging: {
-                  min: parseFloat(stats.min_bridging) || 0,
-                  max: parseFloat(stats.max_bridging) || 0,
+                  min: parseFloat(stats.min_bridging ?? '0') || 0,
+                  max: parseFloat(stats.max_bridging ?? '0') || 0,
                 },
                 sourceDiversity: {
-                  min: parseFloat(stats.min_source_diversity) || 0,
-                  max: parseFloat(stats.max_source_diversity) || 0,
+                  min: parseFloat(stats.min_source_diversity ?? '0') || 0,
+                  max: parseFloat(stats.max_source_diversity ?? '0') || 0,
                 },
                 relevance: {
-                  min: parseFloat(stats.min_relevance) || 0,
-                  max: parseFloat(stats.max_relevance) || 0,
+                  min: parseFloat(stats.min_relevance ?? '0') || 0,
+                  max: parseFloat(stats.max_relevance ?? '0') || 0,
                 },
               },
             }

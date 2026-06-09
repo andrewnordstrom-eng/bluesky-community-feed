@@ -34,7 +34,52 @@ const weightFieldSchemas = Object.fromEntries(
     param.voteField,
     z.number().min(param.min).max(param.max).optional(),
   ])
-) as Record<(typeof GOVERNANCE_WEIGHT_VOTE_FIELDS)[number], z.ZodOptional<z.ZodNumber>>;
+) as Record<string, z.ZodOptional<z.ZodNumber>>;
+
+/**
+ * The exact ordered wide-column weight fields the INSERT/UPSERT binds
+ * positionally to `$3..$7`. Order MUST match the column list and the
+ * `...GOVERNANCE_WEIGHT_VOTE_FIELDS.map(...)` parameter binding below.
+ *
+ * PROJ-816 widened `voteField` to `string`, so the compiler no longer catches a
+ * reorder or rename that keeps the count at 5 — which would silently write a
+ * weight into the wrong column. The guard asserts identity + order, not just
+ * cardinality, so positional drift fails fast at module load.
+ */
+const EXPECTED_WIDE_WEIGHT_FIELDS = [
+  'recency_weight',
+  'engagement_weight',
+  'bridging_weight',
+  'source_diversity_weight',
+  'relevance_weight',
+] as const;
+const EXPECTED_WIDE_WEIGHT_COUNT = EXPECTED_WIDE_WEIGHT_FIELDS.length;
+
+export class WideVoteFieldCountError extends Error {
+  constructor(actualCount: number, detail?: string) {
+    super(
+      `Vote route wide-column INSERT expects exactly ${EXPECTED_WIDE_WEIGHT_COUNT} ordered weight fields ` +
+      `[${EXPECTED_WIDE_WEIGHT_FIELDS.join(', ')}], but ${detail ?? `${actualCount} are registered`}. ` +
+      `Update the INSERT/UPSERT before adding or reordering components.`
+    );
+    this.name = 'WideVoteFieldCountError';
+  }
+}
+
+export function assertWideVoteFieldCount(fields: readonly string[]): void {
+  if (fields.length !== EXPECTED_WIDE_WEIGHT_COUNT) {
+    throw new WideVoteFieldCountError(fields.length);
+  }
+  const mismatch = EXPECTED_WIDE_WEIGHT_FIELDS.findIndex((name, i) => fields[i] !== name);
+  if (mismatch !== -1) {
+    throw new WideVoteFieldCountError(
+      fields.length,
+      `field ${mismatch} is "${fields[mismatch]}" (expected "${EXPECTED_WIDE_WEIGHT_FIELDS[mismatch]}")`
+    );
+  }
+}
+
+assertWideVoteFieldCount(GOVERNANCE_WEIGHT_VOTE_FIELDS);
 
 /**
  * Zod schema for vote validation.
@@ -64,25 +109,29 @@ const VoteSchema = z
   })
   .refine(
     (data) => {
+      // The dynamic weight fields live alongside the typed base fields; Zod's
+      // inferred type doesn't surface them, so cast for dynamic indexing.
+      const d = data as Record<string, unknown>;
       // If any weight is provided, all must be provided and sum to 1.0
-      const hasAnyWeight = GOVERNANCE_WEIGHT_VOTE_FIELDS.some((field) => data[field] !== undefined);
+      const hasAnyWeight = GOVERNANCE_WEIGHT_VOTE_FIELDS.some((field) => d[field] !== undefined);
 
       if (!hasAnyWeight) return true; // Keywords-only vote is valid
 
       // If any weight provided, all must be provided
-      const hasAllWeights = GOVERNANCE_WEIGHT_VOTE_FIELDS.every((field) => data[field] !== undefined);
+      const hasAllWeights = GOVERNANCE_WEIGHT_VOTE_FIELDS.every((field) => d[field] !== undefined);
 
       if (!hasAllWeights) return false;
 
-      const sum = GOVERNANCE_WEIGHT_VOTE_FIELDS.reduce((acc, field) => acc + (data[field] as number), 0);
+      const sum = GOVERNANCE_WEIGHT_VOTE_FIELDS.reduce((acc, field) => acc + (d[field] as number), 0);
       return Math.abs(sum - 1.0) < 0.01;
     },
     { message: 'If weights are provided, all must be present and sum to 1.0' }
   )
   .refine(
     (data) => {
+      const d = data as Record<string, unknown>;
       // At least one of weights, keywords, or topic weights must be provided
-      const hasWeights = GOVERNANCE_WEIGHT_VOTE_FIELDS.some((field) => data[field] !== undefined);
+      const hasWeights = GOVERNANCE_WEIGHT_VOTE_FIELDS.some((field) => d[field] !== undefined);
       const hasKeywords =
         (data.include_keywords?.length ?? 0) > 0 ||
         (data.exclude_keywords?.length ?? 0) > 0;
@@ -198,6 +247,27 @@ export function registerVoteRoute(app: FastifyInstance): void {
       }
     }
 
+    // 3a. Reject unregistered weight keys explicitly (PROJ-816).
+    //
+    // Zod silently strips unknown keys by default, which would let a client
+    // submit `civility_weight: 0.5` and silently have it dropped — the
+    // remaining 5 weights would then fail the sum-to-1.0 refine with a
+    // confusing error. We pre-check for any `*_weight` key not in the
+    // registered set and surface a clear error before Zod runs.
+    if (typeof request.body === 'object' && request.body !== null) {
+      const bodyRecord = request.body as Record<string, unknown>;
+      const registeredVoteFields = new Set(GOVERNANCE_WEIGHT_VOTE_FIELDS);
+      const unregisteredWeightKeys = Object.keys(bodyRecord).filter(
+        (key) => key.endsWith('_weight') && !registeredVoteFields.has(key)
+      );
+      if (unregisteredWeightKeys.length > 0) {
+        return reply.code(400).send({
+          error: 'UnregisteredWeightKey',
+          message: `Unregistered weight key(s): ${unregisteredWeightKeys.join(', ')}. Registered keys are: ${[...registeredVoteFields].join(', ')}.`,
+        });
+      }
+    }
+
     // 3. Validate vote body
     const parseResult = VoteSchema.safeParse(request.body);
     if (!parseResult.success) {
@@ -226,13 +296,16 @@ export function registerVoteRoute(app: FastifyInstance): void {
     }
 
     // 4. Normalize weights (if provided) and keywords
-    const hasWeights = GOVERNANCE_WEIGHT_VOTE_FIELDS.some((field) => vote[field] !== undefined);
+    // PROJ-816: weight fields are dynamic (Record<string, number>) — cast for
+    // index access without binding to a literal-union shape.
+    const voteAny = vote as unknown as Record<string, unknown>;
+    const hasWeights = GOVERNANCE_WEIGHT_VOTE_FIELDS.some((field) => voteAny[field] !== undefined);
     let normalized = null;
     let normalizedPayload: VotePayload | null = null;
 
     if (hasWeights) {
       const weightPayload = Object.fromEntries(
-        GOVERNANCE_WEIGHT_VOTE_FIELDS.map((field) => [field, vote[field]!])
+        GOVERNANCE_WEIGHT_VOTE_FIELDS.map((field) => [field, voteAny[field]])
       ) as unknown as VotePayload;
 
       normalized = normalizeWeights(
@@ -300,7 +373,9 @@ export function registerVoteRoute(app: FastifyInstance): void {
         [
           voterDid,
           epochId,
-          ...GOVERNANCE_WEIGHT_VOTE_FIELDS.map((field) => normalizedPayload?.[field] ?? null),
+          ...GOVERNANCE_WEIGHT_VOTE_FIELDS.map((field) =>
+            (normalizedPayload as Record<string, unknown> | null)?.[field] ?? null
+          ),
           includeKeywords.length > 0 ? includeKeywords : null,
           excludeKeywords.length > 0 ? excludeKeywords : null,
           topicWeightsJson,
@@ -345,7 +420,7 @@ export function registerVoteRoute(app: FastifyInstance): void {
             topic_weights: vote.topic_weights ?? null,
             original_weights: hasWeights
               ? Object.fromEntries(
-                  GOVERNANCE_WEIGHT_VOTE_FIELDS.map((field) => [field, vote[field]])
+                  GOVERNANCE_WEIGHT_VOTE_FIELDS.map((field) => [field, voteAny[field]])
                 )
               : null,
           }),
