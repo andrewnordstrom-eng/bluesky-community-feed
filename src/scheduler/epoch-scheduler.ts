@@ -11,6 +11,7 @@ import cron from 'node-cron';
 import type { PoolClient } from 'pg';
 import { db } from '../db/client.js';
 import { aggregateContentVotes, aggregateVotes } from '../governance/aggregation.js';
+import { readEpochWeights } from '../governance/weight-longtable.js';
 import { toContentRules, type ContentRules, type GovernanceWeights } from '../governance/governance.types.js';
 import {
   announceVotingClosed,
@@ -44,6 +45,11 @@ function toNumber(value: number | string): number {
   return typeof value === 'number' ? value : parseFloat(value);
 }
 
+/**
+ * Fallback projection for the current row's wide weight columns. Kept until
+ * PROJ-819 (P5) drops the wide columns — by then every caller uses
+ * readEpochWeights and this helper is removed.
+ */
 function toWeights(epoch: ActiveEpochRow): GovernanceWeights {
   return {
     recency: toNumber(epoch.recency_weight),
@@ -207,7 +213,14 @@ async function closeExpiredVotingWindows(): Promise<{ transitioned: number; erro
       }
 
       const voteCounts = await getVoteCounts(client, epoch.id);
-      const currentWeights = toWeights(epoch);
+      // Read current epoch weights via the storage-agnostic helper. Behind
+      // GOVERNANCE_LONGTABLE_READ_ENABLED this queries governance_epoch_weights;
+      // off, it projects from the wide columns. The autocommit pool used by
+      // readEpochWeights reads committed state — the FOR UPDATE lock on the
+      // governance_epochs row above does not affect the unrelated long-table
+      // rows being read here; both writes for the current epoch were
+      // committed atomically by the previous scheduler tick / PATCH route.
+      const currentWeights = (await readEpochWeights({ epochId: epoch.id })) ?? toWeights(epoch);
       const currentRules = toContentRules((epoch.content_rules ?? null) as any);
 
       let proposedWeights = currentWeights;

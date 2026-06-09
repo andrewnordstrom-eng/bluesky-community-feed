@@ -18,8 +18,12 @@ The system has four major surfaces:
 
 1. **Ingestion**: Jetstream/WebSocket ingestion brings public Bluesky events into
    PostgreSQL.
-2. **Scoring**: a batch scoring pipeline recomputes the ranked feed using five
-   governance-weighted components and stores full score decomposition.
+2. **Scoring**: a batch scoring pipeline recomputes the ranked feed using
+   governance-weighted components (registry-driven; ships with five —
+   recency, engagement, bridging, source diversity, relevance — and accepts
+   arbitrary additions via the contribution flow in
+   `docs/contributing-scoring-components.md`) and stores full score
+   decomposition in a normalized long table for any-N components.
 3. **Serving**: Fastify exposes AT Protocol XRPC endpoints plus transparency,
    governance, admin, and export APIs; Redis serves the current feed snapshot
    with low latency.
@@ -50,6 +54,10 @@ The system has four major surfaces:
 - `web/`: React/Vite dashboard and voting UI
 - `cli/`: operator CLI
 - `docs/SYSTEM_OVERVIEW.md`, `docs/OPS_RUNBOOK.md`, `docs/DEPLOYMENT.md`: deeper operational references
+- `docs/contributing-scoring-components.md`: end-to-end author guide for new scoring components
+- `docs/adr/ADR-0001-extensible-scoring-components.md`: architectural rationale for the registry-driven, long-table-backed component contract
+- `packages/feed-sdk/`: published `@corgi/feed-sdk` workspace package — the public type surface external component authors depend on
+- `examples/civility-component/`: working external component example, CI-validated on every PR
 
 ## External Dependencies
 

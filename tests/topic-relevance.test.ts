@@ -35,11 +35,13 @@ function makeContext(topicWeights?: Record<string, number>): ScoringContext {
   const epoch: GovernanceEpoch = {
     id: 1,
     status: 'active',
-    recencyWeight: 0.3,
-    engagementWeight: 0.2,
-    bridgingWeight: 0.2,
-    sourceDiversityWeight: 0.2,
-    relevanceWeight: 0.1,
+    weights: {
+      recency: 0.3,
+      engagement: 0.2,
+      bridging: 0.2,
+      sourceDiversity: 0.2,
+      relevance: 0.1,
+    },
     voteCount: 5,
     createdAt: new Date(),
     closedAt: null,
