@@ -11,6 +11,6 @@ permissions:
 
 jobs:
   linear-policy:
-    uses: andrewnordstrom-eng/.github-public/.github/workflows/linear-policy.yml@3aaa6ed6e1feef3410e1c5bbdbfa669d43ca39db
+    uses: andrewnordstrom-eng/.github-public/.github/workflows/linear-policy.yml@5be6b1ba47fe3f338447eea17e6b5c465fc979f3
     secrets:
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY_PUBLIC }}
