@@ -11,6 +11,7 @@ import { db } from '../db/client.js';
 import { logger } from '../lib/logger.js';
 import { config } from '../config.js';
 import { aggregateVotes, aggregateContentVotes, aggregateTopicWeights } from './aggregation.js';
+import { quorumMet } from './governance-decisions.js';
 import { GovernanceWeights, weightsToVotePayload, ContentRules } from './governance.types.js';
 import { writeEpochWeights } from './weight-longtable.js';
 import { postAnnouncementSafe } from '../bot/safe-poster.js';
@@ -60,7 +61,10 @@ function toFiniteNumber(value: unknown): number {
   return 0;
 }
 
-async function getVoteCountsForEpoch(queryable: SqlQueryable, epochId: number): Promise<VoteCounts> {
+export async function getVoteCountsForEpoch(
+  queryable: SqlQueryable,
+  epochId: number
+): Promise<VoteCounts> {
   const result = await queryable.query<{ total: string; weight_eligible: string }>(
     `SELECT
       COUNT(*)::int AS total,
@@ -286,7 +290,7 @@ export async function closeCurrentEpochAndCreateNext(): Promise<number> {
     const voteCount = voteCounts.total;
     const weightVoteCount = voteCounts.weightEligible;
 
-    if (weightVoteCount < config.GOVERNANCE_MIN_VOTES) {
+    if (!quorumMet(weightVoteCount, config.GOVERNANCE_MIN_VOTES)) {
       throw new Error(
         `Insufficient weight votes: ${weightVoteCount} < ${config.GOVERNANCE_MIN_VOTES} required`
       );
@@ -479,7 +483,7 @@ export async function getCurrentEpochStatus(): Promise<{
     voteCount,
     totalVoteCount: voteCounts.total,
     minVotesRequired: config.GOVERNANCE_MIN_VOTES,
-    canTransition: voteCount >= config.GOVERNANCE_MIN_VOTES,
+    canTransition: quorumMet(voteCount, config.GOVERNANCE_MIN_VOTES),
   };
 }
 
