@@ -15,8 +15,8 @@
     "@corgi/feed-sdk": "file:../../packages/feed-sdk"
   },
   "devDependencies": {
-    "typescript": "^5.7.0",
-    "tsx": "^4.19.0"
+    "typescript": "^6.0.3",
+    "tsx": "^4.22.4"
   },
   "engines": {
     "node": ">=20.19.0"

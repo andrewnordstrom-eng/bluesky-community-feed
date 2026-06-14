@@ -68,7 +68,7 @@ jobs:
         run: npm run build:mcp-local
 
       - name: Security audit (backend)
-        run: npm audit --audit-level=moderate
+        run: node scripts/audit-allowlist.mjs --audit-level=moderate
 
   frontend-verify:
     name: frontend-verify

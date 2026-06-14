@@ -6,9 +6,12 @@ on:
   workflow_dispatch:
 
 permissions:
-  issues: write
-  pull-requests: write
+  contents: read
 
 jobs:
   stale-triage:
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
     uses: andrewnordstrom-eng/.github-public/.github/workflows/stale-triage.yml@3eb398cf25fba2dd97a05508678fe48b0b4e0532
