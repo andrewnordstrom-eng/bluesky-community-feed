@@ -90,6 +90,8 @@ function main() {
   } catch {
     console.error('audit-allowlist: could not parse `npm audit --json` output');
     console.error((res.stdout || '').slice(0, 2000));
+    // Surface stderr too: registry connectivity / auth failures land here.
+    if (res.stderr) console.error((res.stderr).slice(0, 2000));
     process.exit(1);
   }
 
