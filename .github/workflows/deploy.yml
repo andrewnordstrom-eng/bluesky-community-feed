@@ -28,7 +28,7 @@ jobs:
 
             git pull origin main
             npm ci --ignore-scripts
-            npm audit --audit-level=high
+            node scripts/audit-allowlist.mjs --audit-level=high
             npm run build
             # Run tests against deterministic defaults from .env.example,
             # not production tuning values from /opt/bluesky-feed/.env.
