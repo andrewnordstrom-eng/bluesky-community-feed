@@ -35,10 +35,10 @@
     "examples/*"
   ],
   "dependencies": {
-    "@atproto/api": "^0.20.9",
-    "@atproto/crypto": "^0.5.0",
-    "@atproto/identity": "^0.5.0",
-    "@atproto/xrpc-server": "^0.11.1",
+    "@atproto/api": "^0.20.16",
+    "@atproto/crypto": "^0.5.1",
+    "@atproto/identity": "^0.5.1",
+    "@atproto/xrpc-server": "^0.11.2",
     "@fastify/cors": "^11.2.0",
     "@fastify/helmet": "^13.0.2",
     "@fastify/rate-limit": "^10.3.0",
@@ -51,8 +51,8 @@
     "dotenv": "^17.4.2",
     "fastify": "^5.8.5",
     "ioredis": "^5.11.1",
-    "node-cron": "^4.2.1",
-    "pg": "^8.21.0",
+    "node-cron": "^4.4.1",
+    "pg": "^8.22.0",
     "pino": "^9.5.0",
     "wink-eng-lite-web-model": "^1.8.1",
     "wink-nlp": "^2.4.0",
@@ -71,7 +71,7 @@
     "pino-pretty": "^13.0.0",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.9"
   },
   "engines": {
     "node": ">=20.19.0"
