@@ -14,7 +14,12 @@
 import { spawnSync } from 'node:child_process';
 
 // --- Time-boxed, tracked exceptions ------------------------------------------
-// Do NOT add an entry without both `expires` and `tracking`.
+// Do NOT add an entry without both `expires` and `tracking`. Prefer remediating
+// at the source — pin the patched version via an `overrides` entry in
+// package.json — over allowlisting, which only defers the fix until `expires`.
+// The list is intentionally empty: the former esbuild dev-tooling advisories are
+// now fixed by the pinned `esbuild` override in package.json, so no time-boxed
+// exception is required.
 const ALLOWLIST = [];
 // -----------------------------------------------------------------------------
 
