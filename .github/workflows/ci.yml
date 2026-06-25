@@ -89,7 +89,7 @@ jobs:
         run: cd web && npm ci
 
       # This expected version must move in lockstep with web/package.json
-      # dependencies.axios on every reviewed bump (last advanced to 1.17.0 via #251).
+      # dependencies.axios on every reviewed bump (currently 1.18.0).
       - name: Validate frontend Axios pin
         run: |
           node --input-type=module -e '
@@ -97,8 +97,8 @@ jobs:
 
             const packageJson = JSON.parse(fs.readFileSync("web/package.json", "utf8"));
             const axiosVersion = packageJson.dependencies?.axios;
-            if (axiosVersion !== "1.17.0") {
-              throw new Error(`web/package.json must pin axios to exact 1.17.0; found ${axiosVersion ?? "missing"}`);
+            if (axiosVersion !== "1.18.0") {
+              throw new Error(`web/package.json must pin axios to exact 1.18.0; found ${axiosVersion ?? "missing"}`);
             }
           '
 
