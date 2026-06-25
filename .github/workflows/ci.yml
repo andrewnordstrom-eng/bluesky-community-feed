@@ -61,6 +61,10 @@ jobs:
       - name: Run backend tests
         run: npm test -- --run
 
+      - name: Coverage (soft ratchet signal)
+        continue-on-error: true
+        run: npm run test:coverage
+
       - name: Build CLI
         run: npm run cli:build
 
