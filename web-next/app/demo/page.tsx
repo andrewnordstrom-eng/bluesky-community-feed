@@ -246,7 +246,7 @@ function StepCounterfactual() {
     {
       label: "Community-governed rank",
       value: `#${counterfactual.community_governed_rank}`,
-      sub: "With your community&apos;s weights applied",
+      sub: "With your community's weights applied",
       color: "text-success",
       bg: "bg-success/10 border-success/20",
     },
@@ -268,7 +268,7 @@ function StepCounterfactual() {
           <div key={box.label} className={`rounded-xl border ${box.bg} px-5 py-5 flex flex-col gap-2`}>
             <span className="text-[10px] font-mono uppercase tracking-widest text-foreground/40">{box.label}</span>
             <span className={`text-4xl font-mono font-bold tabular-nums ${box.color}`}>{box.value}</span>
-            <span className="text-xs text-foreground/50 leading-relaxed" dangerouslySetInnerHTML={{ __html: box.sub }} />
+            <span className="text-xs text-foreground/50 leading-relaxed">{box.sub}</span>
           </div>
         ))}
       </div>

@@ -67,15 +67,14 @@ export function AppShell({ user = null, children }: AppShellProps) {
     setMobileMenuOpen(false)
   }, [pathname])
 
-  // Prevent body scroll when menu is open
+  // Prevent body scroll when the mobile menu OR the sign-in dialog is open.
+  // Deriving the lock from both states avoids dropping the dialog's scroll lock
+  // when the menu closes in the same interaction (menu → Connect Bluesky → dialog).
   useEffect(() => {
-    if (mobileMenuOpen) {
-      document.body.style.overflow = "hidden"
-    } else {
-      document.body.style.overflow = ""
-    }
+    const shouldLock = mobileMenuOpen || signInOpen
+    document.body.style.overflow = shouldLock ? "hidden" : ""
     return () => { document.body.style.overflow = "" }
-  }, [mobileMenuOpen])
+  }, [mobileMenuOpen, signInOpen])
 
   return (
     <div className="min-h-screen flex flex-col bg-background">

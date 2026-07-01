@@ -1,6 +1,5 @@
 "use client"
 
-import { useState, useEffect } from "react"
 import { Header } from "@/components/header"
 import { HeroSection } from "@/components/hero-section"
 import { DashboardPreview } from "@/components/dashboard-preview"
@@ -14,26 +13,10 @@ import { FooterSection } from "@/components/footer-section"
 import { AnimatedSection } from "@/components/animated-section"
 
 export default function LandingPage() {
-  const [scrolled, setScrolled] = useState(false)
-
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 8)
-    window.addEventListener("scroll", onScroll, { passive: true })
-    return () => window.removeEventListener("scroll", onScroll)
-  }, [])
-
   return (
     <div className="min-h-screen bg-background relative overflow-hidden pb-0">
-      {/* Sticky header */}
-      <div
-        className={`sticky top-0 z-50 w-full transition-all duration-200 ${
-          scrolled
-            ? "bg-background/90 backdrop-blur-md border-b border-border/50 shadow-[0_1px_8px_rgba(46,38,32,0.06)]"
-            : "bg-transparent"
-        }`}
-      >
-        <Header />
-      </div>
+      {/* Header manages its own sticky positioning + scroll-based background. */}
+      <Header />
 
       <div className="relative z-10">
         {/* Hero + dashboard preview — stacked so preview overhangs below */}

@@ -50,10 +50,20 @@ const FAQItem = ({ question, answer, isOpen, onToggle }: FAQItemProps) => {
     e.preventDefault()
     onToggle()
   }
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault()
+      onToggle()
+    }
+  }
   return (
     <div
+      role="button"
+      tabIndex={0}
+      aria-expanded={isOpen}
       className="w-full bg-card shadow-[0_2px_6px_rgba(46,38,32,0.06)] overflow-hidden rounded-xl border border-border transition-colors duration-200 cursor-pointer hover:border-primary/30"
       onClick={handleClick}
+      onKeyDown={handleKeyDown}
     >
       <div className="w-full px-6 py-5 pr-5 flex justify-between items-center gap-5 text-left">
         <div className="flex-1 text-foreground text-[0.9375rem] font-semibold leading-6 break-words">{question}</div>
