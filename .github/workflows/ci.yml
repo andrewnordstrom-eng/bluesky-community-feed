@@ -88,17 +88,25 @@ jobs:
       - name: Install frontend dependencies
         run: cd web && npm ci
 
-      # This expected version must move in lockstep with web/package.json
-      # dependencies.axios on every reviewed bump (currently 1.18.1).
+      # Supply-chain guard for axios: require an EXACT pin (no ^/~/range) that
+      # matches the resolved package-lock version. Self-maintaining — Dependabot
+      # bumps package.json + the lockfile together, so reviewed bumps pass with no
+      # manual edit here. Replaces the hard-coded version literal that drifted red
+      # on every bump (PROJ-1289 1.16->1.17, PROJ-1499 ->1.18.x).
       - name: Validate frontend Axios pin
         run: |
           node --input-type=module -e '
             import fs from "node:fs";
 
-            const packageJson = JSON.parse(fs.readFileSync("web/package.json", "utf8"));
-            const axiosVersion = packageJson.dependencies?.axios;
-            if (axiosVersion !== "1.18.1") {
-              throw new Error(`web/package.json must pin axios to exact 1.18.1; found ${axiosVersion ?? "missing"}`);
+            const pkg = JSON.parse(fs.readFileSync("web/package.json", "utf8"));
+            const lock = JSON.parse(fs.readFileSync("web/package-lock.json", "utf8"));
+            const declared = pkg.dependencies?.axios;
+            const resolved = lock.packages?.["node_modules/axios"]?.version;
+            if (!declared || !/^\d+\.\d+\.\d+$/.test(declared)) {
+              throw new Error(`web/package.json must pin axios to an exact version (no ^/~/range); found ${declared ?? "missing"}`);
+            }
+            if (declared !== resolved) {
+              throw new Error(`web/package.json axios (${declared}) must match package-lock.json resolved axios (${resolved ?? "missing"})`);
             }
           '
 
