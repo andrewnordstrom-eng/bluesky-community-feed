@@ -78,7 +78,10 @@ export default async function setup(project: TestProject): Promise<() => Promise
     project.provide('corgiSimPgUrl', databaseUrl);
     project.provide('corgiSimRedisUrl', redisUrl);
   } catch (error) {
-    await stopAll(pg, redis);
+    // Best-effort cleanup — never let a container-stop failure replace the real
+    // setup/migration error that CI needs to diagnose. The original error always
+    // propagates; any stop failure is swallowed here (Ryuk remains the backstop).
+    await stopAll(pg, redis).catch(() => {});
     throw error;
   }
 

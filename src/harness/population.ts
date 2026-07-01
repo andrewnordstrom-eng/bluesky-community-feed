@@ -134,7 +134,13 @@ function generateVotes(
   return participantOrder.map((subscriberIndex) => {
     const subscriber = subscribers[subscriberIndex];
     const castsWeightVote = rng.chance(config.castsWeightVoteRate);
-    const castsContentVote = rng.chance(config.contentVoteRate);
+    // Always draw so the deterministic RNG sequence (and the weighted/null-vote
+    // pattern) stays stable regardless of this rule. A voter with no weight
+    // opinion (weights: null) must still carry at least one keyword — otherwise
+    // it is a no-op vote (no weight opinion AND no content opinion), which the
+    // real API would never accept. So keyword-only voters always cast content.
+    const drawsContentVote = rng.chance(config.contentVoteRate);
+    const castsContentVote = castsWeightVote ? drawsContentVote : true;
 
     // Keyword-only voters (VoteSeed.weights: null) never compute/normalize a
     // weight vector at all — this is the only place `weights: null` is ever

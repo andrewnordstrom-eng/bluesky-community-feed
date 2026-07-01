@@ -68,4 +68,36 @@ describe('generateVotes / castsWeightVoteRate', () => {
       second.votes.map((vote) => vote.weights === null)
     );
   });
+
+  it('keyword-only (null-weight) votes always carry at least one keyword', () => {
+    // Worst case: no weight opinions and contentVoteRate 0. Every vote is
+    // keyword-only, and none would draw content by rate — they must still carry
+    // keywords, otherwise the population is full of no-op votes the real API
+    // would reject.
+    const population = generatePopulation(
+      createRng(23),
+      new SeededClock(0),
+      buildConfig({ castsWeightVoteRate: 0, contentVoteRate: 0 })
+    );
+
+    expect(population.votes.length).toBeGreaterThan(0);
+    for (const vote of population.votes) {
+      expect(vote.weights).toBeNull();
+      expect(vote.includeKeywords.length + vote.excludeKeywords.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('produces no votes when there are no participants', () => {
+    const rng = createRng(17);
+    const clock = new SeededClock(0);
+
+    // Zero subscribers => no voters (and no author-fallback misfire on votes).
+    const noSubscribers = generatePopulation(rng, clock, buildConfig({ subscriberCount: 0 }));
+    expect(noSubscribers.subscribers).toHaveLength(0);
+    expect(noSubscribers.votes).toHaveLength(0);
+
+    // Subscribers exist but nobody participates.
+    const noParticipation = generatePopulation(rng, clock, buildConfig({ voteParticipationRate: 0 }));
+    expect(noParticipation.votes).toHaveLength(0);
+  });
 });
