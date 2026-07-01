@@ -45,6 +45,43 @@ export interface SimulationDeps {
   /** Connection string backing the production Redis singleton — checked by the prod-guard. */
   redisUrl: string;
   guard?: GuardOptions;
+  /**
+   * Bounded timeout (ms) applied to each of the three real-pipeline steps
+   * (aggregateVotes / forceEpochTransition / runScoringPipeline). Defaults to
+   * `DEFAULT_PIPELINE_STEP_TIMEOUT_MS`. A hung call against a misbehaving
+   * Testcontainers instance fails fast with a diagnosable error instead of
+   * blocking the whole run (and any CI job driving it) indefinitely.
+   */
+  pipelineStepTimeoutMs?: number;
+}
+
+/** Default bound for `SimulationDeps.pipelineStepTimeoutMs` — see its doc. */
+export const DEFAULT_PIPELINE_STEP_TIMEOUT_MS = 30_000;
+
+/**
+ * Race `promise` against a timer. Rejects with a diagnosable error naming
+ * `label` if `promise` hasn't settled within `timeoutMs` — never silently
+ * swallows the underlying error, and never leaves a dangling timer.
+ */
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(
+        new Error(
+          `Simulation.run(): "${label}" did not complete within ${timeoutMs}ms — it may be hung ` +
+            'against a misbehaving Postgres/Redis/Testcontainers instance. Failing fast instead of ' +
+            'blocking indefinitely.'
+        )
+      );
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export interface SimulationEvent {
@@ -106,6 +143,53 @@ async function ensureActiveEpoch(db: QueryableDb): Promise<number> {
   return inserted.rows[0].id;
 }
 
+/** Max rows per batched `INSERT ... VALUES (...),(...)` — keeps a single
+ *  query's parameter count (`rows * columnsPerRow`) well under Postgres's
+ *  65535 bound and query text to a sane size, even at this harness's max
+ *  population sizes (2000 subscribers / 5000 posts). */
+const INSERT_BATCH_SIZE = 500;
+
+function chunk<T>(items: readonly T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
+
+/** Build a `($1, $2), ($3, $4), ...` VALUES clause for `rowCount` rows of
+ *  `colCount` columns each, numbered starting at `offset + 1`. */
+function valuesClause(rowCount: number, colCount: number, offset: number): string {
+  const rows: string[] = [];
+  for (let r = 0; r < rowCount; r++) {
+    const base = offset + r * colCount;
+    const placeholders = Array.from({ length: colCount }, (_, c) => `$${base + c + 1}`);
+    rows.push(`(${placeholders.join(', ')})`);
+  }
+  return rows.join(', ');
+}
+
+/**
+ * Insert `items` in chunks of `INSERT_BATCH_SIZE`, each chunk as one
+ * multi-row `INSERT ... VALUES (...),(...)` round trip instead of one
+ * round trip per row. `buildQuery` receives the chunk and its param offset
+ * (always 0 here — kept as a parameter so `valuesClause` stays reusable if
+ * a caller ever needs to combine a batch with other leading params).
+ */
+async function insertBatched<T>(
+  db: QueryableDb,
+  items: readonly T[],
+  buildQuery: (batch: T[], offset: number) => { text: string; params: unknown[] }
+): Promise<void> {
+  for (const batch of chunk(items, INSERT_BATCH_SIZE)) {
+    if (batch.length === 0) {
+      continue;
+    }
+    const { text, params } = buildQuery(batch, 0);
+    await db.query(text, params);
+  }
+}
+
 export class Simulation {
   constructor(
     private readonly scenario: Scenario,
@@ -162,9 +246,15 @@ export class Simulation {
     });
     record('population_seeded', { epochId: epochBeforeId });
 
+    const timeoutMs = this.deps.pipelineStepTimeoutMs ?? DEFAULT_PIPELINE_STEP_TIMEOUT_MS;
+
     // 1. Drive the REAL vote aggregation so the harness observes exactly
     //    what the production governance engine computes from the seeded votes.
-    const aggregatedWeights = await aggregateVotes(epochBeforeId);
+    const aggregatedWeights = await withTimeout(
+      aggregateVotes(epochBeforeId),
+      timeoutMs,
+      'aggregateVotes'
+    );
     if (!aggregatedWeights) {
       throw new Error(
         `aggregateVotes(${epochBeforeId}) returned null — no eligible weight votes were seeded. ` +
@@ -178,14 +268,14 @@ export class Simulation {
     //    synthetic populations still transition deterministically; it
     //    internally re-runs aggregateVotes/aggregateContentVotes and, on a
     //    best-effort basis, one scoring pass for its transition-impact audit.
-    const epochAfterId = await forceEpochTransition();
+    const epochAfterId = await withTimeout(forceEpochTransition(), timeoutMs, 'forceEpochTransition');
     record('epoch_transitioned', { fromEpochId: epochBeforeId, toEpochId: epochAfterId });
 
     // 3. Drive the REAL scoring pipeline as its own explicit, awaited step —
     //    decoupled from step 2's best-effort internal invocation, so a
     //    scoring failure here surfaces as a simulation failure rather than
     //    a swallowed warning.
-    await runScoringPipeline();
+    await withTimeout(runScoringPipeline(), timeoutMs, 'runScoringPipeline');
     record('scoring_pipeline_run', { epochId: epochAfterId });
 
     const topPosts = await this.fetchTopScoredPosts(epochAfterId, 50);
@@ -213,39 +303,60 @@ export class Simulation {
   ): Promise<void> {
     const { db } = this.deps;
 
-    for (const subscriber of population.subscribers) {
-      await db.query(`INSERT INTO subscribers (did) VALUES ($1) ON CONFLICT (did) DO NOTHING`, [
-        subscriber.did,
-      ]);
-    }
+    // Subscribers and posts/engagement are batched (multi-row `INSERT ...
+    // VALUES (...),(...)`) rather than one awaited round trip per row — see
+    // `insertBatched` below. Votes stay per-row: each insert's `RETURNING id`
+    // feeds a per-row dual-write (see the TODO in that loop for why batching
+    // it isn't a clean, semantics-preserving change today.
+    await insertBatched(
+      db,
+      population.subscribers,
+      (batch, offset) => ({
+        text: `INSERT INTO subscribers (did) VALUES ${valuesClause(batch.length, 1, offset)} ON CONFLICT (did) DO NOTHING`,
+        params: batch.map((subscriber) => subscriber.did),
+      })
+    );
 
-    for (const post of population.posts) {
-      await db.query(
-        `INSERT INTO posts (uri, cid, author_did, text, created_at, has_media, embed_url, topic_vector)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         ON CONFLICT (uri) DO NOTHING`,
-        [
-          post.uri,
-          post.cid,
-          post.authorDid,
-          post.text,
-          post.createdAt.toISOString(),
-          post.hasMedia,
-          post.embedUrl,
-          JSON.stringify(post.topicVector),
-        ]
-      );
-      await db.query(
-        `INSERT INTO post_engagement (post_uri, like_count, repost_count, reply_count)
-         VALUES ($1, $2, $3, $4)
-         ON CONFLICT (post_uri) DO UPDATE SET
-           like_count = EXCLUDED.like_count,
-           repost_count = EXCLUDED.repost_count,
-           reply_count = EXCLUDED.reply_count`,
-        [post.uri, post.likeCount, post.repostCount, post.replyCount]
-      );
-    }
+    await insertBatched(db, population.posts, (batch, offset) => ({
+      text: `INSERT INTO posts (uri, cid, author_did, text, created_at, has_media, embed_url, topic_vector)
+             VALUES ${valuesClause(batch.length, 8, offset)}
+             ON CONFLICT (uri) DO NOTHING`,
+      params: batch.flatMap((post) => [
+        post.uri,
+        post.cid,
+        post.authorDid,
+        post.text,
+        post.createdAt.toISOString(),
+        post.hasMedia,
+        post.embedUrl,
+        JSON.stringify(post.topicVector),
+      ]),
+    }));
 
+    await insertBatched(db, population.posts, (batch, offset) => ({
+      text: `INSERT INTO post_engagement (post_uri, like_count, repost_count, reply_count)
+             VALUES ${valuesClause(batch.length, 4, offset)}
+             ON CONFLICT (post_uri) DO UPDATE SET
+               like_count = EXCLUDED.like_count,
+               repost_count = EXCLUDED.repost_count,
+               reply_count = EXCLUDED.reply_count`,
+      params: batch.flatMap((post) => [post.uri, post.likeCount, post.repostCount, post.replyCount]),
+    }));
+
+    // NOT batched (unlike subscribers/posts/post_engagement above): each
+    // insert's `RETURNING id` drives a per-row dual-write into the
+    // governance_vote_weights long table below, and this insert has an
+    // `ON CONFLICT (voter_did, epoch_id) DO NOTHING`. A batched multi-row
+    // `INSERT ... RETURNING` does not reliably let you correlate returned
+    // rows back to specific input rows once some of those rows are skipped
+    // by the conflict clause — silently mis-attributing (or dropping) a
+    // dual-write would be a correctness regression, not just a perf one.
+    // TODO(A2/A3): revisit once population-scale vote volumes make this a
+    // real bottleneck — likely needs either an `unnest($1::text[], ...)`
+    // form that returns `(input_index, id)` pairs, or dropping the
+    // `ON CONFLICT DO NOTHING` guard (votes are already unique per
+    // `generateVotes()` participant, so it's only a defense-in-depth no-op
+    // in a single harness run).
     for (const vote of population.votes) {
       if (!vote.weights) {
         continue;

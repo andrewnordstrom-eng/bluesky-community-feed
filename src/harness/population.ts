@@ -133,12 +133,16 @@ function generateVotes(
 
   return participantOrder.map((subscriberIndex) => {
     const subscriber = subscribers[subscriberIndex];
+    const castsWeightVote = rng.chance(config.castsWeightVoteRate);
     const castsContentVote = rng.chance(config.contentVoteRate);
 
-    // Normalize through the REAL production helper so every generated vote
-    // satisfies the same sum-to-1 invariant the API layer enforces, rather
-    // than duplicating that math here.
-    const weights = normalizeWeights(generateRawWeightVector(rng));
+    // Keyword-only voters (VoteSeed.weights: null) never compute/normalize a
+    // weight vector at all — this is the only place `weights: null` is ever
+    // produced, mirroring the real API's "cast keywords without a weight
+    // opinion" shape. Normalize through the REAL production helper for the
+    // rest so every weighted vote satisfies the same sum-to-1 invariant the
+    // API layer enforces, rather than duplicating that math here.
+    const weights = castsWeightVote ? normalizeWeights(generateRawWeightVector(rng)) : null;
 
     const includeKeywords = castsContentVote && rng.chance(0.5) ? [rng.pick(SAMPLE_KEYWORDS)] : [];
     const excludeKeywords = castsContentVote ? [rng.pick(SAMPLE_EXCLUDE_KEYWORDS)] : [];

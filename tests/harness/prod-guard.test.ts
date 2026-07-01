@@ -8,6 +8,9 @@
  * "feed"; Redis port 6380) cannot be bypassed by any flag.
  */
 
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   assertEphemeralPostgresUrl,
@@ -18,6 +21,9 @@ import {
 
 const PROD_POSTGRES_URL = 'postgresql://feed:supersecret@127.0.0.1:5433/bluesky_feed';
 const PROD_REDIS_URL = 'redis://127.0.0.1:6380';
+
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const COMPOSE_PROD_PATH = path.join(REPO_ROOT, 'docker-compose.prod.yml');
 
 describe('assertEphemeralPostgresUrl', () => {
   afterEach(() => {
@@ -102,6 +108,10 @@ describe('assertEphemeralRedisUrl', () => {
     expect(() => assertEphemeralRedisUrl('redis://127.0.0.1:54932')).not.toThrow();
   });
 
+  it('allows "localhost" as a loopback hostname', () => {
+    expect(() => assertEphemeralRedisUrl('redis://localhost:6379')).not.toThrow();
+  });
+
   it('aborts on a non-local Redis host with no allow flag set', () => {
     expect(() => assertEphemeralRedisUrl('redis://cache.example.com:6379')).toThrow(ProdGuardError);
   });
@@ -110,6 +120,45 @@ describe('assertEphemeralRedisUrl', () => {
     expect(() =>
       assertEphemeralRedisUrl('redis://ci-docker-host.example.com:6379', { allowFlag: true })
     ).not.toThrow();
+  });
+
+  it('throws a descriptive ProdGuardError on unparseable Redis URLs', () => {
+    expect(() => assertEphemeralRedisUrl('not-a-url')).toThrow(ProdGuardError);
+  });
+});
+
+describe('KNOWN_PROD_POSTGRES / KNOWN_PROD_REDIS: docker-compose.prod.yml parity', () => {
+  /**
+   * Drift guard for prod-guard.ts's hardcoded production signature (see its
+   * header comment). Reads the actual compose file and re-derives the
+   * Postgres/Redis URL docker-compose.prod.yml's own values would produce,
+   * then asserts the guard still hard-refuses it. If someone edits the
+   * compose file's user/db/ports without updating prod-guard.ts's constants,
+   * this test fails instead of the guard silently getting weaker.
+   */
+  it('still refuses a Postgres URL built from docker-compose.prod.yml\'s own values', async () => {
+    const compose = await readFile(COMPOSE_PROD_PATH, 'utf8');
+
+    const user = /POSTGRES_USER:\s*(\S+)/.exec(compose)?.[1];
+    const database = /POSTGRES_DB:\s*(\S+)/.exec(compose)?.[1];
+    const port = /"127\.0\.0\.1:(\d+):5432"/.exec(compose)?.[1];
+
+    expect(user, 'POSTGRES_USER not found in docker-compose.prod.yml').toBeTruthy();
+    expect(database, 'POSTGRES_DB not found in docker-compose.prod.yml').toBeTruthy();
+    expect(port, 'postgres host port not found in docker-compose.prod.yml').toBeTruthy();
+
+    const composeUrl = `postgresql://${user}:whatever@127.0.0.1:${port}/${database}`;
+    expect(() => assertEphemeralPostgresUrl(composeUrl)).toThrow(ProdGuardError);
+  });
+
+  it('still refuses a Redis URL built from docker-compose.prod.yml\'s own port', async () => {
+    const compose = await readFile(COMPOSE_PROD_PATH, 'utf8');
+
+    const port = /"127\.0\.0\.1:(\d+):6379"/.exec(compose)?.[1];
+    expect(port, 'redis host port not found in docker-compose.prod.yml').toBeTruthy();
+
+    const composeUrl = `redis://127.0.0.1:${port}`;
+    expect(() => assertEphemeralRedisUrl(composeUrl)).toThrow(ProdGuardError);
   });
 });
 

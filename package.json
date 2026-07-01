@@ -22,7 +22,7 @@
     "receipts:verify": "node scripts/sanitize-receipts.mjs --check",
     "seed-topics": "tsx scripts/seed-topics.ts",
     "backfill-topics": "tsx scripts/backfill-topics.ts",
-    "sim:core": "vitest run --config vitest.harness.config.ts tests/harness/simulation.integration.sim.ts",
+    "sim:core": "vitest run --config vitest.harness.config.ts",
     "report:pdf": "python3 scripts/generate-report-pdf.py",
     "build:mcp-local": "if [ -f src/mcp-local/tsconfig.json ]; then cd src/mcp-local && npx tsc -p tsconfig.json; else echo 'src/mcp-local not present; skipping build:mcp-local'; fi",
     "sdk:build": "cd packages/feed-sdk && tsc -p tsconfig.json",

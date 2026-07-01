@@ -42,6 +42,7 @@ describe('Simulation.run(): multi-epoch-cycle (reserved, unimplemented)', () => 
         postCount: 10,
         voteParticipationRate: 0.8,
         contentVoteRate: 0.2,
+        castsWeightVoteRate: 0.9,
       },
     };
 
@@ -61,12 +62,38 @@ describe('Simulation.run(): multi-epoch-cycle (reserved, unimplemented)', () => 
         postCount: 0,
         voteParticipationRate: 0,
         contentVoteRate: 0,
+        castsWeightVoteRate: 0.9,
       },
     };
 
     const deps: SimulationDeps = {
       ...buildDeps(),
       databaseUrl: 'postgresql://feed:supersecret@127.0.0.1:5433/bluesky_feed',
+    };
+
+    const simulation = new Simulation(scenario, deps);
+
+    await expect(simulation.run()).rejects.toThrow(/Refusing to run simulation/);
+  });
+
+  it('still enforces the Redis prod-guard even with an otherwise-ephemeral Postgres URL', async () => {
+    const scenario: Scenario = {
+      kind: 'multi-epoch-cycle',
+      version: 1,
+      seed: 1,
+      rounds: 1,
+      population: {
+        subscriberCount: 1,
+        postCount: 0,
+        voteParticipationRate: 0,
+        contentVoteRate: 0,
+        castsWeightVoteRate: 0.9,
+      },
+    };
+
+    const deps: SimulationDeps = {
+      ...buildDeps(),
+      redisUrl: 'redis://127.0.0.1:6380',
     };
 
     const simulation = new Simulation(scenario, deps);

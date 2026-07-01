@@ -13,6 +13,7 @@ import fc from 'fast-check';
 import { normalizeWeights } from '../../src/governance/governance.types.js';
 import { aggregateVotes } from '../../src/governance/aggregation.js';
 import { writeVoteWeights } from '../../src/governance/weight-longtable.js';
+import { createDefaultGovernanceWeightRecord } from '../../src/config/votable-params.js';
 import { config } from '../../src/config.js';
 import { db } from '../../src/db/client.js';
 import { resetHarnessData, seedSubscribers, insertActiveEpoch } from './helpers.js';
@@ -74,6 +75,23 @@ describe('normalizeWeights (real, exported production code): sum invariant', () 
       ),
       { seed: FC_SEED, numRuns: 200 }
     );
+  });
+
+  // Both property tests above filter with `a + b + c + d + e > 0`, so the
+  // `total === 0` default-equal-weights branch (governance.types.ts) is
+  // excluded from fuzzing entirely — exercise it directly here instead.
+  it('falls back to the default equal-weight record when every input is zero', () => {
+    const normalized = normalizeWeights({
+      recency: 0,
+      engagement: 0,
+      bridging: 0,
+      sourceDiversity: 0,
+      relevance: 0,
+    });
+
+    expect(normalized).toEqual(createDefaultGovernanceWeightRecord());
+    const sum = Object.values(normalized).reduce((total, value) => total + value, 0);
+    expect(sum).toBeCloseTo(1, 9);
   });
 });
 

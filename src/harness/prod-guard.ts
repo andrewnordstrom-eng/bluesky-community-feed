@@ -38,19 +38,33 @@ export interface GuardOptions {
   allowFlag?: boolean;
 }
 
+// Mirrors docker-compose.prod.yml's `postgres` service exactly (`POSTGRES_USER`,
+// `POSTGRES_DB`, and the host-side port of the `ports:` mapping). This is
+// deliberately hardcoded rather than read from the compose file at runtime —
+// see this file's header (no dependency on anything that does I/O or env
+// parsing) — but that means these three values can silently drift from the
+// compose file if it's ever edited without a matching update here. This
+// exact pairing is asserted in tests/harness/prod-guard.test.ts (a test
+// reads docker-compose.prod.yml and confirms these constants still match),
+// so a drift shows up as a CI failure instead of a silently weakened guard.
 const KNOWN_PROD_POSTGRES = {
   port: 5433,
   database: 'bluesky_feed',
   user: 'feed',
 } as const;
 
+// Mirrors docker-compose.prod.yml's `redis` service host-side port. Same
+// drift risk/test coverage as KNOWN_PROD_POSTGRES above.
 const KNOWN_PROD_REDIS = {
   port: 6380,
 } as const;
 
 function isLoopbackHost(hostname: string): boolean {
   const normalized = hostname.toLowerCase();
-  return normalized === '127.0.0.1' || normalized === 'localhost' || normalized === '::1' || normalized === '[::1]';
+  // Note: `new URL(...).hostname` always keeps the brackets for IPv6
+  // literals (e.g. `[::1]`), never the bare `::1` form, so only the
+  // bracketed form is checked here.
+  return normalized === '127.0.0.1' || normalized === 'localhost' || normalized === '[::1]';
 }
 
 function parseUrlOrThrow(url: string, kind: 'Postgres' | 'Redis'): URL {
