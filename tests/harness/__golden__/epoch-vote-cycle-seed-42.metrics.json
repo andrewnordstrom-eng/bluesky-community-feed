@@ -1,0 +1,82 @@
+{
+  "scenarioKind": "epoch-vote-cycle",
+  "scenarioVersion": 1,
+  "seed": 42,
+  "codeVersion": "1.0.0",
+  "population": {
+    "subscriberCount": 8,
+    "postCount": 10,
+    "voteCount": 8
+  },
+  "aggregation": {
+    "epochId": 1,
+    "weights": {
+      "recency": 0.185,
+      "engagement": 0.258,
+      "bridging": 0.166,
+      "sourceDiversity": 0.132,
+      "relevance": 0.259
+    },
+    "weightSum": 1
+  },
+  "transition": {
+    "fromEpochId": 1,
+    "toEpochId": 2
+  },
+  "scoring": {
+    "epochId": 2,
+    "scoredPostCount": 10,
+    "topPosts": [
+      {
+        "uri": "at://did:plc:corgisimsub000002/app.bsky.feed.post/corgisimpost000002",
+        "rank": 1,
+        "totalScore": 0.556009
+      },
+      {
+        "uri": "at://did:plc:corgisimsub000007/app.bsky.feed.post/corgisimpost000007",
+        "rank": 2,
+        "totalScore": 0.481346
+      },
+      {
+        "uri": "at://did:plc:corgisimsub000005/app.bsky.feed.post/corgisimpost000005",
+        "rank": 3,
+        "totalScore": 0.474891
+      },
+      {
+        "uri": "at://did:plc:corgisimsub000001/app.bsky.feed.post/corgisimpost000001",
+        "rank": 4,
+        "totalScore": 0.466578
+      },
+      {
+        "uri": "at://did:plc:corgisimsub000006/app.bsky.feed.post/corgisimpost000006",
+        "rank": 5,
+        "totalScore": 0.447153
+      },
+      {
+        "uri": "at://did:plc:corgisimsub000000/app.bsky.feed.post/corgisimpost000008",
+        "rank": 6,
+        "totalScore": 0.429241
+      },
+      {
+        "uri": "at://did:plc:corgisimsub000004/app.bsky.feed.post/corgisimpost000004",
+        "rank": 7,
+        "totalScore": 0.422598
+      },
+      {
+        "uri": "at://did:plc:corgisimsub000003/app.bsky.feed.post/corgisimpost000003",
+        "rank": 8,
+        "totalScore": 0.389242
+      },
+      {
+        "uri": "at://did:plc:corgisimsub000000/app.bsky.feed.post/corgisimpost000000",
+        "rank": 9,
+        "totalScore": 0.383067
+      },
+      {
+        "uri": "at://did:plc:corgisimsub000001/app.bsky.feed.post/corgisimpost000009",
+        "rank": 10,
+        "totalScore": 0.3699
+      }
+    ]
+  }
+}
