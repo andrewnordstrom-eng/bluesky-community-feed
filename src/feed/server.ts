@@ -407,13 +407,27 @@ export async function createServer() {
     });
   });
 
-  // Serve frontend static files (must be AFTER all API routes)
+  // Serve frontend static files (must be AFTER all API routes).
+  //
+  // Two env-gated knobs support the web-next migration (PROJ-1497) with
+  // defaults that preserve the existing behavior exactly:
+  //   WEB_DIST_DIR    — build dir served, relative to the repo root
+  //                     (default 'web/dist', the Vite SPA build)
+  //   WEB_ROUTING_MODE — 'spa' (default): single index.html fallback, as today
+  //                      'export': multi-page Next.js static export
+  //                      (out/<route>/index.html per route + real 404.html)
+  // Cutover to web-next is a deploy-env flip, not a code change; rollback is
+  // reverting the two env vars.
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
-  const webDistPath = path.join(__dirname, '../../web/dist');
+  const webDistDir = process.env.WEB_DIST_DIR ?? 'web/dist';
+  const webRoutingMode = process.env.WEB_ROUTING_MODE === 'export' ? 'export' : 'spa';
+  const webDistPath = path.isAbsolute(webDistDir)
+    ? webDistDir
+    : path.join(__dirname, '../..', webDistDir);
 
-  // Only register static serving if web/dist exists (production with built frontend)
+  // Only register static serving if the build dir exists (production with built frontend)
   if (fs.existsSync(webDistPath)) {
-    logger.info({ webDistPath }, 'Registering static file serving for frontend');
+    logger.info({ webDistPath, webRoutingMode }, 'Registering static file serving for frontend');
 
     await app.register(fastifyStatic, {
       root: webDistPath,
@@ -421,9 +435,48 @@ export async function createServer() {
       wildcard: false, // Don't match all routes, let API routes take precedence
     });
 
-    // SPA fallback - serve index.html for frontend routes
+    if (webRoutingMode === 'export') {
+      // Next.js static-export HTML hydrates via inline bootstrap scripts
+      // (self.__next_f.push(...)), which the strict global CSP
+      // (script-src 'self') blocks — the page would render but never become
+      // interactive. Static export cannot use per-request nonces, and
+      // per-build hashes would add a fail-closed startup dependency on
+      // scanning the build output; the app renders exclusively through React
+      // (no dangerouslySetInnerHTML), so scoped 'unsafe-inline' on HTML
+      // documents only is the deliberate trade-off. API/JSON responses keep
+      // the strict helmet policy above (kept in sync manually — mirror any
+      // helmet directive change here).
+      const htmlCsp = [
+        "default-src 'self'",
+        "base-uri 'self'",
+        "frame-ancestors 'none'",
+        "object-src 'none'",
+        "script-src 'self' 'unsafe-inline'",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data: https:",
+        "font-src 'self' data: https:",
+        "connect-src 'self' https: wss:",
+        "form-action 'self'",
+      ].join('; ');
+      app.addHook('onSend', async (request, reply) => {
+        // Cache-Control split (set here rather than via @fastify/static's
+        // setHeaders, whose result the plugin's own cacheControl default
+        // overwrites): content-hashed Next assets are immutable; HTML must
+        // revalidate so a deploy is picked up immediately (stale HTML
+        // referencing purged chunks is the classic white-screen failure).
+        if (request.url.startsWith('/_next/static/')) {
+          reply.header('cache-control', 'public, max-age=31536000, immutable');
+        }
+        const contentType = reply.getHeader('content-type');
+        if (typeof contentType === 'string' && contentType.startsWith('text/html')) {
+          reply.header('cache-control', 'no-cache');
+          reply.header('content-security-policy', htmlCsp);
+        }
+      });
+    }
+
+    // Frontend fallback for GET requests to non-API routes
     app.setNotFoundHandler(async (request: FastifyRequest, reply: FastifyReply) => {
-      // Only serve index.html for GET requests to non-API routes
       if (
         request.method === 'GET' &&
         !request.url.startsWith('/api/') &&
@@ -431,6 +484,18 @@ export async function createServer() {
         !request.url.startsWith('/.well-known/') &&
         !request.url.startsWith('/health')
       ) {
+        if (webRoutingMode === 'export') {
+          // Multi-page export: map /vote or /vote/ -> vote/index.html.
+          // Unknown routes get the real 404 page with a real 404 status
+          // (never the home shell — that hides broken deep links).
+          const routeKey = request.url.split('?')[0].replace(/^\/+|\/+$/g, '');
+          const candidate = routeKey === '' ? 'index.html' : `${routeKey}/index.html`;
+          if (!routeKey.includes('..') && fs.existsSync(path.join(webDistPath, candidate))) {
+            return reply.type('text/html').sendFile(candidate);
+          }
+          return reply.status(404).type('text/html').sendFile('404.html');
+        }
+        // SPA fallback (default) — serve index.html for frontend routes, as today
         return reply.sendFile('index.html');
       }
       // For API 404s, return JSON error

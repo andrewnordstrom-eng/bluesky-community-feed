@@ -306,7 +306,7 @@ export default function DashboardPage() {
                 disabled={!explainUri.trim()}
                 onClick={() => {
                   const encoded = encodeURIComponent(explainUri.trim())
-                  router.push(`/post/${encoded}`)
+                  router.push(`/post?uri=${encoded}`)
                 }}
                 className="bg-primary text-primary-foreground hover:bg-primary-dark rounded-lg px-5 text-sm disabled:opacity-40 transition-all shadow-[0_2px_8px_rgba(200,97,44,0.25)]"
               >

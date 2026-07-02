@@ -401,7 +401,7 @@ function DetailPanel({ epoch }: { epoch: Epoch }) {
           </p>
         </div>
         <Link
-          href={`/post/at://demo`}
+          href={`/post?uri=${encodeURIComponent("at://demo")}`}
           className="text-xs font-medium text-primary hover:text-primary-dark transition-colors underline underline-offset-2 flex-shrink-0 mt-1"
         >
           Explain a post →
