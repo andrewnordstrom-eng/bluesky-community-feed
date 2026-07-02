@@ -1,6 +1,6 @@
 {
   "name": "community-feed",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "type": "module",
   "description": "A community-governed Bluesky feed generator where subscribers vote on algorithm parameters",
   "main": "dist/index.js",
@@ -83,7 +83,7 @@
     "url": "https://github.com/andrewnordstrom-eng/bluesky-community-feed.git"
   },
   "homepage": "https://feed.corgi.network",
-  "author": "Andrew Nordstrom",
+  "author": "Corgi Network",
   "license": "MIT",
   "keywords": [
     "bluesky",

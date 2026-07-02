@@ -23,7 +23,6 @@ The dev journal entry for the merge commit should note the version tag.
 
 | Version | Milestone |
 |---------|-----------|
-| v1.2.0 | Embedding classifier, URL dedup, classification tracking (current) |
 | v1.3.0 | Governance parameter registry |
 | v1.4.0 | ML Phase 1 — infrastructure (sidecar, model registry, autonomy modes) |
 | v1.5.0 | ML Phase 2 — prescreener |
