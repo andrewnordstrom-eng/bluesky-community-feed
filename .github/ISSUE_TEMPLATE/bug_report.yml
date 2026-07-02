@@ -1,0 +1,32 @@
+name: Bug report
+description: Report a problem with the feed, API, or tooling
+labels: ["Bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug, including expected vs. actual behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps to reproduce the behavior.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Output of the feed version, or the commit SHA you are on.
+    validations:
+      required: false
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Node version, and how you are running it (local / Docker / VPS).
+    validations:
+      required: false

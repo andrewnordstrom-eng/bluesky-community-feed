@@ -28,7 +28,7 @@
     "scoring",
     "sdk"
   ],
-  "author": "Andrew Nordstrom",
+  "author": "Corgi Network",
   "license": "MIT",
   "engines": {
     "node": ">=20.19.0"
