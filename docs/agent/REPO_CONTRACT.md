@@ -23,8 +23,8 @@ This is the first governance-weighted custom feed on AT Protocol.
 **Canonical URL:** `https://feed.corgi.network`
 **API docs:** `https://docs.corgi.network`
 **Repo:** `andrewnordstrom-eng/bluesky-community-feed`
-**Linear project:** `https://linear.app/andrewnord/project/bluesky-corgi-8f5a0fc7a693`
-**ChatPRD:** `https://app.chatprd.ai/chat/5d8a99e4-5871-4118-b3cb-77024ee37421?doc=60435cf8-353b-4548-bc95-c358cc8cfbb6`
+**Linear project:** tracked on the maintainers' private project board
+**Product doc:** maintained in the maintainers' private product-doc tool
 
 ---
 
@@ -373,5 +373,5 @@ See `docs/OPERABILITY.md`, `docs/runbooks/operator-quickstart.md`, and
 | Database backups | `/mnt/host-backups/postgres/` on VPS |
 | Disk/service alerts | `sudo journalctl -t bluesky-disk-alert -n 100 --no-pager` |
 | Retention/cleanup logs | `sudo journalctl -t bluesky-ops-retention -n 100 --no-pager` |
-| Linear project board | `https://linear.app/andrewnord/project/bluesky-corgi-8f5a0fc7a693` |
+| Linear project board | maintainers' private project board |
 | API documentation (live) | `https://docs.corgi.network` |

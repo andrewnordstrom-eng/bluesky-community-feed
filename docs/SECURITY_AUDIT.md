@@ -230,3 +230,9 @@ npm audit               # ✅ 0 high/critical — 5 moderate (dev-only, accepted
 - Operational guidance updated in `docs/SECURITY.md` and `.env.example` for export salt and consent-aware exports.
 - The OpenAPI docs finding was elevated from MEDIUM to HIGH during remediation — combined with the debug route exposure (HIGH-07), an attacker with access to a misconfigured instance could map the entire API surface and access internal state without authentication.
 - Full-dataset export endpoint (`/api/admin/export/full-dataset`) has no pagination or streaming. For very large epochs, this could cause memory pressure. Tracked as a future enhancement, not a security finding (admin-only endpoint with rate limiting).
+
+---
+
+## Open Hardening Items
+
+- **[OPEN-01] Service runs as root on the VPS.** The `bluesky-feed` systemd unit currently has no dedicated `User=`, so it runs as root — a runtime compromise would have host-level privileges. (Consolidated here from the retired root-level `security_best_practices_report.md`, where it was tracked as SEC-002.) Remediation is a VPS-side change (dedicated `User=`/`Group=`, plus `NoNewPrivileges=true` and `ProtectSystem=strict`) that needs a maintenance window; tracked separately from repository changes.
