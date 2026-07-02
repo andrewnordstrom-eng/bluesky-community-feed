@@ -23,6 +23,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - PR template and contributor guide now enforce small, single-purpose PR scope and Linear-linked branch/PR conventions
 - MCP/setup, stability, status, and system-overview docs updated to match current command syntax and tool counts
 
+## [1.2.0] — 2026-03-09
+
+### Added
+
+- Embedding-based topic classification at ingestion (Tier-2 semantic classifier, all-MiniLM-L6-v2)
+- Per-post classification-method tracking
+- URL-based post deduplication
+
+### Changed
+
+- Topic relevance scoring gained an embedding-confidence multiplier
+
 ## [1.1.0] — 2026-03-06
 
 ### Added

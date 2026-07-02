@@ -15,18 +15,27 @@ dist/
 *.swp
 *.swo
 
-# Local tooling & project config
+# Internal tooling & agent artifacts (local-only; never commit)
 .claude/
 .cursor/
+.codex/
+.aider/
+.copilot/
 Prompts/
 reports/
 AGENTS.md
 CLAUDE.md
+CLAUDE_CODE_PROMPT.md
 TASKING.md
+copilot-instructions.md
 docs/AI_CODING_GUIDE.md
 docs/IMPLEMENTATION_SPEC.md
 docs/ADMIN_DASHBOARD_SPEC.md
 docs/CODEBASE_DEEP_DIVE.md
+
+# Python caches
+__pycache__/
+*.pyc
 
 # OS files
 .DS_Store
@@ -59,19 +68,8 @@ test-results/
 # Research exports
 data/exports/
 
-# Internal tooling artifacts (local-only; never commit)
-/.claude/
-/.cursor/
-/.codex/
-/.aider/
-/.copilot/
-/AGENTS.md
-/CLAUDE.md
-/CLAUDE_CODE_PROMPT.md
-/TASKING.md
-/Prompts/
-/copilot-instructions.md
-
 # Local agent overlays
 /.agent-admission/
 /.githooks/
+
+/.claude/

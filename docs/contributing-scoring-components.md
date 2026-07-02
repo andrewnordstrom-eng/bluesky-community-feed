@@ -111,9 +111,9 @@ for a complete example with helper functions.
 
 ### 4. Open a Linear issue
 
-Under the
-[`bluesky-feed`](https://linear.app/andrewnord/project/bluesky-corgi-8f5a0fc7a693)
-project, file an issue describing:
+Using the project's
+[GitHub Issues](https://github.com/andrewnordstrom-eng/bluesky-community-feed/issues),
+file an issue describing:
 
 - **Purpose:** What signal does this component capture? Why does
   community-voted weighting matter for it?

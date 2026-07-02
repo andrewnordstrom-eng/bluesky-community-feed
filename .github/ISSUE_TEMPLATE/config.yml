@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Support and questions
+    url: https://github.com/andrewnordstrom-eng/bluesky-community-feed/blob/main/SUPPORT.md
+    about: How to get help and where to ask questions.
+  - name: Security disclosure
+    url: https://github.com/andrewnordstrom-eng/bluesky-community-feed/blob/main/SECURITY.md
+    about: Please report security vulnerabilities privately per our security policy.

@@ -15,28 +15,13 @@ import { spawnSync } from 'node:child_process';
 
 // --- Time-boxed, tracked exceptions ------------------------------------------
 // Do NOT add an entry without both `expires` and `tracking`.
-const ALLOWLIST = [
-  {
-    id: 'GHSA-gv7w-rqvm-qjhr',
-    package: 'esbuild',
-    reason:
-      'esbuild dev-tooling RCE via NPM_CONFIG_REGISTRY. Dev dependency only ' +
-      '(tsx/vite/vitest); not reachable from the deployed runtime. Patched in ' +
-      'esbuild 0.28.1, which was newer than the repo .npmrc min-release-age=3 ' +
-      'cooldown when this exception was added.',
-    expires: '2026-06-18',
-    tracking: 'PROJ-1283',
-  },
-  {
-    id: 'GHSA-g7r4-m6w7-qqqr',
-    package: 'esbuild',
-    reason:
-      'esbuild dev-server arbitrary file read (Windows). Dev dependency only; ' +
-      'not reachable from the deployed runtime. Patched in esbuild 0.28.1.',
-    expires: '2026-06-18',
-    tracking: 'PROJ-1283',
-  },
-];
+// Intentionally empty: the two esbuild exceptions (GHSA-gv7w-rqvm-qjhr,
+// GHSA-g7r4-m6w7-qqqr) were remediated at source — esbuild is now pinned to the
+// patched 0.28.1, so the advisories no longer fire and the time-boxed
+// exceptions (expired 2026-06-18) are removed rather than renewed (PROJ-1283).
+// Add an entry only for a genuinely unremediable transitive advisory, and only
+// with both `expires` and `tracking`.
+const ALLOWLIST = [];
 // -----------------------------------------------------------------------------
 
 const SEVERITY_RANK = { info: 0, low: 1, moderate: 2, high: 3, critical: 4 };

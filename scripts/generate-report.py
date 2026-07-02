@@ -233,11 +233,26 @@ def fetch_from_vps():
         f'&& echo "{MARKER}" '
         f'&& docker exec bluesky-feed-postgres psql -U feed -d bluesky_feed -t -A -c "{STATS_SQL}"'
     )
-    print("Connecting to VPS and pulling data...")
-    result = subprocess.run(
-        ["ssh", "corgi-vps", combined_cmd],
-        capture_output=True, text=True, timeout=60,
-    )
+    vps_host = os.environ.get("REPORT_VPS_HOST")
+    if not vps_host:
+        print(
+            "Set REPORT_VPS_HOST to your VPS ssh host/alias to pull live data "
+            "(no host is baked in); or use the local-CSV path instead.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    print(f"Connecting to {vps_host} and pulling data...")
+    try:
+        result = subprocess.run(
+            ["ssh", vps_host, combined_cmd],
+            capture_output=True, text=True, timeout=60, check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        print(
+            f"SSH command timed out after {exc.timeout} seconds while pulling report data.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     if result.returncode != 0:
         print(f"SSH failed (exit {result.returncode}):", file=sys.stderr)
         print(result.stderr, file=sys.stderr)

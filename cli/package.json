@@ -1,6 +1,6 @@
 {
   "name": "feed-cli",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "Admin CLI for Corgi Network Bluesky Feed",
   "type": "module",
   "bin": {

@@ -62,7 +62,7 @@ Each component returns a normalized **0.0 to 1.0** score:
 | **Recency** | How new the post is | Exponential decay, half-life 18 hours |
 | **Engagement** | Likes, reposts, replies | Log-scaled: `log10(likes×1 + reposts×2 + replies×3 + 1)` |
 | **Bridging** | Cross-bubble appeal | Jaccard distance of engager follower sets |
-| **Source Diversity** | Prevent author domination | Gini coefficient penalty for concentration |
+| **Source Diversity** | Prevent author domination | Per-author diminishing-returns penalty (repeated authors within a scoring batch score progressively lower) |
 | **Relevance** | Topic matching | Weighted average of post topic vector × community topic weights (governance-driven) |
 
 ### Final Score Calculation

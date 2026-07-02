@@ -6,7 +6,7 @@
 [![CodeQL](https://github.com/andrewnordstrom-eng/bluesky-community-feed/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/andrewnordstrom-eng/bluesky-community-feed/actions/workflows/codeql.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Node >= 20](https://img.shields.io/badge/Node-%3E%3D20-339933)](https://nodejs.org/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6)](https://www.typescriptlang.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-6-3178C6)](https://www.typescriptlang.org/)
 
 A production Bluesky custom feed where subscribers democratically vote on ranking weights and content rules. The backend applies those decisions in a transparent, auditable scoring pipeline. Every ranking decision is decomposed, stored, and explainable.
 
@@ -116,7 +116,7 @@ A production Bluesky custom feed where subscribers democratically vote on rankin
 
 | Layer | Technology |
 |-------|-----------|
-| Backend | Node.js 20, TypeScript 5, Fastify 5 |
+| Backend | Node.js 20, TypeScript 6, Fastify 5 |
 | Data | PostgreSQL 16, Redis 7 |
 | Frontend | React 19, Vite 7 |
 | Protocol | `@atproto/api`, `@atproto/xrpc-server` |
