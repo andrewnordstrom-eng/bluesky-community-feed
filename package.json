@@ -22,6 +22,7 @@
     "receipts:verify": "node scripts/sanitize-receipts.mjs --check",
     "seed-topics": "tsx scripts/seed-topics.ts",
     "backfill-topics": "tsx scripts/backfill-topics.ts",
+    "sim:core": "vitest run --config vitest.harness.config.ts",
     "report:pdf": "python3 scripts/generate-report-pdf.py",
     "build:mcp-local": "if [ -f src/mcp-local/tsconfig.json ]; then cd src/mcp-local && npx tsc -p tsconfig.json; else echo 'src/mcp-local not present; skipping build:mcp-local'; fi",
     "sdk:build": "cd packages/feed-sdk && tsc -p tsconfig.json",
@@ -61,11 +62,14 @@
     "zod-to-json-schema": "^3.25.2"
   },
   "devDependencies": {
+    "@testcontainers/postgresql": "12.0.3",
+    "@testcontainers/redis": "12.0.3",
     "@types/archiver": "^7.0.0",
     "@types/node": "^25.9.2",
     "@types/node-cron": "^3.0.11",
     "@types/pg": "^8.20.0",
     "@types/ws": "^8.5.0",
+    "fast-check": "4.8.0",
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
     "pino-pretty": "^13.0.0",
@@ -94,12 +98,12 @@
   "overrides": {
     "ajv": "8.18.0",
     "@hono/node-server": "1.19.14",
-    "hono": "4.12.23",
+    "hono": "4.12.27",
     "lodash": "4.18.1",
     "postcss": "8.5.13",
     "protobufjs": "7.6.1",
     "tar": "7.5.11",
-    "vite": "8.0.8",
+    "vite": "8.0.16",
     "qs": "6.15.2",
     "ip-address": "10.1.1",
     "brace-expansion@5": "5.0.6"
