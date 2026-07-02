@@ -26,11 +26,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [1.2.0] — 2026-03-09
 
 ### Added
+
 - Embedding-based topic classification at ingestion (Tier-2 semantic classifier, all-MiniLM-L6-v2)
 - Per-post classification-method tracking
 - URL-based post deduplication
 
 ### Changed
+
 - Topic relevance scoring gained an embedding-confidence multiplier
 
 ## [1.1.0] — 2026-03-06
