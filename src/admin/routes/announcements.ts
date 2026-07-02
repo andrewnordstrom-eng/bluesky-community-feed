@@ -11,6 +11,7 @@ import { db } from '../../db/client.js';
 import { getAdminDid } from '../../auth/admin.js';
 import { postAnnouncement } from '../../bot/poster.js';
 import { logger } from '../../lib/logger.js';
+import { adminSecurity } from '../../lib/openapi.js';
 
 const PostAnnouncementSchema = z.object({
   content: z.string().min(1).max(280),
@@ -33,7 +34,7 @@ export function registerAnnouncementRoutes(app: FastifyInstance): void {
    * GET /api/admin/announcements
    * List recent announcements
    */
-  app.get('/announcements', async (_request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/announcements', { schema: { tags: ['Admin'], security: adminSecurity } }, async (_request: FastifyRequest, reply: FastifyReply) => {
     const result = await db.query(`
       SELECT
         id,
@@ -65,7 +66,7 @@ export function registerAnnouncementRoutes(app: FastifyInstance): void {
    * POST /api/admin/announcements
    * Post a custom announcement
    */
-  app.post('/announcements', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/announcements', { schema: { tags: ['Admin'], security: adminSecurity } }, async (request: FastifyRequest, reply: FastifyReply) => {
     const adminDid = getAdminDid(request);
 
     // Validate request body

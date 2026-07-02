@@ -11,10 +11,9 @@
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { zodToJsonSchema } from 'zod-to-json-schema';
 import { db } from '../../db/client.js';
 import { logger } from '../../lib/logger.js';
-import { ErrorResponseSchema } from '../../lib/openapi.js';
+import { zodToJsonSchema, ErrorResponseSchema } from '../../lib/openapi.js';
 import { readPostScoresForEpoch } from '../../scoring/score-reader.js';
 import type { CounterfactualResult, CounterfactualPost } from '../transparency.types.js';
 

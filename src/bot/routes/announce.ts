@@ -6,10 +6,9 @@
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { zodToJsonSchema } from 'zod-to-json-schema';
 import { config } from '../../config.js';
 import { logger } from '../../lib/logger.js';
-import { adminSecurity, ErrorResponseSchema } from '../../lib/openapi.js';
+import { zodToJsonSchema, adminSecurity, ErrorResponseSchema } from '../../lib/openapi.js';
 import { getAuthenticatedDid, SessionStoreUnavailableError } from '../../governance/auth.js';
 import { isBotEnabled, getBotDid } from '../agent.js';
 import { postAnnouncement, getPinnedAnnouncement, unpinAnnouncement, getRecentAnnouncements } from '../poster.js';

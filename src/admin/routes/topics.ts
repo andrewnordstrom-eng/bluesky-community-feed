@@ -14,7 +14,6 @@
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { zodToJsonSchema } from 'zod-to-json-schema';
 import { db } from '../../db/client.js';
 import { logger } from '../../lib/logger.js';
 import { Errors } from '../../lib/errors.js';
@@ -23,7 +22,7 @@ import { loadTaxonomy, invalidateTaxonomyCache, getTopicsWithEmbeddings } from '
 import { classifyPost } from '../../scoring/topics/classifier.js';
 import { classifyPostsBatch } from '../../scoring/topics/embedding-classifier.js';
 import { isEmbedderReady } from '../../scoring/topics/embedder.js';
-import { adminSecurity, ErrorResponseSchema } from '../../lib/openapi.js';
+import { zodToJsonSchema, adminSecurity, ErrorResponseSchema } from '../../lib/openapi.js';
 
 const CreateTopicSchema = z.object({
   slug: z.string().regex(/^[a-z0-9-]+$/).min(2).max(50),

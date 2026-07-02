@@ -6,9 +6,8 @@
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { zodToJsonSchema } from 'zod-to-json-schema';
 import { db } from '../../db/client.js';
-import { adminSecurity, ErrorResponseSchema } from '../../lib/openapi.js';
+import { zodToJsonSchema, adminSecurity, ErrorResponseSchema } from '../../lib/openapi.js';
 
 const AuditLogQuerySchema = z.object({
   limit: z.coerce.number().min(1).max(200).optional().default(50),

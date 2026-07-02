@@ -12,12 +12,11 @@
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { zodToJsonSchema } from 'zod-to-json-schema';
 import { db } from '../../db/client.js';
 import { redis } from '../../db/redis.js';
 import { logger } from '../../lib/logger.js';
 import { Errors } from '../../lib/errors.js';
-import { ErrorResponseSchema, RateLimitResponseSchema } from '../../lib/openapi.js';
+import { zodToJsonSchema, ErrorResponseSchema, RateLimitResponseSchema } from '../../lib/openapi.js';
 import { verifyFeedRequesterDid } from '../jwt-verifier.js';
 import { config } from '../../config.js';
 import { isParticipantApproved } from '../access-control.js';

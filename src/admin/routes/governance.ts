@@ -7,11 +7,10 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { PoolClient } from 'pg';
 import { z } from 'zod';
-import { zodToJsonSchema } from 'zod-to-json-schema';
 import { db } from '../../db/client.js';
 import { getAdminDid } from '../../auth/admin.js';
 import { logger } from '../../lib/logger.js';
-import { adminSecurity, ErrorResponseSchema } from '../../lib/openapi.js';
+import { zodToJsonSchema, adminSecurity, ErrorResponseSchema } from '../../lib/openapi.js';
 import {
   ContentRules,
   GovernanceWeights,

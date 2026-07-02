@@ -5,8 +5,29 @@
  * and reusable response schema fragments used across all route files.
  */
 
-import { zodToJsonSchema } from 'zod-to-json-schema';
+import { zodToJsonSchema as zodSchemaToJsonSchema } from 'zod-to-json-schema';
 import type { z } from 'zod';
+
+/**
+ * Convert a Zod schema to JSON Schema for Fastify/Ajv route validation.
+ *
+ * `zod-to-json-schema` (3.25.x) supports Zod 4 at runtime, but its published
+ * types still model Zod 3's `ZodType` and reject Zod 4 schemas at compile
+ * time. This wrapper bridges the schema type at a single boundary so every
+ * route converts through one import — a future zod / zod-to-json-schema bump
+ * then touches this one file instead of every route that decorates a schema.
+ */
+export function zodToJsonSchema(
+  schema: z.ZodType,
+  options?: Parameters<typeof zodSchemaToJsonSchema>[1],
+) {
+  // Zod 4's ZodType and zod-to-json-schema's (Zod 3-modelled) ZodType do not
+  // structurally overlap, so bridge through `unknown` — the call is runtime-safe.
+  return zodSchemaToJsonSchema(
+    schema as unknown as Parameters<typeof zodSchemaToJsonSchema>[0],
+    options,
+  );
+}
 
 /**
  * Convert a Zod schema to JSON Schema for Fastify route decoration.

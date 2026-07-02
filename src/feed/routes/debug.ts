@@ -7,12 +7,11 @@
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { zodToJsonSchema } from 'zod-to-json-schema';
 import { db } from '../../db/client.js';
 import { redis } from '../../db/redis.js';
 import { requireAdmin } from '../../auth/admin.js';
 import { config } from '../../config.js';
-import { adminSecurity, ErrorResponseSchema } from '../../lib/openapi.js';
+import { zodToJsonSchema, adminSecurity, ErrorResponseSchema } from '../../lib/openapi.js';
 import {
   checkContentRules,
   filterPosts,

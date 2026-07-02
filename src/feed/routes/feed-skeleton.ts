@@ -12,8 +12,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { randomUUID } from 'crypto';
 import { z } from 'zod';
-import { zodToJsonSchema } from 'zod-to-json-schema';
-import { ErrorResponseSchema } from '../../lib/openapi.js';
+import { zodToJsonSchema, ErrorResponseSchema } from '../../lib/openapi.js';
 import { config } from '../../config.js';
 import { logger } from '../../lib/logger.js';
 import { redis } from '../../db/redis.js';

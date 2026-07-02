@@ -10,9 +10,8 @@
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { zodToJsonSchema } from 'zod-to-json-schema';
 import { db } from '../../db/client.js';
-import { ErrorResponseSchema, governanceSecurity } from '../../lib/openapi.js';
+import { zodToJsonSchema, ErrorResponseSchema, governanceSecurity } from '../../lib/openapi.js';
 import { getAuthenticatedDid } from '../auth.js';
 import { logger } from '../../lib/logger.js';
 

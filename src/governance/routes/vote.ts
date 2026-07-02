@@ -274,7 +274,7 @@ export function registerVoteRoute(app: FastifyInstance): void {
       return reply.code(400).send({
         error: 'InvalidVote',
         message: 'Invalid vote weights',
-        details: parseResult.error.errors,
+        details: parseResult.error.issues,
       });
     }
 

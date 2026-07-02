@@ -6,11 +6,10 @@
 
 import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { zodToJsonSchema } from 'zod-to-json-schema';
 import { config } from '../../config.js';
 import { db } from '../../db/client.js';
 import { redis } from '../../db/redis.js';
-import { adminSecurity, ErrorResponseSchema } from '../../lib/openapi.js';
+import { zodToJsonSchema, adminSecurity, ErrorResponseSchema } from '../../lib/openapi.js';
 import { GovernanceWeights, normalizeWeights } from '../../governance/governance.types.js';
 import { readEpochWeights } from '../../governance/weight-longtable.js';
 

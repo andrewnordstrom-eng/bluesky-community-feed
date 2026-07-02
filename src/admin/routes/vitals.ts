@@ -19,13 +19,14 @@ import {
   getJetstreamDisconnectedAt,
 } from '../../ingestion/jetstream.js';
 import { logger } from '../../lib/logger.js';
+import { adminSecurity } from '../../lib/openapi.js';
 
 export function registerVitalsRoutes(app: FastifyInstance): void {
   /**
    * GET /api/admin/vitals
    * Unified system health dashboard in a single JSON response.
    */
-  app.get('/vitals', async (_request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/vitals', { schema: { tags: ['Admin'], security: adminSecurity } }, async (_request: FastifyRequest, reply: FastifyReply) => {
     const start = Date.now();
 
     // Gather all vitals in parallel where possible

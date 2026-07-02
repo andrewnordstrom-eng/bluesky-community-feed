@@ -8,11 +8,10 @@
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { zodToJsonSchema } from 'zod-to-json-schema';
 import { db } from '../../db/client.js';
 import { config } from '../../config.js';
 import { logger } from '../../lib/logger.js';
-import { ErrorResponseSchema, governanceSecurity } from '../../lib/openapi.js';
+import { zodToJsonSchema, ErrorResponseSchema, governanceSecurity } from '../../lib/openapi.js';
 import { toEpochInfo, toContentRules, ContentRulesRow } from '../governance.types.js';
 import { getAuthenticatedDid, SessionStoreUnavailableError } from '../auth.js';
 import { triggerEpochTransition, forceEpochTransition, getCurrentEpochStatus } from '../epoch-manager.js';

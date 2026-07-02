@@ -39,7 +39,7 @@ export type PopulationConfig = z.infer<typeof PopulationConfigSchema>;
 
 const baseFields = {
   seed: z.number().int().nonnegative(),
-  population: PopulationConfigSchema.default({}),
+  population: PopulationConfigSchema.prefault({}),
 };
 
 /**

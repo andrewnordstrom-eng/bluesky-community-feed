@@ -12,6 +12,7 @@ import { getScoringStatus } from '../status-tracker.js';
 import { getAdminDid } from '../../auth/admin.js';
 import { tryTriggerManualScoringRun } from '../../scoring/scheduler.js';
 import { logger } from '../../lib/logger.js';
+import { adminSecurity } from '../../lib/openapi.js';
 import {
   getJetstreamDisconnectedAt,
   getJetstreamEventsLast5Min,
@@ -25,7 +26,7 @@ export function registerFeedHealthRoutes(app: FastifyInstance): void {
    * GET /api/admin/feed-health
    * Detailed feed statistics
    */
-  app.get('/feed-health', async (_request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/feed-health', { schema: { tags: ['Admin'], security: adminSecurity } }, async (_request: FastifyRequest, reply: FastifyReply) => {
     // Database stats
     const dbStats = await db.query(`
       SELECT
@@ -123,7 +124,7 @@ export function registerFeedHealthRoutes(app: FastifyInstance): void {
    * POST /api/admin/jetstream/reconnect
    * Trigger a manual reconnect cycle for Jetstream ingestion.
    */
-  app.post('/jetstream/reconnect', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/jetstream/reconnect', { schema: { tags: ['Admin'], security: adminSecurity } }, async (request: FastifyRequest, reply: FastifyReply) => {
     const adminDid = getAdminDid(request);
 
     triggerJetstreamReconnect();
@@ -146,7 +147,7 @@ export function registerFeedHealthRoutes(app: FastifyInstance): void {
    * POST /api/admin/feed/rescore
    * Manually trigger scoring pipeline
    */
-  app.post('/feed/rescore', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/feed/rescore', { schema: { tags: ['Admin'], security: adminSecurity } }, async (request: FastifyRequest, reply: FastifyReply) => {
     const adminDid = getAdminDid(request);
 
     if (!(await tryTriggerManualScoringRun())) {

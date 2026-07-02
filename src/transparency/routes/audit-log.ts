@@ -10,10 +10,9 @@
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { zodToJsonSchema } from 'zod-to-json-schema';
 import { db } from '../../db/client.js';
 import { logger } from '../../lib/logger.js';
-import { ErrorResponseSchema } from '../../lib/openapi.js';
+import { zodToJsonSchema, ErrorResponseSchema } from '../../lib/openapi.js';
 import type { AuditLogResponse, AuditLogEntry } from '../transparency.types.js';
 
 const VOTE_ACTIONS = new Set(['vote_cast', 'vote_updated']);

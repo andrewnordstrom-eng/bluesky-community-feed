@@ -7,7 +7,7 @@
  * - Send 24h voting reminders
  */
 
-import cron from 'node-cron';
+import cron, { type ScheduledTask } from 'node-cron';
 import type { PoolClient } from 'pg';
 import { db } from '../db/client.js';
 import { aggregateContentVotes, aggregateVotes } from '../governance/aggregation.js';
@@ -38,7 +38,7 @@ interface ScheduledVoteRow {
   duration_hours: number;
 }
 
-let schedulerTask: cron.ScheduledTask | null = null;
+let schedulerTask: ScheduledTask | null = null;
 let isSchedulerTickRunning = false;
 
 function toNumber(value: number | string): number {

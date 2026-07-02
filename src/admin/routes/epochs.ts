@@ -17,6 +17,7 @@ import { config } from '../../config.js';
 import { forceEpochTransition, triggerEpochTransition } from '../../governance/epoch-manager.js';
 import { readEpochWeightsForMultipleEpochs } from '../../governance/weight-longtable.js';
 import { logger } from '../../lib/logger.js';
+import { adminSecurity } from '../../lib/openapi.js';
 
 const UpdateEpochSchema = z.object({
   votingEndsAt: z.string().datetime().nullable().optional(),
@@ -32,7 +33,7 @@ export function registerEpochRoutes(app: FastifyInstance): void {
    * GET /api/admin/epochs
    * List all epochs with details
    */
-  app.get('/epochs', async (_request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/epochs', { schema: { tags: ['Admin'], security: adminSecurity } }, async (_request: FastifyRequest, reply: FastifyReply) => {
     // List N epochs without their weight columns; per-component weights come
     // from the storage-agnostic batch reader so this route works the same
     // under both wide-column and long-table storage.
@@ -75,7 +76,7 @@ export function registerEpochRoutes(app: FastifyInstance): void {
    * PATCH /api/admin/epochs/current
    * Update current epoch settings
    */
-  app.patch('/epochs/current', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.patch('/epochs/current', { schema: { tags: ['Admin'], security: adminSecurity } }, async (request: FastifyRequest, reply: FastifyReply) => {
     const adminDid = getAdminDid(request);
     const parseResult = UpdateEpochSchema.safeParse(request.body);
 
@@ -155,7 +156,7 @@ export function registerEpochRoutes(app: FastifyInstance): void {
    * POST /api/admin/epochs/transition
    * Manually trigger epoch transition
    */
-  app.post('/epochs/transition', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/epochs/transition', { schema: { tags: ['Admin'], security: adminSecurity } }, async (request: FastifyRequest, reply: FastifyReply) => {
     const adminDid = getAdminDid(request);
     const parseResult = TransitionSchema.safeParse(request.body || {});
 

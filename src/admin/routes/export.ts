@@ -15,15 +15,14 @@
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import archiver from 'archiver';
+import { ZipArchive } from 'archiver';
 import { db } from '../../db/client.js';
 import { config } from '../../config.js';
 import { logger } from '../../lib/logger.js';
 import { anonymizeDid } from '../../lib/anonymize.js';
 import { startCsvStream } from '../../lib/csv-stream.js';
 import { Errors } from '../../lib/errors.js';
-import { zodToJsonSchema } from 'zod-to-json-schema';
-import { adminSecurity, ErrorResponseSchema } from '../../lib/openapi.js';
+import { zodToJsonSchema, adminSecurity, ErrorResponseSchema } from '../../lib/openapi.js';
 import type {
   ExportVoteRecord,
   ExportScoreRecord,
@@ -762,7 +761,7 @@ export function registerExportRoutes(app: FastifyInstance): void {
       'Content-Disposition': `attachment; filename="epoch-${epoch_id}-dataset.zip"`,
     });
 
-    const archive = archiver('zip', { zlib: { level: 6 } });
+    const archive = new ZipArchive({ zlib: { level: 6 } });
     archive.pipe(reply.raw);
 
     // 1. Votes CSV

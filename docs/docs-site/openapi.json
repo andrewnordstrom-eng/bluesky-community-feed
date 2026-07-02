@@ -149,35 +149,6 @@
           "Feed"
         ],
         "description": "Returns a list of post URIs for the community-governed feed. Called by the Bluesky app. Uses snapshot-based cursors for stable pagination (5-minute TTL).",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string"
-            },
-            "in": "query",
-            "name": "feed",
-            "required": true
-          },
-          {
-            "schema": {
-              "type": "string"
-            },
-            "in": "query",
-            "name": "cursor",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 100,
-              "default": 50
-            },
-            "in": "query",
-            "name": "limit",
-            "required": false
-          }
-        ],
         "responses": {
           "200": {
             "description": "Default Response",
@@ -257,44 +228,7 @@
           "required": true,
           "content": {
             "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "interactions": {
-                    "type": "array",
-                    "items": {
-                      "type": "object",
-                      "properties": {
-                        "item": {
-                          "type": "string",
-                          "minLength": 1,
-                          "maxLength": 512,
-                          "pattern": "^at\\:\\/\\/"
-                        },
-                        "event": {
-                          "type": "string",
-                          "pattern": "^app\\.bsky\\.feed\\.defs#[a-zA-Z][a-zA-Z0-9]{1,63}$"
-                        },
-                        "feedContext": {
-                          "type": "string",
-                          "maxLength": 512
-                        }
-                      },
-                      "required": [
-                        "item",
-                        "event"
-                      ],
-                      "additionalProperties": false
-                    },
-                    "minItems": 1,
-                    "maxItems": 100
-                  }
-                },
-                "required": [
-                  "interactions"
-                ],
-                "additionalProperties": false
-              }
+              "schema": {}
             }
           }
         },
@@ -410,24 +344,7 @@
           "required": true,
           "content": {
             "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "handle": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "appPassword": {
-                    "type": "string",
-                    "minLength": 1
-                  }
-                },
-                "required": [
-                  "handle",
-                  "appPassword"
-                ],
-                "additionalProperties": false
-              }
+              "schema": {}
             }
           }
         },
@@ -1446,19 +1363,6 @@
           "Governance"
         ],
         "description": "Returns all epochs with their weights, ordered newest first. Useful for timeline visualization of governance changes.",
-        "parameters": [
-          {
-            "schema": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 100,
-              "default": 20
-            },
-            "in": "query",
-            "name": "limit",
-            "required": false
-          }
-        ],
         "responses": {
           "200": {
             "description": "Default Response",
@@ -1568,26 +1472,6 @@
           "Governance"
         ],
         "description": "Compare weights between two epochs, showing the difference for each component.",
-        "parameters": [
-          {
-            "schema": {
-              "type": "integer",
-              "exclusiveMinimum": 0
-            },
-            "in": "query",
-            "name": "epoch1",
-            "required": true
-          },
-          {
-            "schema": {
-              "type": "integer",
-              "exclusiveMinimum": 0
-            },
-            "in": "query",
-            "name": "epoch2",
-            "required": true
-          }
-        ],
         "responses": {
           "200": {
             "description": "Default Response",
@@ -1755,32 +1639,6 @@
           "Governance"
         ],
         "description": "Returns a paginated list of governance epochs with weights, vote counts, and content rules. Optionally filter by status.",
-        "parameters": [
-          {
-            "schema": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 100,
-              "default": 50
-            },
-            "in": "query",
-            "name": "limit",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "string",
-              "enum": [
-                "active",
-                "voting",
-                "closed"
-              ]
-            },
-            "in": "query",
-            "name": "status",
-            "required": false
-          }
-        ],
         "responses": {
           "200": {
             "description": "Default Response",
@@ -2043,17 +1901,6 @@
           "Governance"
         ],
         "description": "Returns full details for a specific epoch including weights, vote statistics (averages and ranges), and content rules.",
-        "parameters": [
-          {
-            "schema": {
-              "type": "integer",
-              "exclusiveMinimum": 0
-            },
-            "in": "path",
-            "name": "id",
-            "required": true
-          }
-        ],
         "responses": {
           "200": {
             "description": "Default Response",
@@ -2584,18 +2431,7 @@
           "required": true,
           "content": {
             "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "consent": {
-                    "type": "boolean"
-                  }
-                },
-                "required": [
-                  "consent"
-                ],
-                "additionalProperties": false
-              }
+              "schema": {}
             }
           }
         },
@@ -2741,28 +2577,37 @@
                           },
                           "weighted": {
                             "type": "number"
+                          },
+                          "topicBreakdown": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "object",
+                              "properties": {
+                                "postScore": {
+                                  "type": "number"
+                                },
+                                "communityWeight": {
+                                  "type": "number"
+                                },
+                                "contribution": {
+                                  "type": "number"
+                                }
+                              },
+                              "required": [
+                                "postScore",
+                                "communityWeight",
+                                "contribution"
+                              ]
+                            }
                           }
                         }
                       }
                     },
                     "governance_weights": {
                       "type": "object",
-                      "properties": {
-                        "recency": {
-                          "type": "number"
-                        },
-                        "engagement": {
-                          "type": "number"
-                        },
-                        "bridging": {
-                          "type": "number"
-                        },
-                        "source_diversity": {
-                          "type": "number"
-                        },
-                        "relevance": {
-                          "type": "number"
-                        }
+                      "description": "Per-component weight vector from the current governance epoch.",
+                      "additionalProperties": {
+                        "type": "number"
                       }
                     },
                     "counterfactual": {
@@ -3039,74 +2884,6 @@
           "Transparency"
         ],
         "description": "\"What if the weights were different?\" Recalculates rankings using stored raw scores with alternate weights. Weights must sum to 1.0.",
-        "parameters": [
-          {
-            "schema": {
-              "type": "number",
-              "minimum": 0,
-              "maximum": 1,
-              "default": 0.2
-            },
-            "in": "query",
-            "name": "recency",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "number",
-              "minimum": 0,
-              "maximum": 1,
-              "default": 0.2
-            },
-            "in": "query",
-            "name": "engagement",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "number",
-              "minimum": 0,
-              "maximum": 1,
-              "default": 0.2
-            },
-            "in": "query",
-            "name": "bridging",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "number",
-              "minimum": 0,
-              "maximum": 1,
-              "default": 0.2
-            },
-            "in": "query",
-            "name": "source_diversity",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "number",
-              "minimum": 0,
-              "maximum": 1,
-              "default": 0.2
-            },
-            "in": "query",
-            "name": "relevance",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "number",
-              "minimum": 1,
-              "maximum": 500,
-              "default": 50
-            },
-            "in": "query",
-            "name": "limit",
-            "required": false
-          }
-        ],
         "responses": {
           "200": {
             "description": "Default Response",
@@ -3282,45 +3059,6 @@
           "Transparency"
         ],
         "description": "Returns a paginated, append-only audit log of all governance actions. Vote details are redacted to preserve voter privacy (shows counts, not specific votes).",
-        "parameters": [
-          {
-            "schema": {
-              "type": "number",
-              "minimum": 1,
-              "maximum": 100,
-              "default": 20
-            },
-            "in": "query",
-            "name": "limit",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "number",
-              "minimum": 0,
-              "default": 0
-            },
-            "in": "query",
-            "name": "offset",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "string"
-            },
-            "in": "query",
-            "name": "action",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "number"
-            },
-            "in": "query",
-            "name": "epoch_id",
-            "required": false
-          }
-        ],
         "responses": {
           "200": {
             "description": "Default Response",
@@ -3764,76 +3502,6 @@
                 }
               }
             }
-          }
-        }
-      }
-    },
-    "/api/admin/epochs": {
-      "get": {
-        "responses": {
-          "200": {
-            "description": "Default Response"
-          }
-        }
-      }
-    },
-    "/api/admin/epochs/current": {
-      "patch": {
-        "responses": {
-          "200": {
-            "description": "Default Response"
-          }
-        }
-      }
-    },
-    "/api/admin/epochs/transition": {
-      "post": {
-        "responses": {
-          "200": {
-            "description": "Default Response"
-          }
-        }
-      }
-    },
-    "/api/admin/announcements": {
-      "get": {
-        "responses": {
-          "200": {
-            "description": "Default Response"
-          }
-        }
-      },
-      "post": {
-        "responses": {
-          "200": {
-            "description": "Default Response"
-          }
-        }
-      }
-    },
-    "/api/admin/feed-health": {
-      "get": {
-        "responses": {
-          "200": {
-            "description": "Default Response"
-          }
-        }
-      }
-    },
-    "/api/admin/jetstream/reconnect": {
-      "post": {
-        "responses": {
-          "200": {
-            "description": "Default Response"
-          }
-        }
-      }
-    },
-    "/api/admin/feed/rescore": {
-      "post": {
-        "responses": {
-          "200": {
-            "description": "Default Response"
           }
         }
       }
