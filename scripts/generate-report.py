@@ -242,10 +242,17 @@ def fetch_from_vps():
         )
         sys.exit(1)
     print(f"Connecting to {vps_host} and pulling data...")
-    result = subprocess.run(
-        ["ssh", vps_host, combined_cmd],
-        capture_output=True, text=True, timeout=60,
-    )
+    try:
+        result = subprocess.run(
+            ["ssh", vps_host, combined_cmd],
+            capture_output=True, text=True, timeout=60, check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        print(
+            f"SSH command timed out after {exc.timeout} seconds while pulling report data.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     if result.returncode != 0:
         print(f"SSH failed (exit {result.returncode}):", file=sys.stderr)
         print(result.stderr, file=sys.stderr)
