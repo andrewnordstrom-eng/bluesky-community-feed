@@ -13,16 +13,16 @@ bash ops/install.sh
 
 Or from local:
 ```bash
-ssh corgi-vps 'cd /opt/bluesky-feed && bash ops/install.sh'
+ssh <your-vps-host> 'cd /opt/bluesky-feed && bash ops/install.sh'
 ```
 
 ## SSH Alias
 
 Add to `~/.ssh/config` on your local machine:
 ```
-Host corgi-vps
-    HostName 64.23.239.212
-    User root
+Host <your-vps-host>
+    HostName <your.vps.ip.address>
+    User <deploy-user>
     ControlMaster auto
     ControlPath ~/.ssh/sockets/%r@%h-%p
     ControlPersist 600

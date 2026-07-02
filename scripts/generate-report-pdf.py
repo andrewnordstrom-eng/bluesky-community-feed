@@ -273,10 +273,18 @@ def fetch_from_vps() -> tuple[pd.DataFrame, dict[str, Any], dict[str, Any]]:
         f'&& echo "{MARKER}" '
         f'&& docker exec bluesky-feed-postgres psql -U feed -d bluesky_feed -t -A -c "{STATS_SQL}"'
     )
-    print("Connecting to VPS and pulling data...")
+    vps_host = os.environ.get("REPORT_VPS_HOST")
+    if not vps_host:
+        print(
+            "Set REPORT_VPS_HOST to your VPS ssh host/alias to pull live data "
+            "(no host is baked in); or pass --csv to render from a local file.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    print(f"Connecting to {vps_host} and pulling data...")
     try:
         result = subprocess.run(
-            ["ssh", "corgi-vps", combined_cmd],
+            ["ssh", vps_host, combined_cmd],
             capture_output=True,
             text=True,
             timeout=90,

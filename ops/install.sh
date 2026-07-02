@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install ops scripts and systemd units on the VPS.
-# Run from local: ssh root@64.23.239.212 'bash -s' < ops/install.sh
+# Run from local: ssh <deploy-user>@<your-vps-host> 'bash -s' < ops/install.sh
 # Or from VPS:    cd /opt/bluesky-feed && bash ops/install.sh
 set -euo pipefail
 
