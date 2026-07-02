@@ -2741,28 +2741,37 @@
                           },
                           "weighted": {
                             "type": "number"
+                          },
+                          "topicBreakdown": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "object",
+                              "properties": {
+                                "postScore": {
+                                  "type": "number"
+                                },
+                                "communityWeight": {
+                                  "type": "number"
+                                },
+                                "contribution": {
+                                  "type": "number"
+                                }
+                              },
+                              "required": [
+                                "postScore",
+                                "communityWeight",
+                                "contribution"
+                              ]
+                            }
                           }
                         }
                       }
                     },
                     "governance_weights": {
                       "type": "object",
-                      "properties": {
-                        "recency": {
-                          "type": "number"
-                        },
-                        "engagement": {
-                          "type": "number"
-                        },
-                        "bridging": {
-                          "type": "number"
-                        },
-                        "source_diversity": {
-                          "type": "number"
-                        },
-                        "relevance": {
-                          "type": "number"
-                        }
+                      "description": "Per-component weight vector from the current governance epoch.",
+                      "additionalProperties": {
+                        "type": "number"
                       }
                     },
                     "counterfactual": {
@@ -3764,76 +3773,6 @@
                 }
               }
             }
-          }
-        }
-      }
-    },
-    "/api/admin/epochs": {
-      "get": {
-        "responses": {
-          "200": {
-            "description": "Default Response"
-          }
-        }
-      }
-    },
-    "/api/admin/epochs/current": {
-      "patch": {
-        "responses": {
-          "200": {
-            "description": "Default Response"
-          }
-        }
-      }
-    },
-    "/api/admin/epochs/transition": {
-      "post": {
-        "responses": {
-          "200": {
-            "description": "Default Response"
-          }
-        }
-      }
-    },
-    "/api/admin/announcements": {
-      "get": {
-        "responses": {
-          "200": {
-            "description": "Default Response"
-          }
-        }
-      },
-      "post": {
-        "responses": {
-          "200": {
-            "description": "Default Response"
-          }
-        }
-      }
-    },
-    "/api/admin/feed-health": {
-      "get": {
-        "responses": {
-          "200": {
-            "description": "Default Response"
-          }
-        }
-      }
-    },
-    "/api/admin/jetstream/reconnect": {
-      "post": {
-        "responses": {
-          "200": {
-            "description": "Default Response"
-          }
-        }
-      }
-    },
-    "/api/admin/feed/rescore": {
-      "post": {
-        "responses": {
-          "200": {
-            "description": "Default Response"
           }
         }
       }
