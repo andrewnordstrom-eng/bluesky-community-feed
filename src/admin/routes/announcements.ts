@@ -34,7 +34,14 @@ export function registerAnnouncementRoutes(app: FastifyInstance): void {
    * GET /api/admin/announcements
    * List recent announcements
    */
-  app.get('/announcements', { schema: { tags: ['Admin'], security: adminSecurity } }, async (_request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/announcements', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'List announcements',
+      description: 'Lists the most recent bot announcements posted to the feed.',
+      security: adminSecurity,
+    },
+  }, async (_request: FastifyRequest, reply: FastifyReply) => {
     const result = await db.query(`
       SELECT
         id,
@@ -66,7 +73,14 @@ export function registerAnnouncementRoutes(app: FastifyInstance): void {
    * POST /api/admin/announcements
    * Post a custom announcement
    */
-  app.post('/announcements', { schema: { tags: ['Admin'], security: adminSecurity } }, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/announcements', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'Post announcement',
+      description: 'Posts a custom announcement to Bluesky via the bot (rate-limited).',
+      security: adminSecurity,
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const adminDid = getAdminDid(request);
 
     // Validate request body

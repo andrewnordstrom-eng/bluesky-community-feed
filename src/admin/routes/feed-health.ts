@@ -26,7 +26,14 @@ export function registerFeedHealthRoutes(app: FastifyInstance): void {
    * GET /api/admin/feed-health
    * Detailed feed statistics
    */
-  app.get('/feed-health', { schema: { tags: ['Admin'], security: adminSecurity } }, async (_request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/feed-health', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'Feed health',
+      description: 'Returns detailed feed ingestion and scoring health statistics.',
+      security: adminSecurity,
+    },
+  }, async (_request: FastifyRequest, reply: FastifyReply) => {
     // Database stats
     const dbStats = await db.query(`
       SELECT
@@ -124,7 +131,14 @@ export function registerFeedHealthRoutes(app: FastifyInstance): void {
    * POST /api/admin/jetstream/reconnect
    * Trigger a manual reconnect cycle for Jetstream ingestion.
    */
-  app.post('/jetstream/reconnect', { schema: { tags: ['Admin'], security: adminSecurity } }, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/jetstream/reconnect', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'Reconnect Jetstream',
+      description: 'Triggers a manual reconnect cycle for Jetstream ingestion.',
+      security: adminSecurity,
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const adminDid = getAdminDid(request);
 
     triggerJetstreamReconnect();
@@ -147,7 +161,14 @@ export function registerFeedHealthRoutes(app: FastifyInstance): void {
    * POST /api/admin/feed/rescore
    * Manually trigger scoring pipeline
    */
-  app.post('/feed/rescore', { schema: { tags: ['Admin'], security: adminSecurity } }, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/feed/rescore', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'Rescore feed',
+      description: 'Manually triggers the scoring pipeline to rescore the feed.',
+      security: adminSecurity,
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const adminDid = getAdminDid(request);
 
     if (!(await tryTriggerManualScoringRun())) {

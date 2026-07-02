@@ -33,7 +33,14 @@ export function registerEpochRoutes(app: FastifyInstance): void {
    * GET /api/admin/epochs
    * List all epochs with details
    */
-  app.get('/epochs', { schema: { tags: ['Admin'], security: adminSecurity } }, async (_request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/epochs', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'List epochs',
+      description: 'Lists recent governance epochs with their weights, vote counts, and status.',
+      security: adminSecurity,
+    },
+  }, async (_request: FastifyRequest, reply: FastifyReply) => {
     // List N epochs without their weight columns; per-component weights come
     // from the storage-agnostic batch reader so this route works the same
     // under both wide-column and long-table storage.
@@ -76,7 +83,14 @@ export function registerEpochRoutes(app: FastifyInstance): void {
    * PATCH /api/admin/epochs/current
    * Update current epoch settings
    */
-  app.patch('/epochs/current', { schema: { tags: ['Admin'], security: adminSecurity } }, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.patch('/epochs/current', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'Update current epoch',
+      description: 'Updates the active epoch voting window or auto-transition settings.',
+      security: adminSecurity,
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const adminDid = getAdminDid(request);
     const parseResult = UpdateEpochSchema.safeParse(request.body);
 
@@ -156,7 +170,14 @@ export function registerEpochRoutes(app: FastifyInstance): void {
    * POST /api/admin/epochs/transition
    * Manually trigger epoch transition
    */
-  app.post('/epochs/transition', { schema: { tags: ['Admin'], security: adminSecurity } }, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/epochs/transition', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'Trigger epoch transition',
+      description: 'Manually transitions to the next epoch, optionally forcing past the minimum-vote quorum.',
+      security: adminSecurity,
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const adminDid = getAdminDid(request);
     const parseResult = TransitionSchema.safeParse(request.body || {});
 
