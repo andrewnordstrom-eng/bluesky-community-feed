@@ -73,7 +73,8 @@ export const AuditLogRowSchema = z.object({
   action: z.string(),
   epochId: z.number().int().nullable(),
   details: z.record(z.string(), z.unknown()).nullable(),
-  createdAt: z.string(),
+  // createdAt intentionally omitted — see AuditLogRow (simulation.ts): the
+  // wall-clock insert time is excluded so audit-log.json is reproducible.
 });
 
 /** One row of a `multi-epoch-cycle` run's per-epoch series: the 5-component

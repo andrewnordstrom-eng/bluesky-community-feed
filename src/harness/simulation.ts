@@ -24,7 +24,13 @@
 
 import type { Rng, Clock } from './rng.js';
 import type { Scenario } from './scenario.js';
-import { generatePopulation, TOPIC_SLUGS, type Population, type VoteSeed } from './population.js';
+import {
+  generatePopulation,
+  generateVotes,
+  TOPIC_SLUGS,
+  type Population,
+  type VoteSeed,
+} from './population.js';
 import { validateVote, type RawVotePayload, type VoteValidationContext } from './vote-validation.js';
 import { assertEphemeralPostgresUrl, assertEphemeralRedisUrl, type GuardOptions } from './prod-guard.js';
 import { createDefaultGovernanceWeightRecord } from '../config/votable-params.js';
@@ -104,13 +110,18 @@ export interface TopScoredPost {
  * run's underlying audit trail (see `Simulation.runMultiEpochCycle`) so
  * callers/tests can assert on the REAL production audit rows
  * `forceEpochTransition` wrote, not a harness-side reconstruction of them.
+ *
+ * The row's `created_at` (DB `NOW()` at insert — real wall-clock, not the
+ * harness's seeded domain clock) is intentionally NOT surfaced: it is not part
+ * of the governance signal (id/action/epoch/details are), and including it
+ * would make the emitted `audit-log.json` non-reproducible across runs. The
+ * ordering that matters is by `id`, which `fetchAuditLogSince` uses.
  */
 export interface AuditLogRow {
   id: number;
   action: string;
   epochId: number | null;
   details: Record<string, unknown> | null;
-  createdAt: string;
 }
 
 /**
@@ -462,7 +473,8 @@ export class Simulation {
       throw new Error('Simulation.runMultiEpochCycle(): internal error — scenario kind mismatch');
     }
     const scenario = this.scenario;
-    const { forceEpochTransition, runScoringPipeline, writeVoteWeights, config } = modules;
+    const { aggregateVotes, forceEpochTransition, runScoringPipeline, writeVoteWeights, config } =
+      modules;
 
     const events: SimulationEvent[] = [];
     const record = (type: string, data?: Record<string, unknown>): void => {
@@ -507,17 +519,42 @@ export class Simulation {
         previousWeights = (await this.fetchEpochWeightsAndTopics(epochBeforeId)).weights;
       }
 
-      // Fresh votes each round from the same continuing Rng — round 1 uses the
-      // corpus population's own votes, later rounds re-draw. Only the votes are
-      // seeded (fixed corpus already in place).
+      // Fresh votes each round from the same continuing Rng. Round 1 uses the
+      // corpus population's own votes; later rounds re-draw VOTES ONLY via
+      // generateVotes (not a full generatePopulation), so the redraw doesn't
+      // consume post-generation RNG — otherwise postCount would perturb
+      // later-round votes even though the corpus is fixed. Only votes are
+      // seeded (the fixed corpus is already in place).
       const roundVotes =
         round === 1
           ? population.votes
-          : generatePopulation(this.deps.rng, this.deps.clock, scenario.population).votes;
+          : generateVotes(this.deps.rng, population.subscribers, scenario.population);
       record('votes_generated', { round, voteCount: roundVotes.length });
 
       await this.insertVotes(this.deps.db, { ...population, votes: roundVotes }, epochBeforeId, dualWrite);
       record('votes_seeded', { round, epochId: epochBeforeId });
+
+      // Guard the exact failure the single-cycle path guards (the aggregateVotes
+      // null-check in runEpochVoteCycle): a round with zero eligible weight votes
+      // makes aggregateVotes return null, and forceEpochTransition then silently
+      // keeps the prior epoch's weights — which this loop would record as
+      // l2Displacement 0, a *false* "converged" signal. Fail loud instead.
+      // (forceEpochTransition re-aggregates internally; this explicit call
+      // mirrors the single-cycle path and is what makes the convergence metric
+      // trustworthy.)
+      const roundAgg = await withTimeout(
+        aggregateVotes(epochBeforeId),
+        timeoutMs,
+        `aggregateVotes[round ${round}]`
+      );
+      if (!roundAgg) {
+        throw new Error(
+          `Simulation.runMultiEpochCycle(): aggregateVotes(${epochBeforeId}) returned null in round ${round} — ` +
+            `no eligible weight votes were seeded, so this round carries no convergence signal (keyword/topic ` +
+            `votes alone cannot move the weight vector). Increase castsWeightVoteRate / subscriberCount / ` +
+            `voteParticipationRate.`
+        );
+      }
 
       // Drive the REAL epoch-transition op — identical call to step 2 of
       // runEpochVoteCycle, just inside the loop. It internally aggregates
@@ -900,9 +937,10 @@ export class Simulation {
       action: string;
       epoch_id: number | null;
       details: Record<string, unknown> | null;
-      created_at: Date;
     }>(
-      `SELECT id, action, epoch_id, details, created_at
+      // created_at is deliberately not selected — see AuditLogRow's docstring
+      // (wall-clock insert time, excluded so the audit-log artifact is reproducible).
+      `SELECT id, action, epoch_id, details
        FROM governance_audit_log
        WHERE id > $1
        ORDER BY id ASC`,
@@ -914,7 +952,6 @@ export class Simulation {
       action: row.action,
       epochId: row.epoch_id,
       details: row.details,
-      createdAt: row.created_at.toISOString(),
     }));
   }
 }

@@ -205,7 +205,7 @@ describe('Simulation: multi-epoch-cycle integration', () => {
       if (!first.success) return;
       const firstResult = await new Simulation(first.data, buildSimulationDeps(909, startMs)).run();
       const firstRows = measureEpochSeries(firstResult);
-      const firstAuditActions = (firstResult.auditLog ?? []).map(({ createdAt, ...rest }) => rest);
+      const firstAudit = firstResult.auditLog ?? [];
 
       await resetHarnessData();
 
@@ -214,15 +214,15 @@ describe('Simulation: multi-epoch-cycle integration', () => {
       if (!second.success) return;
       const secondResult = await new Simulation(second.data, buildSimulationDeps(909, startMs)).run();
       const secondRows = measureEpochSeries(secondResult);
-      const secondAuditActions = (secondResult.auditLog ?? []).map(({ createdAt, ...rest }) => rest);
+      const secondAudit = secondResult.auditLog ?? [];
 
       expect(secondRows).toHaveLength(ROUNDS);
       expect(JSON.stringify(secondRows)).toBe(JSON.stringify(firstRows));
-      // Same audit trail content (ids reset by resetHarnessData's RESTART
-      // IDENTITY, so even the ids match) modulo wall-clock created_at, which
-      // this run intentionally excludes — see helpers.ts on why recency
-      // scoring (and only recency scoring) is allowed to read the real clock.
-      expect(JSON.stringify(secondAuditActions)).toBe(JSON.stringify(firstAuditActions));
+      // Same audit-trail content, ids included (resetHarnessData's RESTART
+      // IDENTITY resets the sequence). Compared directly with no field
+      // stripping: AuditLogRow no longer surfaces the wall-clock created_at, so
+      // the audit rows are inherently reproducible across runs.
+      expect(JSON.stringify(secondAudit)).toBe(JSON.stringify(firstAudit));
     } finally {
       vi.useRealTimers();
     }
