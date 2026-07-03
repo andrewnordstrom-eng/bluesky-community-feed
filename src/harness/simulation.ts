@@ -246,6 +246,12 @@ const INSERT_BATCH_SIZE = 500;
  *  concurrent pool connections and pending-promise memory on large-N runs. */
 const DUAL_WRITE_CONCURRENCY = 25;
 
+/** Compile-time exhaustiveness guard: reaching this with a non-`never` value is
+ *  a type error, so an unhandled discriminated-union case fails the build. */
+function assertNever(value: never, message: string): never {
+  throw new Error(`${message}: ${JSON.stringify(value)}`);
+}
+
 function chunk<T>(items: readonly T[], size: number): T[][] {
   const chunks: T[][] = [];
   for (let i = 0; i < items.length; i += size) {
@@ -346,9 +352,19 @@ export class Simulation {
     const modules = await loadGovernanceModules();
     modules.__resetPipelineState();
 
-    return this.scenario.kind === 'multi-epoch-cycle'
-      ? this.runMultiEpochCycle(modules)
-      : this.runEpochVoteCycle(modules);
+    // Exhaustive dispatch (not a ternary): a future third scenario kind must
+    // fail to compile here rather than silently fall through to the
+    // single-cycle path — the exact "a multi-epoch scenario silently runs one
+    // round = a convincing but wrong signal" foot-gun the original guard existed
+    // to prevent.
+    switch (this.scenario.kind) {
+      case 'epoch-vote-cycle':
+        return this.runEpochVoteCycle(modules);
+      case 'multi-epoch-cycle':
+        return this.runMultiEpochCycle(modules);
+      default:
+        return assertNever(this.scenario, 'Simulation.run(): unhandled scenario kind');
+    }
   }
 
   private async runEpochVoteCycle(modules: GovernanceModules): Promise<SimulationResult> {
@@ -430,17 +446,16 @@ export class Simulation {
    * code), looped, with per-round measurement layered on top rather than a
    * second implementation of the cycle itself.
    *
-   * Every round re-seeds a FRESH set of persona votes (`seedPopulation`,
-   * same as the single-cycle path) from the SAME continuing `Rng` — so the
-   * whole K-round run is still one deterministic sequence, not K independent
-   * ones — into a fresh `phase = 'voting'` epoch (`ensureActiveEpoch` reuses
-   * the epoch `forceEpochTransition` just created, which is left at its
-   * schema defaults `status = 'active'`/`phase = 'running'`, and forces it to
-   * `'voting'`). `population.subscriberCount`/`postCount` stay index-derived
-   * (population.ts), so re-generating them every round is idempotent —
-   * `seedPopulation`'s `ON CONFLICT` upserts keep the actual corpus fixed at
-   * that size regardless of `rounds`; only `governance_votes` (one fresh row
-   * per participating voter per round) and the audit trail grow with it.
+   * The community is FIXED and its votes CHURN: the corpus (subscribers,
+   * posts, engagement) is generated + seeded once up front via `seedCorpus`;
+   * each round then re-draws only a fresh set of persona votes from the SAME
+   * continuing `Rng` — so the whole K-round run is one deterministic sequence,
+   * not K independent ones — and seeds only those votes (`insertVotes`) into a
+   * fresh `phase = 'voting'` epoch (`ensureActiveEpoch` reuses the epoch
+   * `forceEpochTransition` just created and forces it to `'voting'`). Because
+   * only `governance_votes` (one fresh row per voter per round) and the audit
+   * trail grow with `rounds`, a long run stays cheap — no per-round corpus
+   * re-insert, and `post_engagement` is not rewritten each round.
    */
   private async runMultiEpochCycle(modules: GovernanceModules): Promise<SimulationResult> {
     if (this.scenario.kind !== 'multi-epoch-cycle') {
@@ -456,14 +471,30 @@ export class Simulation {
 
     const auditLogWatermarkId = await this.fetchAuditLogWatermarkId();
     const timeoutMs = this.deps.pipelineStepTimeoutMs ?? DEFAULT_PIPELINE_STEP_TIMEOUT_MS;
+    const dualWrite = {
+      writeVoteWeights,
+      dualWriteEnabled: config.GOVERNANCE_LONGTABLE_DUALWRITE_ENABLED,
+    };
 
-    // Round 1's displacement is measured against the harness's OWN bootstrap
-    // default (ensureActiveEpoch seeds equal weights) — the same reference
-    // point every voter's very first vote is actually cast against.
-    let previousWeights: GovernanceWeights = createDefaultGovernanceWeightRecord() as GovernanceWeights;
+    // Seed the fixed corpus ONCE. Round 1 reuses this population's own votes;
+    // later rounds re-draw from the continuing Rng (the regenerated corpus is
+    // byte-identical and discarded — only the votes differ and only votes are
+    // seeded, so members/posts/engagement stay fixed for the whole run).
+    const population = generatePopulation(this.deps.rng, this.deps.clock, scenario.population);
+    await this.seedCorpus(population);
+    record('corpus_seeded', {
+      subscriberCount: population.subscribers.length,
+      postCount: population.posts.length,
+    });
+
+    // Round 1's displacement baseline is the ACTUAL weights of the epoch it
+    // transitions from — set once epochBeforeId is known below. `ensureActiveEpoch`
+    // may create that epoch at the bootstrap defaults OR reuse a pre-existing
+    // one with different weights, so read it back rather than assuming the
+    // default (else convergence would be measured from the wrong reference point).
+    let previousWeights: GovernanceWeights | undefined;
 
     const rounds: EpochRoundResult[] = [];
-    let population: Population | undefined;
     let epochBeforeId = -1;
     let epochAfterId = -1;
 
@@ -472,21 +503,21 @@ export class Simulation {
       await ensureActiveTopics(this.deps.db, TOPIC_SLUGS);
       record('epoch_ensured', { round, epochId: epochBeforeId });
 
-      // Re-seeded every round from the SAME continuing Rng — a fresh draw of
-      // persona votes each round, not a replay of round 1's votes.
-      population = generatePopulation(this.deps.rng, this.deps.clock, scenario.population);
-      record('population_generated', {
-        round,
-        subscriberCount: population.subscribers.length,
-        postCount: population.posts.length,
-        voteCount: population.votes.length,
-      });
+      if (previousWeights === undefined) {
+        previousWeights = (await this.fetchEpochWeightsAndTopics(epochBeforeId)).weights;
+      }
 
-      await this.seedPopulation(population, epochBeforeId, {
-        writeVoteWeights,
-        dualWriteEnabled: config.GOVERNANCE_LONGTABLE_DUALWRITE_ENABLED,
-      });
-      record('population_seeded', { round, epochId: epochBeforeId });
+      // Fresh votes each round from the same continuing Rng — round 1 uses the
+      // corpus population's own votes, later rounds re-draw. Only the votes are
+      // seeded (fixed corpus already in place).
+      const roundVotes =
+        round === 1
+          ? population.votes
+          : generatePopulation(this.deps.rng, this.deps.clock, scenario.population).votes;
+      record('votes_generated', { round, voteCount: roundVotes.length });
+
+      await this.insertVotes(this.deps.db, { ...population, votes: roundVotes }, epochBeforeId, dualWrite);
+      record('votes_seeded', { round, epochId: epochBeforeId });
 
       // Drive the REAL epoch-transition op — identical call to step 2 of
       // runEpochVoteCycle, just inside the loop. It internally aggregates
@@ -515,7 +546,7 @@ export class Simulation {
         round,
         epochBeforeId,
         epochAfterId,
-        voteCount: population.votes.length,
+        voteCount: roundVotes.length,
         weights,
         topicWeights,
         l2Displacement,
@@ -525,11 +556,10 @@ export class Simulation {
       previousWeights = weights;
     }
 
-    if (!population || rounds.length === 0) {
+    if (rounds.length === 0) {
       // Unreachable: ScenarioV1Schema enforces rounds >= 1, so the loop above
-      // always executes at least once — this guards against a silent
-      // `undefined` read below if that invariant is ever loosened without
-      // updating this.
+      // always executes at least once — this guards against a silent bad read
+      // below if that invariant is ever loosened without updating this.
       throw new Error('Simulation.runMultiEpochCycle(): scenario.rounds produced zero rounds');
     }
 
@@ -561,13 +591,25 @@ export class Simulation {
       dualWriteEnabled: boolean;
     }
   ): Promise<void> {
+    await this.seedCorpus(population);
+    await this.insertVotes(this.deps.db, population, epochId, voteWeightDualWrite);
+  }
+
+  /**
+   * Seed the fixed community + content — subscribers, posts, and post
+   * engagement — WITHOUT any votes. The single-cycle path runs it once via
+   * `seedPopulation`; the multi-epoch path calls it once up front and then
+   * re-seeds only votes each round, because a community's members and posts
+   * don't change epoch to epoch — only their votes do. All three inserts use
+   * `ON CONFLICT`, so a re-seed against an already-populated corpus is a
+   * no-op for a fixed, deterministic corpus.
+   */
+  private async seedCorpus(population: Population): Promise<void> {
     const { db } = this.deps;
 
     // Subscribers and posts/engagement are batched (multi-row `INSERT ...
     // VALUES (...),(...)`) rather than one awaited round trip per row — see
-    // `insertBatched` below. Votes are batched too, via `insertVotes` — see
-    // that method's docstring for why it uses `jsonb_to_recordset` instead
-    // of `insertBatched`'s `VALUES (...),(...)` form.
+    // `insertBatched` below.
     await insertBatched(
       db,
       population.subscribers,
@@ -602,8 +644,6 @@ export class Simulation {
                reply_count = EXCLUDED.reply_count`,
       params: batch.flatMap((post) => [post.uri, post.likeCount, post.repostCount, post.replyCount]),
     }));
-
-    await this.insertVotes(db, population, epochId, voteWeightDualWrite);
   }
 
   /**

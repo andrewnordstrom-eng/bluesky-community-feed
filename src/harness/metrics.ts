@@ -98,6 +98,14 @@ function round(value: number, decimals = 6): number {
   return Math.round(value * factor) / factor;
 }
 
+/** Fixed-decimal string for CSV cells. `Number.prototype.toString()` switches
+ *  to scientific notation for small magnitudes (e.g. a converged displacement
+ *  `1e-9`), which is a valid float but inconsistent with the plain-decimal rows
+ *  in the same column; `toFixed` keeps every cell in plain decimal. */
+function csvNumber(value: number, decimals: number): string {
+  return value.toFixed(decimals);
+}
+
 function readCodeVersion(): string {
   return process.env.npm_package_version ?? '0.0.0-unknown';
 }
@@ -263,17 +271,22 @@ function toEpochSeriesCsv(rows: readonly EpochSeriesRow[]): string {
       row.fromEpochId,
       row.toEpochId,
       row.voteCount,
-      row.weights.recency,
-      row.weights.engagement,
-      row.weights.bridging,
-      row.weights.sourceDiversity,
-      row.weights.relevance,
-      row.weightSum,
+      csvNumber(row.weights.recency, 6),
+      csvNumber(row.weights.engagement, 6),
+      csvNumber(row.weights.bridging, 6),
+      csvNumber(row.weights.sourceDiversity, 6),
+      csvNumber(row.weights.relevance, 6),
+      csvNumber(row.weightSum, 6),
       // Blank (not 0) when a topic had no votes that round — 0 is a valid
       // weight, so writing it here would misrepresent "no opinion cast" as
       // "the electorate voted this topic to zero".
-      ...TOPIC_SLUGS.map((slug) => row.topicWeights[slug] ?? ''),
-      row.l2Displacement,
+      ...TOPIC_SLUGS.map((slug) => {
+        const w = row.topicWeights[slug];
+        return w === undefined ? '' : csvNumber(w, 6);
+      }),
+      // 9dp matches measureEpochSeries' rounding; toFixed (not toString) so a
+      // tiny converged displacement renders as `0.000000001`, not `1e-9`.
+      csvNumber(row.l2Displacement, 9),
     ].join(',')
   );
   return `${EPOCH_SERIES_CSV_HEADER.join(',')}\n${lines.join('\n')}\n`;

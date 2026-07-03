@@ -120,7 +120,7 @@ describe('Simulation: multi-epoch-cycle integration', () => {
     // N=60 voters, tight enough that it would fail if convergence.ts's math
     // were broken or the population were NOT actually homogeneous (a mixed
     // 4-persona population's cross-round variance is roughly two orders of
-    // magnitude larger — see the population-comparison test below).
+    // magnitude larger).
     const VARIANCE_THRESHOLD = 5e-3;
 
     const deps = buildSimulationDeps(777);
