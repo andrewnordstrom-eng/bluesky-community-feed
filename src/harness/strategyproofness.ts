@@ -77,6 +77,22 @@
  * other n-1 voters alone rather than a blend that dilutes the focal voter's
  * own (moderate, non-extreme) sincere vote with more extreme peers.
  *
+ * Population choice — a search, not a cherry-pick: a 15-population search (5
+ * principled archetype mixes + 10 perturbations of the 3:3:2:1 ratio, each
+ * measured on the real `aggregateVotes`) found NO population that robustly
+ * improves on this baseline's n=10 effect. The intuitive "polarize the
+ * community against the focal voter's engagement preference to amplify the
+ * exploit" move BACKFIRED — removing engagement-favoring peers reverses the
+ * sign (manipulation stops paying), because the exploit's leverage comes
+ * precisely from the focal's corner vote displacing an engagement-maximizer
+ * peer out of the top-trim slot; with no such peer to displace, the focal's
+ * own extreme vote is simply trimmed and nothing is gained. The one
+ * marginally-larger candidate found (+0.068 vs +0.066) also "paid" at n=8 (no
+ * trim), contradicting the trim-specific mechanism above, so it was rejected
+ * as narratively incoherent. This baseline is the largest robust,
+ * mechanism-consistent effect found — reported as such rather than fitting the
+ * population to a bigger headline number.
+ *
  * What this does NOT claim: this is evidence about THIS aggregator against
  * THESE populations, not a general strategyproofness theorem about trimmed
  * means. A different population, a different focal preference, or a
