@@ -452,8 +452,13 @@ export class Simulation {
       bridging_weight: vote.weights?.bridging ?? null,
       source_diversity_weight: vote.weights?.sourceDiversity ?? null,
       relevance_weight: vote.weights?.relevance ?? null,
-      include_keywords: vote.includeKeywords,
-      exclude_keywords: vote.excludeKeywords,
+      // Mirror routes/vote.ts:379-380 exactly: an empty keyword list is stored
+      // as NULL, not `{}`. Harmless today (every consumer filters with
+      // `array_length(...) > 0`, and `array_length('{}', 1) IS NULL`), but a
+      // future `IS NULL` consumer would see `{}` and NULL differently — so keep
+      // the harness byte-for-byte faithful to what the real route writes.
+      include_keywords: vote.includeKeywords.length > 0 ? vote.includeKeywords : null,
+      exclude_keywords: vote.excludeKeywords.length > 0 ? vote.excludeKeywords : null,
       topic_weight_votes: Object.keys(vote.topicWeights).length > 0 ? vote.topicWeights : null,
     }));
 
@@ -489,6 +494,29 @@ export class Simulation {
       for (const row of inserted.rows) {
         voteIdByVoterDid.set(row.voter_did, row.id);
       }
+    }
+
+    // Fail loud if any row was silently skipped. `ON CONFLICT (voter_did,
+    // epoch_id) DO NOTHING` drops a row (absent from RETURNING) when a vote
+    // already exists for that DID+epoch — e.g. a second Simulation.run()
+    // reusing an active/voting epoch (ensureActiveEpoch does reuse) with
+    // overlapping index-derived subscriber DIDs. A dropped row means its
+    // dual-write below no-ops and `population.votes` diverges from what's
+    // actually in Postgres / what aggregateVotes reads, with zero signal —
+    // exactly the untrustworthy-output failure this harness exists to prevent.
+    // Same fail-loud convention as assertVotesAreRouteValid.
+    if (voteIdByVoterDid.size !== rows.length) {
+      const missing = rows
+        .map((row) => row.voter_did)
+        .filter((did) => !voteIdByVoterDid.has(did));
+      throw new Error(
+        `Simulation.insertVotes(): ${rows.length - voteIdByVoterDid.size} of ${rows.length} generated ` +
+          `vote(s) were not inserted into governance_votes for epoch ${epochId} — ON CONFLICT ` +
+          `(voter_did, epoch_id) skipped them, so a vote already existed for that DID+epoch (a reused ` +
+          `epoch across runs, or a duplicate voter_did in the generated population). Downstream ` +
+          `dual-write and aggregation would silently diverge from population.votes. ` +
+          `Missing DIDs (first 10): ${missing.slice(0, 10).join(', ') || '(none — duplicate DIDs in batch)'}`
+      );
     }
 
     if (!voteWeightDualWrite.dualWriteEnabled) {

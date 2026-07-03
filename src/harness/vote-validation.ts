@@ -16,6 +16,16 @@
  *   6. the epoch currently accepting votes must have phase = 'voting'
  *      (409 VotingClosed)
  *
+ * KNOWN, INTENTIONAL EXCLUSION: the route has one further gate —
+ * `if (config.FEED_PRIVATE_MODE) { isParticipantApproved(voterDid) }`
+ * (vote.ts:243-248, 403 Forbidden for unapproved participants). This shim
+ * does NOT model it, because `FEED_PRIVATE_MODE` defaults false (config.ts)
+ * and the harness never enables it — the synthetic community is public by
+ * construction. If a harness scenario ever flips that flag, add a
+ * participant-approval field to `VoteValidationContext` and the check here;
+ * until then, this exclusion is why the "route's exact checks" list is 6, not
+ * 7 (documented so the "faithfully rebuilds" claim below doesn't overstate).
+ *
  * vote.ts's `VoteSchema` isn't exported (route-local), so this module
  * faithfully rebuilds it from the SAME registry `vote.ts` itself builds
  * from (`VOTABLE_WEIGHT_PARAMS` / `GOVERNANCE_WEIGHT_VOTE_FIELDS`) rather
