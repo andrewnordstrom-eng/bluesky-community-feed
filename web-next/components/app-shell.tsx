@@ -152,7 +152,7 @@ export function AppShell({ user = null, children }: AppShellProps) {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => logout()}
+                  onClick={() => { logout().catch(() => {}) }}
                   className="hidden sm:flex text-foreground/55 hover:text-foreground text-xs"
                 >
                   Sign out
@@ -240,7 +240,7 @@ export function AppShell({ user = null, children }: AppShellProps) {
                 <>
                   <span className="px-4 text-xs font-mono text-foreground/45">@{authedUser.handle}</span>
                   <button
-                    onClick={() => { setMobileMenuOpen(false); logout() }}
+                    onClick={() => { setMobileMenuOpen(false); logout().catch(() => {}) }}
                     className="px-4 py-3 text-sm font-medium text-foreground/60 hover:text-foreground text-left rounded-xl hover:bg-accent/60 transition-colors"
                   >
                     Sign out

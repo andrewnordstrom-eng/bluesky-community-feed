@@ -270,7 +270,7 @@ export default function DashboardPage() {
               <SectionHeader label="What changed" />
               <EmptyState heading="Round comparison unavailable" body="We need at least two governance rounds to show what changed between them." showCorgi={false} />
             </>
-          ) : diff.weight_changes.length === 0 && diff.keywords_added.include.length === 0 && diff.keywords_removed.exclude.length === 0 ? (
+          ) : diff.weight_changes.length === 0 && diff.keywords_added.include.length === 0 && diff.keywords_added.exclude.length === 0 && diff.keywords_removed.include.length === 0 && diff.keywords_removed.exclude.length === 0 ? (
             <>
               <SectionHeader
                 label={`What changed — round ${diff.previous_round} → ${diff.current_round}`}
@@ -306,12 +306,14 @@ export default function DashboardPage() {
                     </div>
                   </div>
                 )}
-                {(diff.keywords_added.include.length > 0 || diff.keywords_removed.exclude.length > 0) && (
+                {(diff.keywords_added.include.length > 0 || diff.keywords_added.exclude.length > 0 || diff.keywords_removed.include.length > 0 || diff.keywords_removed.exclude.length > 0) && (
                   <div className="p-5 flex flex-col gap-3">
                     <p className="text-xs font-semibold text-foreground/50 uppercase tracking-wide">Content rule changes</p>
                     <div className="flex flex-wrap gap-2">
-                      {diff.keywords_added.include.map((w) => <KeywordChip key={w} word={w} variant="add" />)}
-                      {diff.keywords_removed.exclude.map((w) => <KeywordChip key={w} word={w} variant="remove" />)}
+                      {diff.keywords_added.include.map((w) => <KeywordChip key={`ai-${w}`} word={w} variant="add" />)}
+                      {diff.keywords_added.exclude.map((w) => <KeywordChip key={`ae-${w}`} word={w} variant="add" />)}
+                      {diff.keywords_removed.include.map((w) => <KeywordChip key={`ri-${w}`} word={w} variant="remove" />)}
+                      {diff.keywords_removed.exclude.map((w) => <KeywordChip key={`re-${w}`} word={w} variant="remove" />)}
                     </div>
                   </div>
                 )}

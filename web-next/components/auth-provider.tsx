@@ -42,7 +42,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logoutMutation = useMutation({
     mutationFn: () => authApi.logout(),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: SESSION_QUERY_KEY }),
+    onSuccess: () => queryClient.resetQueries({ queryKey: SESSION_QUERY_KEY }),
   })
 
   const login = useCallback(
