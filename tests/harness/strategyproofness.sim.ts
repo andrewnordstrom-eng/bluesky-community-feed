@@ -265,4 +265,39 @@ describe('strategyproofness (PROJ-1485 / A4): real trimmed-mean aggregateVotes m
     },
     120_000
   );
+
+  it('rejects a mismatched population (guards a silent off-by-one in otherReports / subscriberDids)', async () => {
+    const dids = subscriberDids.slice(0, 10);
+    // The guards run before any DB work, so dummy epoch ids are never reached.
+    // otherReports too short for n:
+    await expect(
+      runStrategyproofnessTrial(
+        { db },
+        {
+          n: 10,
+          focalTrue: SEED_FOCAL_TRUE,
+          focalCorner: SEED_FOCAL_CORNER,
+          otherReports: buildOtherVoterReports(3),
+          subscriberDids: dids,
+          sincereEpochId: -1,
+          strategicEpochId: -1,
+        }
+      )
+    ).rejects.toThrow(/otherReports must have length n-1/);
+    // subscriberDids the wrong length for n:
+    await expect(
+      runStrategyproofnessTrial(
+        { db },
+        {
+          n: 10,
+          focalTrue: SEED_FOCAL_TRUE,
+          focalCorner: SEED_FOCAL_CORNER,
+          otherReports: buildOtherVoterReports(9),
+          subscriberDids: dids.slice(0, 5),
+          sincereEpochId: -1,
+          strategicEpochId: -1,
+        }
+      )
+    ).rejects.toThrow(/subscriberDids must have length n/);
+  });
 });

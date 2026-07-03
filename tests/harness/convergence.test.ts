@@ -75,7 +75,7 @@ describe('l2Distance', () => {
 
 describe('l1Distance', () => {
   it('is 0 for two identical vectors', () => {
-    const weights = createDefaultGovernanceWeightRecord() as GovernanceWeights;
+    const weights = createDefaultGovernanceWeightRecord();
     expect(l1Distance(weights, { ...weights })).toBe(0);
   });
 
