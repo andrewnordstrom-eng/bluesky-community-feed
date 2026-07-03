@@ -55,6 +55,7 @@ import {
   authorHHI,
   authorGini,
   distortionRatio,
+  type FeedPostInfo,
 } from '../../src/harness/feed-metrics.js';
 import { resetHarnessData, HARNESS_FIXED_CLOCK_MS } from './helpers.js';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
@@ -62,6 +63,24 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 const SEED = 90210;
+
+/**
+ * Look up a feed entry's corpus post info, failing loudly with the offending
+ * uri if it's missing — a non-null `!` assertion here would silently become
+ * `undefined`, surfacing later (inside a metric function) as a confusing
+ * "Cannot read properties of undefined" with no indication of which uri or
+ * which feed/regime was responsible. Every feed uri is expected to join back
+ * to `corpusPostInfo` (the same corpus every regime is scored against), so a
+ * miss here means the seeded corpus and a regime's scored feed have
+ * diverged — a bug worth surfacing at the join, not deep in a metric.
+ */
+function requirePostInfo(postInfoByUri: ReadonlyMap<string, FeedPostInfo>, uri: string): FeedPostInfo {
+  const info = postInfoByUri.get(uri);
+  if (!info) {
+    throw new Error(`requirePostInfo: uri "${uri}" is missing from corpusPostInfo — seeded corpus and scored feed have diverged`);
+  }
+  return info;
+}
 
 const POPULATION_CONFIG = {
   subscriberCount: 60,
@@ -145,7 +164,7 @@ describe('baseline comparison (PROJ-1486 / A5): three regimes on one fixed corpu
 
     const postInfoByUri = new Map(result.corpusPostInfo.map((post) => [post.uri, post]));
     const feedPostInfo = (regime: RegimeName) =>
-      result.regimes[regime].feed.map((entry) => postInfoByUri.get(entry.uri)!);
+      result.regimes[regime].feed.map((entry) => requirePostInfo(postInfoByUri, entry.uri));
 
     const engagementHHI = authorHHI(feedPostInfo('engagement-only'));
     const governedHHI = authorHHI(feedPostInfo('community-governed'));
@@ -184,7 +203,7 @@ describe('baseline comparison (PROJ-1486 / A5): three regimes on one fixed corpu
 
     const postInfoByUri = new Map(result.corpusPostInfo.map((post) => [post.uri, post]));
     for (const name of REGIME_NAMES) {
-      const feedPosts = result.regimes[name].feed.map((entry) => postInfoByUri.get(entry.uri)!);
+      const feedPosts = result.regimes[name].feed.map((entry) => requirePostInfo(postInfoByUri, entry.uri));
       const { exposure, classifiedCount, totalCount } = minorityTopicExposure(
         feedPosts,
         result.corpusTopicSupport,
@@ -194,6 +213,22 @@ describe('baseline comparison (PROJ-1486 / A5): three regimes on one fixed corpu
       expect(exposure).toBeLessThanOrEqual(1);
       expect(classifiedCount).toBeLessThanOrEqual(totalCount);
     }
+  });
+
+  it('throws the descriptive "no eligible weight votes" error when the electorate casts no weight votes', async () => {
+    // castsWeightVoteRate: 0 -> every seeded vote has weights: null (see
+    // population.ts's generateVotes), so seedGovernedVotes's own
+    // population.votes.length guard doesn't trip (voteParticipationRate is
+    // still 1, so votes ARE cast — just none carry a weight opinion), but the
+    // real aggregateVotes sees 0 weight-bearing votes for the epoch and
+    // returns null, which runBaselineComparison surfaces as this descriptive
+    // error rather than a generic downstream failure.
+    const noWeightVotesConfig = { ...POPULATION_CONFIG, castsWeightVoteRate: 0 };
+    const deps = { db, rng: createRng(SEED), clock: new SeededClock(HARNESS_FIXED_CLOCK_MS) };
+
+    await expect(runBaselineComparison(deps, { populationConfig: noWeightVotesConfig, topK: 50 })).rejects.toThrow(
+      /no eligible weight votes/
+    );
   });
 
   it('determinism: the same seed reproduces identical feed-metric output across two independent runs', async () => {
@@ -224,7 +259,7 @@ describe('baseline comparison (PROJ-1486 / A5): three regimes on one fixed corpu
       const postInfoByUri = new Map(result.corpusPostInfo.map((post) => [post.uri, post]));
       const summaryRows: RegimeSummaryCsvRow[] = REGIME_NAMES.map((name) => {
         const regime = result.regimes[name];
-        const feedPosts = regime.feed.map((entry) => postInfoByUri.get(entry.uri)!);
+        const feedPosts = regime.feed.map((entry) => requirePostInfo(postInfoByUri, entry.uri));
         const { exposure } = minorityTopicExposure(feedPosts, result.corpusTopicSupport, 0.15);
         return {
           regime: name,

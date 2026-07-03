@@ -104,6 +104,11 @@ describe('kendallTauDistance', () => {
   it('throws with fewer than 2 shared posts', () => {
     expect(() => kendallTauDistance(feed(['p1']), feed(['p1']))).toThrow(/at least 2 shared/);
   });
+
+  it('throws on an empty feed', () => {
+    expect(() => kendallTauDistance([], feed(['p1']))).toThrow(/non-empty/);
+    expect(() => kendallTauDistance(feed(['p1']), [])).toThrow(/non-empty/);
+  });
 });
 
 describe('dominantTopic', () => {
@@ -173,6 +178,26 @@ describe('buildCorpusTopicSupport', () => {
       { uri: 'p4', authorDid: 'a', topicVector: { music: 1 } },
     ];
     expect(buildCorpusTopicSupport(posts)).toEqual({ sports: 2, music: 1 });
+  });
+
+  // Regression coverage for the dominant-topic tie-break this function
+  // delegates to `dominantTopic` — previously reimplemented inline in
+  // baseline-comparison.ts's corpus-topic-support loop (now replaced by a
+  // direct call to this function), so an empty topicVector and an
+  // equal-weight tie must resolve identically here to what that inline loop
+  // used to compute.
+  it('excludes a post with an empty topicVector entirely (not counted under any slug)', () => {
+    const posts: FeedPostInfo[] = [{ uri: 'p1', authorDid: 'a', topicVector: {} }];
+    expect(buildCorpusTopicSupport(posts)).toEqual({});
+  });
+
+  it('breaks an equal-weight tie by ascending slug name, same as dominantTopic', () => {
+    const posts: FeedPostInfo[] = [
+      { uri: 'p1', authorDid: 'a', topicVector: { zzz: 0.5, aaa: 0.5 } },
+      { uri: 'p2', authorDid: 'a', topicVector: { sports: 0.5, music: 0.5 } },
+    ];
+    // p1 ties zzz/aaa -> aaa wins; p2 ties sports/music -> music wins.
+    expect(buildCorpusTopicSupport(posts)).toEqual({ aaa: 1, music: 1 });
   });
 });
 
@@ -278,6 +303,12 @@ describe('distortionRatio', () => {
     const treatment = feed(['p1']);
     const scoreByUri = new Map([['p1', 0]]);
     expect(() => distortionRatio(treatment, reference, scoreByUri)).toThrow(/division by zero/);
+  });
+
+  it('throws on an empty treatment or reference feed', () => {
+    const scoreByUri = new Map([['p1', 10]]);
+    expect(() => distortionRatio([], feed(['p1']), scoreByUri)).toThrow(/non-empty/);
+    expect(() => distortionRatio(feed(['p1']), [], scoreByUri)).toThrow(/non-empty/);
   });
 });
 

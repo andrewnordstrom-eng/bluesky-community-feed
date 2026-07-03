@@ -118,7 +118,7 @@ import { validateVote, type VoteValidationContext } from './vote-validation.js';
 import { createDefaultGovernanceWeightRecord } from '../config/votable-params.js';
 import { weightsToVotePayload, normalizeWeights } from '../governance/governance.types.js';
 import type { GovernanceWeights } from '../shared/api-types.js';
-import type { FeedEntry, FeedPostInfo } from './feed-metrics.js';
+import { buildCorpusTopicSupport, type FeedEntry, type FeedPostInfo } from './feed-metrics.js';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -347,6 +347,24 @@ async function seedGovernedVotes(
   population: Population,
   epochId: number
 ): Promise<void> {
+  // Config-precondition guard: if reads are long-table-sourced but dual-write
+  // is off, `aggregateVotes` (src/governance/aggregation.ts) reads
+  // `governance_vote_weights` — a table this function never wrote a row into
+  // — and sees 0 eligible weight votes no matter how many votes are seeded
+  // below. Left unchecked, that surfaces downstream as
+  // `runBaselineComparison`'s generic "aggregateVotes returned null ... no
+  // eligible weight votes" error, which points an operator at
+  // participation-rate config instead of the real cause: these two flags
+  // disagreeing. Fail here, before any vote is seeded, naming both flags.
+  if (modules.config.GOVERNANCE_LONGTABLE_READ_ENABLED && !modules.config.GOVERNANCE_LONGTABLE_DUALWRITE_ENABLED) {
+    throw new Error(
+      'seedGovernedVotes: GOVERNANCE_LONGTABLE_READ_ENABLED is on but GOVERNANCE_LONGTABLE_DUALWRITE_ENABLED is ' +
+        'off — aggregateVotes will read the (empty) governance_vote_weights long table and see 0 eligible weight ' +
+        'votes regardless of how many votes are seeded here. Enable GOVERNANCE_LONGTABLE_DUALWRITE_ENABLED (or ' +
+        'disable GOVERNANCE_LONGTABLE_READ_ENABLED) so seeded votes are visible to the real aggregation path.'
+    );
+  }
+
   if (population.votes.length === 0) {
     throw new Error(
       'seedGovernedVotes: population.votes is empty — the community-governed regime needs at least one ' +
@@ -663,16 +681,11 @@ export async function runBaselineComparison(
     await closeRegimeEpoch(db, epochId);
   }
 
-  const corpusTopicSupport: Record<string, number> = {};
-  for (const post of corpusPostInfo) {
-    const entries = Object.entries(post.topicVector);
-    if (entries.length === 0) continue;
-    entries.sort(([slugA, weightA], [slugB, weightB]) =>
-      weightB !== weightA ? weightB - weightA : slugA < slugB ? -1 : slugA > slugB ? 1 : 0
-    );
-    const topSlug = entries[0][0];
-    corpusTopicSupport[topSlug] = (corpusTopicSupport[topSlug] ?? 0) + 1;
-  }
+  // Dominant-topic tie-break is centralized in feed-metrics.ts's
+  // buildCorpusTopicSupport (via dominantTopic) — reuse it here instead of
+  // reimplementing the same sort/tie-break inline, so there is exactly one
+  // place that decides a post's dominant topic.
+  const corpusTopicSupport: Record<string, number> = buildCorpusTopicSupport(corpusPostInfo);
 
   return {
     population,
