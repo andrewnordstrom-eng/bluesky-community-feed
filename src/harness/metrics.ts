@@ -258,16 +258,16 @@ export async function writeArtifacts(baseDir: string, artifacts: RunArtifacts): 
  *  this harness's fixed synthetic taxonomy, so the header stays in sync with
  *  whatever slugs `aggregateTopicWeights` could actually have voted on,
  *  without hardcoding a stale copy of the list here. */
+// Weight columns come from GOVERNANCE_WEIGHT_KEYS (the registry), and the row
+// values below index by those same keys — so the header and the values stay in
+// lockstep, there are no hardcoded `.recency`/`.engagement`/... accesses to
+// mistype, and a newly-registered component appears automatically.
 const EPOCH_SERIES_CSV_HEADER = [
   'round',
   'fromEpochId',
   'toEpochId',
   'voteCount',
-  'recency',
-  'engagement',
-  'bridging',
-  'sourceDiversity',
-  'relevance',
+  ...GOVERNANCE_WEIGHT_KEYS,
   'weightSum',
   ...TOPIC_SLUGS.map((slug) => `topic_${slug}`),
   'l2Displacement',
@@ -280,11 +280,7 @@ function toEpochSeriesCsv(rows: readonly EpochSeriesRow[]): string {
       row.fromEpochId,
       row.toEpochId,
       row.voteCount,
-      csvNumber(row.weights.recency, 6),
-      csvNumber(row.weights.engagement, 6),
-      csvNumber(row.weights.bridging, 6),
-      csvNumber(row.weights.sourceDiversity, 6),
-      csvNumber(row.weights.relevance, 6),
+      ...GOVERNANCE_WEIGHT_KEYS.map((key) => csvNumber(row.weights[key], 6)),
       csvNumber(row.weightSum, 6),
       // Blank (not 0) when a topic had no votes that round — 0 is a valid
       // weight, so writing it here would misrepresent "no opinion cast" as
