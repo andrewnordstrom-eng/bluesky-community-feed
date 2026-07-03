@@ -2,49 +2,16 @@
 
 import { Suspense, useState } from "react"
 import Link from "next/link"
-import { useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
+import { useQuery } from "@tanstack/react-query"
+import axios from "axios"
 import { AppShell } from "@/components/app-shell"
 import { ScoreBreakdown, type ScoreComponent } from "@/components/ui/score-breakdown"
 import { ScoreRadar, type RadarSignal } from "@/components/ui/score-radar"
 import { WeightBar } from "@/components/ui/weight-bar"
 import { Skeleton, EmptyState, ErrorCard } from "@/components/ui/state-kit"
 import { Button } from "@/components/ui/button"
-
-/* ─── Mock data — exact field names from the brief seam ─── */
-
-const MOCK_EXPLANATION = {
-  post_uri: "at://did:plc:abc123/app.bsky.feed.post/xyz789",
-  epoch_id: 47,
-  epoch_description: "Community round 47",
-  total_score: 0.57,
-  rank: 3,
-  components: {
-    recency:          { raw_score: 0.82, weight: 0.35, weighted: 0.287 },
-    engagement:       { raw_score: 0.61, weight: 0.25, weighted: 0.153 },
-    bridging:         { raw_score: 0.44, weight: 0.20, weighted: 0.088 },
-    source_diversity: { raw_score: 0.29, weight: 0.15, weighted: 0.044 },
-    relevance:        { raw_score: 0.40, weight: 0.05, weighted: 0.020,
-      topicBreakdown: {
-        "machine-learning": { postScore: 0.80, communityWeight: 0.62, contribution: 0.012 },
-        "open-source":      { postScore: 0.65, communityWeight: 0.45, contribution: 0.007 },
-      },
-    },
-  },
-  governance_weights: {
-    recency: 0.35,
-    engagement: 0.25,
-    bridging: 0.20,
-    source_diversity: 0.15,
-    relevance: 0.05,
-  },
-  counterfactual: {
-    pure_engagement_rank: 9,
-    community_governed_rank: 3,
-    difference: 6,
-  },
-  scored_at: "2026-06-26T12:00:00Z",
-  component_details: null,
-}
+import { transparencyApi } from "@/lib/api/client"
 
 /* ─── Signal metadata ──────────────────────────────────── */
 
@@ -301,14 +268,41 @@ function PostExplanationSkeleton() {
 /* ─── Page ─────────────────────────────────────────────── */
 
 function PostExplanationInner() {
+  const router = useRouter()
   const searchParams = useSearchParams()
   const uri = searchParams.get("uri") ?? ""
-  const [pageState, setPageState] = useState<PageState>(
-    uri ? "loaded" : "missing-uri"
-  )
   const [copied, setCopied] = useState(false)
 
-  const explanation = MOCK_EXPLANATION
+  // Real explanation fetch. Disabled until a URI is present. A 404 from the
+  // backend means the post has no score in the active round (or there is no
+  // active round) — a legitimate "couldn't explain" state, distinct from a
+  // transport/server failure which surfaces as the retryable error card.
+  const postQuery = useQuery({
+    queryKey: ["post-explain", uri],
+    queryFn: () => transparencyApi.getPostExplanation(uri),
+    enabled: uri !== "",
+    retry: false,
+  })
+
+  const explanation = postQuery.data
+
+  const derivedState: PageState = !uri
+    ? "missing-uri"
+    : postQuery.isLoading
+      ? "loading"
+      : postQuery.isError
+        ? axios.isAxiosError(postQuery.error) && postQuery.error.response?.status === 404
+          ? "null-explanation"
+          : "error"
+        : explanation
+          ? "loaded"
+          : "loading"
+
+  // Dev-only override lets the state switcher below preview each chrome; in
+  // production the switcher is not rendered, so the override is always null.
+  const [devOverride, setDevOverride] = useState<PageState | null>(null)
+  const pageState = devOverride ?? derivedState
+
   const decodedUri = uri ? formatUri(uri) : null
   const bskyUrl = decodedUri ? blueskyUrl(uri) : null
 
@@ -320,35 +314,36 @@ function PostExplanationInner() {
     }).catch(() => {})
   }
 
-  /* Build component array for ScoreBreakdown */
-  const scoreComponents: ScoreComponent[] = Object.entries(explanation.components).map(
-    ([key, c]) => ({
-      key,
-      label: SIGNAL_META[key]?.label ?? key,
-      raw_score: c.raw_score,
-      weight: c.weight,
-      weighted: c.weighted,
-    })
-  )
+  /* Build component array for ScoreBreakdown (only when loaded) */
+  const scoreComponents: ScoreComponent[] = explanation
+    ? Object.entries(explanation.components).map(([key, c]) => ({
+        key,
+        label: SIGNAL_META[key]?.label ?? key,
+        raw_score: c.raw_score,
+        weight: c.weight,
+        weighted: c.weighted,
+      }))
+    : []
 
   /* Build radar signals */
-  const radarSignals: RadarSignal[] = Object.entries(explanation.components).map(
-    ([key, c]) => ({
-      key,
-      label: SIGNAL_META[key]?.label ?? key,
-      post: c.raw_score,
-      governance: explanation.governance_weights[key as keyof typeof explanation.governance_weights] ?? 0,
-    })
-  )
+  const radarSignals: RadarSignal[] = explanation
+    ? Object.entries(explanation.components).map(([key, c]) => ({
+        key,
+        label: SIGNAL_META[key]?.label ?? key,
+        post: c.raw_score,
+        governance:
+          explanation.governance_weights[key as keyof typeof explanation.governance_weights] ?? 0,
+      }))
+    : []
 
   /* Collect topic breakdown rows from relevance component */
-  const topicBreakdown = explanation.components.relevance?.topicBreakdown ?? {}
+  const topicBreakdown = explanation?.components.relevance?.topicBreakdown ?? {}
   const hasTopics = Object.keys(topicBreakdown).length > 0
 
-  const cf = explanation.counterfactual
+  const cf = explanation?.counterfactual
 
   return (
-    <AppShell user={null}>
+    <AppShell>
       <div className="max-w-4xl mx-auto px-5 py-8 flex flex-col gap-6">
 
         {/* ── Back nav + URI header ──────────────────────── */}
@@ -413,7 +408,7 @@ function PostExplanationInner() {
             <EmptyState
               heading="No post URI provided"
               body="Paste an AT-URI or Bluesky post URL into the Explain a ranking field on the overview page."
-              action={{ label: "Back to overview", onClick: () => {} }}
+              action={{ label: "Back to overview", onClick: () => router.push("/dashboard") }}
             />
           </div>
         )}
@@ -426,7 +421,7 @@ function PostExplanationInner() {
           <ErrorCard
             heading="Could not load explanation"
             body="We were unable to retrieve the score breakdown for this post. It may not have been scored in the current round."
-            onRetry={() => setPageState("loaded")}
+            onRetry={() => { setDevOverride(null); void postQuery.refetch() }}
           />
         )}
 
@@ -437,13 +432,13 @@ function PostExplanationInner() {
               heading="This post could not be explained"
               body="The scoring model ran but did not produce a breakdown for this post. This can happen when a post was filtered before scoring or was scored in a different round."
               showCorgi
-              action={{ label: "Back to overview", onClick: () => {} }}
+              action={{ label: "Back to overview", onClick: () => router.push("/dashboard") }}
             />
           </div>
         )}
 
         {/* ── State: loaded ──────────────────────────────── */}
-        {pageState === "loaded" && (
+        {pageState === "loaded" && explanation && cf && (
           <>
             {/* Hero: rank + total score + round */}
             <div className="rounded-xl border border-border bg-card p-6 flex items-center gap-6">
@@ -479,7 +474,7 @@ function PostExplanationInner() {
                 <ScoreBreakdown
                   components={scoreComponents}
                   total_score={explanation.total_score}
-                  epochLabel={explanation.epoch_description}
+                  epochLabel={explanation.epoch_description ?? undefined}
                 />
                 {/* Inline contribution cue per brief opportunity */}
                 <p className="text-[11px] text-foreground/40 italic mt-4 leading-relaxed">
@@ -597,7 +592,7 @@ function PostExplanationInner() {
                 {(["loaded", "loading", "error", "missing-uri", "null-explanation"] as PageState[]).map((s) => (
                   <button
                     key={s}
-                    onClick={() => setPageState(s)}
+                    onClick={() => setDevOverride(s)}
                     className={`text-[10px] px-2 py-0.5 rounded border font-mono transition-colors
                       ${pageState === s
                         ? "bg-primary text-primary-foreground border-primary"

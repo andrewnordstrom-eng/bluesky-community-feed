@@ -1,14 +1,16 @@
 "use client"
 
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import Link from "next/link"
+import { useQuery } from "@tanstack/react-query"
 import { AppShell } from "@/components/app-shell"
 import { WeightBar } from "@/components/ui/weight-bar"
 import { ScoreRadar, type RadarSignal } from "@/components/ui/score-radar"
 import { StatusChip } from "@/components/ui/status-chip"
 import { WeightsSkeleton, EmptyState, ErrorCard, Skeleton } from "@/components/ui/state-kit"
+import { transparencyApi, type EpochResponse, type AuditLogEntry } from "@/lib/api/client"
 
-/* ─── Mock data (exact field names from the brief seam) ── */
+/* ─── Constants ────────────────────────────────────────── */
 
 const WEIGHT_LABELS: Record<string, string> = {
   recency: "Recency",
@@ -18,121 +20,56 @@ const WEIGHT_LABELS: Record<string, string> = {
   relevance: "Relevance",
 }
 
-type Phase = "voting" | "review" | "running" | "live" | "waiting" | "closed"
+const AUDIT_PAGE_SIZE = 25
 
-interface Epoch {
+/* ─── Derived view model ────────────────────────────────────
+ * The API has no per-round diff endpoint, so — like the dashboard's
+ * deriveRoundDiff — we compute prev-weights and keyword deltas from the
+ * adjacent (next-older) epoch in the fetched history. */
+
+interface EpochView {
   id: number
   status: string
-  phase: Phase
+  phase: string
   vote_count: number
   subscriber_count: number
   created_at: string
   closed_at: string | null
   weights: Record<string, number>
   prev_weights?: Record<string, number>
-  keywords_added?: { include: string[]; exclude: string[] }
-  keywords_removed?: { include: string[]; exclude: string[] }
+  keywords_added: { include: string[]; exclude: string[] }
+  keywords_removed: { include: string[]; exclude: string[] }
 }
 
-interface AuditEntry {
-  id: number
-  action: string
-  actor_did: string | null
-  epoch_id: number
-  details: Record<string, unknown>
-  created_at: string
+function deriveEpochViews(epochs: EpochResponse[]): EpochView[] {
+  const sorted = [...epochs].sort((a, b) => b.id - a.id)
+  return sorted.map((epoch, i) => {
+    const prev = sorted[i + 1] // next-older round, or undefined for the oldest
+    const currInc = epoch.content_rules?.include_keywords ?? []
+    const prevInc = prev?.content_rules?.include_keywords ?? []
+    const currExc = epoch.content_rules?.exclude_keywords ?? []
+    const prevExc = prev?.content_rules?.exclude_keywords ?? []
+    return {
+      id: epoch.id,
+      status: epoch.status,
+      phase: epoch.phase ?? epoch.status,
+      vote_count: epoch.vote_count,
+      subscriber_count: epoch.subscriber_count ?? 0,
+      created_at: epoch.created_at,
+      closed_at: epoch.closed_at ?? null,
+      weights: epoch.weights as Record<string, number>,
+      prev_weights: prev ? (prev.weights as Record<string, number>) : undefined,
+      keywords_added: {
+        include: currInc.filter((w) => !prevInc.includes(w)),
+        exclude: currExc.filter((w) => !prevExc.includes(w)),
+      },
+      keywords_removed: {
+        include: prevInc.filter((w) => !currInc.includes(w)),
+        exclude: prevExc.filter((w) => !currExc.includes(w)),
+      },
+    }
+  })
 }
-
-const MOCK_EPOCHS: Epoch[] = [
-  {
-    id: 47,
-    status: "voting",
-    phase: "voting",
-    vote_count: 312,
-    subscriber_count: 480,
-    created_at: "2026-06-25T00:00:00Z",
-    closed_at: null,
-    weights: { recency: 0.35, engagement: 0.25, bridging: 0.20, source_diversity: 0.15, relevance: 0.05 },
-    prev_weights: { recency: 0.30, engagement: 0.30, bridging: 0.20, source_diversity: 0.10, relevance: 0.10 },
-    keywords_added:   { include: ["ai", "governance"], exclude: [] },
-    keywords_removed: { include: [],                   exclude: ["nft", "crypto"] },
-  },
-  {
-    id: 46,
-    status: "closed",
-    phase: "closed",
-    vote_count: 289,
-    subscriber_count: 461,
-    created_at: "2026-06-18T00:00:00Z",
-    closed_at: "2026-06-24T17:00:00Z",
-    weights: { recency: 0.30, engagement: 0.30, bridging: 0.20, source_diversity: 0.10, relevance: 0.10 },
-    prev_weights: { recency: 0.30, engagement: 0.30, bridging: 0.20, source_diversity: 0.10, relevance: 0.10 },
-    keywords_added:   { include: [], exclude: ["nft"] },
-    keywords_removed: { include: [], exclude: [] },
-  },
-  {
-    id: 45,
-    status: "closed",
-    phase: "closed",
-    vote_count: 304,
-    subscriber_count: 448,
-    created_at: "2026-06-11T00:00:00Z",
-    closed_at: "2026-06-17T17:00:00Z",
-    weights: { recency: 0.30, engagement: 0.30, bridging: 0.20, source_diversity: 0.10, relevance: 0.10 },
-    prev_weights: { recency: 0.25, engagement: 0.35, bridging: 0.20, source_diversity: 0.10, relevance: 0.10 },
-    keywords_added:   { include: [], exclude: [] },
-    keywords_removed: { include: [], exclude: [] },
-  },
-  {
-    id: 44,
-    status: "closed",
-    phase: "closed",
-    vote_count: 271,
-    subscriber_count: 431,
-    created_at: "2026-06-04T00:00:00Z",
-    closed_at: "2026-06-10T17:00:00Z",
-    weights: { recency: 0.25, engagement: 0.35, bridging: 0.20, source_diversity: 0.10, relevance: 0.10 },
-    prev_weights: { recency: 0.25, engagement: 0.35, bridging: 0.20, source_diversity: 0.10, relevance: 0.10 },
-    keywords_added:   { include: [], exclude: [] },
-    keywords_removed: { include: [], exclude: [] },
-  },
-  {
-    id: 43,
-    status: "closed",
-    phase: "closed",
-    vote_count: 258,
-    subscriber_count: 415,
-    created_at: "2026-05-28T00:00:00Z",
-    closed_at: "2026-06-03T17:00:00Z",
-    weights: { recency: 0.25, engagement: 0.35, bridging: 0.20, source_diversity: 0.10, relevance: 0.10 },
-    prev_weights: undefined, // oldest — no diff
-    keywords_added:   { include: [], exclude: [] },
-    keywords_removed: { include: [], exclude: [] },
-  },
-]
-
-const MOCK_AUDIT: AuditEntry[] = [
-  { id: 991, action: "weights_applied",  actor_did: null,               epoch_id: 47, details: {},                                     created_at: "2026-06-25T00:00:00Z" },
-  { id: 990, action: "vote_submitted",   actor_did: "did:plc:abc123",   epoch_id: 47, details: { handle: "maya.bsky.social" },         created_at: "2026-06-24T18:32:00Z" },
-  { id: 989, action: "vote_submitted",   actor_did: "did:plc:def456",   epoch_id: 47, details: { handle: "alicia.bsky.social" },       created_at: "2026-06-24T16:11:00Z" },
-  { id: 988, action: "epoch_opened",     actor_did: null,               epoch_id: 47, details: {},                                     created_at: "2026-06-24T00:00:00Z" },
-  { id: 987, action: "keywords_updated", actor_did: null,               epoch_id: 47, details: { added: ["ai"], removed: ["nft"] },    created_at: "2026-06-25T00:01:00Z" },
-  { id: 986, action: "weights_applied",  actor_did: null,               epoch_id: 46, details: {},                                     created_at: "2026-06-18T00:00:00Z" },
-  { id: 985, action: "epoch_closed",     actor_did: null,               epoch_id: 46, details: {},                                     created_at: "2026-06-24T17:00:00Z" },
-  { id: 984, action: "vote_submitted",   actor_did: "did:plc:ghi789",   epoch_id: 46, details: { handle: "jordyn.bsky.social" },       created_at: "2026-06-23T09:15:00Z" },
-]
-
-const ACTION_META: Record<string, { label: string; color: string }> = {
-  weights_applied:  { label: "Weights applied",  color: "bg-primary/60"   },
-  vote_submitted:   { label: "Vote submitted",   color: "bg-success/60"   },
-  epoch_opened:     { label: "Epoch opened",     color: "bg-foreground/25" },
-  epoch_closed:     { label: "Epoch closed",     color: "bg-foreground/25" },
-  keywords_updated: { label: "Keywords updated", color: "bg-warning/60"   },
-}
-
-/* ─── Types ────────────────────────────────────────────── */
-
-type PageState = "loading" | "loaded" | "error" | "empty"
 
 /* ─── Helpers ──────────────────────────────────────────── */
 
@@ -153,7 +90,7 @@ function fmtRelative(iso: string) {
   return `${days}d ago`
 }
 
-function weightDiff(epoch: Epoch) {
+function weightDiff(epoch: EpochView) {
   if (!epoch.prev_weights) return []
   const EPSILON = 0.005
   return Object.keys(epoch.weights)
@@ -166,15 +103,6 @@ function weightDiff(epoch: Epoch) {
     .filter((d) => Math.abs(d.delta) > EPSILON)
 }
 
-function toRadarSignals(epoch: Epoch): RadarSignal[] {
-  return Object.entries(epoch.weights).map(([key, weight]) => ({
-    key,
-    label: WEIGHT_LABELS[key] ?? key,
-    post:       weight, // on the ledger, post = applied weight (no per-post score here)
-    governance: weight,
-  }))
-}
-
 /* ─── Sub-components ───────────────────────────────────── */
 
 function EpochCard({
@@ -182,11 +110,12 @@ function EpochCard({
   selected,
   onClick,
 }: {
-  epoch: Epoch
+  epoch: EpochView
   selected: boolean
   onClick: () => void
 }) {
-  const participation = epoch.subscriber_count ? Math.round((epoch.vote_count / epoch.subscriber_count) * 100) : 0
+  // NaN-guard: subscriber_count can be 0 for a fresh round.
+  const participation = epoch.subscriber_count > 0 ? Math.round((epoch.vote_count / epoch.subscriber_count) * 100) : 0
 
   return (
     <button
@@ -301,25 +230,25 @@ function KeywordDiffRow({ word, variant }: { word: string; variant: "add-include
   )
 }
 
-function AuditRow({ entry }: { entry: AuditEntry }) {
-  const meta = ACTION_META[entry.action] ?? { label: entry.action, color: "bg-foreground/20" }
+function AuditRow({ entry }: { entry: AuditLogEntry }) {
   const hasDetails = Object.keys(entry.details).length > 0
   const [expanded, setExpanded] = useState(false)
+  const handle = typeof entry.details.handle === "string" ? entry.details.handle : entry.actor_did
 
   return (
     <div className="group">
       <div className="flex items-start gap-4 px-5 py-3 hover:bg-biscuit/25 transition-colors">
         {/* Action dot */}
         <div className="flex flex-col items-center gap-1 pt-1 flex-shrink-0">
-          <div className={`w-2 h-2 rounded-full ${meta.color}`} aria-hidden="true" />
+          <div className="w-2 h-2 rounded-full bg-primary/50" aria-hidden="true" />
         </div>
         {/* Content */}
         <div className="flex-1 min-w-0 flex flex-col gap-0.5">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-medium text-foreground">{meta.label}</span>
-            {entry.actor_did && (
+            <span className="text-sm font-medium text-foreground font-mono">{entry.action}</span>
+            {handle && (
               <span className="text-xs font-mono text-foreground/45 truncate max-w-[200px]">
-                {typeof entry.details.handle === "string" ? entry.details.handle : "" ?? entry.actor_did}
+                {handle}
               </span>
             )}
           </div>
@@ -340,13 +269,9 @@ function AuditRow({ entry }: { entry: AuditEntry }) {
         </div>
         {/* Right: epoch + timestamp */}
         <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
-          <button
-            type="button"
-            className="text-xs font-mono text-primary/70 hover:text-primary transition-colors"
-            title={`Select epoch #${entry.epoch_id}`}
-          >
-            #{entry.epoch_id}
-          </button>
+          <span className="text-xs font-mono text-foreground/50" title={`Round ${entry.epoch_id ?? "—"}`}>
+            #{entry.epoch_id ?? "—"}
+          </span>
           <time
             dateTime={entry.created_at}
             className="text-[10px] font-mono text-foreground/35"
@@ -362,13 +287,13 @@ function AuditRow({ entry }: { entry: AuditEntry }) {
 
 /* ─── Detail panel ─────────────────────────────────────── */
 
-function DetailPanel({ epoch }: { epoch: Epoch }) {
+function DetailPanel({ epoch, epochAudit }: { epoch: EpochView; epochAudit: AuditLogEntry[] }) {
   const diffs = weightDiff(epoch)
   const hasKeywordChanges =
-    (epoch.keywords_added?.include.length ?? 0) +
-    (epoch.keywords_added?.exclude.length ?? 0) +
-    (epoch.keywords_removed?.include.length ?? 0) +
-    (epoch.keywords_removed?.exclude.length ?? 0) > 0
+    epoch.keywords_added.include.length +
+    epoch.keywords_added.exclude.length +
+    epoch.keywords_removed.include.length +
+    epoch.keywords_removed.exclude.length > 0
 
   const radarSignals: RadarSignal[] = Object.entries(epoch.weights).map(([key, w]) => ({
     key,
@@ -377,12 +302,12 @@ function DetailPanel({ epoch }: { epoch: Epoch }) {
     governance: w,
   }))
 
-  const epochAudit = MOCK_AUDIT.filter((e) => e.epoch_id === epoch.id)
+  const participation = epoch.subscriber_count > 0 ? Math.round((epoch.vote_count / epoch.subscriber_count) * 100) : 0
 
   return (
     <div className="flex flex-col gap-8">
 
-      {/* ── Header ───────────────────────────────────���───── */}
+      {/* ── Header ────────────────────────────────────────── */}
       <div className="flex items-start justify-between gap-4">
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-3">
@@ -393,7 +318,7 @@ function DetailPanel({ epoch }: { epoch: Epoch }) {
           </div>
           <p className="text-sm text-foreground/50">
             {epoch.vote_count.toLocaleString()} votes of {epoch.subscriber_count.toLocaleString()} members
-            {" · "}{epoch.subscriber_count ? Math.round((epoch.vote_count / epoch.subscriber_count) * 100) : 0}% participation
+            {" · "}{participation}% participation
           </p>
           <p className="text-xs font-mono text-foreground/35 mt-0.5">
             {fmtDate(epoch.created_at, "long")}
@@ -401,7 +326,7 @@ function DetailPanel({ epoch }: { epoch: Epoch }) {
           </p>
         </div>
         <Link
-          href={`/post?uri=${encodeURIComponent("at://demo")}`}
+          href="/dashboard"
           className="text-xs font-medium text-primary hover:text-primary-dark transition-colors underline underline-offset-2 flex-shrink-0 mt-1"
         >
           Explain a post →
@@ -469,16 +394,16 @@ function DetailPanel({ epoch }: { epoch: Epoch }) {
           </p>
         ) : (
           <div className="flex flex-wrap gap-2">
-            {epoch.keywords_added?.include.map((w) => (
+            {epoch.keywords_added.include.map((w) => (
               <KeywordDiffRow key={`ai-${w}`} word={w} variant="add-include" />
             ))}
-            {epoch.keywords_added?.exclude.map((w) => (
+            {epoch.keywords_added.exclude.map((w) => (
               <KeywordDiffRow key={`ae-${w}`} word={w} variant="add-exclude" />
             ))}
-            {epoch.keywords_removed?.include.map((w) => (
+            {epoch.keywords_removed.include.map((w) => (
               <KeywordDiffRow key={`ri-${w}`} word={w} variant="remove-include" />
             ))}
-            {epoch.keywords_removed?.exclude.map((w) => (
+            {epoch.keywords_removed.exclude.map((w) => (
               <KeywordDiffRow key={`re-${w}`} word={w} variant="remove-exclude" />
             ))}
           </div>
@@ -496,7 +421,7 @@ function DetailPanel({ epoch }: { epoch: Epoch }) {
         {epochAudit.length === 0 ? (
           <EmptyState
             heading="No audit events"
-            body="Evaluated the audit log — no events recorded for this round."
+            body="No recent audit events recorded for this round."
             showCorgi={false}
           />
         ) : (
@@ -538,14 +463,32 @@ function DetailPanelSkeleton() {
 /* ─── Page ─────────────────────────────────────────────── */
 
 export default function HistoryPage() {
-  const [pageState, setPageState] = useState<PageState>("loaded")
-  const [selectedId, setSelectedId] = useState<number>(MOCK_EPOCHS[0].id)
+  const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [auditLimit, setAuditLimit] = useState(AUDIT_PAGE_SIZE)
 
-  const epochs = MOCK_EPOCHS
-  const selectedEpoch = epochs.find((e) => e.id === selectedId) ?? epochs[0]
+  const epochsQuery = useQuery({
+    queryKey: ["epochs", 20],
+    queryFn: () => transparencyApi.getEpochHistory(20),
+    retry: false,
+  })
+  const auditQuery = useQuery({
+    queryKey: ["transparency", "audit", auditLimit],
+    queryFn: () => transparencyApi.getAuditLog({ limit: auditLimit }),
+    retry: false,
+  })
+
+  const epochViews = useMemo(
+    () => deriveEpochViews(epochsQuery.data?.epochs ?? []),
+    [epochsQuery.data]
+  )
+  const selectedEpoch = epochViews.find((e) => e.id === selectedId) ?? epochViews[0]
+
+  const auditEntries = auditQuery.data?.entries ?? []
+  const auditTotal = auditQuery.data?.pagination.total ?? 0
+  const auditHasMore = auditQuery.data?.pagination.has_more ?? false
 
   return (
-    <AppShell user={null} activePath="/history">
+    <AppShell>
       <div className="max-w-6xl mx-auto px-5 py-10 flex flex-col gap-8">
 
         {/* ── Page header ──────────────────────────────────── */}
@@ -569,41 +512,44 @@ export default function HistoryPage() {
           </Link>
         </div>
 
-        {/* ── Dev state switcher (hidden in production) ────── */}
-        <div className="flex items-center gap-2 hidden" aria-hidden="true">
-          {(["loading", "loaded", "error", "empty"] as PageState[]).map((s) => (
-            <button
-              key={s}
-              onClick={() => setPageState(s)}
-              className={`text-xs px-2 py-1 rounded border ${pageState === s ? "bg-primary text-primary-foreground border-primary" : "border-border text-foreground/50"}`}
-            >
-              {s}
-            </button>
-          ))}
-        </div>
-
-        {/* ── Error state ───────────────────────────────────── */}
-        {pageState === "error" && (
+        {/* ── Rounds region (driven by the epochs query) ───── */}
+        {epochsQuery.isLoading ? (
+          <div className="flex flex-col lg:flex-row gap-6 items-start">
+            <aside className="w-full lg:w-56 lg:flex-shrink-0 flex flex-col gap-2" aria-label="Loading rounds">
+              <p className="text-[10px] font-mono text-foreground/40 uppercase tracking-widest px-1 mb-1">
+                Rounds · newest first
+              </p>
+              <div className="flex flex-col gap-2">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="rounded-xl border border-border bg-card p-4 flex flex-col gap-3">
+                    <div className="flex justify-between">
+                      <Skeleton className="h-6 w-10" />
+                      <Skeleton className="h-5 w-16" />
+                    </div>
+                    <Skeleton className="h-3 w-20" />
+                    <Skeleton className="h-1 w-full rounded-full" />
+                  </div>
+                ))}
+              </div>
+            </aside>
+            <main className="w-full lg:flex-1 min-w-0 rounded-xl border border-border bg-card p-4 sm:p-6 lg:p-7">
+              <DetailPanelSkeleton />
+            </main>
+          </div>
+        ) : epochsQuery.isError ? (
           <ErrorCard
             heading="Ledger unavailable"
             body="We couldn't load governance history. The transparency record is still intact — try again shortly."
-            onRetry={() => setPageState("loaded")}
+            onRetry={() => void epochsQuery.refetch()}
           />
-        )}
-
-        {/* ── Empty state ───────────────────────────────────── */}
-        {pageState === "empty" && (
+        ) : epochViews.length === 0 ? (
           <EmptyState
             heading="No rounds yet"
             body="Governance history will appear here once the first round is complete."
-            action={{ label: "Go to overview", onClick: () => {} }}
+            showCorgi={false}
           />
-        )}
-
-        {/* ── Main 2-column layout ─────────────────────────── */}
-        {(pageState === "loading" || pageState === "loaded") && (
+        ) : (
           <div className="flex flex-col lg:flex-row gap-6 items-start">
-
             {/* ── LEFT: epoch timeline ─────────────────────── */}
             <aside
               className="w-full lg:w-56 lg:flex-shrink-0 flex flex-col gap-2 lg:sticky lg:top-20"
@@ -612,58 +558,62 @@ export default function HistoryPage() {
               <p className="text-[10px] font-mono text-foreground/40 uppercase tracking-widest px-1 mb-1">
                 Rounds · newest first
               </p>
-
-              {pageState === "loading" ? (
-                <div className="flex flex-col gap-2">
-                  {Array.from({ length: 4 }).map((_, i) => (
-                    <div key={i} className="rounded-xl border border-border bg-card p-4 flex flex-col gap-3">
-                      <div className="flex justify-between">
-                        <Skeleton className="h-6 w-10" />
-                        <Skeleton className="h-5 w-16" />
-                      </div>
-                      <Skeleton className="h-3 w-20" />
-                      <Skeleton className="h-1 w-full rounded-full" />
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <nav className="flex flex-row lg:flex-col gap-2 overflow-x-auto pb-2 lg:pb-0" aria-label="Select a round">
-                  {epochs.map((epoch) => (
-                    <div key={epoch.id} className="flex-shrink-0 w-44 sm:w-48 lg:w-auto">
-                      <EpochCard
-                        epoch={epoch}
-                        selected={epoch.id === selectedId}
-                        onClick={() => setSelectedId(epoch.id)}
-                      />
-                    </div>
-                  ))}
-                </nav>
-              )}
+              <nav className="flex flex-row lg:flex-col gap-2 overflow-x-auto pb-2 lg:pb-0" aria-label="Select a round">
+                {epochViews.map((epoch) => (
+                  <div key={epoch.id} className="flex-shrink-0 w-44 sm:w-48 lg:w-auto">
+                    <EpochCard
+                      epoch={epoch}
+                      selected={epoch.id === selectedEpoch.id}
+                      onClick={() => setSelectedId(epoch.id)}
+                    />
+                  </div>
+                ))}
+              </nav>
             </aside>
 
             {/* ── RIGHT: detail panel ──────────────────────── */}
             <main className="w-full lg:flex-1 min-w-0 rounded-xl border border-border bg-card p-4 sm:p-6 lg:p-7">
-              {pageState === "loading" ? (
-                <DetailPanelSkeleton />
-              ) : (
-                <DetailPanel epoch={selectedEpoch} />
-              )}
+              <DetailPanel
+                epoch={selectedEpoch}
+                epochAudit={auditEntries.filter((e) => e.epoch_id === selectedEpoch.id)}
+              />
             </main>
-
           </div>
         )}
 
         {/* ── Full audit table (all epochs) ────────────────── */}
-        {pageState === "loaded" && (
-          <section aria-label="Full audit log">
-            <div className="flex items-center justify-between mb-4">
-              <p className="text-[10px] font-mono text-foreground/40 uppercase tracking-widest">
-                Full audit log · {MOCK_AUDIT.length} of 120 entries
-              </p>
-              <span className="text-xs text-foreground/35 font-mono">
-                Showing 50 most recent
-              </span>
+        <section aria-label="Full audit log">
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-[10px] font-mono text-foreground/40 uppercase tracking-widest">
+              Full audit log · {auditEntries.length} of {auditTotal} entries
+            </p>
+            <span className="text-xs text-foreground/35 font-mono">
+              Showing {auditEntries.length} most recent
+            </span>
+          </div>
+
+          {auditQuery.isLoading ? (
+            <div className="rounded-xl border border-border bg-card divide-y divide-border/60 overflow-hidden" aria-busy="true">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="flex items-center justify-between gap-4 px-5 py-3.5">
+                  <Skeleton className="h-4 w-44" />
+                  <Skeleton className="h-3 w-16" />
+                </div>
+              ))}
             </div>
+          ) : auditQuery.isError ? (
+            <ErrorCard
+              heading="Audit log unavailable"
+              body="We couldn't load the full audit log. Try again shortly."
+              onRetry={() => void auditQuery.refetch()}
+            />
+          ) : auditTotal === 0 ? (
+            <EmptyState
+              heading="No audit entries yet"
+              body="Governance events will appear here once activity begins."
+              showCorgi={false}
+            />
+          ) : (
             <div className="rounded-xl border border-border bg-card overflow-hidden">
               {/* Table header */}
               <div className="grid grid-cols-[1fr_auto_auto] gap-4 px-5 py-2.5 bg-biscuit/40 border-b border-border">
@@ -672,23 +622,27 @@ export default function HistoryPage() {
                 <span className="text-[10px] font-semibold text-foreground/40 uppercase tracking-wide w-20 text-right">Time</span>
               </div>
               <div className="divide-y divide-border/60">
-                {MOCK_AUDIT.map((entry) => (
+                {auditEntries.map((entry) => (
                   <AuditRow key={entry.id} entry={entry} />
                 ))}
               </div>
-              {/* Pagination hint */}
+              {/* Pagination */}
               <div className="px-5 py-3 border-t border-border/60 flex items-center justify-between">
-                <span className="text-xs text-foreground/40 font-mono">120 total · 50 shown</span>
-                <button
-                  type="button"
-                  className="text-xs font-medium text-primary hover:text-primary-dark transition-colors"
-                >
-                  Load more
-                </button>
+                <span className="text-xs text-foreground/40 font-mono">{auditTotal} total · {auditEntries.length} shown</span>
+                {auditHasMore && (
+                  <button
+                    type="button"
+                    onClick={() => setAuditLimit((l) => l + AUDIT_PAGE_SIZE)}
+                    disabled={auditQuery.isFetching}
+                    className="text-xs font-medium text-primary hover:text-primary-dark transition-colors disabled:opacity-40"
+                  >
+                    {auditQuery.isFetching ? "Loading…" : "Load more"}
+                  </button>
+                )}
               </div>
             </div>
-          </section>
-        )}
+          )}
+        </section>
 
       </div>
     </AppShell>

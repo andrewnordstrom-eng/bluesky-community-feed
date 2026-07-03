@@ -1,71 +1,15 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import axios from "axios"
 import { AppShell } from "@/components/app-shell"
+import { SignInDialog } from "@/components/sign-in-dialog"
+import { useAuth } from "@/components/auth-provider"
 import { WeightBar } from "@/components/ui/weight-bar"
-import { StatusChip } from "@/components/ui/status-chip"
-import { ScoreBreakdown } from "@/components/ui/score-breakdown"
-
-// ── Mock admin user ───────────────────────────────────────────────────────────
-
-const MOCK_USER = { handle: "operator.bsky.social", did: "did:plc:admin001", isAdmin: true }
-
-// ── Mock data (seam-exact field names) ───────────────────────────────────────
-
-const MOCK_EPOCH = {
-  id: 47,
-  phase: "voting" as "voting" | "review" | "running" | "waiting",
-  status: "open",
-  vote_count: 312,
-  subscriber_count: 480,
-  voting_ends_at: "2026-07-01T17:00:00Z",
-  created_at: "2026-06-25T00:00:00Z",
-  weights: { recency: 0.35, engagement: 0.25, bridging: 0.20, source_diversity: 0.15, relevance: 0.05 },
-}
-
-const MOCK_PENDING_WEIGHTS = { recency: 0.30, engagement: 0.30, bridging: 0.20, source_diversity: 0.15, relevance: 0.05 }
-
-const MOCK_CONTENT_FILTERS = {
-  include_keywords: ["ai", "open-source", "science"],
-  exclude_keywords: ["spam", "nsfw"],
-}
-
-const MOCK_TOPICS = [
-  { slug: "machine-learning", name: "Machine learning", parentSlug: "technology", currentWeight: 0.62, enabled: true },
-  { slug: "open-source",      name: "Open source",      parentSlug: "technology", currentWeight: 0.71, enabled: true },
-  { slug: "science",          name: "Science",           parentSlug: null,         currentWeight: 0.50, enabled: true },
-  { slug: "politics",         name: "Politics",          parentSlug: null,         currentWeight: 0.32, enabled: true },
-  { slug: "sports",           name: "Sports",            parentSlug: null,         currentWeight: 0.28, enabled: false },
-]
-
-const MOCK_PARTICIPANTS = [
-  { did: "did:plc:abc1", handle: "alice.bsky.social", voted_at: "2026-06-26T14:10:00Z", is_banned: false },
-  { did: "did:plc:abc2", handle: "bob.bsky.social",   voted_at: "2026-06-26T09:22:00Z", is_banned: false },
-  { did: "did:plc:abc3", handle: "spammer.bsky.social", voted_at: null,               is_banned: true  },
-]
-
-const MOCK_AUDIT = [
-  { id: 995, action: "keyword_added",    actor_did: "did:plc:admin001", epoch_id: 47, details: { keyword: "ai", list: "include" },            created_at: "2026-06-26T15:00:00Z" },
-  { id: 994, action: "topic_disabled",   actor_did: "did:plc:admin001", epoch_id: 47, details: { slug: "sports" },                             created_at: "2026-06-26T14:50:00Z" },
-  { id: 993, action: "weights_applied",  actor_did: null,               epoch_id: 47, details: {},                                             created_at: "2026-06-25T00:00:00Z" },
-  { id: 992, action: "round_opened",     actor_did: "did:plc:admin001", epoch_id: 47, details: {},                                             created_at: "2026-06-25T00:00:00Z" },
-  { id: 991, action: "participant_banned", actor_did: "did:plc:admin001", epoch_id: 46, details: { did: "did:plc:abc3" },                      created_at: "2026-06-24T10:00:00Z" },
-]
-
-const MOCK_FEED_HEALTH = {
-  author_gini: 0.34,
-  vs_chronological_overlap: 0.61,
-  vs_engagement_overlap: 0.44,
-  avg_total: 0.57,
-  median_total: 0.55,
-  avg_bridging: 0.41,
-  total_posts_scored: 1240,
-}
-
-const MOCK_ANNOUNCEMENTS = [
-  { id: 1, title: "Round #47 voting now open", body: "Cast your vote before July 1st 17:00 UTC.", published: true,  created_at: "2026-06-25T00:00:00Z" },
-  { id: 2, title: "New topic group: Science",  body: "We've added a Science topic group.", published: false, created_at: "2026-06-24T09:00:00Z" },
-]
+import { Button } from "@/components/ui/button"
+import { EmptyState, ErrorCard, Skeleton } from "@/components/ui/state-kit"
+import { adminApi, type AdminStatus } from "@/lib/api/admin"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -74,25 +18,37 @@ const SIGNAL_LABELS: Record<string, string> = {
   source_diversity: "Source diversity", relevance: "Relevance",
 }
 
-const ACTION_COLOR: Record<string, string> = {
-  weights_applied:   "bg-success",
-  round_opened:      "bg-primary",
-  round_closed:      "bg-foreground/40",
-  keyword_added:     "bg-warning",
-  keyword_removed:   "bg-tongue",
-  topic_disabled:    "bg-tongue",
-  topic_enabled:     "bg-success",
-  participant_banned:"bg-status-error",
-  weights_override:  "bg-warning",
-}
+const WEIGHT_KEYS = ["recency", "engagement", "bridging", "source_diversity", "relevance"] as const
 
-function relTime(iso: string) {
+function relTime(iso: string | null) {
+  if (!iso) return "never"
   const diff = Date.now() - new Date(iso).getTime()
   const m = Math.floor(diff / 60000)
+  if (m < 1) return "just now"
   if (m < 60) return `${m}m ago`
   const h = Math.floor(m / 60)
   if (h < 24) return `${h}h ago`
   return `${Math.floor(h / 24)}d ago`
+}
+
+function fmtDateTime(iso: string | null) {
+  if (!iso) return "—"
+  return new Date(iso).toLocaleDateString("en-GB", {
+    day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZoneName: "short",
+  })
+}
+
+type CurrentEpoch = NonNullable<AdminStatus["system"]["currentEpoch"]>
+type EpochPhase = "running" | "voting" | "review" | "waiting"
+
+/** Read the real `phase` off the current epoch (the status endpoint sends it
+ *  even though the client type omits it), falling back to votingOpen/status. */
+function epochPhase(epoch: CurrentEpoch | null): EpochPhase {
+  if (!epoch) return "waiting"
+  const phase = (epoch as { phase?: string }).phase
+  if (phase === "voting" || phase === "review" || phase === "running") return phase
+  if (epoch.votingOpen) return "voting"
+  return "running"
 }
 
 function SectionHeader({ title, sub }: { title: string; sub?: string }) {
@@ -104,12 +60,26 @@ function SectionHeader({ title, sub }: { title: string; sub?: string }) {
   )
 }
 
-// ── Confirm Modal ─────────────────────────────────────────────────────────────
+// ── Confirm Modal (Escape-to-close + initial focus on Cancel) ──────────────────
 
-function ConfirmModal({ title, body, confirmLabel = "Confirm", danger = false, onConfirm, onCancel }: {
-  title: string; body: string; confirmLabel?: string; danger?: boolean
+function ConfirmModal({
+  title, body, confirmLabel = "Confirm", danger = false, loading = false, onConfirm, onCancel,
+}: {
+  title: string; body: string; confirmLabel?: string; danger?: boolean; loading?: boolean
   onConfirm: () => void; onCancel: () => void
 }) {
+  const cancelRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    // Initial focus lands on the safe (Cancel) action, and Escape closes.
+    cancelRef.current?.focus()
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onCancel()
+    }
+    document.addEventListener("keydown", onKey)
+    return () => document.removeEventListener("keydown", onKey)
+  }, [onCancel])
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="modal-title">
       <div className="absolute inset-0 bg-foreground/30 backdrop-blur-sm" onClick={onCancel} aria-hidden="true" />
@@ -118,20 +88,23 @@ function ConfirmModal({ title, body, confirmLabel = "Confirm", danger = false, o
         <p className="text-sm text-foreground/60 leading-relaxed">{body}</p>
         <div className="flex items-center justify-end gap-3 pt-1">
           <button
+            ref={cancelRef}
             onClick={onCancel}
-            className="px-4 py-2 rounded-full border border-border text-sm font-medium text-foreground/60 hover:text-foreground hover:border-foreground/40 transition-colors"
+            disabled={loading}
+            className="px-4 py-2 rounded-full border border-border text-sm font-medium text-foreground/60 hover:text-foreground hover:border-foreground/40 transition-colors disabled:opacity-50"
           >
             Cancel
           </button>
           <button
             onClick={onConfirm}
-            className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
+            disabled={loading}
+            className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors disabled:opacity-60 ${
               danger
                 ? "bg-status-error text-white hover:bg-[hsl(8,60%,38%)]"
                 : "bg-primary text-primary-foreground hover:bg-primary-dark"
             }`}
           >
-            {confirmLabel}
+            {loading ? "Working…" : confirmLabel}
           </button>
         </div>
       </div>
@@ -141,13 +114,30 @@ function ConfirmModal({ title, body, confirmLabel = "Confirm", danger = false, o
 
 // ── Panel: Overview ───────────────────────────────────────────────────────────
 
-function PanelOverview() {
+function PanelOverview({ status }: { status: AdminStatus }) {
+  const epoch = status.system.currentEpoch
+  const feed = status.system.feed
+
+  if (!epoch) {
+    return (
+      <div className="flex flex-col gap-6">
+        <SectionHeader title="Overview" sub="Live summary of the current round." />
+        <EmptyState heading="No active round" body="There is no active governance round to summarise yet." showCorgi={false} />
+      </div>
+    )
+  }
+
+  const participation = feed.subscriberCount > 0
+    ? Math.round((epoch.voteCount / feed.subscriberCount) * 100)
+    : 0
+
   const stats = [
-    { label: "Total posts scored", value: MOCK_FEED_HEALTH.total_posts_scored.toLocaleString() },
-    { label: "Votes this round",   value: MOCK_EPOCH.vote_count.toLocaleString() },
-    { label: "Participation",       value: `${Math.round((MOCK_EPOCH.vote_count / MOCK_EPOCH.subscriber_count) * 100)}%` },
-    { label: "Avg score",           value: MOCK_FEED_HEALTH.avg_total.toFixed(2) },
+    { label: "Total posts scored", value: feed.scoredPosts.toLocaleString() },
+    { label: "Votes this round", value: epoch.voteCount.toLocaleString() },
+    { label: "Participation", value: `${participation}%` },
+    { label: "Subscribers", value: feed.subscriberCount.toLocaleString() },
   ]
+
   return (
     <div className="flex flex-col gap-6">
       <SectionHeader title="Overview" sub="Live summary of the current round." />
@@ -161,13 +151,17 @@ function PanelOverview() {
       </div>
       <div className="flex flex-col gap-3">
         <p className="text-[10px] font-mono uppercase tracking-widest text-foreground/40">Applied weights</p>
-        {Object.entries(MOCK_EPOCH.weights).map(([k, v]) => (
-          <WeightBar key={k} label={SIGNAL_LABELS[k] ?? k} value={v} />
-        ))}
+        {Object.keys(epoch.weights).length === 0 ? (
+          <p className="text-sm text-foreground/45 italic">No weights recorded for this round yet.</p>
+        ) : (
+          Object.entries(epoch.weights).map(([k, v]) => (
+            <WeightBar key={k} label={SIGNAL_LABELS[k] ?? k} value={v} />
+          ))
+        )}
       </div>
       <div className="rounded-xl bg-biscuit/50 border border-border px-5 py-4 flex flex-col gap-2">
         <p className="text-xs text-foreground/50">
-          Voting closes <span className="font-mono text-foreground/70">{new Date(MOCK_EPOCH.voting_ends_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZoneName: "short" })}</span>
+          Voting closes <span className="font-mono text-foreground/70">{fmtDateTime(epoch.votingEndsAt)}</span>
         </p>
       </div>
     </div>
@@ -176,26 +170,50 @@ function PanelOverview() {
 
 // ── Panel: Current Round ──────────────────────────────────────────────────────
 
-function PanelCurrentRound() {
-  const [confirm, setConfirm] = useState<null | "close" | "apply">(null)
-  const pct = Math.round((MOCK_EPOCH.vote_count / MOCK_EPOCH.subscriber_count) * 100)
+function PanelCurrentRound({ status }: { status: AdminStatus }) {
+  const queryClient = useQueryClient()
+  const epoch = status.system.currentEpoch
+  const feed = status.system.feed
+  const phase = epochPhase(epoch)
+  const [confirm, setConfirm] = useState<null | "open" | "close" | "apply">(null)
 
-  const LIFECYCLE: Array<{ phase: string; label: string; action?: string; danger?: boolean; body: string }> = [
-    { phase: "running", label: "Running",  action: "Open voting",    body: "This will open Round #47 for member votes. Confirm to proceed." },
-    { phase: "voting",  label: "Voting",   action: "Close voting",   body: "This will close voting for Round #47 and move to review." },
-    { phase: "review",  label: "Review",   action: "Apply weights",  body: "This will apply the aggregated vote weights to the live feed. This action cannot be undone." },
-    { phase: "running", label: "Live",     body: "Weights are live." },
+  const invalidate = () => {
+    void queryClient.invalidateQueries({ queryKey: ["admin", "status"] })
+    void queryClient.invalidateQueries({ queryKey: ["admin", "epochs"] })
+    void queryClient.invalidateQueries({ queryKey: ["admin", "feed-health"] })
+  }
+
+  const openMutation = useMutation({ mutationFn: () => adminApi.openVoting(), onSuccess: () => { invalidate(); setConfirm(null) } })
+  const closeMutation = useMutation({ mutationFn: () => adminApi.closeVoting(), onSuccess: () => { invalidate(); setConfirm(null) } })
+  const applyMutation = useMutation({ mutationFn: () => adminApi.transitionEpoch(), onSuccess: () => { invalidate(); setConfirm(null) } })
+
+  if (!epoch) {
+    return (
+      <div className="flex flex-col gap-6">
+        <SectionHeader title="Current round" sub="Manage the round lifecycle." />
+        <EmptyState heading="No active round" body="There is no active round to manage." showCorgi={false} />
+      </div>
+    )
+  }
+
+  const pct = feed.subscriberCount > 0 ? Math.round((epoch.voteCount / feed.subscriberCount) * 100) : 0
+
+  // One row per lifecycle stage (no duplicate `running` row — only one is active).
+  const LIFECYCLE: Array<{ phase: EpochPhase; label: string; action?: "open" | "close" | "apply"; actionLabel?: string; danger?: boolean }> = [
+    { phase: "running", label: "Running", action: "open", actionLabel: "Open voting" },
+    { phase: "voting", label: "Voting", action: "close", actionLabel: "Close voting" },
+    { phase: "review", label: "Review", action: "apply", actionLabel: "Apply weights", danger: true },
   ]
 
   return (
     <div className="flex flex-col gap-6">
-      <SectionHeader title="Current round" sub="Manage the lifecycle of Round #47." />
+      <SectionHeader title="Current round" sub={`Manage the lifecycle of Round #${epoch.id}.`} />
 
       {/* Participation */}
       <div className="rounded-xl border border-border bg-card p-5 flex flex-col gap-3">
         <div className="flex items-center justify-between gap-3">
           <p className="text-sm font-semibold text-foreground">Participation</p>
-          <span className="text-sm font-mono font-semibold text-foreground tabular-nums">{MOCK_EPOCH.vote_count} / {MOCK_EPOCH.subscriber_count}</span>
+          <span className="text-sm font-mono font-semibold text-foreground tabular-nums">{epoch.voteCount} / {feed.subscriberCount}</span>
         </div>
         <div className="h-2 rounded-full bg-biscuit overflow-hidden">
           <div className="h-2 rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} />
@@ -206,10 +224,10 @@ function PanelCurrentRound() {
       {/* Lifecycle actions */}
       <div className="flex flex-col gap-3">
         <p className="text-[10px] font-mono uppercase tracking-widest text-foreground/40 mb-1">Lifecycle actions</p>
-        {LIFECYCLE.map((lc, i) => {
-          const isCurrentPhase = lc.phase === MOCK_EPOCH.phase
+        {LIFECYCLE.map((lc) => {
+          const isCurrentPhase = lc.phase === phase
           return (
-            <div key={i} className={`rounded-xl border px-5 py-4 flex items-center justify-between gap-4 transition-colors
+            <div key={lc.phase} className={`rounded-xl border px-5 py-4 flex items-center justify-between gap-4 transition-colors
               ${isCurrentPhase ? "border-primary/30 bg-primary/5" : "border-border bg-card opacity-50"}`}>
               <div className="flex items-center gap-3">
                 <div className={`w-2 h-2 rounded-full flex-shrink-0 ${isCurrentPhase ? "bg-primary" : "bg-border"}`} />
@@ -217,14 +235,14 @@ function PanelCurrentRound() {
               </div>
               {lc.action && isCurrentPhase && (
                 <button
-                  onClick={() => setConfirm(i === 1 ? "close" : "apply")}
+                  onClick={() => setConfirm(lc.action!)}
                   className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-colors ${
                     lc.danger
                       ? "bg-status-error/10 text-status-error border border-status-error/30 hover:bg-status-error/20"
                       : "bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20"
                   }`}
                 >
-                  {lc.action}
+                  {lc.actionLabel}
                 </button>
               )}
             </div>
@@ -232,22 +250,34 @@ function PanelCurrentRound() {
         })}
       </div>
 
+      {confirm === "open" && (
+        <ConfirmModal
+          title={`Open voting for Round #${epoch.id}?`}
+          body="This will open the round for member votes."
+          confirmLabel="Open voting"
+          loading={openMutation.isPending}
+          onConfirm={() => openMutation.mutate()}
+          onCancel={() => setConfirm(null)}
+        />
+      )}
       {confirm === "close" && (
         <ConfirmModal
-          title="Close voting for Round #47?"
+          title={`Close voting for Round #${epoch.id}?`}
           body="This will close voting and move the round to review. Members will no longer be able to submit votes."
           confirmLabel="Close voting"
-          onConfirm={() => setConfirm(null)}
+          loading={closeMutation.isPending}
+          onConfirm={() => closeMutation.mutate()}
           onCancel={() => setConfirm(null)}
         />
       )}
       {confirm === "apply" && (
         <ConfirmModal
           title="Apply aggregated weights to live feed?"
-          body="This will immediately update the feed ranking with the community vote results. This cannot be undone."
+          body="This will apply the community vote results and transition to the next round. This cannot be undone."
           confirmLabel="Apply weights"
           danger
-          onConfirm={() => setConfirm(null)}
+          loading={applyMutation.isPending}
+          onConfirm={() => applyMutation.mutate()}
           onCancel={() => setConfirm(null)}
         />
       )}
@@ -257,32 +287,60 @@ function PanelCurrentRound() {
 
 // ── Panel: Weights Override ───────────────────────────────────────────────────
 
-function PanelWeightsOverride() {
-  const [weights, setWeights] = useState({ ...MOCK_PENDING_WEIGHTS })
+function PanelWeightsOverride({ status }: { status: AdminStatus }) {
+  const queryClient = useQueryClient()
+  const epoch = status.system.currentEpoch
+
+  // Seed from the live epoch weights (fall back to a neutral zeroed vector).
+  const seed = (): Record<string, number> => {
+    const base: Record<string, number> = {}
+    for (const k of WEIGHT_KEYS) base[k] = epoch?.weights[k] ?? 0
+    return base
+  }
+
+  const [weights, setWeights] = useState<Record<string, number>>(seed)
   const [confirm, setConfirm] = useState(false)
+
   const total = Object.values(weights).reduce((a, b) => a + b, 0)
   const isValid = Math.abs(total - 1) < 0.001
 
+  const overrideMutation = useMutation({
+    mutationFn: () => adminApi.updateWeights(weights),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["admin", "status"] })
+      setConfirm(false)
+    },
+  })
+
   function setWeight(key: string, val: number) {
     setWeights((prev) => ({ ...prev, [key]: Math.max(0, Math.min(1, val)) }))
+  }
+
+  if (!epoch) {
+    return (
+      <div className="flex flex-col gap-6">
+        <SectionHeader title="Weights override" sub="Manually override the community-voted weights." />
+        <EmptyState heading="No active round" body="There is no active round whose weights can be overridden." showCorgi={false} />
+      </div>
+    )
   }
 
   return (
     <div className="flex flex-col gap-6">
       <SectionHeader title="Weights override" sub="Manually override the community-voted weights. Use with care." />
       <div className="flex flex-col gap-4">
-        {Object.entries(weights).map(([k, v]) => (
+        {WEIGHT_KEYS.map((k) => (
           <div key={k} className="flex items-center gap-4">
             <span className="text-sm font-medium text-foreground w-36 flex-shrink-0">{SIGNAL_LABELS[k] ?? k}</span>
             <input
               type="range"
               min={0} max={100} step={1}
-              value={Math.round(v * 100)}
+              value={Math.round((weights[k] ?? 0) * 100)}
               onChange={(e) => setWeight(k, Number(e.target.value) / 100)}
               className="flex-1 accent-primary"
               aria-label={SIGNAL_LABELS[k]}
             />
-            <span className="text-sm font-mono font-semibold text-foreground tabular-nums w-10 text-right">{Math.round(v * 100)}%</span>
+            <span className="text-sm font-mono font-semibold text-foreground tabular-nums w-10 text-right">{Math.round((weights[k] ?? 0) * 100)}%</span>
           </div>
         ))}
       </div>
@@ -291,9 +349,12 @@ function PanelWeightsOverride() {
         <span className="font-mono font-semibold">{(total * 100).toFixed(0)}%</span>
         <span className="text-foreground/50 ml-1">{isValid ? "weights sum to 100% — ready to apply" : "weights must sum to 100%"}</span>
       </div>
+      {overrideMutation.isError && (
+        <p className="text-sm text-status-error">Failed to override weights. Please try again.</p>
+      )}
       <div className="flex justify-end gap-3">
         <button
-          onClick={() => setWeights({ ...MOCK_PENDING_WEIGHTS })}
+          onClick={() => setWeights(seed())}
           className="px-4 py-2 rounded-full border border-border text-sm font-medium text-foreground/60 hover:text-foreground transition-colors"
         >
           Reset to vote results
@@ -312,7 +373,8 @@ function PanelWeightsOverride() {
           body="This will immediately replace the aggregated vote weights with the values you've set. Members will see the new weights in the dashboard."
           confirmLabel="Apply override"
           danger
-          onConfirm={() => setConfirm(false)}
+          loading={overrideMutation.isPending}
+          onConfirm={() => overrideMutation.mutate()}
           onCancel={() => setConfirm(false)}
         />
       )}
@@ -322,24 +384,33 @@ function PanelWeightsOverride() {
 
 // ── Panel: Content Filters ────────────────────────────────────────────────────
 
-function PanelContentFilters() {
-  const [include, setInclude] = useState(MOCK_CONTENT_FILTERS.include_keywords)
-  const [exclude, setExclude] = useState(MOCK_CONTENT_FILTERS.exclude_keywords)
+function PanelContentFilters({ status }: { status: AdminStatus }) {
+  const queryClient = useQueryClient()
+  const include = status.system.contentRules.includeKeywords
+  const exclude = status.system.contentRules.excludeKeywords
+
   const [addInclude, setAddInclude] = useState("")
   const [addExclude, setAddExclude] = useState("")
   const [removingConfirm, setRemovingConfirm] = useState<{ list: "include" | "exclude"; kw: string } | null>(null)
 
-  function addKw(list: "include" | "exclude") {
-    const val = list === "include" ? addInclude.trim().toLowerCase() : addExclude.trim().toLowerCase()
-    if (!val) return
-    if (list === "include") { setInclude((p) => [...p, val]); setAddInclude("") }
-    else { setExclude((p) => [...p, val]); setAddExclude("") }
-  }
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["admin", "status"] })
 
-  function removeKw(list: "include" | "exclude", kw: string) {
-    if (list === "include") setInclude((p) => p.filter((k) => k !== kw))
-    else setExclude((p) => p.filter((k) => k !== kw))
-    setRemovingConfirm(null)
+  const addMutation = useMutation({
+    mutationFn: ({ list, keyword }: { list: "include" | "exclude"; keyword: string }) => adminApi.addKeyword(list, keyword),
+    onSuccess: (_data, vars) => {
+      void invalidate()
+      if (vars.list === "include") setAddInclude(""); else setAddExclude("")
+    },
+  })
+  const removeMutation = useMutation({
+    mutationFn: ({ list, keyword }: { list: "include" | "exclude"; keyword: string }) => adminApi.removeKeyword(list, keyword, true),
+    onSuccess: () => { void invalidate(); setRemovingConfirm(null) },
+  })
+
+  function submitAdd(list: "include" | "exclude") {
+    const val = (list === "include" ? addInclude : addExclude).trim().toLowerCase()
+    if (!val) return
+    addMutation.mutate({ list, keyword: val })
   }
 
   return (
@@ -348,10 +419,10 @@ function PanelContentFilters() {
 
       {(["include", "exclude"] as const).map((list) => {
         const keywords = list === "include" ? include : exclude
-        const addVal   = list === "include" ? addInclude : addExclude
-        const setAdd   = list === "include" ? setAddInclude : setAddExclude
-        const chipBg   = list === "include" ? "bg-success/10 border-success/20 text-success" : "bg-tongue/15 border-tongue/30 text-tongue-foreground"
-        const prefix   = list === "include" ? "+" : "−"
+        const addVal = list === "include" ? addInclude : addExclude
+        const setAdd = list === "include" ? setAddInclude : setAddExclude
+        const chipBg = list === "include" ? "bg-success/10 border-success/20 text-success" : "bg-tongue/15 border-tongue/30 text-tongue-foreground"
+        const prefix = list === "include" ? "+" : "−"
 
         return (
           <div key={list} className="flex flex-col gap-3">
@@ -378,13 +449,13 @@ function PanelContentFilters() {
                 type="text"
                 value={addVal}
                 onChange={(e) => setAdd(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && addKw(list)}
+                onKeyDown={(e) => e.key === "Enter" && submitAdd(list)}
                 placeholder={`Add ${list} keyword…`}
                 className="flex-1 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground placeholder:text-foreground/35 focus:outline-none focus:ring-2 focus:ring-primary/40"
               />
               <button
-                onClick={() => addKw(list)}
-                disabled={!addVal.trim()}
+                onClick={() => submitAdd(list)}
+                disabled={!addVal.trim() || addMutation.isPending}
                 className="px-4 py-2 rounded-lg bg-primary/10 text-primary border border-primary/20 text-sm font-medium hover:bg-primary/20 transition-colors disabled:opacity-40 disabled:pointer-events-none"
               >
                 Add
@@ -394,13 +465,18 @@ function PanelContentFilters() {
         )
       })}
 
+      {addMutation.isError && (
+        <p className="text-sm text-status-error">Failed to add keyword. Please try again.</p>
+      )}
+
       {removingConfirm && (
         <ConfirmModal
           title={`Remove "${removingConfirm.kw}" from ${removingConfirm.list} list?`}
           body="This keyword will no longer be used to filter feed content."
           confirmLabel="Remove keyword"
           danger
-          onConfirm={() => removeKw(removingConfirm.list, removingConfirm.kw)}
+          loading={removeMutation.isPending}
+          onConfirm={() => removeMutation.mutate({ list: removingConfirm.list, keyword: removingConfirm.kw })}
           onCancel={() => setRemovingConfirm(null)}
         />
       )}
@@ -408,64 +484,87 @@ function PanelContentFilters() {
   )
 }
 
-// ── Panel: Topics CRUD ────────────────────────────────────────────────────────
+// ── Panel: Topics ─────────────────────────────────────────────────────────────
 
 function PanelTopics() {
-  const [topics, setTopics] = useState(MOCK_TOPICS)
-  const [confirmToggle, setConfirmToggle] = useState<typeof MOCK_TOPICS[0] | null>(null)
+  const queryClient = useQueryClient()
+  const topicsQuery = useQuery({ queryKey: ["admin", "topics"], queryFn: adminApi.getTopics, retry: false })
+  const [confirmDisable, setConfirmDisable] = useState<{ slug: string; name: string } | null>(null)
 
-  function toggleTopic(slug: string, enabled: boolean) {
-    setTopics((prev) => prev.map((t) => t.slug === slug ? { ...t, enabled } : t))
-    setConfirmToggle(null)
-  }
+  const disableMutation = useMutation({
+    mutationFn: (slug: string) => adminApi.deactivateTopic(slug),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["admin", "topics"] })
+      setConfirmDisable(null)
+    },
+  })
 
   return (
     <div className="flex flex-col gap-6">
-      <SectionHeader title="Topics" sub="Enable or disable topic groups used in relevance scoring." />
-      <div className="rounded-xl border border-border overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border bg-biscuit/30">
-              <th className="text-left px-4 py-3 text-[10px] font-mono uppercase tracking-widest text-foreground/40 font-normal">Topic</th>
-              <th className="text-left px-4 py-3 text-[10px] font-mono uppercase tracking-widest text-foreground/40 font-normal hidden sm:table-cell">Group</th>
-              <th className="text-right px-4 py-3 text-[10px] font-mono uppercase tracking-widest text-foreground/40 font-normal">Weight</th>
-              <th className="text-right px-4 py-3 text-[10px] font-mono uppercase tracking-widest text-foreground/40 font-normal">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {topics.map((t) => (
-              <tr key={t.slug} className="border-b border-border/50 last:border-b-0 hover:bg-biscuit/20 transition-colors">
-                <td className="px-4 py-3 font-medium text-foreground">{t.name}</td>
-                <td className="px-4 py-3 text-foreground/45 text-xs font-mono hidden sm:table-cell">{t.parentSlug ?? "—"}</td>
-                <td className="px-4 py-3 text-right font-mono text-sm tabular-nums text-foreground/70">{Math.round(t.currentWeight * 100)}%</td>
-                <td className="px-4 py-3 text-right">
-                  <button
-                    onClick={() => setConfirmToggle(t)}
-                    className={`text-xs font-semibold px-3 py-1 rounded-full border transition-colors ${
-                      t.enabled
-                        ? "bg-success/10 border-success/20 text-success hover:bg-success/20"
-                        : "bg-biscuit border-border text-foreground/45 hover:bg-biscuit/80"
-                    }`}
-                  >
-                    {t.enabled ? "Enabled" : "Disabled"}
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <SectionHeader title="Topics" sub="Active topic groups used in relevance scoring." />
 
-      {confirmToggle && (
+      {topicsQuery.isLoading ? (
+        <div className="rounded-xl border border-border overflow-hidden divide-y divide-border/60" aria-busy="true">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="flex items-center justify-between px-4 py-3.5">
+              <Skeleton className="h-4 w-40" />
+              <Skeleton className="h-6 w-20 rounded-full" />
+            </div>
+          ))}
+        </div>
+      ) : topicsQuery.isError ? (
+        <ErrorCard heading="Topics unavailable" body="We couldn't load the topic catalog." onRetry={() => void topicsQuery.refetch()} />
+      ) : (topicsQuery.data ?? []).length === 0 ? (
+        <EmptyState heading="No topics configured" body="No topic groups have been created yet." showCorgi={false} />
+      ) : (
+        <div className="rounded-xl border border-border overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-biscuit/30">
+                <th className="text-left px-4 py-3 text-[10px] font-mono uppercase tracking-widest text-foreground/40 font-normal">Topic</th>
+                <th className="text-left px-4 py-3 text-[10px] font-mono uppercase tracking-widest text-foreground/40 font-normal hidden sm:table-cell">Group</th>
+                <th className="text-right px-4 py-3 text-[10px] font-mono uppercase tracking-widest text-foreground/40 font-normal">Weight</th>
+                <th className="text-right px-4 py-3 text-[10px] font-mono uppercase tracking-widest text-foreground/40 font-normal">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(topicsQuery.data ?? []).map((t) => (
+                <tr key={t.slug} className="border-b border-border/50 last:border-b-0 hover:bg-biscuit/20 transition-colors">
+                  <td className="px-4 py-3 font-medium text-foreground">{t.name}</td>
+                  <td className="px-4 py-3 text-foreground/45 text-xs font-mono hidden sm:table-cell">{t.parentSlug ?? "—"}</td>
+                  <td className="px-4 py-3 text-right font-mono text-sm tabular-nums text-foreground/70">
+                    {t.currentWeight != null ? `${Math.round(t.currentWeight * 100)}%` : "—"}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    {t.isActive ? (
+                      <button
+                        onClick={() => setConfirmDisable({ slug: t.slug, name: t.name })}
+                        className="text-xs font-semibold px-3 py-1 rounded-full border bg-success/10 border-success/20 text-success hover:bg-success/20 transition-colors"
+                      >
+                        Enabled
+                      </button>
+                    ) : (
+                      <span className="text-xs font-semibold px-3 py-1 rounded-full border bg-biscuit border-border text-foreground/45">
+                        Disabled
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {confirmDisable && (
         <ConfirmModal
-          title={`${confirmToggle.enabled ? "Disable" : "Enable"} "${confirmToggle.name}"?`}
-          body={confirmToggle.enabled
-            ? "This topic will no longer affect relevance scoring. Members' topic votes for this group will be ignored."
-            : "This topic will be re-activated and included in relevance scoring."}
-          confirmLabel={confirmToggle.enabled ? "Disable topic" : "Enable topic"}
-          danger={confirmToggle.enabled}
-          onConfirm={() => toggleTopic(confirmToggle.slug, !confirmToggle.enabled)}
-          onCancel={() => setConfirmToggle(null)}
+          title={`Disable "${confirmDisable.name}"?`}
+          body="This topic will no longer affect relevance scoring. Members' topic votes for this group will be ignored."
+          confirmLabel="Disable topic"
+          danger
+          loading={disableMutation.isPending}
+          onConfirm={() => disableMutation.mutate(confirmDisable.slug)}
+          onCancel={() => setConfirmDisable(null)}
         />
       )}
     </div>
@@ -474,67 +573,108 @@ function PanelTopics() {
 
 // ── Panel: Audit Log ──────────────────────────────────────────────────────────
 
+const AUDIT_PAGE_SIZE = 25
+
 function PanelAuditLog() {
+  const [limit, setLimit] = useState(AUDIT_PAGE_SIZE)
   const [expanded, setExpanded] = useState<number | null>(null)
+  const auditQuery = useQuery({
+    queryKey: ["admin", "audit-log", limit],
+    queryFn: () => adminApi.getAuditLog({ limit }),
+    retry: false,
+  })
+
+  const entries = auditQuery.data?.entries ?? []
+  const total = auditQuery.data?.total ?? 0
 
   return (
     <div className="flex flex-col gap-6">
       <SectionHeader title="Audit log" sub="All admin actions, newest first." />
-      <div className="rounded-xl border border-border overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border bg-biscuit/30">
-              <th className="text-left px-4 py-3 text-[10px] font-mono uppercase tracking-widest text-foreground/40 font-normal">Action</th>
-              <th className="text-left px-4 py-3 text-[10px] font-mono uppercase tracking-widest text-foreground/40 font-normal hidden md:table-cell">Actor</th>
-              <th className="text-right px-4 py-3 text-[10px] font-mono uppercase tracking-widest text-foreground/40 font-normal hidden sm:table-cell">Round</th>
-              <th className="text-right px-4 py-3 text-[10px] font-mono uppercase tracking-widest text-foreground/40 font-normal">When</th>
-            </tr>
-          </thead>
-          <tbody>
-            {MOCK_AUDIT.map((entry) => {
-              const isExpanded = expanded === entry.id
-              const dot = ACTION_COLOR[entry.action] ?? "bg-foreground/30"
-              const hasDetails = Object.keys(entry.details).length > 0
-              return (
-                <>
-                  <tr
-                    key={entry.id}
-                    className="border-b border-border/50 last:border-b-0 hover:bg-biscuit/20 transition-colors cursor-pointer"
-                    onClick={() => hasDetails && setExpanded(isExpanded ? null : entry.id)}
-                  >
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${dot}`} aria-hidden="true" />
-                        <span className="font-mono text-xs text-foreground/80">{entry.action}</span>
-                        {hasDetails && (
-                          <svg
-                            width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"
-                            className={`text-foreground/30 transition-transform ${isExpanded ? "rotate-180" : ""}`}
-                          >
-                            <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                          </svg>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-xs font-mono text-foreground/50 hidden md:table-cell">
-                      {entry.actor_did ? entry.actor_did.slice(-8) : <span className="italic text-foreground/30">system</span>}
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono text-xs text-foreground/50 hidden sm:table-cell">#{entry.epoch_id}</td>
-                    <td className="px-4 py-3 text-right text-xs text-foreground/50 tabular-nums" title={entry.created_at}>{relTime(entry.created_at)}</td>
-                  </tr>
-                  {isExpanded && (
-                    <tr key={`${entry.id}-details`} className="border-b border-border/30 bg-biscuit/20">
-                      <td colSpan={4} className="px-6 py-3">
-                        <pre className="text-xs font-mono text-foreground/60 whitespace-pre-wrap">{JSON.stringify(entry.details, null, 2)}</pre>
+
+      {auditQuery.isLoading ? (
+        <div className="rounded-xl border border-border overflow-hidden divide-y divide-border/60" aria-busy="true">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="flex items-center justify-between px-4 py-3.5">
+              <Skeleton className="h-4 w-44" />
+              <Skeleton className="h-3 w-16" />
+            </div>
+          ))}
+        </div>
+      ) : auditQuery.isError ? (
+        <ErrorCard heading="Audit log unavailable" body="We couldn't load the admin audit log." onRetry={() => void auditQuery.refetch()} />
+      ) : entries.length === 0 ? (
+        <EmptyState heading="No audit entries yet" body="Admin actions will appear here once activity begins." showCorgi={false} />
+      ) : (
+        <div className="rounded-xl border border-border overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-biscuit/30">
+                <th className="text-left px-4 py-3 text-[10px] font-mono uppercase tracking-widest text-foreground/40 font-normal">Action</th>
+                <th className="text-left px-4 py-3 text-[10px] font-mono uppercase tracking-widest text-foreground/40 font-normal hidden md:table-cell">Actor</th>
+                <th className="text-right px-4 py-3 text-[10px] font-mono uppercase tracking-widest text-foreground/40 font-normal hidden sm:table-cell">Round</th>
+                <th className="text-right px-4 py-3 text-[10px] font-mono uppercase tracking-widest text-foreground/40 font-normal">When</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((entry) => {
+                const isExpanded = expanded === entry.id
+                const hasDetails = entry.details != null && Object.keys(entry.details).length > 0
+                return (
+                  <>
+                    <tr
+                      key={entry.id}
+                      className="border-b border-border/50 last:border-b-0 hover:bg-biscuit/20 transition-colors cursor-pointer"
+                      onClick={() => hasDetails && setExpanded(isExpanded ? null : entry.id)}
+                    >
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full flex-shrink-0 bg-primary/50" aria-hidden="true" />
+                          <span className="font-mono text-xs text-foreground/80">{entry.action}</span>
+                          {hasDetails && (
+                            <svg
+                              width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"
+                              className={`text-foreground/30 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                            >
+                              <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                            </svg>
+                          )}
+                        </div>
                       </td>
+                      <td className="px-4 py-3 text-xs font-mono text-foreground/50 hidden md:table-cell">
+                        {entry.actor ? entry.actor.slice(-8) : <span className="italic text-foreground/30">system</span>}
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono text-xs text-foreground/50 hidden sm:table-cell">
+                        {entry.epochId != null ? `#${entry.epochId}` : "—"}
+                      </td>
+                      <td className="px-4 py-3 text-right text-xs text-foreground/50 tabular-nums" title={entry.timestamp}>{relTime(entry.timestamp)}</td>
                     </tr>
-                  )}
-                </>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
+                    {isExpanded && (
+                      <tr key={`${entry.id}-details`} className="border-b border-border/30 bg-biscuit/20">
+                        <td colSpan={4} className="px-6 py-3">
+                          <pre className="text-xs font-mono text-foreground/60 whitespace-pre-wrap">{JSON.stringify(entry.details, null, 2)}</pre>
+                        </td>
+                      </tr>
+                    )}
+                  </>
+                )
+              })}
+            </tbody>
+          </table>
+          <div className="px-4 py-3 border-t border-border/60 flex items-center justify-between">
+            <span className="text-xs text-foreground/40 font-mono">{total} total · {entries.length} shown</span>
+            {entries.length < total && (
+              <button
+                type="button"
+                onClick={() => setLimit((l) => l + AUDIT_PAGE_SIZE)}
+                disabled={auditQuery.isFetching}
+                className="text-xs font-medium text-primary hover:text-primary-dark transition-colors disabled:opacity-40"
+              >
+                {auditQuery.isFetching ? "Loading…" : "Load more"}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -542,46 +682,61 @@ function PanelAuditLog() {
 // ── Panel: Feed Health ────────────────────────────────────────────────────────
 
 function PanelFeedHealth() {
-  const h = MOCK_FEED_HEALTH
-  const metrics = [
-    { label: "vs Chronological", value: `${Math.round(h.vs_chronological_overlap * 100)}%`, hint: "Overlap with time-sorted feed" },
-    { label: "vs Engagement-only", value: `${Math.round(h.vs_engagement_overlap * 100)}%`, hint: "Overlap with likes-sorted feed" },
-    { label: "Author Gini", value: h.author_gini.toFixed(2), hint: "Author concentration (lower = more diverse)" },
-    { label: "Avg score", value: h.avg_total.toFixed(2), hint: "Mean total post score" },
-    { label: "Median score", value: h.median_total.toFixed(2), hint: "Median total post score" },
-    { label: "Avg bridging", value: h.avg_bridging.toFixed(2), hint: "Mean bridging signal across posts" },
-  ]
+  const healthQuery = useQuery({ queryKey: ["admin", "feed-health"], queryFn: adminApi.getFeedHealth, retry: false })
 
   return (
     <div className="flex flex-col gap-6">
-      <SectionHeader title="Feed health" sub="Transparency metrics for the current round." />
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {metrics.map((m) => (
-          <div key={m.label} className="rounded-xl border border-border bg-card px-5 py-4 flex flex-col gap-1.5">
-            <span className="text-[10px] font-mono uppercase tracking-widest text-foreground/40">{m.label}</span>
-            <span className="text-2xl font-mono font-bold text-foreground tabular-nums">{m.value}</span>
-            <span className="text-xs text-foreground/45 leading-relaxed">{m.hint}</span>
-          </div>
-        ))}
-      </div>
+      <SectionHeader title="Feed health" sub="Ingestion, scoring, and subscriber vitals." />
 
-      {/* Gini bar */}
-      <div className="flex flex-col gap-2">
-        <p className="text-[10px] font-mono uppercase tracking-widest text-foreground/40">Author concentration</p>
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-foreground/45 w-14">Diverse</span>
-          <div className="flex-1 h-2.5 rounded-full bg-biscuit overflow-hidden">
-            <div
-              className="h-2.5 rounded-full bg-primary transition-all"
-              style={{ width: `${h.author_gini * 100}%` }}
-            />
-          </div>
-          <span className="text-xs text-foreground/45 w-14 text-right">Concentrated</span>
+      {healthQuery.isLoading ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" aria-busy="true">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="rounded-xl border border-border bg-card px-5 py-4 flex flex-col gap-2">
+              <Skeleton className="h-3 w-24" />
+              <Skeleton className="h-7 w-16" />
+              <Skeleton className="h-3 w-32" />
+            </div>
+          ))}
         </div>
-        <p className="text-xs text-foreground/40 text-center">
-          Gini {h.author_gini.toFixed(2)} — {h.author_gini < 0.4 ? "healthy diversity" : "concentration detected"}
-        </p>
-      </div>
+      ) : healthQuery.isError || !healthQuery.data ? (
+        <ErrorCard heading="Feed health unavailable" body="We couldn't load feed health metrics." onRetry={() => void healthQuery.refetch()} />
+      ) : (
+        (() => {
+          const h = healthQuery.data
+          const metrics = [
+            { label: "Total posts", value: h.database.totalPosts.toLocaleString(), hint: `${h.database.postsLast24h.toLocaleString()} in last 24h` },
+            { label: "Posts (7d)", value: h.database.postsLast7d.toLocaleString(), hint: "Ingested in the last 7 days" },
+            { label: "Posts scored", value: h.scoring.postsScored.toLocaleString(), hint: `Last run ${relTime(h.scoring.lastRun)}` },
+            { label: "Posts filtered", value: h.scoring.postsFiltered.toLocaleString(), hint: "Removed by content rules" },
+            { label: "Subscribers", value: h.subscribers.total.toLocaleString(), hint: `${h.subscribers.withVotes.toLocaleString()} voted · ${h.subscribers.activeLastWeek.toLocaleString()} active/wk` },
+            { label: "Feed size", value: (h.feedSize ?? 0).toLocaleString(), hint: "Posts in the live ranked feed" },
+          ]
+          return (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {metrics.map((m) => (
+                  <div key={m.label} className="rounded-xl border border-border bg-card px-5 py-4 flex flex-col gap-1.5">
+                    <span className="text-[10px] font-mono uppercase tracking-widest text-foreground/40">{m.label}</span>
+                    <span className="text-2xl font-mono font-bold text-foreground tabular-nums">{m.value}</span>
+                    <span className="text-xs text-foreground/45 leading-relaxed">{m.hint}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Jetstream status strip */}
+              <div className={`flex items-center gap-3 px-5 py-4 rounded-xl border text-sm ${h.jetstream.connected ? "bg-success/10 border-success/20 text-success" : "bg-status-error/10 border-status-error/25 text-status-error"}`}>
+                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${h.jetstream.connected ? "bg-success animate-pulse" : "bg-status-error"}`} aria-hidden="true" />
+                <span className="font-semibold">Jetstream {h.jetstream.connected ? "connected" : "disconnected"}</span>
+                <span className="text-foreground/50 ml-1">
+                  {h.jetstream.connected
+                    ? `${h.jetstream.eventsLast5min.toLocaleString()} events in last 5 min`
+                    : `down for ${h.jetstream.disconnectedForSeconds ?? 0}s · last event ${relTime(h.jetstream.lastEvent)}`}
+                </span>
+              </div>
+            </>
+          )
+        })()
+      )}
     </div>
   )
 }
@@ -589,225 +744,310 @@ function PanelFeedHealth() {
 // ── Panel: Announcements ──────────────────────────────────────────────────────
 
 function PanelAnnouncements() {
-  const [items, setItems] = useState(MOCK_ANNOUNCEMENTS)
-  const [confirmDelete, setConfirmDelete] = useState<number | null>(null)
-  const [draft, setDraft] = useState({ title: "", body: "" })
-  const [adding, setAdding] = useState(false)
+  const queryClient = useQueryClient()
+  const announcementsQuery = useQuery({ queryKey: ["admin", "announcements"], queryFn: adminApi.getAnnouncements, retry: false })
 
-  function togglePublish(id: number) {
-    setItems((prev) => prev.map((a) => a.id === id ? { ...a, published: !a.published } : a))
-  }
+  const [content, setContent] = useState("")
+  const [includeEpochLink, setIncludeEpochLink] = useState(true)
+  const [confirmPost, setConfirmPost] = useState(false)
 
-  function deleteItem(id: number) {
-    setItems((prev) => prev.filter((a) => a.id !== id))
-    setConfirmDelete(null)
-  }
+  const postMutation = useMutation({
+    mutationFn: () => adminApi.postAnnouncement({ content: content.trim(), includeEpochLink }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["admin", "announcements"] })
+      setContent("")
+      setConfirmPost(false)
+    },
+  })
 
-  function addAnnouncement() {
-    if (!draft.title.trim() || !draft.body.trim()) return
-    setItems((prev) => [{ id: Date.now(), ...draft, published: false, created_at: new Date().toISOString() }, ...prev])
-    setDraft({ title: "", body: "" })
-    setAdding(false)
-  }
+  const items = announcementsQuery.data?.announcements ?? []
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between gap-4 pb-4 border-b border-border mb-1">
-        <div>
-          <h2 className="text-base font-semibold text-foreground">Announcements</h2>
-          <p className="text-xs text-foreground/50">Community-facing notices shown on the dashboard.</p>
+      <SectionHeader title="Announcements" sub="Community-facing notices posted to the feed's Bluesky account." />
+
+      {/* Composer */}
+      <div className="rounded-xl border border-border bg-biscuit/30 p-5 flex flex-col gap-3">
+        <textarea
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          placeholder="Write an announcement to post to Bluesky…"
+          rows={3}
+          className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground placeholder:text-foreground/35 focus:outline-none focus:ring-2 focus:ring-primary/40 resize-none"
+        />
+        <div className="flex items-center justify-between gap-3">
+          <label className="flex items-center gap-2 text-xs text-foreground/60">
+            <input type="checkbox" checked={includeEpochLink} onChange={(e) => setIncludeEpochLink(e.target.checked)} className="accent-primary" />
+            Include a link to the current round
+          </label>
+          <button
+            onClick={() => setConfirmPost(true)}
+            disabled={!content.trim() || postMutation.isPending}
+            className="px-4 py-2 rounded-full bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary-dark transition-colors disabled:opacity-40 disabled:pointer-events-none"
+          >
+            Post announcement
+          </button>
         </div>
-        <button
-          onClick={() => setAdding(!adding)}
-          className="px-4 py-2 rounded-full bg-primary/10 text-primary border border-primary/20 text-sm font-medium hover:bg-primary/20 transition-colors"
-        >
-          {adding ? "Cancel" : "+ New"}
-        </button>
+        {postMutation.isError && (
+          <p className="text-sm text-status-error">Failed to post the announcement. Please try again.</p>
+        )}
       </div>
 
-      {adding && (
-        <div className="rounded-xl border border-border bg-biscuit/30 p-5 flex flex-col gap-3">
-          <input
-            type="text"
-            value={draft.title}
-            onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
-            placeholder="Title"
-            className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground placeholder:text-foreground/35 focus:outline-none focus:ring-2 focus:ring-primary/40"
-          />
-          <textarea
-            value={draft.body}
-            onChange={(e) => setDraft((d) => ({ ...d, body: e.target.value }))}
-            placeholder="Body text"
-            rows={3}
-            className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground placeholder:text-foreground/35 focus:outline-none focus:ring-2 focus:ring-primary/40 resize-none"
-          />
-          <div className="flex justify-end gap-2">
-            <button
-              onClick={addAnnouncement}
-              disabled={!draft.title.trim() || !draft.body.trim()}
-              className="px-4 py-2 rounded-full bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary-dark transition-colors disabled:opacity-40 disabled:pointer-events-none"
-            >
-              Save draft
-            </button>
-          </div>
+      {/* List */}
+      {announcementsQuery.isLoading ? (
+        <div className="flex flex-col gap-3" aria-busy="true">
+          {Array.from({ length: 2 }).map((_, i) => (
+            <div key={i} className="rounded-xl border border-border bg-card px-5 py-4 flex flex-col gap-2">
+              <Skeleton className="h-4 w-3/4" />
+              <Skeleton className="h-3 w-24" />
+            </div>
+          ))}
+        </div>
+      ) : announcementsQuery.isError ? (
+        <ErrorCard heading="Announcements unavailable" body="We couldn't load recent announcements." onRetry={() => void announcementsQuery.refetch()} />
+      ) : items.length === 0 ? (
+        <EmptyState heading="No announcements yet" body="Posted announcements will appear here." showCorgi={false} />
+      ) : (
+        <div className="flex flex-col gap-3">
+          {items.map((a) => (
+            <div key={a.id} className="rounded-xl border border-border bg-card px-5 py-4 flex items-start gap-4">
+              <div className="flex-1 flex flex-col gap-1 min-w-0">
+                <p className="text-sm text-foreground/80 leading-relaxed">{a.content}</p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[10px] font-mono text-foreground/30">{relTime(a.postedAt)}</span>
+                  {a.type && <span className="text-[10px] font-mono text-foreground/30">· {a.type}</span>}
+                </div>
+              </div>
+              {a.postUrl && (
+                <a
+                  href={a.postUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs font-medium text-primary hover:text-primary-dark transition-colors flex-shrink-0"
+                >
+                  View ↗
+                </a>
+              )}
+            </div>
+          ))}
         </div>
       )}
 
-      <div className="flex flex-col gap-3">
-        {items.map((a) => (
-          <div key={a.id} className="rounded-xl border border-border bg-card px-5 py-4 flex items-start gap-4">
-            <div className="flex-1 flex flex-col gap-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold text-foreground">{a.title}</span>
-                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${a.published ? "bg-success/10 text-success border-success/20" : "bg-biscuit text-foreground/45 border-border"}`}>
-                  {a.published ? "Published" : "Draft"}
-                </span>
-              </div>
-              <p className="text-xs text-foreground/55 leading-relaxed">{a.body}</p>
-              <span className="text-[10px] font-mono text-foreground/30">{relTime(a.created_at)}</span>
-            </div>
-            <div className="flex items-center gap-2 flex-shrink-0">
-              <button
-                onClick={() => togglePublish(a.id)}
-                className="text-xs font-medium text-foreground/50 hover:text-primary transition-colors"
-              >
-                {a.published ? "Unpublish" : "Publish"}
-              </button>
-              <button
-                onClick={() => setConfirmDelete(a.id)}
-                aria-label="Delete"
-                className="text-foreground/30 hover:text-status-error transition-colors"
-              >
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                  <path d="M3 4h10M6 4V2.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 .5.5V4M5 4l.5 8.5a.5.5 0 0 0 .5.5h4a.5.5 0 0 0 .5-.5L11 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-                </svg>
-              </button>
-            </div>
-          </div>
-        ))}
-        {items.length === 0 && <p className="text-sm text-foreground/35 italic text-center py-8">No announcements yet.</p>}
-      </div>
-
-      {confirmDelete !== null && (
+      {confirmPost && (
         <ConfirmModal
-          title="Delete this announcement?"
-          body="This announcement will be permanently removed. If published, members will no longer see it."
-          confirmLabel="Delete"
-          danger
-          onConfirm={() => deleteItem(confirmDelete)}
-          onCancel={() => setConfirmDelete(null)}
+          title="Post this announcement to Bluesky?"
+          body="This will publish the announcement to the feed's Bluesky account, where all members can see it."
+          confirmLabel="Post announcement"
+          loading={postMutation.isPending}
+          onConfirm={() => postMutation.mutate()}
+          onCancel={() => setConfirmPost(false)}
         />
       )}
     </div>
   )
 }
 
-// ── Phase banner ──────────────────────────────────────────────────────────────
+// ── Phase banner meta ─────────────────────────────────────────────────────────
 
-const PHASE_META = {
-  running:  { label: "Running",      color: "bg-success/15 border-success/25 text-success",       dot: "bg-success" },
-  voting:   { label: "Voting open",  color: "bg-primary/10 border-primary/20 text-primary",       dot: "bg-primary animate-pulse" },
-  review:   { label: "Under review", color: "bg-warning/15 border-warning/25 text-warning",       dot: "bg-warning" },
-  waiting:  { label: "Waiting",      color: "bg-biscuit border-border text-foreground/50",         dot: "bg-foreground/30" },
+const PHASE_META: Record<EpochPhase, { label: string; color: string; dot: string }> = {
+  running: { label: "Running", color: "bg-success/15 border-success/25 text-success", dot: "bg-success" },
+  voting: { label: "Voting open", color: "bg-primary/10 border-primary/20 text-primary", dot: "bg-primary animate-pulse" },
+  review: { label: "Under review", color: "bg-warning/15 border-warning/25 text-warning", dot: "bg-warning" },
+  waiting: { label: "Waiting", color: "bg-biscuit border-border text-foreground/50", dot: "bg-foreground/30" },
 }
 
 // ── Nav items ─────────────────────────────────────────────────────────────────
 
 const NAV_PANELS = [
-  { id: "overview",        label: "Overview" },
-  { id: "current-round",   label: "Current round" },
-  { id: "weights",         label: "Weights override" },
-  { id: "filters",         label: "Content filters" },
-  { id: "topics",          label: "Topics" },
-  { id: "audit",           label: "Audit log" },
-  { id: "feed-health",     label: "Feed health" },
-  { id: "announcements",   label: "Announcements" },
+  { id: "overview", label: "Overview" },
+  { id: "current-round", label: "Current round" },
+  { id: "weights", label: "Weights override" },
+  { id: "filters", label: "Content filters" },
+  { id: "topics", label: "Topics" },
+  { id: "audit", label: "Audit log" },
+  { id: "feed-health", label: "Feed health" },
+  { id: "announcements", label: "Announcements" },
 ]
 
-// ── Main page ─────────────────────────────────────────────────────────────────
+// ── Authenticated admin console ───────────────────────────────────────────────
 
-export default function AdminPage() {
+function AdminConsole({ status }: { status: AdminStatus }) {
   const [activePanel, setActivePanel] = useState("overview")
-  const phase = MOCK_EPOCH.phase
+  const epoch = status.system.currentEpoch
+  const phase = epochPhase(epoch)
   const phaseMeta = PHASE_META[phase]
 
   const panels: Record<string, React.ReactNode> = {
-    "overview":      <PanelOverview />,
-    "current-round": <PanelCurrentRound />,
-    "weights":       <PanelWeightsOverride />,
-    "filters":       <PanelContentFilters />,
-    "topics":        <PanelTopics />,
-    "audit":         <PanelAuditLog />,
-    "feed-health":   <PanelFeedHealth />,
+    "overview": <PanelOverview status={status} />,
+    "current-round": <PanelCurrentRound status={status} />,
+    "weights": <PanelWeightsOverride status={status} />,
+    "filters": <PanelContentFilters status={status} />,
+    "topics": <PanelTopics />,
+    "audit": <PanelAuditLog />,
+    "feed-health": <PanelFeedHealth />,
     "announcements": <PanelAnnouncements />,
   }
 
   return (
-    <AppShell user={MOCK_USER}>
-      <div className="flex flex-col min-h-[calc(100vh-3.5rem)]">
-
-        {/* ── Governance phase banner ───────────────────────────── */}
-        <div className={`w-full border-b px-5 py-2.5 flex items-center gap-3 ${phaseMeta.color}`}>
-          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${phaseMeta.dot}`} aria-hidden="true" />
-          <span className="text-xs font-semibold">Round #{MOCK_EPOCH.id} · {phaseMeta.label}</span>
-          <span className="text-xs opacity-60 hidden sm:block">
-            {phase === "voting" ? `Closes ${new Date(MOCK_EPOCH.voting_ends_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZoneName: "short" })}` : ""}
-          </span>
+    <div className="flex flex-col min-h-[calc(100vh-3.5rem)]">
+      {/* ── Governance phase banner ───────────────────────────── */}
+      <div className={`w-full border-b px-5 py-2.5 flex items-center gap-3 ${phaseMeta.color}`}>
+        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${phaseMeta.dot}`} aria-hidden="true" />
+        <span className="text-xs font-semibold">
+          {epoch ? `Round #${epoch.id} · ${phaseMeta.label}` : "No active round"}
+        </span>
+        <span className="text-xs opacity-60 hidden sm:block">
+          {epoch && phase === "voting" && epoch.votingEndsAt ? `Closes ${fmtDateTime(epoch.votingEndsAt)}` : ""}
+        </span>
+        {epoch && (
           <span className="ml-auto text-[10px] font-mono opacity-50 hidden md:block">
-            {MOCK_EPOCH.vote_count} / {MOCK_EPOCH.subscriber_count} voted
+            {epoch.voteCount} / {status.system.feed.subscriberCount} voted
           </span>
-        </div>
+        )}
+      </div>
 
-        {/* Mobile panel nav — sits above the flex row so it spans full width */}
-        <div className="md:hidden w-full border-b border-border bg-card px-4 py-3 flex gap-2 overflow-x-auto flex-shrink-0">
+      {/* Mobile panel nav */}
+      <div className="md:hidden w-full border-b border-border bg-card px-4 py-3 flex gap-2 overflow-x-auto flex-shrink-0">
+        {NAV_PANELS.map((p) => (
+          <button
+            key={p.id}
+            onClick={() => setActivePanel(p.id)}
+            className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors border
+              ${activePanel === p.id
+                ? "bg-primary/10 text-primary border-primary/20"
+                : "text-foreground/55 border-border hover:text-foreground"
+              }`}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── 2-col layout: sidebar + content ─────────────────────── */}
+      <div className="flex flex-1 min-h-0">
+        <nav
+          className="hidden md:flex flex-col w-52 flex-shrink-0 border-r border-border bg-card px-3 py-5 gap-0.5 sticky top-[calc(3.5rem+2.5rem)] self-start"
+          style={{ maxHeight: "calc(100vh - 3.5rem - 2.5rem)", overflowY: "auto" }}
+          aria-label="Admin panels"
+        >
+          <span className="text-[9px] font-mono uppercase tracking-widest text-foreground/30 px-3 pb-2">Admin console</span>
           {NAV_PANELS.map((p) => (
             <button
               key={p.id}
               onClick={() => setActivePanel(p.id)}
-              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors border
+              aria-current={activePanel === p.id ? "page" : undefined}
+              className={`text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors
                 ${activePanel === p.id
-                  ? "bg-primary/10 text-primary border-primary/20"
-                  : "text-foreground/55 border-border hover:text-foreground"
+                  ? "bg-primary/10 text-primary"
+                  : "text-foreground/60 hover:text-foreground hover:bg-biscuit/60"
                 }`}
             >
               {p.label}
             </button>
           ))}
-        </div>
+        </nav>
 
-        {/* ── 2-col layout: sidebar + content ─────────────────────── */}
-        <div className="flex flex-1 min-h-0">
+        <main className="flex-1 min-w-0 px-4 sm:px-6 py-7 max-w-4xl">
+          {panels[activePanel]}
+        </main>
+      </div>
+    </div>
+  )
+}
 
-          {/* Sidebar nav — desktop only */}
-          <nav
-            className="hidden md:flex flex-col w-52 flex-shrink-0 border-r border-border bg-card px-3 py-5 gap-0.5 sticky top-[calc(3.5rem+2.5rem)] self-start"
-            style={{ maxHeight: "calc(100vh - 3.5rem - 2.5rem)", overflowY: "auto" }}
-            aria-label="Admin panels"
+// ── Gating UIs ────────────────────────────────────────────────────────────────
+
+function AdminLoading() {
+  return (
+    <div className="max-w-4xl mx-auto w-full px-5 py-10 flex flex-col gap-6" aria-busy="true">
+      <Skeleton className="h-8 w-48" />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={i} className="h-24 rounded-xl" />
+        ))}
+      </div>
+      <Skeleton className="h-40 rounded-xl" />
+    </div>
+  )
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
+
+export default function AdminPage() {
+  const { isAuthenticated } = useAuth()
+  const [signInOpen, setSignInOpen] = useState(false)
+
+  const statusQuery = useQuery({
+    queryKey: ["admin", "status"],
+    queryFn: adminApi.getStatus,
+    enabled: isAuthenticated,
+    retry: false,
+  })
+
+  let body: React.ReactNode
+
+  if (!isAuthenticated) {
+    body = (
+      <div className="min-h-[calc(100vh-56px)] flex items-center justify-center px-5 py-16">
+        <div className="w-full max-w-[440px] flex flex-col items-center text-center gap-6">
+          <div className="flex flex-col gap-2">
+            <h1 className="font-display text-xl font-bold text-foreground tracking-normal">Admin sign-in required</h1>
+            <p className="text-sm text-foreground/60 leading-relaxed">
+              The admin console is restricted to feed operators. Sign in with an authorised Bluesky account to continue.
+            </p>
+          </div>
+          <Button
+            onClick={() => setSignInOpen(true)}
+            className="bg-primary text-primary-foreground hover:bg-primary-dark rounded-full px-8 text-sm shadow-[0_2px_8px_rgba(200,97,44,0.3)] hover:shadow-[0_4px_14px_rgba(200,97,44,0.4)] transition-all"
           >
-            <span className="text-[9px] font-mono uppercase tracking-widest text-foreground/30 px-3 pb-2">Admin console</span>
-            {NAV_PANELS.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => setActivePanel(p.id)}
-                aria-current={activePanel === p.id ? "page" : undefined}
-                className={`text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors
-                  ${activePanel === p.id
-                    ? "bg-primary/10 text-primary"
-                    : "text-foreground/60 hover:text-foreground hover:bg-biscuit/60"
-                  }`}
-              >
-                {p.label}
-              </button>
-            ))}
-          </nav>
-
-          {/* Panel content */}
-          <main className="flex-1 min-w-0 px-4 sm:px-6 py-7 max-w-4xl">
-            {panels[activePanel]}
-          </main>
-
+            Connect Bluesky
+          </Button>
         </div>
       </div>
+    )
+  } else if (statusQuery.isLoading) {
+    body = <AdminLoading />
+  } else if (statusQuery.isError) {
+    const code = axios.isAxiosError(statusQuery.error) ? statusQuery.error.response?.status : undefined
+    body = code === 401 || code === 403 ? (
+      <div className="min-h-[calc(100vh-56px)] flex items-center justify-center px-5 py-16">
+        <div className="w-full max-w-md">
+          <EmptyState
+            heading="Access denied"
+            body="Your account isn't authorised to view the admin console. If you believe this is a mistake, contact a feed operator."
+            showCorgi={false}
+          />
+        </div>
+      </div>
+    ) : (
+      <div className="max-w-md mx-auto px-5 py-20">
+        <ErrorCard
+          heading="Admin console unavailable"
+          body="We couldn't load the admin console. Try again in a moment."
+          onRetry={() => void statusQuery.refetch()}
+        />
+      </div>
+    )
+  } else if (!statusQuery.data?.isAdmin) {
+    body = (
+      <div className="min-h-[calc(100vh-56px)] flex items-center justify-center px-5 py-16">
+        <div className="w-full max-w-md">
+          <EmptyState
+            heading="Access denied"
+            body="Your account isn't authorised to view the admin console."
+            showCorgi={false}
+          />
+        </div>
+      </div>
+    )
+  } else {
+    body = <AdminConsole status={statusQuery.data} />
+  }
+
+  return (
+    <AppShell>
+      {body}
+      <SignInDialog open={signInOpen} onOpenChange={setSignInOpen} />
     </AppShell>
   )
 }
