@@ -2,7 +2,7 @@
   "scenarioKind": "epoch-vote-cycle",
   "scenarioVersion": 1,
   "seed": 42,
-  "codeVersion": "1.0.0",
+  "codeVersion": "1.2.0",
   "population": {
     "subscriberCount": 8,
     "postCount": 10,
@@ -11,11 +11,11 @@
   "aggregation": {
     "epochId": 1,
     "weights": {
-      "recency": 0.234,
-      "engagement": 0.196,
-      "bridging": 0.24,
-      "sourceDiversity": 0.181,
-      "relevance": 0.149
+      "recency": 0.328,
+      "engagement": 0.169,
+      "bridging": 0.254,
+      "sourceDiversity": 0.111,
+      "relevance": 0.138
     },
     "weightSum": 1
   },
@@ -30,52 +30,52 @@
       {
         "uri": "at://did:plc:corgisimsub000002/app.bsky.feed.post/corgisimpost000002",
         "rank": 1,
-        "totalScore": 0.613363
+        "totalScore": 0.615492
       },
       {
         "uri": "at://did:plc:corgisimsub000007/app.bsky.feed.post/corgisimpost000007",
         "rank": 2,
-        "totalScore": 0.514218
-      },
-      {
-        "uri": "at://did:plc:corgisimsub000005/app.bsky.feed.post/corgisimpost000005",
-        "rank": 3,
-        "totalScore": 0.507584
+        "totalScore": 0.488889
       },
       {
         "uri": "at://did:plc:corgisimsub000001/app.bsky.feed.post/corgisimpost000001",
+        "rank": 3,
+        "totalScore": 0.479675
+      },
+      {
+        "uri": "at://did:plc:corgisimsub000005/app.bsky.feed.post/corgisimpost000005",
         "rank": 4,
-        "totalScore": 0.506529
+        "totalScore": 0.464644
       },
       {
         "uri": "at://did:plc:corgisimsub000006/app.bsky.feed.post/corgisimpost000006",
         "rank": 5,
-        "totalScore": 0.473313
-      },
-      {
-        "uri": "at://did:plc:corgisimsub000000/app.bsky.feed.post/corgisimpost000008",
-        "rank": 6,
-        "totalScore": 0.449319
-      },
-      {
-        "uri": "at://did:plc:corgisimsub000004/app.bsky.feed.post/corgisimpost000004",
-        "rank": 7,
-        "totalScore": 0.44198
-      },
-      {
-        "uri": "at://did:plc:corgisimsub000003/app.bsky.feed.post/corgisimpost000003",
-        "rank": 8,
-        "totalScore": 0.410074
+        "totalScore": 0.416693
       },
       {
         "uri": "at://did:plc:corgisimsub000000/app.bsky.feed.post/corgisimpost000000",
+        "rank": 6,
+        "totalScore": 0.387467
+      },
+      {
+        "uri": "at://did:plc:corgisimsub000000/app.bsky.feed.post/corgisimpost000008",
+        "rank": 7,
+        "totalScore": 0.382548
+      },
+      {
+        "uri": "at://did:plc:corgisimsub000004/app.bsky.feed.post/corgisimpost000004",
+        "rank": 8,
+        "totalScore": 0.373123
+      },
+      {
+        "uri": "at://did:plc:corgisimsub000003/app.bsky.feed.post/corgisimpost000003",
         "rank": 9,
-        "totalScore": 0.389785
+        "totalScore": 0.354223
       },
       {
         "uri": "at://did:plc:corgisimsub000001/app.bsky.feed.post/corgisimpost000009",
         "rank": 10,
-        "totalScore": 0.370049
+        "totalScore": 0.323737
       }
     ]
   }

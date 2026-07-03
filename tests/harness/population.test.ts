@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import { generatePopulation } from '../../src/harness/population.js';
 import { createRng, SeededClock } from '../../src/harness/rng.js';
+import { DEFAULT_PERSONA_MIX } from '../../src/harness/personas.js';
 import type { PopulationConfig } from '../../src/harness/scenario.js';
 
 function buildConfig(overrides: Partial<PopulationConfig> = {}): PopulationConfig {
@@ -18,6 +19,8 @@ function buildConfig(overrides: Partial<PopulationConfig> = {}): PopulationConfi
     voteParticipationRate: 1,
     contentVoteRate: 0,
     castsWeightVoteRate: 0.5,
+    castsTopicVoteRate: 0.5,
+    personaMix: { ...DEFAULT_PERSONA_MIX },
     ...overrides,
   };
 }

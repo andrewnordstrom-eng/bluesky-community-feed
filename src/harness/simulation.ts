@@ -24,7 +24,8 @@
 
 import type { Rng, Clock } from './rng.js';
 import type { Scenario } from './scenario.js';
-import { generatePopulation, type Population } from './population.js';
+import { generatePopulation, TOPIC_SLUGS, type Population, type VoteSeed } from './population.js';
+import { validateVote, type RawVotePayload, type VoteValidationContext } from './vote-validation.js';
 import { assertEphemeralPostgresUrl, assertEphemeralRedisUrl, type GuardOptions } from './prod-guard.js';
 import { createDefaultGovernanceWeightRecord } from '../config/votable-params.js';
 import { weightsToVotePayload } from '../governance/governance.types.js';
@@ -112,13 +113,20 @@ export interface SimulationResult {
  * Seed the first governance epoch with equal default weights (mirrors
  * `scripts/seed-governance.ts`'s bootstrap, but driven from the
  * registry-derived default record so a 6th registered component doesn't
- * silently drift). No-ops if an active/voting epoch already exists.
+ * silently drift). Reuses an active/voting epoch if one already exists.
+ *
+ * Always leaves the epoch in `phase = 'voting'` (explicitly set on INSERT,
+ * forced on reuse too) — `POST /api/governance/vote` (src/governance/routes/
+ * vote.ts) only accepts votes for an epoch in that phase (see
+ * vote-validation.ts), and this harness exists to seed votes a real voter
+ * could actually have cast.
  */
 async function ensureActiveEpoch(db: QueryableDb): Promise<number> {
   const existing = await db.query<{ id: number }>(
     `SELECT id FROM governance_epochs WHERE status IN ('active', 'voting') ORDER BY id DESC LIMIT 1`
   );
   if (existing.rows[0]) {
+    await db.query(`UPDATE governance_epochs SET phase = 'voting' WHERE id = $1`, [existing.rows[0].id]);
     return existing.rows[0].id;
   }
 
@@ -127,9 +135,9 @@ async function ensureActiveEpoch(db: QueryableDb): Promise<number> {
 
   const inserted = await db.query<{ id: number }>(
     `INSERT INTO governance_epochs (
-      status, recency_weight, engagement_weight, bridging_weight,
+      status, phase, recency_weight, engagement_weight, bridging_weight,
       source_diversity_weight, relevance_weight, vote_count, description
-    ) VALUES ('active', $1, $2, $3, $4, $5, 0, 'A1 simulation harness bootstrap epoch')
+    ) VALUES ('active', 'voting', $1, $2, $3, $4, $5, 0, 'A1 simulation harness bootstrap epoch')
     RETURNING id`,
     [
       payload.recency_weight,
@@ -141,6 +149,39 @@ async function ensureActiveEpoch(db: QueryableDb): Promise<number> {
   );
 
   return inserted.rows[0].id;
+}
+
+/** Human-readable label for a topic slug, e.g. `software-development` -> `Software Development`. */
+function topicSlugLabel(slug: string): string {
+  return slug
+    .split('-')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
+/**
+ * Register `slugs` as active rows in `topic_catalog` (creating them if
+ * missing, reactivating them if a prior run left one inactive). Idempotent
+ * via `ON CONFLICT (slug) DO UPDATE`, mirroring `scripts/seed-topics.ts`'s
+ * convention — but seeding only the harness's own synthetic slug set
+ * (population.ts's `TOPIC_SLUGS`), not the real curated catalog.
+ *
+ * Without this, every persona topic-weight vote (population.ts) would be
+ * rejected by vote-validation.ts's slug check (mirroring the real route's
+ * `topic_catalog WHERE is_active = TRUE` check) and invisible to the real
+ * `aggregateTopicWeights`, which reads active slugs from the same table —
+ * there would be no active topic for either to see.
+ */
+async function ensureActiveTopics(db: QueryableDb, slugs: readonly string[]): Promise<void> {
+  if (slugs.length === 0) {
+    return;
+  }
+  await insertBatched(db, slugs, (batch, offset) => ({
+    text: `INSERT INTO topic_catalog (slug, name, is_active)
+           VALUES ${valuesClause(batch.length, 3, offset)}
+           ON CONFLICT (slug) DO UPDATE SET is_active = TRUE`,
+    params: batch.flatMap((slug) => [slug, topicSlugLabel(slug), true]),
+  }));
 }
 
 /** Max rows per batched `INSERT ... VALUES (...),(...)` — keeps a single
@@ -190,6 +231,24 @@ async function insertBatched<T>(
   }
 }
 
+/**
+ * Convert a `VoteSeed` into the same wire-shaped payload
+ * `POST /api/governance/vote` would receive as a request body, so
+ * `validateVote` (vote-validation.ts) can check it exactly as the real
+ * route would. Reuses the REAL `weightsToVotePayload` production helper for
+ * the weight fields rather than re-deriving the snake_case names here.
+ */
+function voteSeedToRawPayload(vote: VoteSeed): RawVotePayload {
+  const weightFields = vote.weights ? weightsToVotePayload(vote.weights) : {};
+  return {
+    voterDid: vote.voterDid,
+    ...weightFields,
+    include_keywords: vote.includeKeywords,
+    exclude_keywords: vote.excludeKeywords,
+    topic_weights: vote.topicWeights,
+  };
+}
+
 export class Simulation {
   constructor(
     private readonly scenario: Scenario,
@@ -231,7 +290,8 @@ export class Simulation {
     };
 
     const epochBeforeId = await ensureActiveEpoch(this.deps.db);
-    record('epoch_ensured', { epochId: epochBeforeId });
+    await ensureActiveTopics(this.deps.db, TOPIC_SLUGS);
+    record('epoch_ensured', { epochId: epochBeforeId, topicSlugsSeeded: TOPIC_SLUGS.length });
 
     const population = generatePopulation(this.deps.rng, this.deps.clock, this.scenario.population);
     record('population_generated', {
@@ -305,9 +365,9 @@ export class Simulation {
 
     // Subscribers and posts/engagement are batched (multi-row `INSERT ...
     // VALUES (...),(...)`) rather than one awaited round trip per row — see
-    // `insertBatched` below. Votes stay per-row: each insert's `RETURNING id`
-    // feeds a per-row dual-write (see the TODO in that loop for why batching
-    // it isn't a clean, semantics-preserving change today.
+    // `insertBatched` below. Votes are batched too, via `insertVotes` — see
+    // that method's docstring for why it uses `jsonb_to_recordset` instead
+    // of `insertBatched`'s `VALUES (...),(...)` form.
     await insertBatched(
       db,
       population.subscribers,
@@ -343,55 +403,145 @@ export class Simulation {
       params: batch.flatMap((post) => [post.uri, post.likeCount, post.repostCount, post.replyCount]),
     }));
 
-    // NOT batched (unlike subscribers/posts/post_engagement above): each
-    // insert's `RETURNING id` drives a per-row dual-write into the
-    // governance_vote_weights long table below, and this insert has an
-    // `ON CONFLICT (voter_did, epoch_id) DO NOTHING`. A batched multi-row
-    // `INSERT ... RETURNING` does not reliably let you correlate returned
-    // rows back to specific input rows once some of those rows are skipped
-    // by the conflict clause — silently mis-attributing (or dropping) a
-    // dual-write would be a correctness regression, not just a perf one.
-    // TODO(A2/A3): revisit once population-scale vote volumes make this a
-    // real bottleneck — likely needs either an `unnest($1::text[], ...)`
-    // form that returns `(input_index, id)` pairs, or dropping the
-    // `ON CONFLICT DO NOTHING` guard (votes are already unique per
-    // `generateVotes()` participant, so it's only a defense-in-depth no-op
-    // in a single harness run).
-    for (const vote of population.votes) {
-      if (!vote.weights) {
-        continue;
-      }
-      const inserted = await db.query<{ id: string }>(
+    await this.insertVotes(db, population, epochId, voteWeightDualWrite);
+  }
+
+  /**
+   * Validate every generated vote exactly as `POST /api/governance/vote`
+   * would (vote-validation.ts), then bulk-insert all of them (weight-only,
+   * keyword-only, topic-weight-only, and any combination) in one batched
+   * `INSERT ... SELECT FROM jsonb_to_recordset(...)` per chunk, and finally
+   * dual-write each inserted weight vote into the `governance_vote_weights`
+   * long table (still one `writeVoteWeights` call per vote — see below).
+   *
+   * A single JSONB blob per chunk (rather than `unnest($1::text[], ...)`
+   * over parallel arrays) sidesteps a real correctness hazard for the
+   * `include_keywords`/`exclude_keywords` TEXT[] columns: `unnest` on a
+   * `text[][]` parameter flattens BOTH dimensions into one row set, so it
+   * can't carry "one TEXT[] per output row" the way this insert needs.
+   * `jsonb_to_recordset` converts each JSON array (including a `[]`) into
+   * the declared native array/jsonb column type per row, with no such
+   * flattening hazard.
+   *
+   * Rows are correlated back to their `VoteSeed` by `voter_did` (unique per
+   * epoch — `one_vote_per_epoch`) via `RETURNING id, voter_did`, not by
+   * assuming the batch's output row order matches its input order — this is
+   * what actually resolves the correctness hazard the previous per-row loop
+   * called out (a batched `INSERT ... RETURNING` doesn't reliably preserve
+   * positional correlation once `ON CONFLICT DO NOTHING` can skip rows).
+   */
+  private async insertVotes(
+    db: QueryableDb,
+    population: Population,
+    epochId: number,
+    voteWeightDualWrite: {
+      writeVoteWeights: (voteId: string, weights: GovernanceWeights) => Promise<void>;
+      dualWriteEnabled: boolean;
+    }
+  ): Promise<void> {
+    if (population.votes.length === 0) {
+      return;
+    }
+
+    this.assertVotesAreRouteValid(population);
+
+    const rows = population.votes.map((vote) => ({
+      voter_did: vote.voterDid,
+      recency_weight: vote.weights?.recency ?? null,
+      engagement_weight: vote.weights?.engagement ?? null,
+      bridging_weight: vote.weights?.bridging ?? null,
+      source_diversity_weight: vote.weights?.sourceDiversity ?? null,
+      relevance_weight: vote.weights?.relevance ?? null,
+      include_keywords: vote.includeKeywords,
+      exclude_keywords: vote.excludeKeywords,
+      topic_weight_votes: Object.keys(vote.topicWeights).length > 0 ? vote.topicWeights : null,
+    }));
+
+    const voteIdByVoterDid = new Map<string, string>();
+    for (const batch of chunk(rows, INSERT_BATCH_SIZE)) {
+      const inserted = await db.query<{ id: string; voter_did: string }>(
         `INSERT INTO governance_votes (
           voter_did, epoch_id,
           recency_weight, engagement_weight, bridging_weight,
           source_diversity_weight, relevance_weight,
-          include_keywords, exclude_keywords
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          include_keywords, exclude_keywords, topic_weight_votes
+        )
+        SELECT
+          x.voter_did, $2::int,
+          x.recency_weight, x.engagement_weight, x.bridging_weight,
+          x.source_diversity_weight, x.relevance_weight,
+          x.include_keywords, x.exclude_keywords, x.topic_weight_votes
+        FROM jsonb_to_recordset($1::jsonb) AS x(
+          voter_did text,
+          recency_weight float8,
+          engagement_weight float8,
+          bridging_weight float8,
+          source_diversity_weight float8,
+          relevance_weight float8,
+          include_keywords text[],
+          exclude_keywords text[],
+          topic_weight_votes jsonb
+        )
         ON CONFLICT (voter_did, epoch_id) DO NOTHING
-        RETURNING id`,
-        [
-          vote.voterDid,
-          epochId,
-          vote.weights.recency,
-          vote.weights.engagement,
-          vote.weights.bridging,
-          vote.weights.sourceDiversity,
-          vote.weights.relevance,
-          vote.includeKeywords,
-          vote.excludeKeywords,
-        ]
+        RETURNING id, voter_did`,
+        [JSON.stringify(batch), epochId]
       );
+      for (const row of inserted.rows) {
+        voteIdByVoterDid.set(row.voter_did, row.id);
+      }
+    }
 
-      // Mirror src/governance/routes/vote.ts's dual-write exactly: aggregateVotes
-      // reads from the governance_vote_weights long table (not the wide columns
-      // just inserted above) whenever GOVERNANCE_LONGTABLE_READ_ENABLED is on
-      // (the production default) — without this, seeded votes would be
-      // invisible to the real aggregateVotes the harness is driving.
-      const voteId = inserted.rows[0]?.id;
-      if (voteId && voteWeightDualWrite.dualWriteEnabled) {
+    if (!voteWeightDualWrite.dualWriteEnabled) {
+      return;
+    }
+
+    // Mirror src/governance/routes/vote.ts's dual-write exactly: aggregateVotes
+    // reads from the governance_vote_weights long table (not the wide columns
+    // just inserted above) whenever GOVERNANCE_LONGTABLE_READ_ENABLED is on
+    // (the production default) — without this, seeded votes would be
+    // invisible to the real aggregateVotes the harness is driving. Still one
+    // `writeVoteWeights` call per vote (not batched) — only the wide-row
+    // INSERT above is batched.
+    for (const vote of population.votes) {
+      if (!vote.weights) {
+        continue;
+      }
+      const voteId = voteIdByVoterDid.get(vote.voterDid);
+      if (voteId) {
         await voteWeightDualWrite.writeVoteWeights(voteId, vote.weights);
       }
+    }
+  }
+
+  /**
+   * Fail loud, before any vote ever reaches Postgres, if a generated vote
+   * would not survive `POST /api/governance/vote`'s real validation (see
+   * vote-validation.ts). A failure here means a bug in population.ts /
+   * personas.ts — the whole point of this harness is that every seeded vote
+   * is one the real route would have accepted, not merely one the DB schema
+   * tolerates.
+   */
+  private assertVotesAreRouteValid(population: Population): void {
+    const ctx: VoteValidationContext = {
+      subscriberDids: new Set(population.subscribers.map((subscriber) => subscriber.did)),
+      activeTopicSlugs: new Set(TOPIC_SLUGS),
+      epochPhase: 'voting',
+    };
+
+    const failures: string[] = [];
+    for (const vote of population.votes) {
+      const result = validateVote(voteSeedToRawPayload(vote), ctx);
+      if (!result.valid) {
+        failures.push(`${vote.voterDid}: ${result.errors.join('; ')}`);
+      }
+    }
+
+    if (failures.length > 0) {
+      throw new Error(
+        `Simulation.seedPopulation(): ${failures.length} generated vote(s) would be rejected by the ` +
+          `real POST /api/governance/vote route (see vote-validation.ts). This is a population.ts/` +
+          `personas.ts generation bug, not a data problem:\n${failures.slice(0, 10).join('\n')}`
+      );
     }
   }
 

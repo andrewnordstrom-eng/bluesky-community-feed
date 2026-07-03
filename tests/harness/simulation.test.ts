@@ -11,6 +11,7 @@
 import { describe, expect, it } from 'vitest';
 import { Simulation, type QueryableDb, type SimulationDeps } from '../../src/harness/simulation.js';
 import { createRng, SeededClock } from '../../src/harness/rng.js';
+import { DEFAULT_PERSONA_MIX } from '../../src/harness/personas.js';
 import type { Scenario } from '../../src/harness/scenario.js';
 
 /** Never expected to be called by the guards this suite exercises. */
@@ -43,6 +44,8 @@ describe('Simulation.run(): multi-epoch-cycle (reserved, unimplemented)', () => 
         voteParticipationRate: 0.8,
         contentVoteRate: 0.2,
         castsWeightVoteRate: 0.9,
+        castsTopicVoteRate: 0.5,
+        personaMix: { ...DEFAULT_PERSONA_MIX },
       },
     };
 
@@ -63,6 +66,8 @@ describe('Simulation.run(): multi-epoch-cycle (reserved, unimplemented)', () => 
         voteParticipationRate: 0,
         contentVoteRate: 0,
         castsWeightVoteRate: 0.9,
+        castsTopicVoteRate: 0.5,
+        personaMix: { ...DEFAULT_PERSONA_MIX },
       },
     };
 
@@ -88,6 +93,8 @@ describe('Simulation.run(): multi-epoch-cycle (reserved, unimplemented)', () => 
         voteParticipationRate: 0,
         contentVoteRate: 0,
         castsWeightVoteRate: 0.9,
+        castsTopicVoteRate: 0.5,
+        personaMix: { ...DEFAULT_PERSONA_MIX },
       },
     };
 

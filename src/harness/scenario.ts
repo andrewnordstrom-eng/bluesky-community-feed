@@ -8,6 +8,29 @@
  */
 
 import { z } from 'zod';
+import { PERSONA_IDS, DEFAULT_PERSONA_MIX, type PersonaId } from './personas.js';
+
+/**
+ * Relative proportions used to assign a persona to each participating voter
+ * (see `pickPersona` in personas.ts). Values are relative weights, not
+ * probabilities — a weighted draw normalizes by their sum, so `{ balanced: 2,
+ * 'bridge-builder': 1, ... }` just means "balanced voters are twice as
+ * likely as bridge-builders", not literal percentages.
+ *
+ * `satisfies Record<PersonaId, z.ZodTypeAny>` (not a plain object literal):
+ * gives a compile-time guarantee that this shape has exactly one field per
+ * `PersonaId` — add a persona to `PERSONA_IDS` without adding it here and
+ * `tsc` fails, instead of the new persona silently being undraftable.
+ */
+const PERSONA_MIX_SHAPE = {
+  'engagement-maximizer': z.number().min(0),
+  'chronological-purist': z.number().min(0),
+  'bridge-builder': z.number().min(0),
+  balanced: z.number().min(0),
+} satisfies Record<PersonaId, z.ZodTypeAny>;
+
+export const PersonaMixSchema = z.object(PERSONA_MIX_SHAPE).strict();
+export type PersonaMix = z.infer<typeof PersonaMixSchema>;
 
 /**
  * Config for the synthetic population a scenario seeds before running.
@@ -33,9 +56,22 @@ export const PopulationConfigSchema = z
      * null` — see population.ts).
      */
     castsWeightVoteRate: z.number().min(0).max(1).default(0.9),
+    /** Fraction of participating voters who additionally cast a topic-weight vote (0..1). */
+    castsTopicVoteRate: z.number().min(0).max(1).default(0.5),
+    /**
+     * Relative persona mix assigned across participating voters (see
+     * `PersonaMixSchema` above). Defaults to an equal mix across every
+     * registered persona.
+     */
+    personaMix: PersonaMixSchema.default(DEFAULT_PERSONA_MIX),
   })
   .strict();
 export type PopulationConfig = z.infer<typeof PopulationConfigSchema>;
+
+// Re-exported so callers building a `PopulationConfig` (e.g. tests) can
+// reference the full persona id list without a second import from
+// personas.ts.
+export { PERSONA_IDS };
 
 const baseFields = {
   seed: z.number().int().nonnegative(),

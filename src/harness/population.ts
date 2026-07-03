@@ -15,13 +15,22 @@
 
 import type { Rng, Clock } from './rng.js';
 import type { PopulationConfig } from './scenario.js';
-import { normalizeWeights } from '../governance/governance.types.js';
+import { castPersonaVote, pickPersona } from './personas.js';
 import type { GovernanceWeights } from '../shared/api-types.js';
 
 const SCORING_WINDOW_MS = 72 * 60 * 60 * 1000;
 const SAMPLE_KEYWORDS = ['news', 'sports', 'tech', 'art', 'music', 'science'] as const;
 const SAMPLE_EXCLUDE_KEYWORDS = ['spam', 'nsfw'] as const;
-const TOPIC_SLUGS = ['software-development', 'sports', 'music', 'science', 'politics'] as const;
+
+/**
+ * The exact topic slugs this harness generates content and votes for.
+ * Exported so `Simulation.seedPopulation` (simulation.ts) can register
+ * these SAME slugs as active rows in `topic_catalog` — persona topic-weight
+ * votes are only "route-valid" (see vote-validation.ts) against whatever
+ * set the harness itself registers as active, so the two must stay in sync
+ * by construction rather than by convention.
+ */
+export const TOPIC_SLUGS = ['software-development', 'sports', 'music', 'science', 'politics'] as const;
 
 export interface SubscriberSeed {
   did: string;
@@ -47,6 +56,8 @@ export interface VoteSeed {
   weights: GovernanceWeights | null;
   includeKeywords: string[];
   excludeKeywords: string[];
+  /** Topic slug -> weight. Empty = no topic-weight opinion cast this epoch. */
+  topicWeights: Record<string, number>;
 }
 
 export interface Population {
@@ -113,16 +124,6 @@ function generatePosts(
   });
 }
 
-function generateRawWeightVector(rng: Rng): GovernanceWeights {
-  return {
-    recency: rng.next(),
-    engagement: rng.next(),
-    bridging: rng.next(),
-    sourceDiversity: rng.next(),
-    relevance: rng.next(),
-  };
-}
-
 function generateVotes(
   rng: Rng,
   subscribers: readonly SubscriberSeed[],
@@ -141,14 +142,26 @@ function generateVotes(
     // real API would never accept. So keyword-only voters always cast content.
     const drawsContentVote = rng.chance(config.contentVoteRate);
     const castsContentVote = castsWeightVote ? drawsContentVote : true;
+    const castsTopicVote = rng.chance(config.castsTopicVoteRate);
 
-    // Keyword-only voters (VoteSeed.weights: null) never compute/normalize a
-    // weight vector at all — this is the only place `weights: null` is ever
+    // Every participating voter is assigned a persona, then casts a full
+    // persona-driven vote (component weights + topic weights) — always, via
+    // `castPersonaVote`, regardless of `castsWeightVote`/`castsTopicVote` —
+    // so the RNG sequence downstream voters see never shifts based on those
+    // rates (same "always draw" convention as `drawsContentVote` above).
+    // Only afterwards do the participation gates decide which parts of that
+    // draw actually become this voter's `VoteSeed`.
+    const persona = pickPersona(rng, config.personaMix);
+    const personaVote = castPersonaVote(rng, persona, TOPIC_SLUGS);
+
+    // Keyword-only voters (VoteSeed.weights: null) never surface a weight
+    // vector at all — this is the only place `weights: null` is ever
     // produced, mirroring the real API's "cast keywords without a weight
-    // opinion" shape. Normalize through the REAL production helper for the
-    // rest so every weighted vote satisfies the same sum-to-1 invariant the
-    // API layer enforces, rather than duplicating that math here.
-    const weights = castsWeightVote ? normalizeWeights(generateRawWeightVector(rng)) : null;
+    // opinion" shape. `castPersonaVote` already normalized through the REAL
+    // `normalizeWeights` production helper, so every weighted vote satisfies
+    // the same sum-to-1 invariant the API layer enforces.
+    const weights = castsWeightVote ? personaVote.weights : null;
+    const topicWeights = castsTopicVote ? personaVote.topicWeights : {};
 
     const includeKeywords = castsContentVote && rng.chance(0.5) ? [rng.pick(SAMPLE_KEYWORDS)] : [];
     const excludeKeywords = castsContentVote ? [rng.pick(SAMPLE_EXCLUDE_KEYWORDS)] : [];
@@ -158,6 +171,7 @@ function generateVotes(
       weights,
       includeKeywords,
       excludeKeywords,
+      topicWeights,
     };
   });
 }
