@@ -341,29 +341,38 @@ async function insertVotingEpoch(db: QueryableDb, description: string): Promise<
  * whenever `GOVERNANCE_LONGTABLE_READ_ENABLED` is on (the production
  * default).
  */
+/**
+ * Fail loud, before any vote is seeded, when the long-table read/write flags
+ * disagree: with READ on but DUALWRITE off, `aggregateVotes`
+ * (src/governance/aggregation.ts) reads `governance_vote_weights` — a table the
+ * governed regime never wrote into under that config — and sees 0 eligible
+ * weight votes no matter how many are seeded. Left unchecked, that surfaces as
+ * the generic "aggregateVotes returned null … no eligible weight votes" error,
+ * mispointing an operator at participation-rate config instead of the real
+ * cause (these two flags disagreeing). Exported as a pure function so the
+ * precondition is unit-testable without a live config.
+ */
+export function assertLongtableWriteConfig(config: {
+  GOVERNANCE_LONGTABLE_READ_ENABLED: boolean;
+  GOVERNANCE_LONGTABLE_DUALWRITE_ENABLED: boolean;
+}): void {
+  if (config.GOVERNANCE_LONGTABLE_READ_ENABLED && !config.GOVERNANCE_LONGTABLE_DUALWRITE_ENABLED) {
+    throw new Error(
+      'GOVERNANCE_LONGTABLE_READ_ENABLED is on but GOVERNANCE_LONGTABLE_DUALWRITE_ENABLED is off — ' +
+        'aggregateVotes will read the (empty) governance_vote_weights long table and see 0 eligible weight votes ' +
+        'regardless of how many votes are seeded. Enable GOVERNANCE_LONGTABLE_DUALWRITE_ENABLED (or disable ' +
+        'GOVERNANCE_LONGTABLE_READ_ENABLED) so seeded votes are visible to the real aggregation path.'
+    );
+  }
+}
+
 async function seedGovernedVotes(
   db: QueryableDb,
   modules: Pick<GovernanceModules, 'writeVoteWeights' | 'config'>,
   population: Population,
   epochId: number
 ): Promise<void> {
-  // Config-precondition guard: if reads are long-table-sourced but dual-write
-  // is off, `aggregateVotes` (src/governance/aggregation.ts) reads
-  // `governance_vote_weights` — a table this function never wrote a row into
-  // — and sees 0 eligible weight votes no matter how many votes are seeded
-  // below. Left unchecked, that surfaces downstream as
-  // `runBaselineComparison`'s generic "aggregateVotes returned null ... no
-  // eligible weight votes" error, which points an operator at
-  // participation-rate config instead of the real cause: these two flags
-  // disagreeing. Fail here, before any vote is seeded, naming both flags.
-  if (modules.config.GOVERNANCE_LONGTABLE_READ_ENABLED && !modules.config.GOVERNANCE_LONGTABLE_DUALWRITE_ENABLED) {
-    throw new Error(
-      'seedGovernedVotes: GOVERNANCE_LONGTABLE_READ_ENABLED is on but GOVERNANCE_LONGTABLE_DUALWRITE_ENABLED is ' +
-        'off — aggregateVotes will read the (empty) governance_vote_weights long table and see 0 eligible weight ' +
-        'votes regardless of how many votes are seeded here. Enable GOVERNANCE_LONGTABLE_DUALWRITE_ENABLED (or ' +
-        'disable GOVERNANCE_LONGTABLE_READ_ENABLED) so seeded votes are visible to the real aggregation path.'
-    );
-  }
+  assertLongtableWriteConfig(modules.config);
 
   if (population.votes.length === 0) {
     throw new Error(
