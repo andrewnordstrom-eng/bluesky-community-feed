@@ -124,7 +124,13 @@ function generatePosts(
   });
 }
 
-function generateVotes(
+/**
+ * Draw one round of persona votes over a FIXED subscriber set — votes only, no
+ * subscribers/posts. Used by the multi-epoch harness to re-draw each round's
+ * votes without consuming post-generation RNG (which would couple later-round
+ * votes to `postCount`). Deterministic given `rng` + `config`.
+ */
+export function generateVotes(
   rng: Rng,
   subscribers: readonly SubscriberSeed[],
   config: PopulationConfig

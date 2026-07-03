@@ -104,15 +104,17 @@ export const ScenarioV1Schema = z.discriminatedUnion('kind', [
       kind: z.literal('multi-epoch-cycle'),
       version: z.literal(1),
       /**
-       * How many aggregate→transition→score cycles to run back to back.
+       * How many aggregate→transition→score cycles `Simulation.run()`
+       * (simulation.ts) drives back to back, re-seeding a fresh round of
+       * persona votes each time (see `Simulation.runMultiEpochCycle`).
        *
-       * Reserved shape: `parseScenario()` accepts this today, but
-       * `Simulation.run()` (simulation.ts) does not yet implement a
-       * multi-round driver and throws rather than silently running just one
-       * round. Implement the loop in `Simulation.run()` before removing that
-       * guard.
+       * Upper bound is generous (not `epoch-vote-cycle`-scale small) on
+       * purpose: this scenario exists to demonstrate convergence over many
+       * rounds, and a long run is only cheap because `population` stays a
+       * small, fixed-size synthetic corpus reused every round — see
+       * `PopulationConfigSchema.subscriberCount`/`postCount`.
        */
-      rounds: z.number().int().min(1).max(20),
+      rounds: z.number().int().min(1).max(1000),
       ...baseFields,
     })
     .strict(),
