@@ -7,6 +7,11 @@
  * the previous round's weight vector; tests use `weightVectorVariance` /
  * `hasConverged` to PROVE a homogeneous synthetic population's aggregated
  * weights settle into a stable vector, rather than eyeballing a CSV.
+ *
+ * `l1Distance` is the same idea in a different norm, added for the A4
+ * strategyproofness experiment (`strategyproofness.ts`), which reports a
+ * single voter's displacement from an aggregate outcome as its headline
+ * number and wants the more legible "total weight-mass moved" reading.
  */
 
 import { GOVERNANCE_WEIGHT_KEYS } from '../config/votable-params.js';
@@ -24,6 +29,20 @@ export function l2Distance(a: GovernanceWeights, b: GovernanceWeights): number {
     return sum + diff * diff;
   }, 0);
   return Math.sqrt(sumSquares);
+}
+
+/**
+ * Manhattan (L1) distance between two governance weight vectors — the sum of
+ * absolute per-component differences. Same `GOVERNANCE_WEIGHT_KEYS` iteration
+ * as `l2Distance` (canonical component order, insertion-order independent).
+ *
+ * Used by the A4 strategyproofness experiment (`strategyproofness.ts`) as its
+ * primary displacement metric: L1 is the more legible "how far did the
+ * aggregate outcome move, in raw weight-mass" reading for a headline result,
+ * with `l2Distance` reported alongside it rather than instead of it.
+ */
+export function l1Distance(a: GovernanceWeights, b: GovernanceWeights): number {
+  return GOVERNANCE_WEIGHT_KEYS.reduce((sum, key) => sum + Math.abs(a[key] - b[key]), 0);
 }
 
 /** Componentwise centroid (mean vector) of a non-empty series of weight vectors. */

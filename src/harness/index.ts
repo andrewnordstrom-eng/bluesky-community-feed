@@ -37,7 +37,23 @@ export {
 } from './metrics.js';
 export type { RunMetrics, RunArtifacts, WrittenArtifactPaths, EpochSeriesRow, WrittenEpochSeriesPaths } from './metrics.js';
 
-export { l2Distance, weightVectorVariance, hasConverged } from './convergence.js';
+export { l2Distance, l1Distance, weightVectorVariance, hasConverged } from './convergence.js';
+
+export {
+  effectiveTrimCount,
+  buildOtherVoterReports,
+  runStrategyproofnessTrial,
+  writeStrategyproofnessArtifacts,
+  sumsToOne,
+  SEED_FOCAL_TRUE,
+  SEED_FOCAL_CORNER,
+} from './strategyproofness.js';
+export type {
+  StrategyproofnessDeps,
+  StrategyproofnessTrialInput,
+  StrategyproofnessTrialResult,
+  WrittenStrategyproofnessArtifactPaths,
+} from './strategyproofness.js';
 
 export { createRng, SeededClock } from './rng.js';
 export type { Rng, Clock } from './rng.js';
