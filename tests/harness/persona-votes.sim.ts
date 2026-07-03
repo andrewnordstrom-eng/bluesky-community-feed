@@ -214,20 +214,25 @@ describe('Persona-driven votes: bulk seed + real aggregation', () => {
     if (!first.success) {
       return;
     }
-    await new Simulation(first.data, deps).run();
+    const firstResult = await new Simulation(first.data, deps).run();
 
-    // Pre-plant a vote for one of the harness's own deterministic DIDs
-    // (`did:plc:corgisimsub000000`, index 0 — see population.ts) in the
+    // Pre-plant a vote for one of the harness's own subscribers in the
     // now-active epoch E2, manufacturing the (voter_did, epoch_id) collision
-    // the harness normally avoids by using a fresh epoch per cycle. The
-    // subscriber row already exists from run 1, so the FK holds; all weight
-    // columns null satisfies the post-006 all-null CHECK.
+    // the harness normally avoids by using a fresh epoch per cycle. Derive the
+    // DID from the generated population rather than hardcoding
+    // generateSubscribers()'s prefix/padding, so a change to that format keeps
+    // this test correct instead of failing with a misleading FK error. The
+    // subscriber row already exists from run 1 (FK holds); all-null weight
+    // columns satisfy the post-006 all-null CHECK. At voteParticipationRate: 1
+    // and a fixed seed, this DID is guaranteed to cast again in run 2 (same
+    // population), so the collision is deterministic.
+    const collisionDid = firstResult.population.subscribers[0].did;
     const activeEpoch = await db.query<{ id: number }>(
       `SELECT id FROM governance_epochs WHERE status IN ('active', 'voting') ORDER BY id DESC LIMIT 1`
     );
     const epochId = activeEpoch.rows[0].id;
     await db.query(`INSERT INTO governance_votes (voter_did, epoch_id) VALUES ($1, $2)`, [
-      'did:plc:corgisimsub000000',
+      collisionDid,
       epochId,
     ]);
 

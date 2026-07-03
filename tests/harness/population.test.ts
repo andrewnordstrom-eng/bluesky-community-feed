@@ -103,4 +103,21 @@ describe('generateVotes / castsWeightVoteRate', () => {
     const noParticipation = generatePopulation(rng, clock, buildConfig({ voteParticipationRate: 0 }));
     expect(noParticipation.votes).toHaveLength(0);
   });
+
+  it('generates zero-padded, index-derived subscriber DIDs (pins the format other code derives from)', () => {
+    const rng = createRng(3);
+    const clock = new SeededClock(0);
+
+    // Locks generateSubscribers()'s DID format: `did:plc:corgisimsub` + a
+    // 6-digit zero-padded index. Integration tests (e.g. the fail-loud
+    // collision test in persona-votes.sim.ts) derive DIDs from the population
+    // rather than hardcoding this, but the format itself is pinned here so a
+    // prefix/padding change is caught deliberately at one obvious spot.
+    const one = generatePopulation(rng, clock, buildConfig({ subscriberCount: 1 }));
+    expect(one.subscribers).toHaveLength(1);
+    expect(one.subscribers[0].did).toBe('did:plc:corgisimsub000000');
+
+    const many = generatePopulation(rng, clock, buildConfig({ subscriberCount: 12 }));
+    expect(many.subscribers[11].did).toBe('did:plc:corgisimsub000011');
+  });
 });
