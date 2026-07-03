@@ -54,11 +54,18 @@ describe('Simulation: epoch-vote-cycle integration', () => {
           subscriberCount: 12,
           postCount: 20,
           voteParticipationRate: 0.9,
-          // 0: no content (keyword) votes cast, so aggregateContentVotes takes
-          // its "no content votes" safety-net branch (exclude-only defaults,
-          // no include-keyword restriction) rather than a real but randomly
-          // generated include-keyword filter that would make the resulting
-          // scoredPostCount config-dependent instead of a reliable assertion.
+          // 0 content vote rate alone only made "zero content votes cast"
+          // *likely*, not guaranteed: a voter who doesn't cast a weight vote
+          // always casts a keyword vote regardless of contentVoteRate (see
+          // population.ts), and aggregateContentVotes's promotion threshold
+          // is computed against just those content-voters, so even a single
+          // stray keyword-only vote can get promoted into a real (and
+          // scoredPostCount-reducing) include-keyword filter. castsWeightVoteRate:
+          // 1 removes that keyword-only path entirely, so contentVoteRate: 0
+          // deterministically means aggregateContentVotes takes its
+          // "no content votes" safety-net branch (exclude-only defaults, no
+          // include-keyword restriction) — not just "usually" for this seed.
+          castsWeightVoteRate: 1,
           contentVoteRate: 0,
         },
       },
