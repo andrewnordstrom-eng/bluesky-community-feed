@@ -1,6 +1,6 @@
 import type { Metadata } from "next"
 import { Plus_Jakarta_Sans, Inter, IBM_Plex_Mono } from "next/font/google"
-import { Analytics } from "@vercel/analytics/react"
+import { Providers } from "@/components/providers"
 import "./globals.css"
 
 const _plusJakartaSans = Plus_Jakarta_Sans({
@@ -33,8 +33,7 @@ export default function RootLayout({
       <body
         className={`${_plusJakartaSans.variable} ${_inter.variable} ${_ibmPlexMono.variable} font-sans antialiased`}
       >
-        {children}
-        {process.env.NODE_ENV === "production" && <Analytics />}
+        <Providers>{children}</Providers>
       </body>
     </html>
   )

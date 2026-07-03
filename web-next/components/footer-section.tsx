@@ -1,5 +1,3 @@
-"use client"
-
 export function FooterSection() {
   return (
     <footer className="w-full bg-background border-t border-border/70">

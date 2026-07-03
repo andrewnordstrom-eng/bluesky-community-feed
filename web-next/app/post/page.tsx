@@ -1,7 +1,8 @@
 "use client"
 
-import { use, useState } from "react"
+import { Suspense, useState } from "react"
 import Link from "next/link"
+import { useSearchParams } from "next/navigation"
 import { AppShell } from "@/components/app-shell"
 import { ScoreBreakdown, type ScoreComponent } from "@/components/ui/score-breakdown"
 import { ScoreRadar, type RadarSignal } from "@/components/ui/score-radar"
@@ -299,12 +300,9 @@ function PostExplanationSkeleton() {
 
 /* ─── Page ─────────────────────────────────────────────── */
 
-export default function PostExplanationPage({
-  params,
-}: {
-  params: Promise<{ uri: string }>
-}) {
-  const { uri } = use(params)
+function PostExplanationInner() {
+  const searchParams = useSearchParams()
+  const uri = searchParams.get("uri") ?? ""
   const [pageState, setPageState] = useState<PageState>(
     uri ? "loaded" : "missing-uri"
   )
@@ -319,7 +317,7 @@ export default function PostExplanationPage({
     navigator.clipboard.writeText(decodedUri).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
-    })
+    }).catch(() => {})
   }
 
   /* Build component array for ScoreBreakdown */
@@ -368,7 +366,7 @@ export default function PostExplanationPage({
           {decodedUri && (
             <div className="flex items-center gap-2 flex-wrap">
               <code className="text-xs font-mono text-foreground/50 bg-biscuit px-3 py-1.5 rounded-lg truncate max-w-xs sm:max-w-md">
-                {truncateUri(decodedUri)}
+                {truncateUri(uri)}
               </code>
               <button
                 onClick={copyUri}
@@ -592,27 +590,37 @@ export default function PostExplanationPage({
               </div>
             </div>
 
-            {/* Dev-only state switcher — hidden in production */}
-            <div className="flex items-center gap-2 pt-2 opacity-50 hover:opacity-100 transition-opacity" role="group" aria-label="Dev state switcher">
-              <span className="text-[10px] text-foreground/40 font-mono uppercase">Dev:</span>
-              {(["loaded", "loading", "error", "missing-uri", "null-explanation"] as PageState[]).map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setPageState(s)}
-                  className={`text-[10px] px-2 py-0.5 rounded border font-mono transition-colors
-                    ${pageState === s
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "border-border text-foreground/40 hover:border-primary/40"
-                    }`}
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
+            {/* Dev-only state switcher — excluded from production builds */}
+            {process.env.NODE_ENV !== "production" && (
+              <div className="flex items-center gap-2 pt-2 opacity-50 hover:opacity-100 transition-opacity" role="group" aria-label="Dev state switcher">
+                <span className="text-[10px] text-foreground/40 font-mono uppercase">Dev:</span>
+                {(["loaded", "loading", "error", "missing-uri", "null-explanation"] as PageState[]).map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setPageState(s)}
+                    className={`text-[10px] px-2 py-0.5 rounded border font-mono transition-colors
+                      ${pageState === s
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "border-border text-foreground/40 hover:border-primary/40"
+                      }`}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
           </>
         )}
 
       </div>
     </AppShell>
+  )
+}
+
+export default function PostExplanationPage() {
+  return (
+    <Suspense fallback={<PostExplanationSkeleton />}>
+      <PostExplanationInner />
+    </Suspense>
   )
 }
