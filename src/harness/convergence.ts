@@ -74,6 +74,13 @@ export function hasConverged(
   lastK: number,
   threshold: number
 ): boolean {
+  // Guard non-positive lastK up front: `slice(-0)` is `slice(0)` (the WHOLE
+  // series, not an empty window), and `length < lastK` is false for lastK <= 0,
+  // so without this a caller could get "converged over the last 0 rounds" —
+  // a meaningless answer measured over the entire run. This is exported API.
+  if (!Number.isInteger(lastK) || lastK <= 0) {
+    throw new Error(`hasConverged: lastK must be a positive integer (got ${lastK})`);
+  }
   if (weightSeries.length < lastK) {
     return false;
   }

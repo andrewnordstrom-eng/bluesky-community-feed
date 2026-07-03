@@ -13,8 +13,16 @@ import path from 'node:path';
 import { z } from 'zod';
 import type { SimulationResult, SimulationEvent, AuditLogRow } from './simulation.js';
 import { TOPIC_SLUGS } from './population.js';
+import { GOVERNANCE_WEIGHT_KEYS } from '../config/votable-params.js';
 
-const GovernanceWeightsSchema = z.record(z.string(), z.number());
+// Require every registered weight component (registry-driven, not a loose
+// `z.record`) so a row missing a key fails validation with a clear message
+// rather than surfacing downstream as an `undefined.toFixed` TypeError in
+// toEpochSeriesCsv/csvNumber. A newly-registered component is picked up
+// automatically; unknown extra keys are stripped (harmless to the CSV).
+const GovernanceWeightsSchema = z.object(
+  Object.fromEntries(GOVERNANCE_WEIGHT_KEYS.map((key) => [key, z.number()]))
+);
 
 export const RunMetricsSchema = z.object({
   scenarioKind: z.string(),

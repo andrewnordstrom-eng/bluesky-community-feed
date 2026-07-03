@@ -19,8 +19,11 @@ import { runScenario } from '../../src/harness/index.js';
 import { Simulation } from '../../src/harness/simulation.js';
 import { parseScenario } from '../../src/harness/scenario.js';
 import { measureEpochSeries } from '../../src/harness/metrics.js';
-import { weightVectorVariance, hasConverged } from '../../src/harness/convergence.js';
+import { weightVectorVariance, hasConverged, l2Distance } from '../../src/harness/convergence.js';
 import { DEFAULT_PERSONA_MIX } from '../../src/harness/personas.js';
+import { createDefaultGovernanceWeightRecord } from '../../src/config/votable-params.js';
+import type { GovernanceWeights } from '../../src/shared/api-types.js';
+import { db } from '../../src/db/client.js';
 import { buildSimulationDeps, resetHarnessData, HARNESS_FIXED_CLOCK_MS } from './helpers.js';
 
 describe('Simulation: multi-epoch-cycle integration', () => {
@@ -165,6 +168,64 @@ describe('Simulation: multi-epoch-cycle integration', () => {
       expect(weights.recency).toBeCloseTo(0.2, 1);
       expect(weights.engagement).toBeCloseTo(0.2, 1);
     }
+  }, 60_000);
+
+  it('round-1 displacement baseline is the ACTUAL starting-epoch weights, not the bootstrap default', async () => {
+    // Regression guard for the round-1 baseline fix. Pre-seed a NON-default
+    // active epoch; ensureActiveEpoch reuses it, so round 1 transitions FROM
+    // these weights. If the baseline ever regressed to hardcoded bootstrap
+    // defaults (0.2 each), round-1's l2Displacement would be measured from the
+    // wrong reference point and these assertions would fail.
+    const startWeights: GovernanceWeights = {
+      recency: 0.5,
+      engagement: 0.5,
+      bridging: 0,
+      sourceDiversity: 0,
+      relevance: 0,
+    };
+    await db.query(
+      `INSERT INTO governance_epochs
+         (status, phase, recency_weight, engagement_weight, bridging_weight,
+          source_diversity_weight, relevance_weight, vote_count, description)
+       VALUES ('active', 'voting', $1, $2, $3, $4, $5, 0, 'regression: non-default start epoch')`,
+      [
+        startWeights.recency,
+        startWeights.engagement,
+        startWeights.bridging,
+        startWeights.sourceDiversity,
+        startWeights.relevance,
+      ]
+    );
+
+    const parsed = parseScenario({
+      kind: 'multi-epoch-cycle',
+      version: 1,
+      seed: 77,
+      rounds: 1,
+      population: {
+        subscriberCount: 30,
+        postCount: 5,
+        voteParticipationRate: 1,
+        contentVoteRate: 0,
+        castsWeightVoteRate: 1,
+        castsTopicVoteRate: 1,
+      },
+    });
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+
+    const result = await new Simulation(parsed.data, buildSimulationDeps(77)).run();
+    const round1 = result.rounds?.[0];
+    expect(round1).toBeDefined();
+    if (!round1) return;
+
+    // Baseline is the ACTUAL non-default start weights (exact — l2Displacement
+    // is computed from the same read-back the code uses)...
+    expect(round1.l2Displacement).toBeCloseTo(l2Distance(startWeights, round1.weights), 6);
+    // ...and measurably different from what a bootstrap-default baseline would
+    // have produced — so a silent revert to defaults would fail this test.
+    const fromDefaultBaseline = l2Distance(createDefaultGovernanceWeightRecord(), round1.weights);
+    expect(Math.abs(round1.l2Displacement - fromDefaultBaseline)).toBeGreaterThan(0.05);
   }, 60_000);
 
   it('same seed -> byte-identical per-epoch metrics across two independent runs', async () => {

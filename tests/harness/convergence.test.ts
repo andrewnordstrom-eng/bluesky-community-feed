@@ -106,6 +106,10 @@ describe('weightVectorVariance', () => {
   it('throws on an empty series rather than silently reporting 0 ("converged")', () => {
     expect(() => weightVectorVariance([])).toThrow(/at least one/);
   });
+
+  it('is 0 for a single-element series (the minimum non-empty input)', () => {
+    expect(weightVectorVariance([vector({ recency: 0.4, engagement: 0.3, bridging: 0.1, sourceDiversity: 0.1, relevance: 0.1 })])).toBe(0);
+  });
 });
 
 describe('hasConverged', () => {
@@ -135,5 +139,25 @@ describe('hasConverged', () => {
     ];
     const settled = [stable, { ...stable }, { ...stable }];
     expect(hasConverged([...noisy, ...settled], 3, 1e-9)).toBe(true);
+  });
+
+  it('throws on a non-positive lastK (a zero/negative window is meaningless)', () => {
+    // Without the guard, slice(-0) === slice(0) would measure the WHOLE series.
+    expect(() => hasConverged([stable, { ...stable }], 0, 1e-6)).toThrow(/positive integer/);
+    expect(() => hasConverged([stable, { ...stable }], -1, 1e-6)).toThrow(/positive integer/);
+    expect(() => hasConverged([stable, { ...stable }], 1.5, 1e-6)).toThrow(/positive integer/);
+  });
+
+  it('measures exactly the last lastK when series length === lastK', () => {
+    // Two identical vectors, lastK=2 (== length): variance 0 < threshold.
+    expect(hasConverged([stable, { ...stable }], 2, 1e-9)).toBe(true);
+  });
+
+  it('uses a strict < threshold — tail variance exactly at threshold is NOT converged', () => {
+    const a = vector({ recency: 0.3, engagement: 0.2, bridging: 0.2, sourceDiversity: 0.15, relevance: 0.15 });
+    const b = vector({ recency: 0.4, engagement: 0.2, bridging: 0.2, sourceDiversity: 0.15, relevance: 0.05 });
+    const varianceAtTail = weightVectorVariance([a, b]);
+    expect(hasConverged([a, b], 2, varianceAtTail)).toBe(false); // exactly at threshold → strict < → false
+    expect(hasConverged([a, b], 2, varianceAtTail + 1e-12)).toBe(true); // just above → true
   });
 });
