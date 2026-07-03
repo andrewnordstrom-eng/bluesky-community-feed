@@ -28,7 +28,7 @@
  *
  * For all three, the SAME fixed corpus (subscribers/posts/engagement/topics)
  * is seeded exactly once, and each regime's weights are scored by the REAL,
- * unmodified `runScoringPipeline` (src/scoring/pipeline.js) into its own
+ * unmodified `runScoringPipeline` (src/scoring/pipeline.ts) into its own
  * epoch's `post_scores` rows — never a harness-side re-implementation of
  * scoring. Regimes 1/2 set their epoch's weight columns directly (no vote
  * aggregation involved — there is no "vote" for a fixed baseline weight
@@ -46,6 +46,21 @@
  * `FEED_MAX_POSTS`, which are presentation-layer concerns orthogonal to "how
  * did this weight vector rank the corpus"; reading `post_scores` directly
  * keeps the three regimes comparable on ranking alone.
+ *
+ * LOAD-BEARING INVARIANT — the three regimes run strictly SEQUENTIALLY,
+ * never concurrently: `getActiveEpoch()` (src/db/queries/epochs.ts) and
+ * `forceEpochTransition()` (epoch-manager.ts) both pick the single most
+ * recent epoch by id (`status = 'active'`/`'voting'` ORDER BY id DESC LIMIT
+ * 1) — there is no per-regime scoping. Prior regimes' epochs are never
+ * closed by the fixed-weight path either (`insertFixedWeightEpoch` always
+ * inserts `status = 'active'`). So regime isolation depends entirely on each
+ * regime fully completing (scored + read back) before the next regime
+ * inserts its epoch; running two regimes concurrently would race on which
+ * epoch `getActiveEpoch()`/`forceEpochTransition()` sees. As defense in
+ * depth, each regime's epoch is marked `status = 'closed'` immediately after
+ * that regime's feed is read back (see the regime loop below), so a bug that
+ * violates sequencing fails loudly (no active epoch / wrong epoch picked up)
+ * instead of silently blending two regimes' data.
  *
  * Results (measured against one fixed corpus — 60 subscribers, 200 posts, a
  * 4-persona-equal-mix electorate, seed 90210 — real `runScoringPipeline`,
@@ -495,6 +510,19 @@ async function readRegimeResults(
   return { feed, scoreByUri };
 }
 
+/**
+ * Defense-in-depth for the sequential-execution invariant documented in this
+ * file's header: mark a regime's epoch `status = 'closed'` once that
+ * regime's feed has been fully read back from `post_scores`, so a later
+ * `getActiveEpoch()`/`forceEpochTransition()` call (from a subsequent
+ * regime) can never accidentally pick up a stale regime's epoch. Safe to
+ * call after read-back — nothing downstream re-reads this epoch's `status`
+ * or re-scores it.
+ */
+async function closeRegimeEpoch(db: QueryableDb, epochId: number): Promise<void> {
+  await db.query(`UPDATE governance_epochs SET status = 'closed', closed_at = NOW() WHERE id = $1`, [epochId]);
+}
+
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
@@ -548,14 +576,27 @@ export async function runBaselineComparison(
 
   const regimes: Partial<Record<RegimeName, RegimeResult>> = {};
 
+  // These three regimes MUST run strictly sequentially (never concurrently)
+  // — see this file's header "LOAD-BEARING INVARIANT" note:
+  // getActiveEpoch()/forceEpochTransition() both pick the single most-recent
+  // epoch by id, with no per-regime scoping. Each regime's epoch is closed
+  // (defense-in-depth, see `closeRegimeEpoch`) immediately after that
+  // regime's feed is read back, below.
+
   // Regime 1: no-governance — the engine's own bootstrap default.
   {
     const weights = createDefaultGovernanceWeightRecord() as GovernanceWeights;
     const epochId = await insertFixedWeightEpoch(db, weights, 'A5 baseline: no-governance (bootstrap default)');
+    // Fixed-weight regimes never depend on the pipeline's incremental
+    // epoch-tracking state left over from a prior regime — reset it so this
+    // regime always does a genuine full rescore of the corpus against its
+    // own weights, regardless of what regime (if any) ran before it.
+    modules.__resetPipelineState();
     await withTimeout(modules.runScoringPipeline(), timeoutMs, 'runScoringPipeline[no-governance]');
     const persistedWeights = await fetchEpochWeights(db, epochId);
     const { feed, scoreByUri } = await readRegimeResults(db, epochId, topK);
     regimes['no-governance'] = { regime: 'no-governance', epochId, weights: persistedWeights, feed, scoreByUri };
+    await closeRegimeEpoch(db, epochId);
   }
 
   // Regime 2: engagement-only — all weight on engagement, run through the
@@ -571,10 +612,14 @@ export async function runBaselineComparison(
     };
     const weights = normalizeWeights(rawWeights);
     const epochId = await insertFixedWeightEpoch(db, weights, 'A5 baseline: engagement-only');
+    // See regime 1 above: reset before scoring so this regime's full rescore
+    // never depends on the previous regime's incremental-tracking state.
+    modules.__resetPipelineState();
     await withTimeout(modules.runScoringPipeline(), timeoutMs, 'runScoringPipeline[engagement-only]');
     const persistedWeights = await fetchEpochWeights(db, epochId);
     const { feed, scoreByUri } = await readRegimeResults(db, epochId, topK);
     regimes['engagement-only'] = { regime: 'engagement-only', epochId, weights: persistedWeights, feed, scoreByUri };
+    await closeRegimeEpoch(db, epochId);
   }
 
   // Regime 3: community-governed — the REAL aggregated outcome from A2
@@ -600,7 +645,12 @@ export async function runBaselineComparison(
       timeoutMs,
       'forceEpochTransition[community-governed]'
     );
-    await withTimeout(modules.runScoringPipeline(), timeoutMs, 'runScoringPipeline[community-governed]');
+    // forceEpochTransition() scores the new epoch internally
+    // (logTransitionImpact -> runScoringPipeline); no second scoring pass is
+    // needed here. An explicit extra call here previously only "worked" by
+    // landing in the pipeline's incremental "no changed posts" mode, purely
+    // because this epoch's id happened to already equal lastScoredEpochId —
+    // fragile, not a real invariant.
     const persistedWeights = await fetchEpochWeights(db, epochId);
     const { feed, scoreByUri } = await readRegimeResults(db, epochId, topK);
     regimes['community-governed'] = {
@@ -610,6 +660,7 @@ export async function runBaselineComparison(
       feed,
       scoreByUri,
     };
+    await closeRegimeEpoch(db, epochId);
   }
 
   const corpusTopicSupport: Record<string, number> = {};
