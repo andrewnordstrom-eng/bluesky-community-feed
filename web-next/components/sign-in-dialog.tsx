@@ -1,11 +1,12 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import Image from "next/image"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { useAuth } from "@/components/auth-provider"
 
 interface SignInDialogProps {
   open: boolean
@@ -13,16 +14,49 @@ interface SignInDialogProps {
 }
 
 export function SignInDialog({ open, onOpenChange }: SignInDialogProps) {
+  const { login } = useAuth()
   const [handle, setHandle] = useState("")
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // Guards against setting state after the dialog unmounts mid-request. The
+  // previous mock used a setTimeout that could fire post-unmount; the real
+  // login is awaited, so there are no timers to clear — only this async guard.
+  const isMounted = useRef(true)
+  useEffect(() => {
+    isMounted.current = true
+    return () => {
+      isMounted.current = false
+    }
+  }, [])
+
+  // Reset transient form state whenever the dialog closes so it reopens clean.
+  useEffect(() => {
+    if (!open) {
+      setHandle("")
+      setPassword("")
+      setShowPassword(false)
+      setLoading(false)
+      setError(null)
+    }
+  }, [open])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setError(null)
     setLoading(true)
-    // auth logic goes here
-    setTimeout(() => setLoading(false), 1500)
+    try {
+      await login(handle, password)
+      if (!isMounted.current) return
+      onOpenChange(false)
+    } catch {
+      if (!isMounted.current) return
+      setError("Check your handle and app password.")
+    } finally {
+      if (isMounted.current) setLoading(false)
+    }
   }
 
   return (
@@ -103,6 +137,12 @@ export function SignInDialog({ open, onOpenChange }: SignInDialogProps) {
               <span className="font-mono text-foreground/60">xxxx-xxxx-xxxx-xxxx</span>.
             </p>
           </div>
+
+          {error && (
+            <p role="alert" className="text-status-error text-sm font-medium leading-relaxed -mt-1">
+              {error}
+            </p>
+          )}
 
           <Button
             type="submit"

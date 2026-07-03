@@ -5,12 +5,14 @@ import { usePathname } from "next/navigation"
 import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import { SignInDialog } from "./sign-in-dialog"
+import { useAuth } from "@/components/auth-provider"
 import { useState, useEffect } from "react"
 import { createPortal } from "react-dom"
 import { cn } from "@/lib/utils"
 
-/** Auth state passed in from a parent / context.
- *  The wiring agent will replace this with a real session hook. */
+/** Legacy shape once passed in by pages. Live auth now drives the user area;
+ *  the prop is retained only for compat (e.g. its optional `isAdmin` flag,
+ *  which the session endpoint does not expose). */
 export interface AppUser {
   handle: string
   did: string
@@ -18,7 +20,7 @@ export interface AppUser {
 }
 
 interface AppShellProps {
-  /** null = logged out, AppUser = logged in */
+  /** Retained for compat. Signed-in/out UI is derived from useAuth(), not this. */
   user?: AppUser | null
   children: React.ReactNode
 }
@@ -59,8 +61,14 @@ const NAV_ITEMS = [
 
 export function AppShell({ user = null, children }: AppShellProps) {
   const pathname = usePathname()
+  const { session, isAuthenticated, logout } = useAuth()
   const [signInOpen, setSignInOpen] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+
+  // Prefer live auth state over the legacy `user` prop for the signed-in area.
+  const authedUser = isAuthenticated && session ? { handle: session.handle, did: session.did } : null
+  // Admin nav stays prop-driven — the session endpoint carries no admin flag.
+  const isAdmin = user?.isAdmin ?? false
 
   // Close mobile menu on route change
   useEffect(() => {
@@ -118,7 +126,7 @@ export function AppShell({ user = null, children }: AppShellProps) {
                 </Link>
               )
             })}
-            {user?.isAdmin && (
+            {isAdmin && (
               <Link
                 href="/admin"
                 aria-current={pathname.startsWith("/admin") ? "page" : undefined}
@@ -135,15 +143,16 @@ export function AppShell({ user = null, children }: AppShellProps) {
 
           {/* Right side — auth state + hamburger */}
           <div className="flex items-center gap-2">
-            {user ? (
+            {authedUser ? (
               /* Logged-in state */
               <div className="flex items-center gap-2">
                 <span className="hidden sm:block text-sm font-mono text-foreground/60">
-                  @{user.handle}
+                  @{authedUser.handle}
                 </span>
                 <Button
                   variant="ghost"
                   size="sm"
+                  onClick={() => { logout().catch(() => {}) }}
                   className="hidden sm:flex text-foreground/55 hover:text-foreground text-xs"
                 >
                   Sign out
@@ -211,7 +220,7 @@ export function AppShell({ user = null, children }: AppShellProps) {
                   </Link>
                 )
               })}
-              {user?.isAdmin && (
+              {isAdmin && (
                 <Link
                   href="/admin"
                   aria-current={pathname.startsWith("/admin") ? "page" : undefined}
@@ -227,10 +236,13 @@ export function AppShell({ user = null, children }: AppShellProps) {
               )}
             </nav>
             <div className="flex flex-col gap-2 pb-2">
-              {user ? (
+              {authedUser ? (
                 <>
-                  <span className="px-4 text-xs font-mono text-foreground/45">@{user.handle}</span>
-                  <button className="px-4 py-3 text-sm font-medium text-foreground/60 hover:text-foreground text-left rounded-xl hover:bg-accent/60 transition-colors">
+                  <span className="px-4 text-xs font-mono text-foreground/45">@{authedUser.handle}</span>
+                  <button
+                    onClick={() => { setMobileMenuOpen(false); logout().catch(() => {}) }}
+                    className="px-4 py-3 text-sm font-medium text-foreground/60 hover:text-foreground text-left rounded-xl hover:bg-accent/60 transition-colors"
+                  >
                     Sign out
                   </button>
                 </>
