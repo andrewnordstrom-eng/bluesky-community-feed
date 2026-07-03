@@ -63,6 +63,11 @@ jobs:
             trap - EXIT
             cd web && npm ci && npm run build
             cd ..
+            # Build the web-next static export too, so cutover (WEB_DIST_DIR /
+            # WEB_ROUTING_MODE env flip) is a pure config change with a fresh
+            # build already on disk. Serving still defaults to web/dist.
+            cd web-next && npm ci && npm run build
+            cd ..
             cd cli && npm ci && npx tsc
             cd ..
             sudo systemctl restart bluesky-feed
