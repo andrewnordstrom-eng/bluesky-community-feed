@@ -10,6 +10,13 @@ import { getSession, SessionStoreUnavailableError } from '../governance/auth.js'
 import { logger } from '../lib/logger.js';
 import { config } from '../config.js';
 
+declare module 'fastify' {
+  interface FastifyRequest {
+    /** Admin DID attached by the `requireAdmin` preHandler once auth succeeds. */
+    adminDid?: string;
+  }
+}
+
 /**
  * Parsed admin DID set — computed once at module load to avoid
  * re-splitting BOT_ADMIN_DIDS on every request.
@@ -81,12 +88,17 @@ export async function requireAdmin(
   }
 
   // Attach admin DID to request for later use
-  (request as any).adminDid = did;
+  request.adminDid = did;
 }
 
 /**
  * Get admin DID from request (after requireAdmin has run).
+ * Throws if called on a request that has not passed the requireAdmin
+ * preHandler — that indicates a routing/wiring bug, not a client error.
  */
 export function getAdminDid(request: FastifyRequest): string {
-  return (request as any).adminDid;
+  if (!request.adminDid) {
+    throw new Error('getAdminDid called before requireAdmin attached the admin DID');
+  }
+  return request.adminDid;
 }
