@@ -117,6 +117,16 @@ describe('castPersonaVote: topic-weight affinity', () => {
       expect(value).toBeLessThanOrEqual(0.35);
     }
   });
+
+  it('returns an empty topicWeights object (and does not throw) when topicSlugs is empty', () => {
+    // Boundary from the docstring ("every slug in topicSlugs gets an entry
+    // either way"): an empty slug list must yield {} — a voter who casts no
+    // topic-weight opinion — without an off-by-one or empty-loop surprise.
+    const { weights, topicWeights } = castPersonaVote(createRng(1), PERSONAS.balanced, []);
+    expect(topicWeights).toEqual({});
+    // The weight vote is still drawn + normalized (topic emptiness is independent).
+    expect(Object.keys(weights)).toHaveLength(5);
+  });
 });
 
 describe('pickPersona', () => {
@@ -146,6 +156,20 @@ describe('pickPersona', () => {
       balanced: 0,
     };
     expect(() => pickPersona(createRng(1), mix)).toThrow(/positive weight/);
+  });
+
+  it('throws on a negative persona weight even when the total stays positive', () => {
+    // A negative weight offset by larger positives keeps total > 0 but would
+    // skew the cumulative-bucket walk (an unreachable range for that persona).
+    // pickPersona is exported and callers can bypass PersonaMixSchema, so it
+    // must reject this at the source rather than silently mis-distribute.
+    const mix = {
+      'engagement-maximizer': -1,
+      'chronological-purist': 1,
+      'bridge-builder': 1,
+      balanced: 1,
+    };
+    expect(() => pickPersona(createRng(1), mix)).toThrow(/must be >= 0/);
   });
 
   it('draws every registered persona at least once across enough samples of the default (equal) mix', () => {

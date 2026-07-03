@@ -60,6 +60,22 @@ function jitter(rng: Rng, base: number, spread: number): number {
 }
 
 /**
+ * `jitter` clamped to the valid [0, 1] weight range. `makeWeightPolicy` uses
+ * this (not raw `jitter`) so a future persona whose base component sits below
+ * `WEIGHT_JITTER_SPREAD / 2` can never emit a negative component into
+ * `normalizeWeights` — which would yield an out-of-range weight that
+ * `vote-validation.ts`'s per-component check rejects, silently breaking
+ * `assertVotesAreRouteValid` for that persona. Consumes exactly one
+ * `rng.next()` (same draw count as `jitter`), so determinism is unaffected;
+ * it's a no-op for every current persona (smallest base 0.05 with ±0.05 jitter
+ * never goes below 0.0). Mirrors the clamp already on the topic path in
+ * `castPersonaVote`.
+ */
+function clampedJitter(rng: Rng, base: number, spread: number): number {
+  return Math.min(1, Math.max(0, jitter(rng, base, spread)));
+}
+
+/**
  * Build a `weightPolicy` that jitters a fixed base vector. The base vectors
  * below are chosen so that, even at maximum jitter, the persona's signature
  * component still dominates the raw (pre-normalization) vector — see the
@@ -67,11 +83,11 @@ function jitter(rng: Rng, base: number, spread: number): number {
  */
 function makeWeightPolicy(base: GovernanceWeights): (rng: Rng) => GovernanceWeights {
   return (rng: Rng): GovernanceWeights => ({
-    recency: jitter(rng, base.recency, WEIGHT_JITTER_SPREAD),
-    engagement: jitter(rng, base.engagement, WEIGHT_JITTER_SPREAD),
-    bridging: jitter(rng, base.bridging, WEIGHT_JITTER_SPREAD),
-    sourceDiversity: jitter(rng, base.sourceDiversity, WEIGHT_JITTER_SPREAD),
-    relevance: jitter(rng, base.relevance, WEIGHT_JITTER_SPREAD),
+    recency: clampedJitter(rng, base.recency, WEIGHT_JITTER_SPREAD),
+    engagement: clampedJitter(rng, base.engagement, WEIGHT_JITTER_SPREAD),
+    bridging: clampedJitter(rng, base.bridging, WEIGHT_JITTER_SPREAD),
+    sourceDiversity: clampedJitter(rng, base.sourceDiversity, WEIGHT_JITTER_SPREAD),
+    relevance: clampedJitter(rng, base.relevance, WEIGHT_JITTER_SPREAD),
   });
 }
 
@@ -142,6 +158,16 @@ export const DEFAULT_PERSONA_MIX: Record<PersonaId, number> = {
  * bucketing is stable regardless of how the caller's `mix` object was built.
  */
 export function pickPersona(rng: Rng, mix: Readonly<Record<PersonaId, number>>): Persona {
+  // Per-entry guard, not just total > 0: a negative weight on one persona
+  // (offset by larger positives elsewhere) would keep total positive yet skew
+  // the cumulative-bucket walk below, silently giving that persona an
+  // unreachable range. Enforce here — `pickPersona` is exported and callers
+  // (e.g. tests) can bypass the Zod `PersonaMixSchema` that guards this upstream.
+  for (const id of PERSONA_IDS) {
+    if (mix[id] < 0) {
+      throw new Error(`pickPersona: personaMix.${id} must be >= 0, got ${mix[id]}`);
+    }
+  }
   const total = PERSONA_IDS.reduce((sum, id) => sum + mix[id], 0);
   if (!(total > 0)) {
     throw new Error('pickPersona: personaMix must have at least one positive weight');

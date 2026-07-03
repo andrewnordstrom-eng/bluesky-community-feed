@@ -29,7 +29,16 @@ const PERSONA_MIX_SHAPE = {
   balanced: z.number().min(0),
 } satisfies Record<PersonaId, z.ZodTypeAny>;
 
-export const PersonaMixSchema = z.object(PERSONA_MIX_SHAPE).strict();
+export const PersonaMixSchema = z
+  .object(PERSONA_MIX_SHAPE)
+  .strict()
+  // `.min(0)` per field permits an all-zero mix, which parses but then throws
+  // deep in `generatePopulation` → `pickPersona` ("must have at least one
+  // positive weight"). Reject it here, at the scenario-validation boundary,
+  // so bad config fails up front rather than mid-simulation.
+  .refine((mix) => PERSONA_IDS.some((id) => mix[id] > 0), {
+    message: 'personaMix must have at least one persona with a positive weight',
+  });
 export type PersonaMix = z.infer<typeof PersonaMixSchema>;
 
 /**

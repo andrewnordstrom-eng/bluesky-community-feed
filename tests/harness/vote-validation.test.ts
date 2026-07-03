@@ -84,12 +84,33 @@ describe('validateVote: accepts route-valid votes', () => {
     expect(result.valid).toBe(true);
   });
 
-  it('accepts weights that sum to 1 within the route\'s 0.01 tolerance', () => {
-    const result = validateVote(
-      validWeightPayload({ recency_weight: 0.205, relevance_weight: 0.195 }),
-      buildCtx()
-    );
+  it("accepts a weight vote whose raw sum is within the 0.01 tolerance but not exactly 1.0", () => {
+    // The prior version used offsetting +0.005/-0.005 deviations that summed to
+    // exactly 1.0, so it never actually exercised the tolerance branch. This
+    // sums to 1.005 — genuinely off from 1.0, but inside |sum - 1| < 0.01.
+    const result = validateVote(validWeightPayload({ recency_weight: 0.205 }), buildCtx());
     expect(result.valid).toBe(true);
+  });
+
+  it('accepts the inclusive topic-weight boundaries: exactly 0 and exactly 1', () => {
+    // The topic-weight bound is `.min(0).max(1)` (inclusive); cover the edges,
+    // not just the over-range reject, so an accidental `.lt`/`.gt` regression fails.
+    expect(validateVote({ voterDid: VOTER, topic_weights: { sports: 0 } }, buildCtx()).valid).toBe(true);
+    expect(validateVote({ voterDid: VOTER, topic_weights: { sports: 1 } }, buildCtx()).valid).toBe(true);
+  });
+
+  it('accepts a keyword at the inclusive length and count limits (50 chars, 20 keywords)', () => {
+    // `.max(50)` / `.max(20)` are inclusive — an off-by-one (e.g. `.max(49)`)
+    // would slip through if only the over-limit reject cases were tested.
+    expect(
+      validateVote({ voterDid: VOTER, include_keywords: ['a'.repeat(50)] }, buildCtx()).valid
+    ).toBe(true);
+    expect(
+      validateVote(
+        { voterDid: VOTER, include_keywords: Array.from({ length: 20 }, (_, i) => `kw${i}`) },
+        buildCtx()
+      ).valid
+    ).toBe(true);
   });
 });
 
@@ -109,6 +130,14 @@ describe('validateVote: rejects exactly as the real route would', () => {
       validWeightPayload({ recency_weight: 0.5, engagement_weight: 0.5 }),
       buildCtx()
     );
+    expect(result.valid).toBe(false);
+  });
+
+  it('rejects a weight vote whose raw sum is just beyond the 0.01 tolerance', () => {
+    // 0.211 + 0.2*4 = 1.011 → |sum - 1| = 0.011, outside |sum - 1| < 0.01.
+    // A hair past the edge (not exactly 0.01) so the assertion isn't
+    // floating-point-fragile at the exclusive boundary.
+    const result = validateVote(validWeightPayload({ recency_weight: 0.211 }), buildCtx());
     expect(result.valid).toBe(false);
   });
 

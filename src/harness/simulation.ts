@@ -190,6 +190,12 @@ async function ensureActiveTopics(db: QueryableDb, slugs: readonly string[]): Pr
  *  population sizes (2000 subscribers / 5000 posts). */
 const INSERT_BATCH_SIZE = 500;
 
+/** Max concurrent `writeVoteWeights` dual-writes in flight. Each is an
+ *  independent autocommit-pool query (weight-longtable.ts), so they're safe to
+ *  run in parallel; bounded (not a flat `Promise.all` over all N) to cap
+ *  concurrent pool connections and pending-promise memory on large-N runs. */
+const DUAL_WRITE_CONCURRENCY = 25;
+
 function chunk<T>(items: readonly T[], size: number): T[][] {
   const chunks: T[][] = [];
   for (let i = 0; i < items.length; i += size) {
@@ -523,21 +529,34 @@ export class Simulation {
       return;
     }
 
-    // Mirror src/governance/routes/vote.ts's dual-write exactly: aggregateVotes
-    // reads from the governance_vote_weights long table (not the wide columns
-    // just inserted above) whenever GOVERNANCE_LONGTABLE_READ_ENABLED is on
-    // (the production default) — without this, seeded votes would be
-    // invisible to the real aggregateVotes the harness is driving. Still one
-    // `writeVoteWeights` call per vote (not batched) — only the wide-row
-    // INSERT above is batched.
+    // Mirror src/governance/routes/vote.ts's dual-write: aggregateVotes reads
+    // from the governance_vote_weights long table (not the wide columns just
+    // inserted above) whenever GOVERNANCE_LONGTABLE_READ_ENABLED is on (the
+    // production default) — without this, seeded votes would be invisible to
+    // the real aggregateVotes the harness is driving. Keyword-only votes
+    // (`weights: null`) have nothing to dual-write and are skipped, matching
+    // the route (writeVoteWeights no-ops on all-null weights anyway).
+    const dualWrites: Array<{ voteId: string; weights: GovernanceWeights }> = [];
     for (const vote of population.votes) {
       if (!vote.weights) {
         continue;
       }
       const voteId = voteIdByVoterDid.get(vote.voterDid);
       if (voteId) {
-        await voteWeightDualWrite.writeVoteWeights(voteId, vote.weights);
+        dualWrites.push({ voteId, weights: vote.weights });
       }
+    }
+
+    // Run the per-vote long-table writes with bounded concurrency rather than
+    // one-await-at-a-time: writeVoteWeights uses its own autocommit pool, so
+    // these are independent queries (order-invariant — each keyed by a distinct
+    // voteId), and a serial round-trip-per-vote loop would dominate wall-clock
+    // on the large-N runs this harness targets. Chunked to cap concurrent pool
+    // connections (see DUAL_WRITE_CONCURRENCY).
+    for (const batch of chunk(dualWrites, DUAL_WRITE_CONCURRENCY)) {
+      await Promise.all(
+        batch.map(({ voteId, weights }) => voteWeightDualWrite.writeVoteWeights(voteId, weights))
+      );
     }
   }
 

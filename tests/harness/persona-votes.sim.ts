@@ -123,4 +123,125 @@ describe('Persona-driven votes: bulk seed + real aggregation', () => {
       expect(weight).toBeLessThanOrEqual(1);
     }
   });
+
+  it('seeds a mix of weight and keyword-only votes: null-weight rows insert FK-valid and are excluded from the long-table dual-write', async () => {
+    const deps = buildSimulationDeps(7);
+
+    const parsed = parseScenario({
+      kind: 'epoch-vote-cycle',
+      version: 1,
+      seed: 7,
+      population: {
+        subscriberCount: POPULATION_SIZE,
+        postCount: 5,
+        voteParticipationRate: 1,
+        contentVoteRate: 1, // every participant carries a keyword, so the...
+        castsWeightVoteRate: 0.5, // ...~half who don't cast weights are route-valid keyword-only votes
+        castsTopicVoteRate: 0.5,
+      },
+    });
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) {
+      return;
+    }
+
+    const result = await new Simulation(parsed.data, deps).run();
+
+    const weightVotes = result.population.votes.filter((v) => v.weights !== null);
+    const keywordOnlyVotes = result.population.votes.filter((v) => v.weights === null);
+    // Both paths genuinely exercised — not a degenerate all-one-kind population.
+    expect(weightVotes.length).toBeGreaterThan(0);
+    expect(keywordOnlyVotes.length).toBeGreaterThan(0);
+
+    // Every participant (weight AND keyword-only) landed exactly one row.
+    const voteCount = await db.query<{ count: string }>(
+      `SELECT COUNT(*) AS count FROM governance_votes WHERE epoch_id = $1`,
+      [result.epochBeforeId]
+    );
+    expect(Number(voteCount.rows[0].count)).toBe(result.population.votes.length);
+
+    // Keyword-only rows carry NULL weight columns (the jsonb_to_recordset null
+    // path), not zeros and not a silently-dropped row — count matches the
+    // harness's own ground truth for what it generated.
+    const nullWeightRows = await db.query<{ count: string }>(
+      `SELECT COUNT(*) AS count FROM governance_votes
+       WHERE epoch_id = $1 AND recency_weight IS NULL`,
+      [result.epochBeforeId]
+    );
+    expect(Number(nullWeightRows.rows[0].count)).toBe(keywordOnlyVotes.length);
+
+    // Dual-write covers exactly the weight votes; keyword-only votes have
+    // nothing to write to the long table and are correctly skipped.
+    const longTableVoteCount = await db.query<{ count: string }>(
+      `SELECT COUNT(DISTINCT gvw.vote_id) AS count
+       FROM governance_vote_weights gvw
+       JOIN governance_votes gv ON gv.id = gvw.vote_id
+       WHERE gv.epoch_id = $1`,
+      [result.epochBeforeId]
+    );
+    expect(Number(longTableVoteCount.rows[0].count)).toBe(weightVotes.length);
+
+    // FK-valid regardless of vote kind.
+    const orphanCount = await db.query<{ count: string }>(
+      `SELECT COUNT(*) AS count FROM governance_votes gv
+       LEFT JOIN subscribers s ON s.did = gv.voter_did
+       WHERE gv.epoch_id = $1 AND (s.did IS NULL OR s.is_active IS NOT TRUE)`,
+      [result.epochBeforeId]
+    );
+    expect(Number(orphanCount.rows[0].count)).toBe(0);
+  });
+
+  it('fails loud when a vote insert collides with an existing (voter_did, epoch_id) row', async () => {
+    const deps = buildSimulationDeps(11);
+    const scenario = {
+      kind: 'epoch-vote-cycle' as const,
+      version: 1 as const,
+      seed: 11,
+      population: {
+        subscriberCount: 12,
+        postCount: 5,
+        voteParticipationRate: 1, // all subscribers vote → index 0 is guaranteed to cast
+        contentVoteRate: 0,
+        castsWeightVoteRate: 1,
+        castsTopicVoteRate: 1,
+      },
+    };
+
+    // Run 1: seeds subscribers + votes into epoch E1, then transitions to a
+    // fresh 'voting' epoch E2 (no votes yet).
+    const first = parseScenario(scenario);
+    expect(first.success).toBe(true);
+    if (!first.success) {
+      return;
+    }
+    await new Simulation(first.data, deps).run();
+
+    // Pre-plant a vote for one of the harness's own deterministic DIDs
+    // (`did:plc:corgisimsub000000`, index 0 — see population.ts) in the
+    // now-active epoch E2, manufacturing the (voter_did, epoch_id) collision
+    // the harness normally avoids by using a fresh epoch per cycle. The
+    // subscriber row already exists from run 1, so the FK holds; all weight
+    // columns null satisfies the post-006 all-null CHECK.
+    const activeEpoch = await db.query<{ id: number }>(
+      `SELECT id FROM governance_epochs WHERE status IN ('active', 'voting') ORDER BY id DESC LIMIT 1`
+    );
+    const epochId = activeEpoch.rows[0].id;
+    await db.query(`INSERT INTO governance_votes (voter_did, epoch_id) VALUES ($1, $2)`, [
+      'did:plc:corgisimsub000000',
+      epochId,
+    ]);
+
+    // Run 2 reuses E2 (ensureActiveEpoch) and regenerates a vote for
+    // corgisimsub000000 → ON CONFLICT (voter_did, epoch_id) silently skips that
+    // one row → the invariant must throw rather than let population.votes
+    // diverge from what's actually in Postgres.
+    const second = parseScenario(scenario);
+    expect(second.success).toBe(true);
+    if (!second.success) {
+      return;
+    }
+    await expect(new Simulation(second.data, deps).run()).rejects.toThrow(
+      /were not inserted into governance_votes/
+    );
+  });
 });
