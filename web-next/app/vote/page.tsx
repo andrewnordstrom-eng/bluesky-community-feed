@@ -267,6 +267,8 @@ function VoteWorkbench({ epoch, myVote, topics, contentRules, isAuthenticated, o
   const invalidateVote = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["vote", "mine"] })
     queryClient.invalidateQueries({ queryKey: ["epoch", "current"] })
+    queryClient.invalidateQueries({ queryKey: ["content-rules"] })
+    queryClient.invalidateQueries({ queryKey: ["topics"] })
   }, [queryClient])
 
   const weightsMutation = useMutation({
@@ -627,6 +629,29 @@ export default function VotePage() {
           heading="Ballot unavailable"
           body="We couldn't load the current voting round. Try again in a moment."
           onRetry={() => epochQuery.refetch()}
+        />
+      </div>
+    )
+  } else if (topicsQuery.isError || contentRulesQuery.isError) {
+    content = (
+      <div className="max-w-xl mx-auto px-5 py-20">
+        <ErrorCard
+          heading="Ballot data incomplete"
+          body="Part of the ballot (topics or content rules) failed to load, so the ballot can't be shown accurately."
+          onRetry={() => {
+            if (topicsQuery.isError) void topicsQuery.refetch()
+            if (contentRulesQuery.isError) void contentRulesQuery.refetch()
+          }}
+        />
+      </div>
+    )
+  } else if (isAuthenticated && myVoteQuery.isError) {
+    content = (
+      <div className="max-w-xl mx-auto px-5 py-20">
+        <ErrorCard
+          heading="Your ballot couldn't be loaded"
+          body="We couldn't retrieve your previous vote, so the ballot won't be shown pre-filled. Retry to load it."
+          onRetry={() => void myVoteQuery.refetch()}
         />
       </div>
     )

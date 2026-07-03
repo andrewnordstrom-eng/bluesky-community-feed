@@ -1,7 +1,7 @@
 "use client"
 
 import { createContext, useCallback, useContext, useMemo, type ReactNode } from "react"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { authApi, type SessionResponse } from "@/lib/api/client"
 
 /** Query key for the current session — invalidated after login/logout. */
@@ -34,27 +34,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     retry: false,
   })
 
-  const loginMutation = useMutation({
-    mutationFn: ({ handle, appPassword }: { handle: string; appPassword: string }) =>
-      authApi.login(handle, appPassword),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: SESSION_QUERY_KEY }),
-  })
-
-  const logoutMutation = useMutation({
-    mutationFn: () => authApi.logout(),
-    onSuccess: () => queryClient.resetQueries({ queryKey: SESSION_QUERY_KEY }),
-  })
-
+  // Deliberately NOT a useMutation: mutation variables are retained in the
+  // mutation cache (and surfaced by devtools), which would keep the app
+  // password in memory after login. A plain call leaves no credential residue.
   const login = useCallback(
     async (handle: string, appPassword: string) => {
-      await loginMutation.mutateAsync({ handle, appPassword })
+      await authApi.login(handle, appPassword)
+      await queryClient.invalidateQueries({ queryKey: SESSION_QUERY_KEY })
     },
-    [loginMutation]
+    [queryClient]
   )
 
+  // Clear the ENTIRE query cache on logout, not just the session query —
+  // authenticated data (my-vote ballot, etc.) must not leak into the next
+  // user's session. Public data simply refetches.
   const logout = useCallback(async () => {
-    await logoutMutation.mutateAsync()
-  }, [logoutMutation])
+    await authApi.logout()
+    queryClient.clear()
+  }, [queryClient])
 
   const session = sessionQuery.data ?? null
   const isAuthenticated = sessionQuery.data?.authenticated === true
