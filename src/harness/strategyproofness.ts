@@ -77,21 +77,20 @@
  * other n-1 voters alone rather than a blend that dilutes the focal voter's
  * own (moderate, non-extreme) sincere vote with more extreme peers.
  *
- * Population choice — a search, not a cherry-pick: a 15-population search (5
- * principled archetype mixes + 10 perturbations of the 3:3:2:1 ratio, each
- * measured on the real `aggregateVotes`) found NO population that robustly
- * improves on this baseline's n=10 effect. The intuitive "polarize the
- * community against the focal voter's engagement preference to amplify the
- * exploit" move BACKFIRED — removing engagement-favoring peers reverses the
- * sign (manipulation stops paying), because the exploit's leverage comes
- * precisely from the focal's corner vote displacing an engagement-maximizer
- * peer out of the top-trim slot; with no such peer to displace, the focal's
- * own extreme vote is simply trimmed and nothing is gained. The one
- * marginally-larger candidate found (+0.068 vs +0.066) also "paid" at n=8 (no
- * trim), contradicting the trim-specific mechanism above, so it was rejected
- * as narratively incoherent. This baseline is the largest robust,
- * mechanism-consistent effect found — reported as such rather than fitting the
- * population to a bigger headline number.
+ * Population choice — not a cherry-pick: an exploration over principled
+ * population variants (alternative archetype mixes and perturbations of the
+ * 3:3:2:1 ratio) found none that robustly improved on this baseline's n=10
+ * effect. Populations polarized AGAINST the focal voter's own
+ * engagement-leaning preference reverse the sign entirely — manipulation
+ * stops paying — see `buildPolarizedAgainstEngagementOtherVoterReports` and
+ * `tests/harness/strategyproofness.sim.ts`'s population-robustness test,
+ * which pins both directions (baseline pays, polarized doesn't) against the
+ * real `aggregateVotes`. That reversal is consistent with the trim mechanism
+ * above: the exploit's leverage comes precisely from the focal's corner vote
+ * displacing an engagement-maximizer peer out of the top-trim slot; with no
+ * such peer left in the population to displace, the focal's own extreme vote
+ * is simply trimmed and nothing is gained. This baseline is reported as the
+ * effect found, not as the largest of an unreproducible search.
  *
  * What this does NOT claim: this is evidence about THIS aggregator against
  * THESE populations, not a general strategyproofness theorem about trimmed
@@ -134,6 +133,17 @@ type GovernanceModules = Awaited<ReturnType<typeof loadGovernanceModules>>;
  * 10% trim from each end once n >= 10, no trim below that). Not used to
  * compute the aggregate here (the real `aggregateVotes` does that) — only to
  * label sweep rows with the trim regime each `n` fell into.
+ *
+ * MUST stay in sync with `src/governance/aggregation.ts`'s private trim
+ * formula (`aggregateVotes`, the `trimCount`/`effectiveTrimCount` locals
+ * around line 96-99: `Math.floor(n * 0.1)`, applied only when `n >= 10`).
+ * That formula isn't exported, and `aggregateVotes`'s return value doesn't
+ * expose how many votes it trimmed, so this harness has no way to read the
+ * real trim count back — it can only assert this hand-copy matches it. If
+ * `aggregation.ts` ever changes its trim percentage or threshold, this
+ * function (and the hardcoded expected-trim-count table in
+ * `tests/harness/strategyproofness.sim.ts`'s sweep test) must be updated too,
+ * or the sweep's trim-count labels will silently go stale.
  */
 export function effectiveTrimCount(n: number): number {
   return n >= 10 ? Math.floor(n * 0.1) : 0;
@@ -210,6 +220,18 @@ async function castTrialVotes(
         `otherReports (${otherReports.length}) + 1 (the focal voter)`
     );
   }
+
+  // `epochId` comes from `insertActiveEpoch` (tests/harness/helpers.ts), which
+  // leaves `phase` at the schema default `'running'` (see
+  // `src/db/migrations/009_governance_phases.sql`). The REAL vote route
+  // (`src/governance/routes/vote.ts`) only accepts votes into an epoch whose
+  // `phase` is `'voting'` — anything else 409s with `VotingClosed`. Flip the
+  // epoch to `'voting'` before casting any votes into it so every seeded vote
+  // below is genuinely route-valid: a real voter, hitting the real route,
+  // could only ever have cast into an epoch in this same phase. This does not
+  // affect `aggregateVotes` (it reads by `epoch_id` alone, not `phase`), but
+  // `'voting'` is the honest phase for votes that are meant to look real.
+  await deps.db.query(`UPDATE governance_epochs SET phase = 'voting' WHERE id = $1`, [epochId]);
 
   await insertWeightVote(deps.db, modules, epochId, subscriberDids[0], focalReport);
   for (const [index, report] of otherReports.entries()) {
@@ -407,6 +429,33 @@ export function buildOtherVoterReports(otherCount: number): GovernanceWeights[] 
     throw new Error(`buildOtherVoterReports: otherCount must be a non-negative integer, got ${otherCount}`);
   }
   return Array.from({ length: otherCount }, (_, i) => OTHER_VOTER_CYCLE[i % OTHER_VOTER_CYCLE.length]);
+}
+
+/**
+ * An alternative "other voters" population for the population-robustness
+ * test (PROJ-1485 fix C, see `tests/harness/strategyproofness.sim.ts`): every
+ * other voter reports `ARCHETYPE_CHRONOLOGICAL_PURIST`
+ * (recency 0.7 / engagement 0.05 / bridging 0.05 / sourceDiversity 0.05 /
+ * relevance 0.15) instead of the documented 3:3:2:1 mix — i.e. the community
+ * is polarized AGAINST the focal voter's own engagement-leaning true
+ * preference (`SEED_FOCAL_TRUE`'s largest component), with no
+ * engagement-favoring peer left in the population at all.
+ *
+ * This backs the qualitative claim in this file's header: polarizing the
+ * population against the focal voter's preference reverses the
+ * manipulation-pays sign, because the exploit's leverage over the baseline
+ * population comes from the focal's corner vote displacing an
+ * engagement-maximizer peer out of the top-trim slot — with no such peer to
+ * displace, the focal's own extreme corner vote is simply trimmed and
+ * nothing is gained.
+ */
+export function buildPolarizedAgainstEngagementOtherVoterReports(otherCount: number): GovernanceWeights[] {
+  if (!Number.isInteger(otherCount) || otherCount < 0) {
+    throw new Error(
+      `buildPolarizedAgainstEngagementOtherVoterReports: otherCount must be a non-negative integer, got ${otherCount}`
+    );
+  }
+  return Array.from({ length: otherCount }, () => ARCHETYPE_CHRONOLOGICAL_PURIST);
 }
 
 /**
