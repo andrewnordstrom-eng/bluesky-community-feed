@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import {Fragment, useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import axios from "axios"
 import { AppShell } from "@/components/app-shell"
@@ -74,11 +74,11 @@ function ConfirmModal({
     // Initial focus lands on the safe (Cancel) action, and Escape closes.
     cancelRef.current?.focus()
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onCancel()
+      if (e.key === "Escape" && !loading) onCancel()
     }
     document.addEventListener("keydown", onKey)
     return () => document.removeEventListener("keydown", onKey)
-  }, [onCancel])
+  }, [onCancel, loading])
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="modal-title">
@@ -582,6 +582,7 @@ function PanelAuditLog() {
     queryKey: ["admin", "audit-log", limit],
     queryFn: () => adminApi.getAuditLog({ limit }),
     retry: false,
+    placeholderData: (prev) => prev,
   })
 
   const entries = auditQuery.data?.entries ?? []
@@ -620,9 +621,8 @@ function PanelAuditLog() {
                 const isExpanded = expanded === entry.id
                 const hasDetails = entry.details != null && Object.keys(entry.details).length > 0
                 return (
-                  <>
+                  <Fragment key={entry.id}>
                     <tr
-                      key={entry.id}
                       className="border-b border-border/50 last:border-b-0 hover:bg-biscuit/20 transition-colors cursor-pointer"
                       onClick={() => hasDetails && setExpanded(isExpanded ? null : entry.id)}
                     >
@@ -655,7 +655,7 @@ function PanelAuditLog() {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 )
               })}
             </tbody>
