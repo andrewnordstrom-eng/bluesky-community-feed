@@ -2,10 +2,12 @@
  * Simulation Unit Tests
  *
  * Pure — no Postgres/Redis/Testcontainers dependency. `Simulation`'s
- * constructor and the `multi-epoch-cycle` fail-fast guard (checked before
- * any dynamic import of the governance/scoring modules) can be exercised
- * with a fake `QueryableDb` and ephemeral-looking connection strings, same
- * pattern as `prod-guard.test.ts`.
+ * constructor and the prod-guard checks (run BEFORE either scenario-kind
+ * driver ever touches the db — see `run()`) can be exercised with a fake
+ * `QueryableDb` and ephemeral-looking connection strings, same pattern as
+ * prod-guard.test.ts. The `multi-epoch-cycle` driver's actual behavior
+ * (PROJ-1484 / A3) needs real Postgres/Redis and is covered by
+ * multi-epoch-cycle.sim.ts instead.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -17,7 +19,7 @@ import type { Scenario } from '../../src/harness/scenario.js';
 /** Never expected to be called by the guards this suite exercises. */
 const unreachableDb: QueryableDb = {
   query: async () => {
-    throw new Error('unreachable: Simulation.run() must not touch the db for an unimplemented scenario kind');
+    throw new Error('unreachable: Simulation.run() must not touch the db before the prod-guard checks pass');
   },
 };
 
@@ -31,29 +33,7 @@ function buildDeps(): SimulationDeps {
   };
 }
 
-describe('Simulation.run(): multi-epoch-cycle (reserved, unimplemented)', () => {
-  it('throws a clear error instead of silently running a single round', async () => {
-    const scenario: Scenario = {
-      kind: 'multi-epoch-cycle',
-      version: 1,
-      seed: 1,
-      rounds: 3,
-      population: {
-        subscriberCount: 10,
-        postCount: 10,
-        voteParticipationRate: 0.8,
-        contentVoteRate: 0.2,
-        castsWeightVoteRate: 0.9,
-        castsTopicVoteRate: 0.5,
-        personaMix: { ...DEFAULT_PERSONA_MIX },
-      },
-    };
-
-    const simulation = new Simulation(scenario, buildDeps());
-
-    await expect(simulation.run()).rejects.toThrow(/multi-epoch-cycle.*not yet implemented/i);
-  });
-
+describe('Simulation.run(): prod-guard ordering (multi-epoch-cycle scenario)', () => {
   it('still enforces the prod-guard before the scenario-kind check', async () => {
     const scenario: Scenario = {
       kind: 'multi-epoch-cycle',

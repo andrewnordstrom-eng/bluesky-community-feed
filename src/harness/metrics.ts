@@ -11,7 +11,8 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
-import type { SimulationResult, SimulationEvent } from './simulation.js';
+import type { SimulationResult, SimulationEvent, AuditLogRow } from './simulation.js';
+import { TOPIC_SLUGS } from './population.js';
 
 const GovernanceWeightsSchema = z.record(z.string(), z.number());
 
@@ -64,6 +65,33 @@ export const RunArtifactsSchema = z.object({
 });
 export type RunArtifacts = z.infer<typeof RunArtifactsSchema>;
 
+/** One row of the raw `governance_audit_log` trail a `multi-epoch-cycle` run
+ *  surfaced (`SimulationResult.auditLog`) — schema-validated the same way
+ *  every other harness artifact is before it's written to disk. */
+export const AuditLogRowSchema = z.object({
+  id: z.number().int(),
+  action: z.string(),
+  epochId: z.number().int().nullable(),
+  details: z.record(z.string(), z.unknown()).nullable(),
+  createdAt: z.string(),
+});
+
+/** One row of a `multi-epoch-cycle` run's per-epoch series: the 5-component
+ *  weight vector, a topic-weight summary, vote count, and this round's L2
+ *  displacement from the previous round's weight vector (see
+ *  `Simulation.runMultiEpochCycle` / `convergence.ts`'s `l2Distance`). */
+export const EpochSeriesRowSchema = z.object({
+  round: z.number().int().min(1),
+  fromEpochId: z.number().int(),
+  toEpochId: z.number().int(),
+  voteCount: z.number().int(),
+  weights: GovernanceWeightsSchema,
+  weightSum: z.number(),
+  topicWeights: z.record(z.string(), z.number()),
+  l2Displacement: z.number().min(0),
+});
+export type EpochSeriesRow = z.infer<typeof EpochSeriesRowSchema>;
+
 /** Round to reduce float noise from Postgres round-trips; inputs are already deterministic. */
 function round(value: number, decimals = 6): number {
   const factor = 10 ** decimals;
@@ -106,6 +134,39 @@ export function measure(result: SimulationResult): RunMetrics {
       scoredPostCount: result.scoredPostCount,
       topPosts: result.topPosts.map((post) => ({ ...post, totalScore: round(post.totalScore) })),
     },
+  });
+}
+
+/**
+ * Pure measurement: turn a completed `multi-epoch-cycle` run's `rounds` into
+ * one schema-validated `EpochSeriesRow` per epoch. Empty for an
+ * `epoch-vote-cycle` result, where `rounds` is undefined.
+ */
+export function measureEpochSeries(result: SimulationResult): EpochSeriesRow[] {
+  if (!result.rounds) {
+    return [];
+  }
+
+  return result.rounds.map((epochRound) => {
+    const weightSum = Object.values(epochRound.weights).reduce((sum, value) => sum + value, 0);
+
+    return EpochSeriesRowSchema.parse({
+      round: epochRound.round,
+      fromEpochId: epochRound.epochBeforeId,
+      toEpochId: epochRound.epochAfterId,
+      voteCount: epochRound.voteCount,
+      weights: Object.fromEntries(
+        Object.entries(epochRound.weights).map(([key, value]) => [key, round(value)])
+      ),
+      weightSum: round(weightSum),
+      topicWeights: Object.fromEntries(
+        Object.entries(epochRound.topicWeights).map(([key, value]) => [key, round(value)])
+      ),
+      // Finer precision than the default 6dp: a converged/homogeneous run's
+      // displacement can legitimately sit well under 1e-4, and 6dp would
+      // flatten meaningful differences between rounds down to 0.
+      l2Displacement: round(epochRound.l2Displacement, 9),
+    });
   });
 }
 
@@ -174,4 +235,81 @@ export async function writeArtifacts(baseDir: string, artifacts: RunArtifacts): 
   await writeFile(csvPath, toCsvSummary(artifacts.metrics), 'utf8');
 
   return { jsonPath, csvPath };
+}
+
+/** One column per registered topic slug — `TOPIC_SLUGS` (population.ts) is
+ *  this harness's fixed synthetic taxonomy, so the header stays in sync with
+ *  whatever slugs `aggregateTopicWeights` could actually have voted on,
+ *  without hardcoding a stale copy of the list here. */
+const EPOCH_SERIES_CSV_HEADER = [
+  'round',
+  'fromEpochId',
+  'toEpochId',
+  'voteCount',
+  'recency',
+  'engagement',
+  'bridging',
+  'sourceDiversity',
+  'relevance',
+  'weightSum',
+  ...TOPIC_SLUGS.map((slug) => `topic_${slug}`),
+  'l2Displacement',
+] as const;
+
+function toEpochSeriesCsv(rows: readonly EpochSeriesRow[]): string {
+  const lines = rows.map((row) =>
+    [
+      row.round,
+      row.fromEpochId,
+      row.toEpochId,
+      row.voteCount,
+      row.weights.recency,
+      row.weights.engagement,
+      row.weights.bridging,
+      row.weights.sourceDiversity,
+      row.weights.relevance,
+      row.weightSum,
+      // Blank (not 0) when a topic had no votes that round — 0 is a valid
+      // weight, so writing it here would misrepresent "no opinion cast" as
+      // "the electorate voted this topic to zero".
+      ...TOPIC_SLUGS.map((slug) => row.topicWeights[slug] ?? ''),
+      row.l2Displacement,
+    ].join(',')
+  );
+  return `${EPOCH_SERIES_CSV_HEADER.join(',')}\n${lines.join('\n')}\n`;
+}
+
+export interface WrittenEpochSeriesPaths {
+  csvPath: string;
+  auditLogPath: string;
+}
+
+/**
+ * Persist a `multi-epoch-cycle` run's per-epoch series and raw audit trail,
+ * alongside the standard `metrics.json`/`summary.csv` `writeArtifacts`
+ * already writes (for the run's FINAL round) — same
+ * `<baseDir>/<scenarioKind>/<seed>/<codeVersion>/` directory (derived from
+ * the same `RunMetrics` `writeArtifacts` uses), so a run's whole artifact
+ * set lives in one place:
+ *   - `epochs.csv` — one row per epoch (`EpochSeriesRow`, see `toEpochSeriesCsv`).
+ *   - `audit-log.json` — every real `governance_audit_log` row the run wrote.
+ */
+export async function writeEpochSeriesArtifacts(
+  baseDir: string,
+  metrics: RunMetrics,
+  rows: EpochSeriesRow[],
+  auditLog: AuditLogRow[]
+): Promise<WrittenEpochSeriesPaths> {
+  const dir = path.join(baseDir, metrics.scenarioKind, String(metrics.seed), metrics.codeVersion);
+  await mkdir(dir, { recursive: true });
+
+  const csvPath = path.join(dir, 'epochs.csv');
+  const auditLogPath = path.join(dir, 'audit-log.json');
+
+  const validatedAuditLog = auditLog.map((row) => AuditLogRowSchema.parse(row));
+
+  await writeFile(csvPath, toEpochSeriesCsv(rows), 'utf8');
+  await writeFile(auditLogPath, `${JSON.stringify(validatedAuditLog, null, 2)}\n`, 'utf8');
+
+  return { csvPath, auditLogPath };
 }

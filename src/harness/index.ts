@@ -17,13 +17,27 @@ export type {
   SimulationEvent,
   TopScoredPost,
   QueryableDb,
+  EpochRoundResult,
+  AuditLogRow,
 } from './simulation.js';
 
 export { runScenario } from './run.js';
 export type { RunScenarioOptions, RunScenarioResult } from './run.js';
 
-export { measure, toArtifacts, writeArtifacts, RunMetricsSchema, RunArtifactsSchema } from './metrics.js';
-export type { RunMetrics, RunArtifacts, WrittenArtifactPaths } from './metrics.js';
+export {
+  measure,
+  measureEpochSeries,
+  toArtifacts,
+  writeArtifacts,
+  writeEpochSeriesArtifacts,
+  RunMetricsSchema,
+  RunArtifactsSchema,
+  EpochSeriesRowSchema,
+  AuditLogRowSchema,
+} from './metrics.js';
+export type { RunMetrics, RunArtifacts, WrittenArtifactPaths, EpochSeriesRow, WrittenEpochSeriesPaths } from './metrics.js';
+
+export { l2Distance, weightVectorVariance, hasConverged } from './convergence.js';
 
 export { createRng, SeededClock } from './rng.js';
 export type { Rng, Clock } from './rng.js';
