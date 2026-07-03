@@ -81,6 +81,7 @@ const HARNESS_TABLES = [
   'governance_epochs',
   'subscribers',
   'system_status',
+  'topic_catalog',
 ] as const;
 
 export async function resetHarnessData(): Promise<void> {

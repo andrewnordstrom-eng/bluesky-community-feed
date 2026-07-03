@@ -7,8 +7,8 @@
  * A1 — headless simulation core).
  */
 
-export { ScenarioV1Schema, PopulationConfigSchema, parseScenario } from './scenario.js';
-export type { Scenario, ScenarioV1, PopulationConfig, ParseScenarioResult } from './scenario.js';
+export { ScenarioV1Schema, PopulationConfigSchema, PersonaMixSchema, parseScenario } from './scenario.js';
+export type { Scenario, ScenarioV1, PopulationConfig, PersonaMix, ParseScenarioResult } from './scenario.js';
 
 export { Simulation } from './simulation.js';
 export type {
@@ -28,8 +28,14 @@ export type { RunMetrics, RunArtifacts, WrittenArtifactPaths } from './metrics.j
 export { createRng, SeededClock } from './rng.js';
 export type { Rng, Clock } from './rng.js';
 
-export { generatePopulation } from './population.js';
+export { generatePopulation, TOPIC_SLUGS } from './population.js';
 export type { Population, SubscriberSeed, PostSeed, VoteSeed } from './population.js';
+
+export { PERSONA_IDS, PERSONAS, DEFAULT_PERSONA_MIX, pickPersona, castPersonaVote } from './personas.js';
+export type { PersonaId, Persona, PersonaVote } from './personas.js';
+
+export { validateVote } from './vote-validation.js';
+export type { RawVotePayload, VoteValidationContext, ValidatedVote, VoteValidationResult } from './vote-validation.js';
 
 export {
   assertEphemeralPostgresUrl,
