@@ -1,8 +1,11 @@
 "use client"
 
-import { useState, useRef, useCallback } from "react"
+import { useCallback, useRef, useState } from "react"
 import Link from "next/link"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { AppShell } from "@/components/app-shell"
+import { SignInDialog } from "@/components/sign-in-dialog"
+import { useAuth } from "@/components/auth-provider"
 import { StatusChip } from "@/components/ui/status-chip"
 import { WeightBar } from "@/components/ui/weight-bar"
 import { LinkedSlider, type SliderSignal } from "@/components/ui/linked-slider"
@@ -10,49 +13,14 @@ import { KeywordInput } from "@/components/ui/keyword-input"
 import { TopicGroup } from "@/components/ui/topic-slider"
 import { WeightsSkeleton, ErrorCard, EmptyState } from "@/components/ui/state-kit"
 import { Button } from "@/components/ui/button"
-
-/* ─── Mock data — exact seam field names from brief ──────── */
-
-const MOCK_EPOCH = {
-  id: 47,
-  status: "voting",
-  phase: "voting",
-  vote_count: 312,
-  subscriber_count: 480,
-  voting_ends_at: "2026-07-01T17:00:00Z",
-  weights: {
-    recency: 0.35,
-    engagement: 0.25,
-    bridging: 0.20,
-    source_diversity: 0.15,
-    relevance: 0.05,
-  },
-}
-
-const MOCK_MY_VOTE = {
-  vote: { recency: 0.3, engagement: 0.3, bridging: 0.2, sourceDiversity: 0.1, relevance: 0.1 },
-  contentVote: { includeKeywords: ["ai"], excludeKeywords: ["spam"] },
-  topicWeights: { "machine-learning": 0.8 },
-  voted_at: "2026-06-26T14:10:00Z",
-  epoch_id: 47,
-}
-
-const MOCK_TOPICS = [
-  { slug: "machine-learning", name: "Machine learning", description: null, parentSlug: "technology", currentWeight: 0.62 },
-  { slug: "open-source",      name: "Open source",      description: null, parentSlug: "technology", currentWeight: 0.55 },
-  { slug: "climate",          name: "Climate",          description: null, parentSlug: "science",    currentWeight: 0.44 },
-  { slug: "research",         name: "Research",         description: null, parentSlug: "science",    currentWeight: 0.50 },
-  { slug: "local-news",       name: "Local news",       description: null, parentSlug: "news",       currentWeight: 0.38 },
-]
-
-const MOCK_CONTENT_RULES = {
-  include_keywords: ["ai"],
-  exclude_keywords: ["spam"],
-  include_keyword_votes: { ai: 12 },
-  exclude_keyword_votes: { spam: 7 },
-  total_voters: 312,
-  threshold: 0.3,
-}
+import {
+  voteApi,
+  weightsApi,
+  type EpochResponse,
+  type GetVoteResponse,
+  type TopicCatalogEntry,
+  type ContentRulesResponse,
+} from "@/lib/api/client"
 
 /* ─── Slider signal definitions ────────────────────────────── */
 
@@ -65,8 +33,15 @@ const SIGNAL_META: Record<string, { label: string; description: string }> = {
 }
 
 type Section = "weights" | "content" | "topics"
-type PageState = "loading" | "loaded" | "error"
 type SubmitState = "idle" | "submitting" | "success" | "error"
+
+/** Map a react-query mutation's flags to the SubmitRow visual state. */
+function submitStateOf(m: { isPending: boolean; isSuccess: boolean; isError: boolean }): SubmitState {
+  if (m.isPending) return "submitting"
+  if (m.isSuccess) return "success"
+  if (m.isError) return "error"
+  return "idle"
+}
 
 function phaseLabel(phase: string) {
   if (phase === "voting")  return { label: "Voting open",   locked: false }
@@ -114,9 +89,11 @@ function SectionTab({ id, active, label, done, onClick }: {
   )
 }
 
-function RoundCard({ epoch }: { epoch: typeof MOCK_EPOCH }) {
-  const { locked } = phaseLabel(epoch.phase)
-  const pct = Math.round((epoch.vote_count / epoch.subscriber_count) * 100)
+function RoundCard({ epoch }: { epoch: EpochResponse }) {
+  const phase = epoch.phase ?? epoch.status
+  const { locked } = phaseLabel(phase)
+  const denom = epoch.subscriber_count ?? 0
+  const pct = denom > 0 ? Math.round((epoch.vote_count / denom) * 100) : 0
   return (
     <div className="rounded-xl border border-border bg-card p-5 flex flex-col gap-5">
       {/* Page identity lives here, not floating above the grid */}
@@ -136,12 +113,12 @@ function RoundCard({ epoch }: { epoch: typeof MOCK_EPOCH }) {
           <span className="text-[10px] text-foreground/40 font-mono uppercase tracking-widest">Round</span>
           <span className="text-2xl font-mono font-bold text-foreground leading-none">#{epoch.id}</span>
         </div>
-        <StatusChip phase={epoch.phase} />
+        <StatusChip phase={phase} />
       </div>
 
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between text-xs">
-          <span className="text-foreground/50">{epoch.vote_count.toLocaleString()} of {epoch.subscriber_count.toLocaleString()} voted</span>
+          <span className="text-foreground/50">{epoch.vote_count.toLocaleString()} of {denom.toLocaleString()} voted</span>
           <span className="font-mono text-foreground/60">{pct}%</span>
         </div>
         <div className="h-1.5 rounded-full bg-biscuit overflow-hidden">
@@ -153,12 +130,12 @@ function RoundCard({ epoch }: { epoch: typeof MOCK_EPOCH }) {
         <div className="rounded-lg bg-biscuit px-3 py-2.5 text-xs text-foreground/55 leading-relaxed">
           Voting is closed for this round. Results are being tallied.
         </div>
-      ) : (
+      ) : epoch.voting_ends_at ? (
         <div className="flex items-center justify-between">
           <span className="text-[10px] text-foreground/40 font-mono uppercase tracking-widest">Closes</span>
           <span className="text-xs font-mono text-primary font-semibold">{timeUntil(epoch.voting_ends_at)}</span>
         </div>
-      )}
+      ) : null}
     </div>
   )
 }
@@ -214,44 +191,109 @@ function SubmitRow({
   )
 }
 
-/* ─── Page ───────────────────────────────────────────────── */
+/* ─── Loaded ballot workbench ─────────────────────────────── */
 
-export default function VotePage() {
-  const [pageState] = useState<PageState>("loaded")
+interface VoteWorkbenchProps {
+  epoch: EpochResponse
+  /** The signed-in user's existing vote, if any (undefined when unauthenticated). */
+  myVote?: GetVoteResponse
+  topics: TopicCatalogEntry[]
+  /** Community content rules; undefined when unavailable (e.g. no active epoch). */
+  contentRules?: ContentRulesResponse
+  isAuthenticated: boolean
+  onRequireAuth: () => void
+}
+
+function VoteWorkbench({ epoch, myVote, topics, contentRules, isAuthenticated, onRequireAuth }: VoteWorkbenchProps) {
+  const queryClient = useQueryClient()
+  const phase = epoch.phase ?? epoch.status
+  const { locked } = phaseLabel(phase)
+
   const [activeSection, setActiveSection] = useState<Section>("weights")
 
-  // Weight signals state
-  const epoch = MOCK_EPOCH
-  const { locked } = phaseLabel(epoch.phase)
+  // Seed the weight sliders from the user's existing vote, falling back to the
+  // current community weights. (Both shapes sum to 1.)
+  const seedVote = myVote?.vote
+  const initialSignalValues: Record<string, number> = seedVote
+    ? {
+        recency: seedVote.recency,
+        engagement: seedVote.engagement,
+        bridging: seedVote.bridging,
+        source_diversity: seedVote.sourceDiversity,
+        relevance: seedVote.relevance,
+      }
+    : {
+        recency: epoch.weights.recency,
+        engagement: epoch.weights.engagement,
+        bridging: epoch.weights.bridging,
+        source_diversity: epoch.weights.source_diversity,
+        relevance: epoch.weights.relevance,
+      }
 
-  const [signals, setSignals] = useState<SliderSignal[]>([
-    { key: "recency",          value: MOCK_MY_VOTE.vote.recency,         ...SIGNAL_META["recency"] },
-    { key: "engagement",       value: MOCK_MY_VOTE.vote.engagement,      ...SIGNAL_META["engagement"] },
-    { key: "bridging",         value: MOCK_MY_VOTE.vote.bridging,        ...SIGNAL_META["bridging"] },
-    { key: "source_diversity", value: MOCK_MY_VOTE.vote.sourceDiversity, ...SIGNAL_META["source_diversity"] },
-    { key: "relevance",        value: MOCK_MY_VOTE.vote.relevance,       ...SIGNAL_META["relevance"] },
-  ])
+  const [signals, setSignals] = useState<SliderSignal[]>(
+    ["recency", "engagement", "bridging", "source_diversity", "relevance"].map((key) => ({
+      key,
+      value: initialSignalValues[key] ?? 0,
+      ...SIGNAL_META[key],
+    }))
+  )
   const [lastMoved, setLastMoved] = useState<string | null>(null)
   const prevSignalValues = useRef<Record<string, number>>(
     Object.fromEntries(signals.map((s) => [s.key, s.value]))
   )
-  const [weightSubmit, setWeightSubmit] = useState<SubmitState>("idle")
 
-  // Content vote state
-  const [includeKeywords, setIncludeKeywords] = useState<string[]>(MOCK_MY_VOTE.contentVote.includeKeywords)
-  const [excludeKeywords, setExcludeKeywords] = useState<string[]>(MOCK_MY_VOTE.contentVote.excludeKeywords)
-  const [contentSubmit, setContentSubmit] = useState<SubmitState>("idle")
+  // Content vote state (seeded from the user's existing content vote).
+  const [includeKeywords, setIncludeKeywords] = useState<string[]>(myVote?.contentVote?.includeKeywords ?? [])
+  const [excludeKeywords, setExcludeKeywords] = useState<string[]>(myVote?.contentVote?.excludeKeywords ?? [])
 
-  // Topic state
+  // Topic state (seeded from the user's per-topic weights, else neutral 0.5).
   const [topicValues, setTopicValues] = useState<Record<string, number>>(() => {
     const init: Record<string, number> = {}
-    MOCK_TOPICS.forEach((t) => { init[t.slug] = MOCK_MY_VOTE.topicWeights[t.slug as keyof typeof MOCK_MY_VOTE.topicWeights] ?? 0.5 })
+    topics.forEach((t) => { init[t.slug] = myVote?.topicWeights?.[t.slug] ?? 0.5 })
     return init
   })
-  const [topicSubmit, setTopicSubmit] = useState<SubmitState>("idle")
 
-  // Running weights for the right rail (community weights from epoch)
   const communityWeights = epoch.weights
+  const rules = contentRules ?? {
+    epoch_id: epoch.id,
+    include_keywords: [],
+    exclude_keywords: [],
+    include_keyword_votes: {},
+    exclude_keyword_votes: {},
+    total_voters: 0,
+    threshold: 0,
+  }
+
+  const invalidateVote = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["vote", "mine"] })
+    queryClient.invalidateQueries({ queryKey: ["epoch", "current"] })
+    queryClient.invalidateQueries({ queryKey: ["content-rules"] })
+    queryClient.invalidateQueries({ queryKey: ["topics"] })
+  }, [queryClient])
+
+  const weightsMutation = useMutation({
+    mutationFn: () => {
+      const vals = Object.fromEntries(signals.map((s) => [s.key, s.value]))
+      return voteApi.submitVote({
+        recency: vals.recency,
+        engagement: vals.engagement,
+        bridging: vals.bridging,
+        sourceDiversity: vals.source_diversity,
+        relevance: vals.relevance,
+      })
+    },
+    onSuccess: invalidateVote,
+  })
+
+  const contentMutation = useMutation({
+    mutationFn: () => voteApi.submitVote(null, { includeKeywords, excludeKeywords }),
+    onSuccess: invalidateVote,
+  })
+
+  const topicsMutation = useMutation({
+    mutationFn: () => voteApi.submitVote(null, undefined, topicValues),
+    onSuccess: invalidateVote,
+  })
 
   const handleSignalChange = useCallback((updated: SliderSignal[]) => {
     const moved = updated.find((u, i) => Math.abs(u.value - signals[i].value) > 0.001)
@@ -260,16 +302,24 @@ export default function VotePage() {
       setLastMoved(moved.key)
     }
     setSignals(updated)
-    setWeightSubmit("idle")
-  }, [signals])
+    weightsMutation.reset()
+  }, [signals, weightsMutation])
 
-  const mockSubmit = (setter: (s: SubmitState) => void) => {
-    setter("submitting")
-    setTimeout(() => setter("success"), 1200)
+  const submitWeights = () => {
+    if (!isAuthenticated) { onRequireAuth(); return }
+    weightsMutation.mutate()
+  }
+  const submitContent = () => {
+    if (!isAuthenticated) { onRequireAuth(); return }
+    contentMutation.mutate()
+  }
+  const submitTopics = () => {
+    if (!isAuthenticated) { onRequireAuth(); return }
+    topicsMutation.mutate()
   }
 
   // Group topics by parentSlug
-  const topicGroups = MOCK_TOPICS.reduce<Record<string, typeof MOCK_TOPICS>>((acc, t) => {
+  const topicGroups = topics.reduce<Record<string, TopicCatalogEntry[]>>((acc, t) => {
     const key = t.parentSlug ?? "other"
     ;(acc[key] = acc[key] ?? []).push(t)
     return acc
@@ -279,268 +329,349 @@ export default function VotePage() {
     ([, v]) => Math.abs(v - 0.5) > 0.01
   ).length
 
-  if (pageState === "loading") {
-    return (
-      <AppShell user={null}>
-        <div className="max-w-6xl mx-auto px-5 py-10">
-          <WeightsSkeleton />
-        </div>
-      </AppShell>
-    )
-  }
+  const participationPct = (epoch.subscriber_count ?? 0) > 0
+    ? Math.round((epoch.vote_count / (epoch.subscriber_count ?? 1)) * 100)
+    : 0
 
-  if (pageState === "error") {
-    return (
-      <AppShell user={null}>
-        <div className="max-w-xl mx-auto px-5 py-20">
-          <ErrorCard heading="Ballot unavailable" body="We couldn't load the current voting round. Try again in a moment." />
-        </div>
-      </AppShell>
+  return (
+    <div className="max-w-6xl mx-auto px-5 py-8 flex flex-col gap-6">
+
+      {/* ── 3-column workbench ───────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr_240px] gap-6 items-start">
+
+        {/* ── LEFT RAIL ─────────────────────────────────── */}
+        <aside className="flex flex-col gap-4 lg:sticky lg:top-20">
+          <RoundCard epoch={epoch} />
+
+          {/* Section nav — flat list, no card chrome */}
+          <nav className="flex flex-col gap-0.5 px-1" aria-label="Ballot sections">
+            <SectionTab id="weights" active={activeSection === "weights"} label="Ranking weights"   done={weightsMutation.isSuccess} onClick={() => setActiveSection("weights")} />
+            <SectionTab id="content" active={activeSection === "content"} label="Content rules"      done={contentMutation.isSuccess} onClick={() => setActiveSection("content")} />
+            <SectionTab id="topics"  active={activeSection === "topics"}  label="Topic preferences"  done={topicsMutation.isSuccess}  onClick={() => setActiveSection("topics")} />
+          </nav>
+
+          {/* Back to overview */}
+          <Link href="/dashboard" className="text-xs text-foreground/40 hover:text-foreground/70 transition-colors text-center">
+            ← Back to overview
+          </Link>
+        </aside>
+
+        {/* ── CENTER ─────────────────────────────────────── */}
+        <main className="flex flex-col gap-6 min-w-0">
+
+          {/* ── Section 01: Ranking weights ─────────────── */}
+          {activeSection === "weights" && (
+            <div className="rounded-xl border border-border bg-card p-6 flex flex-col gap-6">
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[10px] font-mono text-foreground/35 uppercase tracking-widest">01 — Ranking weights</span>
+                <h2 className="text-lg font-semibold text-foreground leading-snug">Signal weights</h2>
+                <p className="text-sm text-foreground/50 leading-relaxed">
+                  Drag to allocate importance across the five signals. Adjusting one redistributes the rest — they always sum to 100%.
+                </p>
+              </div>
+
+              {locked ? (
+                <div className="flex flex-col gap-4">
+                  {signals.map((sig) => (
+                    <WeightBar key={sig.key} label={sig.label} value={sig.value} />
+                  ))}
+                  <p className="text-xs text-foreground/40 italic">Ballot locked — your vote from this round is shown above.</p>
+                </div>
+              ) : (
+                <LinkedSlider
+                  signals={signals}
+                  onChange={handleSignalChange}
+                  lastMoved={lastMoved}
+                  prevValues={prevSignalValues.current}
+                  disabled={locked}
+                />
+              )}
+
+              <SubmitRow
+                label="Submit weight vote"
+                state={submitStateOf(weightsMutation)}
+                votedAt={myVote?.voted_at}
+                onSubmit={submitWeights}
+                disabled={locked}
+              />
+            </div>
+          )}
+
+          {/* ── Section 02: Content rules ────────────────── */}
+          {activeSection === "content" && (
+            <div className="rounded-xl border border-border bg-card p-6 flex flex-col gap-6">
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[10px] font-mono text-foreground/35 uppercase tracking-widest">02 — Content rules</span>
+                <h2 className="text-lg font-semibold text-foreground leading-snug">Keywords</h2>
+                <p className="text-sm text-foreground/50 leading-relaxed">
+                  Vote on which keywords to boost or suppress. Keywords reaching {Math.round(rules.threshold * 100)}% community support take effect.
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-5">
+                <KeywordInput
+                  label="Include keywords"
+                  keywords={includeKeywords}
+                  variant="include"
+                  onChange={(next) => { setIncludeKeywords(next); contentMutation.reset() }}
+                  disabled={locked}
+                  communityVotes={rules.include_keyword_votes}
+                  totalVoters={rules.total_voters}
+                />
+                <KeywordInput
+                  label="Exclude keywords"
+                  keywords={excludeKeywords}
+                  variant="exclude"
+                  onChange={(next) => { setExcludeKeywords(next); contentMutation.reset() }}
+                  disabled={locked}
+                  communityVotes={rules.exclude_keyword_votes}
+                  totalVoters={rules.total_voters}
+                />
+              </div>
+
+              {/* Community rules context */}
+              <div className="rounded-lg bg-biscuit/50 border border-border/60 px-4 py-3 flex flex-col gap-1">
+                <p className="text-xs font-semibold text-foreground/55 uppercase tracking-wide">Active community rules</p>
+                <div className="flex flex-wrap gap-1.5 mt-1">
+                  {rules.include_keywords.map((w) => (
+                    <span key={w} className="text-xs font-mono px-2 py-0.5 rounded-full bg-success/10 border border-success/25 text-success">+{w}</span>
+                  ))}
+                  {rules.exclude_keywords.map((w) => (
+                    <span key={w} className="text-xs font-mono px-2 py-0.5 rounded-full bg-tongue/15 border border-tongue/30 text-tongue-foreground line-through">−{w}</span>
+                  ))}
+                  {rules.include_keywords.length === 0 && rules.exclude_keywords.length === 0 && (
+                    <span className="text-xs text-foreground/40 italic">No active rules yet</span>
+                  )}
+                </div>
+              </div>
+
+              <SubmitRow
+                label="Submit content vote"
+                state={submitStateOf(contentMutation)}
+                votedAt={myVote?.voted_at}
+                onSubmit={submitContent}
+                disabled={locked}
+              />
+            </div>
+          )}
+
+          {/* ── Section 03: Topic preferences ───────────── */}
+          {activeSection === "topics" && (
+            <div className="rounded-xl border border-border bg-card p-6 flex flex-col gap-6">
+              <div className="flex flex-col gap-1">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-[10px] font-mono text-foreground/35 uppercase tracking-widest">03 — Topic preferences</span>
+                    <h2 className="text-lg font-semibold text-foreground leading-snug">Topics</h2>
+                    <p className="text-sm text-foreground/50 leading-relaxed">
+                      Slide right to boost a topic, left to reduce it. The vertical marker shows the community average.
+                    </p>
+                  </div>
+                  {touchedTopicCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const reset: Record<string, number> = {}
+                        topics.forEach((t) => { reset[t.slug] = 0.5 })
+                        setTopicValues(reset)
+                        topicsMutation.reset()
+                      }}
+                      className="text-xs text-foreground/40 hover:text-primary transition-colors underline underline-offset-2 flex-shrink-0 mt-1"
+                    >
+                      Reset all
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {topics.length === 0 ? (
+                <EmptyState
+                  heading="No topics configured"
+                  body="The community hasn't set up topic categories for this round yet."
+                  showCorgi={false}
+                />
+              ) : (
+                <div className="flex flex-col gap-5">
+                  {Object.entries(topicGroups).map(([parent, groupTopics]) => (
+                    <TopicGroup
+                      key={parent}
+                      parentSlug={parent}
+                      topics={groupTopics}
+                      values={topicValues}
+                      onChangeAll={(slug, val) => {
+                        setTopicValues((prev) => ({ ...prev, [slug]: val }))
+                        topicsMutation.reset()
+                      }}
+                      touchedCount={groupTopics.filter((t) => Math.abs((topicValues[t.slug] ?? 0.5) - 0.5) > 0.01).length}
+                      disabled={locked}
+                    />
+                  ))}
+                </div>
+              )}
+
+              <SubmitRow
+                label="Submit topic vote"
+                state={submitStateOf(topicsMutation)}
+                votedAt={myVote?.voted_at}
+                onSubmit={submitTopics}
+                disabled={locked}
+              />
+            </div>
+          )}
+
+        </main>
+
+        {/* ── RIGHT RAIL ────────────────────────────────── */}
+        <aside className="hidden lg:flex flex-col gap-0 lg:sticky lg:top-20 rounded-xl border border-border bg-card overflow-hidden">
+
+          {/* Running community weights */}
+          <div className="p-5 flex flex-col gap-3">
+            <p className="text-[10px] text-foreground/40 font-mono uppercase tracking-widest">Live weights · Round #{epoch.id}</p>
+            <div className="flex flex-col gap-3">
+              {Object.entries(communityWeights).map(([key, val]) => (
+                <WeightBar key={key} label={SIGNAL_META[key]?.label ?? key} value={val} size="sm" />
+              ))}
+            </div>
+          </div>
+
+          <div className="h-px bg-border/60 mx-5" />
+
+          {/* Active content filters summary */}
+          <div className="p-5 flex flex-col gap-2.5">
+            <p className="text-[10px] text-foreground/40 font-mono uppercase tracking-widest">Active filters</p>
+            {rules.include_keywords.length === 0 && rules.exclude_keywords.length === 0 ? (
+              <p className="text-xs text-foreground/35">None this round</p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {rules.include_keywords.map((w) => (
+                  <span key={w} className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-success/10 border border-success/25 text-success">+{w}</span>
+                ))}
+                {rules.exclude_keywords.map((w) => (
+                  <span key={w} className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-tongue/15 border border-tongue/30 text-tongue-foreground">−{w}</span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="h-px bg-border/60 mx-5" />
+
+          {/* Participation — quiet, not a callout */}
+          <div className="p-5 flex flex-col gap-2">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-foreground/50">{epoch.vote_count.toLocaleString()} of {(epoch.subscriber_count ?? 0).toLocaleString()} voted</span>
+              <span className="font-mono text-foreground/60">{participationPct}%</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-biscuit overflow-hidden">
+              <div
+                className="h-1.5 rounded-full bg-primary/70 transition-all"
+                style={{ width: `${participationPct}%` }}
+              />
+            </div>
+            <p className="text-[10px] text-foreground/40 leading-relaxed">
+              Each vote counts equally.
+            </p>
+          </div>
+
+        </aside>
+      </div>
+    </div>
+  )
+}
+
+/* ─── Page ───────────────────────────────────────────────── */
+
+export default function VotePage() {
+  const { isAuthenticated } = useAuth()
+  const [signInOpen, setSignInOpen] = useState(false)
+
+  const epochQuery = useQuery({
+    queryKey: ["epoch", "current"],
+    queryFn: weightsApi.getCurrentEpoch,
+    retry: false,
+  })
+  const topicsQuery = useQuery({
+    queryKey: ["topics"],
+    queryFn: voteApi.getTopicCatalog,
+    retry: false,
+  })
+  const contentRulesQuery = useQuery({
+    queryKey: ["content-rules"],
+    queryFn: voteApi.getContentRules,
+    retry: false,
+  })
+  const myVoteQuery = useQuery({
+    queryKey: ["vote", "mine"],
+    queryFn: voteApi.getVote,
+    enabled: isAuthenticated,
+    retry: false,
+  })
+
+  // The ballot round is the gating resource; the supporting queries (topics,
+  // rules, my vote) are seeded into the workbench once all have settled so its
+  // interactive state initialises synchronously and correctly.
+  const coreLoading =
+    epochQuery.isLoading ||
+    topicsQuery.isLoading ||
+    contentRulesQuery.isLoading ||
+    (isAuthenticated && myVoteQuery.isLoading)
+
+  let content: React.ReactNode
+  if (coreLoading) {
+    content = (
+      <div className="max-w-6xl mx-auto px-5 py-10">
+        <WeightsSkeleton />
+      </div>
+    )
+  } else if (epochQuery.isError || !epochQuery.data) {
+    content = (
+      <div className="max-w-xl mx-auto px-5 py-20">
+        <ErrorCard
+          heading="Ballot unavailable"
+          body="We couldn't load the current voting round. Try again in a moment."
+          onRetry={() => epochQuery.refetch()}
+        />
+      </div>
+    )
+  } else if (topicsQuery.isError || contentRulesQuery.isError) {
+    content = (
+      <div className="max-w-xl mx-auto px-5 py-20">
+        <ErrorCard
+          heading="Ballot data incomplete"
+          body="Part of the ballot (topics or content rules) failed to load, so the ballot can't be shown accurately."
+          onRetry={() => {
+            if (topicsQuery.isError) void topicsQuery.refetch()
+            if (contentRulesQuery.isError) void contentRulesQuery.refetch()
+          }}
+        />
+      </div>
+    )
+  } else if (isAuthenticated && myVoteQuery.isError) {
+    content = (
+      <div className="max-w-xl mx-auto px-5 py-20">
+        <ErrorCard
+          heading="Your ballot couldn't be loaded"
+          body="We couldn't retrieve your previous vote, so the ballot won't be shown pre-filled. Retry to load it."
+          onRetry={() => void myVoteQuery.refetch()}
+        />
+      </div>
+    )
+  } else {
+    content = (
+      <VoteWorkbench
+        epoch={epochQuery.data}
+        myVote={myVoteQuery.data}
+        topics={topicsQuery.data?.topics ?? []}
+        contentRules={contentRulesQuery.data}
+        isAuthenticated={isAuthenticated}
+        onRequireAuth={() => setSignInOpen(true)}
+      />
     )
   }
 
   return (
-    <AppShell user={{ handle: "maya.bsky.social", did: "did:plc:abc123" }}>
-      <div className="max-w-6xl mx-auto px-5 py-8 flex flex-col gap-6">
-
-        {/* ── 3-column workbench ───────────────────────────── */}
-        <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr_240px] gap-6 items-start">
-
-          {/* ── LEFT RAIL ─────────────────────────────────── */}
-          <aside className="flex flex-col gap-4 lg:sticky lg:top-20">
-            <RoundCard epoch={epoch} />
-
-            {/* Section nav — flat list, no card chrome */}
-            <nav className="flex flex-col gap-0.5 px-1" aria-label="Ballot sections">
-              <SectionTab id="weights" active={activeSection === "weights"} label="Ranking weights"   done={weightSubmit === "success"} onClick={() => setActiveSection("weights")} />
-              <SectionTab id="content" active={activeSection === "content"} label="Content rules"      done={contentSubmit === "success"} onClick={() => setActiveSection("content")} />
-              <SectionTab id="topics"  active={activeSection === "topics"}  label="Topic preferences"  done={topicSubmit === "success"}  onClick={() => setActiveSection("topics")} />
-            </nav>
-
-            {/* Back to overview */}
-            <Link href="/dashboard" className="text-xs text-foreground/40 hover:text-foreground/70 transition-colors text-center">
-              ← Back to overview
-            </Link>
-          </aside>
-
-          {/* ── CENTER ───────────────────────────���────────── */}
-          <main className="flex flex-col gap-6 min-w-0">
-
-            {/* ── Section 01: Ranking weights ─────────────── */}
-            {activeSection === "weights" && (
-              <div className="rounded-xl border border-border bg-card p-6 flex flex-col gap-6">
-                <div className="flex flex-col gap-1.5">
-                  <span className="text-[10px] font-mono text-foreground/35 uppercase tracking-widest">01 — Ranking weights</span>
-                  <h2 className="text-lg font-semibold text-foreground leading-snug">Signal weights</h2>
-                  <p className="text-sm text-foreground/50 leading-relaxed">
-                    Drag to allocate importance across the five signals. Adjusting one redistributes the rest — they always sum to 100%.
-                  </p>
-                </div>
-
-                {locked ? (
-                  <div className="flex flex-col gap-4">
-                    {signals.map((sig) => (
-                      <WeightBar key={sig.key} label={sig.label} value={sig.value} />
-                    ))}
-                    <p className="text-xs text-foreground/40 italic">Ballot locked — your vote from this round is shown above.</p>
-                  </div>
-                ) : (
-                  <LinkedSlider
-                    signals={signals}
-                    onChange={handleSignalChange}
-                    lastMoved={lastMoved}
-                    prevValues={prevSignalValues.current}
-                    disabled={locked}
-                  />
-                )}
-
-                <SubmitRow
-                  label="Submit weight vote"
-                  state={weightSubmit}
-                  votedAt={MOCK_MY_VOTE.voted_at}
-                  onSubmit={() => mockSubmit(setWeightSubmit)}
-                  disabled={locked}
-                />
-              </div>
-            )}
-
-            {/* ── Section 02: Content rules ────────────────── */}
-            {activeSection === "content" && (
-              <div className="rounded-xl border border-border bg-card p-6 flex flex-col gap-6">
-                <div className="flex flex-col gap-1.5">
-                  <span className="text-[10px] font-mono text-foreground/35 uppercase tracking-widest">02 — Content rules</span>
-                  <h2 className="text-lg font-semibold text-foreground leading-snug">Keywords</h2>
-                  <p className="text-sm text-foreground/50 leading-relaxed">
-                    Vote on which keywords to boost or suppress. Keywords reaching {Math.round(MOCK_CONTENT_RULES.threshold * 100)}% community support take effect.
-                  </p>
-                </div>
-
-                <div className="flex flex-col gap-5">
-                  <KeywordInput
-                    label="Include keywords"
-                    keywords={includeKeywords}
-                    variant="include"
-                    onChange={setIncludeKeywords}
-                    disabled={locked}
-                    communityVotes={MOCK_CONTENT_RULES.include_keyword_votes}
-                    totalVoters={MOCK_CONTENT_RULES.total_voters}
-                  />
-                  <KeywordInput
-                    label="Exclude keywords"
-                    keywords={excludeKeywords}
-                    variant="exclude"
-                    onChange={setExcludeKeywords}
-                    disabled={locked}
-                    communityVotes={MOCK_CONTENT_RULES.exclude_keyword_votes}
-                    totalVoters={MOCK_CONTENT_RULES.total_voters}
-                  />
-                </div>
-
-                {/* Community rules context */}
-                <div className="rounded-lg bg-biscuit/50 border border-border/60 px-4 py-3 flex flex-col gap-1">
-                  <p className="text-xs font-semibold text-foreground/55 uppercase tracking-wide">Active community rules</p>
-                  <div className="flex flex-wrap gap-1.5 mt-1">
-                    {MOCK_CONTENT_RULES.include_keywords.map((w) => (
-                      <span key={w} className="text-xs font-mono px-2 py-0.5 rounded-full bg-success/10 border border-success/25 text-success">+{w}</span>
-                    ))}
-                    {MOCK_CONTENT_RULES.exclude_keywords.map((w) => (
-                      <span key={w} className="text-xs font-mono px-2 py-0.5 rounded-full bg-tongue/15 border border-tongue/30 text-tongue-foreground line-through">−{w}</span>
-                    ))}
-                    {MOCK_CONTENT_RULES.include_keywords.length === 0 && MOCK_CONTENT_RULES.exclude_keywords.length === 0 && (
-                      <span className="text-xs text-foreground/40 italic">No active rules yet</span>
-                    )}
-                  </div>
-                </div>
-
-                <SubmitRow
-                  label="Submit content vote"
-                  state={contentSubmit}
-                  votedAt={MOCK_MY_VOTE.voted_at}
-                  onSubmit={() => mockSubmit(setContentSubmit)}
-                  disabled={locked}
-                />
-              </div>
-            )}
-
-            {/* ── Section 03: Topic preferences ───────────── */}
-            {activeSection === "topics" && (
-              <div className="rounded-xl border border-border bg-card p-6 flex flex-col gap-6">
-                <div className="flex flex-col gap-1">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex flex-col gap-1.5">
-                      <span className="text-[10px] font-mono text-foreground/35 uppercase tracking-widest">03 — Topic preferences</span>
-                      <h2 className="text-lg font-semibold text-foreground leading-snug">Topics</h2>
-                      <p className="text-sm text-foreground/50 leading-relaxed">
-                        Slide right to boost a topic, left to reduce it. The vertical marker shows the community average.
-                      </p>
-                    </div>
-                    {touchedTopicCount > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const reset: Record<string, number> = {}
-                          MOCK_TOPICS.forEach((t) => { reset[t.slug] = 0.5 })
-                          setTopicValues(reset)
-                        }}
-                        className="text-xs text-foreground/40 hover:text-primary transition-colors underline underline-offset-2 flex-shrink-0 mt-1"
-                      >
-                        Reset all
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {MOCK_TOPICS.length === 0 ? (
-                  <EmptyState
-                    heading="No topics configured"
-                    body="The community hasn't set up topic categories for this round yet."
-                    showCorgi={false}
-                  />
-                ) : (
-                  <div className="flex flex-col gap-5">
-                    {Object.entries(topicGroups).map(([parent, topics]) => (
-                      <TopicGroup
-                        key={parent}
-                        parentSlug={parent}
-                        topics={topics}
-                        values={topicValues}
-                        onChangeAll={(slug, val) => {
-                          setTopicValues((prev) => ({ ...prev, [slug]: val }))
-                          setTopicSubmit("idle")
-                        }}
-                        touchedCount={topics.filter((t) => Math.abs((topicValues[t.slug] ?? 0.5) - 0.5) > 0.01).length}
-                        disabled={locked}
-                      />
-                    ))}
-                  </div>
-                )}
-
-                <SubmitRow
-                  label="Submit topic vote"
-                  state={topicSubmit}
-                  votedAt={MOCK_MY_VOTE.voted_at}
-                  onSubmit={() => mockSubmit(setTopicSubmit)}
-                  disabled={locked}
-                />
-              </div>
-            )}
-
-          </main>
-
-          {/* ── RIGHT RAIL ────────────────────────────────── */}
-          <aside className="hidden lg:flex flex-col gap-0 lg:sticky lg:top-20 rounded-xl border border-border bg-card overflow-hidden">
-
-            {/* Running community weights */}
-            <div className="p-5 flex flex-col gap-3">
-              <p className="text-[10px] text-foreground/40 font-mono uppercase tracking-widest">Live weights · Round #{epoch.id}</p>
-              <div className="flex flex-col gap-3">
-                {Object.entries(communityWeights).map(([key, val]) => (
-                  <WeightBar key={key} label={SIGNAL_META[key]?.label ?? key} value={val} size="sm" />
-                ))}
-              </div>
-            </div>
-
-            <div className="h-px bg-border/60 mx-5" />
-
-            {/* Active content filters summary */}
-            <div className="p-5 flex flex-col gap-2.5">
-              <p className="text-[10px] text-foreground/40 font-mono uppercase tracking-widest">Active filters</p>
-              {MOCK_CONTENT_RULES.include_keywords.length === 0 && MOCK_CONTENT_RULES.exclude_keywords.length === 0 ? (
-                <p className="text-xs text-foreground/35">None this round</p>
-              ) : (
-                <div className="flex flex-wrap gap-1.5">
-                  {MOCK_CONTENT_RULES.include_keywords.map((w) => (
-                    <span key={w} className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-success/10 border border-success/25 text-success">+{w}</span>
-                  ))}
-                  {MOCK_CONTENT_RULES.exclude_keywords.map((w) => (
-                    <span key={w} className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-tongue/15 border border-tongue/30 text-tongue-foreground">−{w}</span>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="h-px bg-border/60 mx-5" />
-
-            {/* Participation — quiet, not a callout */}
-            <div className="p-5 flex flex-col gap-2">
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-foreground/50">{epoch.vote_count.toLocaleString()} of {epoch.subscriber_count.toLocaleString()} voted</span>
-                <span className="font-mono text-foreground/60">{Math.round((epoch.vote_count / epoch.subscriber_count) * 100)}%</span>
-              </div>
-              <div className="h-1.5 rounded-full bg-biscuit overflow-hidden">
-                <div
-                  className="h-1.5 rounded-full bg-primary/70 transition-all"
-                  style={{ width: `${Math.round((epoch.vote_count / epoch.subscriber_count) * 100)}%` }}
-                />
-              </div>
-              <p className="text-[10px] text-foreground/40 leading-relaxed">
-                Each vote counts equally.
-              </p>
-            </div>
-
-          </aside>
-        </div>
-      </div>
+    <AppShell>
+      {content}
+      <SignInDialog open={signInOpen} onOpenChange={setSignInOpen} />
     </AppShell>
   )
 }
