@@ -58,6 +58,30 @@ export type {
 export { createRng, SeededClock } from './rng.js';
 export type { Rng, Clock } from './rng.js';
 
+export { runBaselineComparison, writeBaselineComparisonArtifacts, REGIME_NAMES } from './baseline-comparison.js';
+export type {
+  RegimeName,
+  BaselineComparisonDeps,
+  RegimeResult,
+  BaselineComparisonResult,
+  RunBaselineComparisonOptions,
+  BaselineComparisonCsvRow,
+  RegimeSummaryCsvRow,
+  WrittenBaselineComparisonPaths,
+} from './baseline-comparison.js';
+
+export {
+  normalizedRankDisplacement,
+  kendallTauDistance,
+  dominantTopic,
+  minorityTopicExposure,
+  buildCorpusTopicSupport,
+  authorHHI,
+  authorGini,
+  distortionRatio,
+} from './feed-metrics.js';
+export type { FeedEntry, FeedPostInfo } from './feed-metrics.js';
+
 export { generatePopulation, TOPIC_SLUGS } from './population.js';
 export type { Population, SubscriberSeed, PostSeed, VoteSeed } from './population.js';
 
