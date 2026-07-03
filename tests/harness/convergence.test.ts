@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { l2Distance, weightVectorVariance, hasConverged } from '../../src/harness/convergence.js';
+import { l1Distance, l2Distance, weightVectorVariance, hasConverged } from '../../src/harness/convergence.js';
 import { createDefaultGovernanceWeightRecord } from '../../src/config/votable-params.js';
 import type { GovernanceWeights } from '../../src/shared/api-types.js';
 
@@ -70,6 +70,66 @@ describe('l2Distance', () => {
       relevance: 0.05,
     };
     expect(l2Distance(a, bReordered)).toBeCloseTo(l2Distance(a, bCanonical), 12);
+  });
+});
+
+describe('l1Distance', () => {
+  it('is 0 for two identical vectors', () => {
+    const weights = createDefaultGovernanceWeightRecord();
+    expect(l1Distance(weights, { ...weights })).toBe(0);
+  });
+
+  it('matches a hand-computed distance on a single-component diff (a 1-D case)', () => {
+    const a = vector({ recency: 1 });
+    const b = ZERO_VECTOR;
+    expect(l1Distance(a, b)).toBe(1);
+  });
+
+  it('sums absolute per-component differences (not squared, unlike l2Distance)', () => {
+    // diffs: (0.3, 0.4, 0, 0, 0) -> |0.3| + |0.4| = 0.7 (l2Distance on the
+    // same vectors is 0.5, the classic 3-4-5 right triangle — see above).
+    const a = vector({ recency: 0.3, engagement: 0.4 });
+    const b = ZERO_VECTOR;
+    expect(l1Distance(a, b)).toBeCloseTo(0.7, 12);
+  });
+
+  it('handles negative-direction diffs the same as positive ones (absolute value, not signed sum)', () => {
+    const a = vector({ recency: 0.9, engagement: 0.025, bridging: 0.025, sourceDiversity: 0.025, relevance: 0.025 });
+    const b = vector({ recency: 0.05, engagement: 0.05, bridging: 0.1, sourceDiversity: 0.1, relevance: 0.7 });
+    // |0.9-0.05| + |0.025-0.05| + |0.025-0.1| + |0.025-0.1| + |0.025-0.7|
+    // = 0.85 + 0.025 + 0.075 + 0.075 + 0.675 = 1.7
+    expect(l1Distance(a, b)).toBeCloseTo(1.7, 12);
+  });
+
+  it('is symmetric: distance(a, b) === distance(b, a)', () => {
+    const a = vector({ recency: 0.7, engagement: 0.1, bridging: 0.1, sourceDiversity: 0.05, relevance: 0.05 });
+    const b = vector({ recency: 0.2, engagement: 0.2, bridging: 0.2, sourceDiversity: 0.2, relevance: 0.2 });
+    expect(l1Distance(a, b)).toBeCloseTo(l1Distance(b, a), 12);
+  });
+
+  it('is independent of key insertion order (iterates the canonical component order, not Object.keys)', () => {
+    const a = vector({ recency: 0.6, engagement: 0.1, bridging: 0.1, sourceDiversity: 0.1, relevance: 0.1 });
+    const bReordered: GovernanceWeights = {
+      relevance: 0.05,
+      sourceDiversity: 0.05,
+      bridging: 0.1,
+      engagement: 0.1,
+      recency: 0.7,
+    };
+    const bCanonical: GovernanceWeights = {
+      recency: 0.7,
+      engagement: 0.1,
+      bridging: 0.1,
+      sourceDiversity: 0.05,
+      relevance: 0.05,
+    };
+    expect(l1Distance(a, bReordered)).toBeCloseTo(l1Distance(a, bCanonical), 12);
+  });
+
+  it('never returns less than l2Distance for the same pair (L1 >= L2 always, equal only in the 1-D case)', () => {
+    const a = vector({ recency: 0.7, engagement: 0.1, bridging: 0.1, sourceDiversity: 0.05, relevance: 0.05 });
+    const b = vector({ recency: 0.2, engagement: 0.2, bridging: 0.2, sourceDiversity: 0.2, relevance: 0.2 });
+    expect(l1Distance(a, b)).toBeGreaterThanOrEqual(l2Distance(a, b));
   });
 });
 
