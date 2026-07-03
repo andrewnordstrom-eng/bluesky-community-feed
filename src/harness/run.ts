@@ -9,11 +9,23 @@
 import { randomUUID } from 'node:crypto';
 import { parseScenario } from './scenario.js';
 import { Simulation, type SimulationDeps } from './simulation.js';
-import { measure, toArtifacts, writeArtifacts, type RunMetrics, type RunArtifacts } from './metrics.js';
+import {
+  measure,
+  measureEpochSeries,
+  toArtifacts,
+  writeArtifacts,
+  writeEpochSeriesArtifacts,
+  type EpochSeriesRow,
+  type RunMetrics,
+  type RunArtifacts,
+  type WrittenEpochSeriesPaths,
+} from './metrics.js';
 
 export interface RunScenarioOptions {
   deps: SimulationDeps;
-  /** When set, writes metrics.json + summary.csv under this directory. */
+  /** When set, writes metrics.json + summary.csv (and, for a
+   *  `multi-epoch-cycle` scenario, epochs.csv + audit-log.json too) under
+   *  this directory. */
   artifactsDir?: string;
 }
 
@@ -21,6 +33,9 @@ export interface RunScenarioResult {
   metrics: RunMetrics;
   artifacts: RunArtifacts;
   artifactPaths?: { jsonPath: string; csvPath: string };
+  /** Present only for a `multi-epoch-cycle` scenario — one row per epoch. */
+  epochSeries?: EpochSeriesRow[];
+  epochSeriesPaths?: WrittenEpochSeriesPaths;
 }
 
 /**
@@ -48,5 +63,15 @@ export async function runScenario(input: unknown, options: RunScenarioOptions): 
     ? await writeArtifacts(options.artifactsDir, artifacts)
     : undefined;
 
-  return { metrics, artifacts, artifactPaths };
+  // `result.rounds` is only present for a `multi-epoch-cycle` scenario (see
+  // Simulation.runMultiEpochCycle) — `metrics`/`artifacts` above already
+  // cover that run's FINAL round; this layers the full per-epoch series (and
+  // its audit trail) on top, in the same artifacts directory.
+  const epochSeries = result.rounds ? measureEpochSeries(result) : undefined;
+  const epochSeriesPaths =
+    epochSeries && options.artifactsDir
+      ? await writeEpochSeriesArtifacts(options.artifactsDir, metrics, epochSeries, result.auditLog ?? [])
+      : undefined;
+
+  return { metrics, artifacts, artifactPaths, epochSeries, epochSeriesPaths };
 }

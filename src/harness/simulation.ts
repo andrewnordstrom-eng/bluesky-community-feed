@@ -24,11 +24,18 @@
 
 import type { Rng, Clock } from './rng.js';
 import type { Scenario } from './scenario.js';
-import { generatePopulation, TOPIC_SLUGS, type Population, type VoteSeed } from './population.js';
+import {
+  generatePopulation,
+  generateVotes,
+  TOPIC_SLUGS,
+  type Population,
+  type VoteSeed,
+} from './population.js';
 import { validateVote, type RawVotePayload, type VoteValidationContext } from './vote-validation.js';
 import { assertEphemeralPostgresUrl, assertEphemeralRedisUrl, type GuardOptions } from './prod-guard.js';
 import { createDefaultGovernanceWeightRecord } from '../config/votable-params.js';
 import { weightsToVotePayload } from '../governance/governance.types.js';
+import { l2Distance } from './convergence.js';
 import type { GovernanceWeights } from '../shared/api-types.js';
 
 /** Minimal query surface `Simulation` needs to seed its own synthetic data. */
@@ -98,6 +105,47 @@ export interface TopScoredPost {
   totalScore: number;
 }
 
+/**
+ * One row of `governance_audit_log`, surfaced from a `multi-epoch-cycle`
+ * run's underlying audit trail (see `Simulation.runMultiEpochCycle`) so
+ * callers/tests can assert on the REAL production audit rows
+ * `forceEpochTransition` wrote, not a harness-side reconstruction of them.
+ *
+ * The row's `created_at` (DB `NOW()` at insert — real wall-clock, not the
+ * harness's seeded domain clock) is intentionally NOT surfaced: it is not part
+ * of the governance signal (id/action/epoch/details are), and including it
+ * would make the emitted `audit-log.json` non-reproducible across runs. The
+ * ordering that matters is by `id`, which `fetchAuditLogSince` uses.
+ */
+export interface AuditLogRow {
+  id: number;
+  action: string;
+  epochId: number | null;
+  details: Record<string, unknown> | null;
+}
+
+/**
+ * One round of a `multi-epoch-cycle` run: the epoch that received this
+ * round's persona votes (`epochBeforeId`), the epoch `forceEpochTransition`
+ * created from aggregating them (`epochAfterId`), how many votes were cast,
+ * the resulting normalized 5-component weight vector (read back from the
+ * REAL `governance_epochs` row `forceEpochTransition` wrote, not recomputed
+ * here), its topic-weight summary (same provenance), and the L2 displacement
+ * of `weights` from the PREVIOUS round's weight vector — round 1 measures
+ * displacement from the harness's own bootstrap default (see
+ * `ensureActiveEpoch`), the same reference point every voter's first vote is
+ * actually cast against.
+ */
+export interface EpochRoundResult {
+  round: number;
+  epochBeforeId: number;
+  epochAfterId: number;
+  voteCount: number;
+  weights: GovernanceWeights;
+  topicWeights: Record<string, number>;
+  l2Displacement: number;
+}
+
 export interface SimulationResult {
   scenario: Scenario;
   population: Population;
@@ -107,6 +155,19 @@ export interface SimulationResult {
   scoredPostCount: number;
   topPosts: TopScoredPost[];
   events: SimulationEvent[];
+  /**
+   * Present only for `kind: 'multi-epoch-cycle'` — one entry per round, in
+   * order. Every other top-level field above still describes the FINAL
+   * round (so single-cycle consumers like `measure()` in metrics.ts keep
+   * working unchanged as a summary of a multi-epoch run), matching the last
+   * element of this array.
+   */
+  rounds?: EpochRoundResult[];
+  /**
+   * Present only for `kind: 'multi-epoch-cycle'` — every `governance_audit_log`
+   * row this run's `forceEpochTransition` calls actually wrote, in id order.
+   */
+  auditLog?: AuditLogRow[];
 }
 
 /**
@@ -196,6 +257,12 @@ const INSERT_BATCH_SIZE = 500;
  *  concurrent pool connections and pending-promise memory on large-N runs. */
 const DUAL_WRITE_CONCURRENCY = 25;
 
+/** Compile-time exhaustiveness guard: reaching this with a non-`never` value is
+ *  a type error, so an unhandled discriminated-union case fails the build. */
+function assertNever(value: never, message: string): never {
+  throw new Error(`${message}: ${JSON.stringify(value)}`);
+}
+
 function chunk<T>(items: readonly T[], size: number): T[][] {
   const chunks: T[][] = [];
   for (let i = 0; i < items.length; i += size) {
@@ -255,6 +322,34 @@ function voteSeedToRawPayload(vote: VoteSeed): RawVotePayload {
   };
 }
 
+/**
+ * Deferred import of the governance/scoring modules driven by BOTH
+ * `runEpochVoteCycle` and `runMultiEpochCycle` — see the file header for why
+ * these must not be static imports. A free function (not a `Simulation`
+ * method): it never touches `this`, and `Simulation.run()` calls it exactly
+ * once per run — including for a multi-round `multi-epoch-cycle` run, so
+ * `__resetPipelineState()` resets the scoring pipeline's module-level state
+ * exactly once per simulated run, matching the semantics a single real
+ * process boot would have (not once per round).
+ */
+async function loadGovernanceModules() {
+  const { aggregateVotes } = await import('../governance/aggregation.js');
+  const { forceEpochTransition } = await import('../governance/epoch-manager.js');
+  const { runScoringPipeline, __resetPipelineState } = await import('../scoring/pipeline.js');
+  const { writeVoteWeights } = await import('../governance/weight-longtable.js');
+  const { config } = await import('../config.js');
+  return {
+    aggregateVotes,
+    forceEpochTransition,
+    runScoringPipeline,
+    __resetPipelineState,
+    writeVoteWeights,
+    config,
+  };
+}
+
+type GovernanceModules = Awaited<ReturnType<typeof loadGovernanceModules>>;
+
 export class Simulation {
   constructor(
     private readonly scenario: Scenario,
@@ -265,30 +360,26 @@ export class Simulation {
     assertEphemeralPostgresUrl(this.deps.databaseUrl, this.deps.guard);
     assertEphemeralRedisUrl(this.deps.redisUrl, this.deps.guard);
 
-    // `ScenarioV1Schema` (scenario.ts) accepts `kind: 'multi-epoch-cycle'`
-    // (with a `rounds` field) as a documented future shape, but this class
-    // only ever drives a single aggregate -> transition -> score cycle today.
-    // Without this check, a `multi-epoch-cycle` scenario would silently run
-    // exactly one round — `rounds` quietly ignored — and still report
-    // `scenarioKind: 'multi-epoch-cycle'` in its metrics, which would be a
-    // convincing but wrong signal. Fail fast and loud instead until a real
-    // multi-round driver is implemented.
-    if (this.scenario.kind !== 'epoch-vote-cycle') {
-      throw new Error(
-        `Simulation.run(): scenario kind "${this.scenario.kind}" is not yet implemented. ` +
-          `Only "epoch-vote-cycle" drives a real cycle today; "multi-epoch-cycle" is a ` +
-          `reserved future shape (see src/harness/scenario.ts).`
-      );
+    const modules = await loadGovernanceModules();
+    modules.__resetPipelineState();
+
+    // Exhaustive dispatch (not a ternary): a future third scenario kind must
+    // fail to compile here rather than silently fall through to the
+    // single-cycle path — the exact "a multi-epoch scenario silently runs one
+    // round = a convincing but wrong signal" foot-gun the original guard existed
+    // to prevent.
+    switch (this.scenario.kind) {
+      case 'epoch-vote-cycle':
+        return this.runEpochVoteCycle(modules);
+      case 'multi-epoch-cycle':
+        return this.runMultiEpochCycle(modules);
+      default:
+        return assertNever(this.scenario, 'Simulation.run(): unhandled scenario kind');
     }
+  }
 
-    // Deferred import — see file header for why this must not be static.
-    const { aggregateVotes } = await import('../governance/aggregation.js');
-    const { forceEpochTransition } = await import('../governance/epoch-manager.js');
-    const { runScoringPipeline, __resetPipelineState } = await import('../scoring/pipeline.js');
-    const { writeVoteWeights } = await import('../governance/weight-longtable.js');
-    const { config } = await import('../config.js');
-
-    __resetPipelineState();
+  private async runEpochVoteCycle(modules: GovernanceModules): Promise<SimulationResult> {
+    const { aggregateVotes, forceEpochTransition, runScoringPipeline, writeVoteWeights, config } = modules;
 
     const events: SimulationEvent[] = [];
     const record = (type: string, data?: Record<string, unknown>): void => {
@@ -359,6 +450,176 @@ export class Simulation {
     };
   }
 
+  /**
+   * Drive `rounds` back-to-back aggregate -> transition -> score cycles —
+   * each round is the EXACT SAME real drive `runEpochVoteCycle` does
+   * (`forceEpochTransition` then `runScoringPipeline`, both real production
+   * code), looped, with per-round measurement layered on top rather than a
+   * second implementation of the cycle itself.
+   *
+   * The community is FIXED and its votes CHURN: the corpus (subscribers,
+   * posts, engagement) is generated + seeded once up front via `seedCorpus`;
+   * each round then re-draws only a fresh set of persona votes from the SAME
+   * continuing `Rng` — so the whole K-round run is one deterministic sequence,
+   * not K independent ones — and seeds only those votes (`insertVotes`) into a
+   * fresh `phase = 'voting'` epoch (`ensureActiveEpoch` reuses the epoch
+   * `forceEpochTransition` just created and forces it to `'voting'`). Because
+   * only `governance_votes` (one fresh row per voter per round) and the audit
+   * trail grow with `rounds`, a long run stays cheap — no per-round corpus
+   * re-insert, and `post_engagement` is not rewritten each round.
+   */
+  private async runMultiEpochCycle(modules: GovernanceModules): Promise<SimulationResult> {
+    if (this.scenario.kind !== 'multi-epoch-cycle') {
+      throw new Error('Simulation.runMultiEpochCycle(): internal error — scenario kind mismatch');
+    }
+    const scenario = this.scenario;
+    const { aggregateVotes, forceEpochTransition, runScoringPipeline, writeVoteWeights, config } =
+      modules;
+
+    const events: SimulationEvent[] = [];
+    const record = (type: string, data?: Record<string, unknown>): void => {
+      events.push({ at: this.deps.clock.now().toISOString(), type, data });
+    };
+
+    const auditLogWatermarkId = await this.fetchAuditLogWatermarkId();
+    const timeoutMs = this.deps.pipelineStepTimeoutMs ?? DEFAULT_PIPELINE_STEP_TIMEOUT_MS;
+    const dualWrite = {
+      writeVoteWeights,
+      dualWriteEnabled: config.GOVERNANCE_LONGTABLE_DUALWRITE_ENABLED,
+    };
+
+    // Seed the fixed corpus ONCE. Round 1 reuses this population's own votes;
+    // later rounds re-draw from the continuing Rng (the regenerated corpus is
+    // byte-identical and discarded — only the votes differ and only votes are
+    // seeded, so members/posts/engagement stay fixed for the whole run).
+    const population = generatePopulation(this.deps.rng, this.deps.clock, scenario.population);
+    await this.seedCorpus(population);
+    record('corpus_seeded', {
+      subscriberCount: population.subscribers.length,
+      postCount: population.posts.length,
+    });
+
+    // Round 1's displacement baseline is the ACTUAL weights of the epoch it
+    // transitions from — set once epochBeforeId is known below. `ensureActiveEpoch`
+    // may create that epoch at the bootstrap defaults OR reuse a pre-existing
+    // one with different weights, so read it back rather than assuming the
+    // default (else convergence would be measured from the wrong reference point).
+    let previousWeights: GovernanceWeights | undefined;
+
+    const rounds: EpochRoundResult[] = [];
+    let epochBeforeId = -1;
+    let epochAfterId = -1;
+
+    for (let round = 1; round <= scenario.rounds; round++) {
+      epochBeforeId = await ensureActiveEpoch(this.deps.db);
+      await ensureActiveTopics(this.deps.db, TOPIC_SLUGS);
+      record('epoch_ensured', { round, epochId: epochBeforeId });
+
+      if (previousWeights === undefined) {
+        previousWeights = (await this.fetchEpochWeightsAndTopics(epochBeforeId)).weights;
+      }
+
+      // Fresh votes each round from the same continuing Rng. Round 1 uses the
+      // corpus population's own votes; later rounds re-draw VOTES ONLY via
+      // generateVotes (not a full generatePopulation), so the redraw doesn't
+      // consume post-generation RNG — otherwise postCount would perturb
+      // later-round votes even though the corpus is fixed. Only votes are
+      // seeded (the fixed corpus is already in place).
+      const roundVotes =
+        round === 1
+          ? population.votes
+          : generateVotes(this.deps.rng, population.subscribers, scenario.population);
+      record('votes_generated', { round, voteCount: roundVotes.length });
+
+      await this.insertVotes(this.deps.db, { ...population, votes: roundVotes }, epochBeforeId, dualWrite);
+      record('votes_seeded', { round, epochId: epochBeforeId });
+
+      // Guard the exact failure the single-cycle path guards (the aggregateVotes
+      // null-check in runEpochVoteCycle): a round with zero eligible weight votes
+      // makes aggregateVotes return null, and forceEpochTransition then silently
+      // keeps the prior epoch's weights — which this loop would record as
+      // l2Displacement 0, a *false* "converged" signal. Fail loud instead.
+      // (forceEpochTransition re-aggregates internally; this explicit call
+      // mirrors the single-cycle path and is what makes the convergence metric
+      // trustworthy.)
+      const roundAgg = await withTimeout(
+        aggregateVotes(epochBeforeId),
+        timeoutMs,
+        `aggregateVotes[round ${round}]`
+      );
+      if (!roundAgg) {
+        throw new Error(
+          `Simulation.runMultiEpochCycle(): aggregateVotes(${epochBeforeId}) returned null in round ${round} — ` +
+            `no eligible weight votes were seeded, so this round carries no convergence signal (keyword/topic ` +
+            `votes alone cannot move the weight vector). Increase castsWeightVoteRate / subscriberCount / ` +
+            `voteParticipationRate.`
+        );
+      }
+
+      // Drive the REAL epoch-transition op — identical call to step 2 of
+      // runEpochVoteCycle, just inside the loop. It internally aggregates
+      // this round's votes (aggregateVotes/aggregateContentVotes/
+      // aggregateTopicWeights) and writes the result onto the new epoch row,
+      // plus the 'epoch_closed'/'epoch_created'/'epoch_transition_impact'
+      // governance_audit_log rows fetchAuditLogSince picks up below.
+      epochAfterId = await withTimeout(
+        forceEpochTransition(),
+        timeoutMs,
+        `forceEpochTransition[round ${round}]`
+      );
+      record('epoch_transitioned', { round, fromEpochId: epochBeforeId, toEpochId: epochAfterId });
+
+      // Drive the REAL scoring pipeline, same as runEpochVoteCycle step 3.
+      await withTimeout(runScoringPipeline(), timeoutMs, `runScoringPipeline[round ${round}]`);
+      record('scoring_pipeline_run', { round, epochId: epochAfterId });
+
+      // Read back what forceEpochTransition itself just persisted, rather
+      // than recomputing aggregation here — "drive, don't reimplement"
+      // applies to per-round measurement too.
+      const { weights, topicWeights } = await this.fetchEpochWeightsAndTopics(epochAfterId);
+      const l2Displacement = l2Distance(previousWeights, weights);
+
+      rounds.push({
+        round,
+        epochBeforeId,
+        epochAfterId,
+        voteCount: roundVotes.length,
+        weights,
+        topicWeights,
+        l2Displacement,
+      });
+      record('round_measured', { round, epochId: epochAfterId, l2Displacement });
+
+      previousWeights = weights;
+    }
+
+    if (rounds.length === 0) {
+      // Unreachable: ScenarioV1Schema enforces rounds >= 1, so the loop above
+      // always executes at least once — this guards against a silent bad read
+      // below if that invariant is ever loosened without updating this.
+      throw new Error('Simulation.runMultiEpochCycle(): scenario.rounds produced zero rounds');
+    }
+
+    const topPosts = await this.fetchTopScoredPosts(epochAfterId, 50);
+    record('top_posts_fetched', { epochId: epochAfterId, count: topPosts.length });
+
+    const auditLog = await this.fetchAuditLogSince(auditLogWatermarkId);
+
+    const lastRound = rounds[rounds.length - 1];
+    return {
+      scenario,
+      population,
+      epochBeforeId,
+      epochAfterId,
+      aggregatedWeights: lastRound.weights,
+      scoredPostCount: topPosts.length,
+      topPosts,
+      events,
+      rounds,
+      auditLog,
+    };
+  }
+
   private async seedPopulation(
     population: Population,
     epochId: number,
@@ -367,13 +628,25 @@ export class Simulation {
       dualWriteEnabled: boolean;
     }
   ): Promise<void> {
+    await this.seedCorpus(population);
+    await this.insertVotes(this.deps.db, population, epochId, voteWeightDualWrite);
+  }
+
+  /**
+   * Seed the fixed community + content — subscribers, posts, and post
+   * engagement — WITHOUT any votes. The single-cycle path runs it once via
+   * `seedPopulation`; the multi-epoch path calls it once up front and then
+   * re-seeds only votes each round, because a community's members and posts
+   * don't change epoch to epoch — only their votes do. All three inserts use
+   * `ON CONFLICT`, so a re-seed against an already-populated corpus is a
+   * no-op for a fixed, deterministic corpus.
+   */
+  private async seedCorpus(population: Population): Promise<void> {
     const { db } = this.deps;
 
     // Subscribers and posts/engagement are batched (multi-row `INSERT ...
     // VALUES (...),(...)`) rather than one awaited round trip per row — see
-    // `insertBatched` below. Votes are batched too, via `insertVotes` — see
-    // that method's docstring for why it uses `jsonb_to_recordset` instead
-    // of `insertBatched`'s `VALUES (...),(...)` form.
+    // `insertBatched` below.
     await insertBatched(
       db,
       population.subscribers,
@@ -408,8 +681,6 @@ export class Simulation {
                reply_count = EXCLUDED.reply_count`,
       params: batch.flatMap((post) => [post.uri, post.likeCount, post.repostCount, post.replyCount]),
     }));
-
-    await this.insertVotes(db, population, epochId, voteWeightDualWrite);
   }
 
   /**
@@ -602,6 +873,85 @@ export class Simulation {
       uri: row.post_uri,
       rank: index + 1,
       totalScore: Number(row.total_score),
+    }));
+  }
+
+  /**
+   * Read back the 5-component weight vector and topic-weight summary
+   * `forceEpochTransition` just persisted onto `epochId` (the epoch it
+   * created), rather than recomputing aggregation in the harness — mirrors
+   * `fetchTopScoredPosts` reading back `post_scores` instead of re-scoring.
+   */
+  private async fetchEpochWeightsAndTopics(
+    epochId: number
+  ): Promise<{ weights: GovernanceWeights; topicWeights: Record<string, number> }> {
+    const result = await this.deps.db.query<{
+      recency_weight: number;
+      engagement_weight: number;
+      bridging_weight: number;
+      source_diversity_weight: number;
+      relevance_weight: number;
+      topic_weights: Record<string, number> | null;
+    }>(
+      `SELECT recency_weight, engagement_weight, bridging_weight,
+              source_diversity_weight, relevance_weight, topic_weights
+       FROM governance_epochs
+       WHERE id = $1`,
+      [epochId]
+    );
+
+    const row = result.rows[0];
+    if (!row) {
+      throw new Error(
+        `Simulation.runMultiEpochCycle(): epoch ${epochId} not found immediately after ` +
+          'forceEpochTransition() created it — this should be unreachable.'
+      );
+    }
+
+    return {
+      weights: {
+        recency: Number(row.recency_weight),
+        engagement: Number(row.engagement_weight),
+        bridging: Number(row.bridging_weight),
+        sourceDiversity: Number(row.source_diversity_weight),
+        relevance: Number(row.relevance_weight),
+      },
+      topicWeights: row.topic_weights ?? {},
+    };
+  }
+
+  /** Highest `governance_audit_log.id` at the moment a multi-epoch run starts
+   *  — the watermark `fetchAuditLogSince` uses to isolate exactly the rows
+   *  THIS run's `forceEpochTransition` calls wrote, from a table that's
+   *  append-only across the whole test process. */
+  private async fetchAuditLogWatermarkId(): Promise<number> {
+    const result = await this.deps.db.query<{ id: number | null }>(
+      `SELECT MAX(id) AS id FROM governance_audit_log`
+    );
+    return result.rows[0]?.id ?? 0;
+  }
+
+  private async fetchAuditLogSince(watermarkId: number): Promise<AuditLogRow[]> {
+    const result = await this.deps.db.query<{
+      id: number;
+      action: string;
+      epoch_id: number | null;
+      details: Record<string, unknown> | null;
+    }>(
+      // created_at is deliberately not selected — see AuditLogRow's docstring
+      // (wall-clock insert time, excluded so the audit-log artifact is reproducible).
+      `SELECT id, action, epoch_id, details
+       FROM governance_audit_log
+       WHERE id > $1
+       ORDER BY id ASC`,
+      [watermarkId]
+    );
+
+    return result.rows.map((row) => ({
+      id: row.id,
+      action: row.action,
+      epochId: row.epoch_id,
+      details: row.details,
     }));
   }
 }
