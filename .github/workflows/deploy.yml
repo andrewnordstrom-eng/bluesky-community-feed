@@ -92,6 +92,12 @@ jobs:
               git checkout "$PREV_COMMIT"
               npm ci --ignore-scripts
               npm run build
+              # Rebuild both frontends at the rolled-back commit so the served
+              # assets match the running code (mirrors the forward build path).
+              cd web && npm ci && npm run build
+              cd ..
+              cd web-next && npm ci && npm run build
+              cd ..
               sudo systemctl restart bluesky-feed
               sleep 5
               echo "Rollback complete. Current health:"
