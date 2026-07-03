@@ -1,0 +1,81 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Corgi — Ginger & Cream palette */
+    --background: 40 71% 96%;       /* #FBF4E9 cream */
+    --foreground: 20 14% 15%;       /* #2E2620 ink-sable */
+
+    --muted: 34 35% 87%;            /* #EFE0C9 surface-biscuit */
+    --muted-foreground: 27 17% 48%; /* #897C6B text-muted */
+    --muted-foreground-light: 27 17% 48% / 0.5;
+    --muted-foreground-dark: 27 17% 48% / 0.7;
+
+    --card: 40 100% 99%;            /* #FFFDF8 bg-paper */
+    --card-foreground: 20 14% 15%;
+
+    --popover: 40 71% 96%;
+    --popover-foreground: 20 14% 15%;
+
+    /* Primary — Ginger */
+    --primary: 21 63% 48%;          /* #C8612C ginger */
+    --primary-foreground: 40 71% 96%; /* cream text on ginger */
+    --primary-dark: 21 68% 39%;     /* #A94E20 ginger-hover */
+    --primary-light: 21 63% 68%;    /* lighter ginger tint */
+
+    /* Secondary — Ink Sable (for ghost/secondary buttons) */
+    --secondary: 20 14% 15%;        /* #2E2620 */
+    --secondary-foreground: 40 71% 96%;
+
+    --accent: 34 35% 87%;           /* biscuit */
+    --accent-foreground: 20 14% 15%;
+
+    --border: 35 30% 82%;           /* #E4D7C2 border-warm */
+    --border-light: 35 30% 82% / 0.5;
+    --border-dark: 35 30% 82% / 0.8;
+
+    --ring: 21 63% 48%;
+
+    --radius: 0.75rem;
+
+    /* Brief-required semantic tokens */
+    --surface-biscuit: 34 35% 87%;     /* #EFE0C9 — chips, slider tracks, insets */
+    --accent-tongue: 0 55% 70%;        /* #E08A8A — penalty/negative/down */
+    --accent-tongue-fg: 0 40% 28%;     /* dark text on tongue */
+    --status-success: 118 22% 39%;     /* #4F7A4A — warm sage, boosted/positive */
+    --status-success-bg: 118 22% 93%;  /* pale sage tint */
+    --status-warning: 36 63% 48%;      /* #C8902C */
+    --status-warning-bg: 36 63% 93%;
+    --status-error: 8 60% 45%;         /* #B5402E warm brick */
+    --status-error-bg: 8 60% 95%;
+    /* Shimmer for skeletons */
+    --shimmer-from: 35 30% 90%;
+    --shimmer-to: 35 20% 84%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    hsl(var(--shimmer-from)) 25%,
+    hsl(var(--shimmer-to)) 50%,
+    hsl(var(--shimmer-from)) 75%
+  );
+  background-size: 800px 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+}
