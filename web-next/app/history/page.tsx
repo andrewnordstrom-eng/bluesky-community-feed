@@ -186,7 +186,7 @@ function EpochCard({
   selected: boolean
   onClick: () => void
 }) {
-  const participation = Math.round((epoch.vote_count / epoch.subscriber_count) * 100)
+  const participation = epoch.subscriber_count ? Math.round((epoch.vote_count / epoch.subscriber_count) * 100) : 0
 
   return (
     <button
@@ -319,7 +319,7 @@ function AuditRow({ entry }: { entry: AuditEntry }) {
             <span className="text-sm font-medium text-foreground">{meta.label}</span>
             {entry.actor_did && (
               <span className="text-xs font-mono text-foreground/45 truncate max-w-[200px]">
-                {entry.details.handle as string ?? entry.actor_did}
+                {typeof entry.details.handle === "string" ? entry.details.handle : "" ?? entry.actor_did}
               </span>
             )}
           </div>
@@ -393,7 +393,7 @@ function DetailPanel({ epoch }: { epoch: Epoch }) {
           </div>
           <p className="text-sm text-foreground/50">
             {epoch.vote_count.toLocaleString()} votes of {epoch.subscriber_count.toLocaleString()} members
-            {" · "}{Math.round((epoch.vote_count / epoch.subscriber_count) * 100)}% participation
+            {" · "}{epoch.subscriber_count ? Math.round((epoch.vote_count / epoch.subscriber_count) * 100) : 0}% participation
           </p>
           <p className="text-xs font-mono text-foreground/35 mt-0.5">
             {fmtDate(epoch.created_at, "long")}
@@ -570,7 +570,7 @@ export default function HistoryPage() {
         </div>
 
         {/* ── Dev state switcher (hidden in production) ────── */}
-        <div className="flex items-center gap-2 opacity-0 pointer-events-none h-0 overflow-hidden" aria-hidden="true">
+        <div className="flex items-center gap-2 hidden" aria-hidden="true">
           {(["loading", "loaded", "error", "empty"] as PageState[]).map((s) => (
             <button
               key={s}

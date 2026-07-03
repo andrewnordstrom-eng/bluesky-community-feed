@@ -457,6 +457,8 @@ export async function createServer() {
         "font-src 'self' data: https:",
         "connect-src 'self' https: wss:",
         "form-action 'self'",
+        "script-src-attr 'none'",
+        "upgrade-insecure-requests",
       ].join('; ');
       app.addHook('onSend', async (request, reply) => {
         // Cache-Control split (set here rather than via @fastify/static's
@@ -493,7 +495,10 @@ export async function createServer() {
           if (!routeKey.includes('..') && fs.existsSync(path.join(webDistPath, candidate))) {
             return reply.type('text/html').sendFile(candidate);
           }
-          return reply.status(404).type('text/html').sendFile('404.html');
+          if (fs.existsSync(path.join(webDistPath, '404.html'))) {
+            return reply.status(404).type('text/html').sendFile('404.html');
+          }
+          return reply.status(404).type('text/plain').send('Not Found');
         }
         // SPA fallback (default) — serve index.html for frontend routes, as today
         return reply.sendFile('index.html');

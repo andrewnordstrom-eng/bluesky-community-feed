@@ -317,7 +317,7 @@ function PostExplanationInner() {
     navigator.clipboard.writeText(decodedUri).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
-    })
+    }).catch(() => {})
   }
 
   /* Build component array for ScoreBreakdown */
@@ -366,7 +366,7 @@ function PostExplanationInner() {
           {decodedUri && (
             <div className="flex items-center gap-2 flex-wrap">
               <code className="text-xs font-mono text-foreground/50 bg-biscuit px-3 py-1.5 rounded-lg truncate max-w-xs sm:max-w-md">
-                {truncateUri(decodedUri)}
+                {truncateUri(uri)}
               </code>
               <button
                 onClick={copyUri}
