@@ -38,7 +38,6 @@ describe('post explain URI validation', () => {
   it('continues normal flow for valid URI encoding', async () => {
     dbQueryMock
       .mockResolvedValueOnce({ rows: [{ id: 5 }] })
-      .mockResolvedValueOnce({ rows: [{ value: null }] })
       .mockResolvedValueOnce({ rows: [] });
 
     const app = Fastify();
