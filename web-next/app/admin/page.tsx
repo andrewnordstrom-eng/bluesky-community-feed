@@ -18,7 +18,7 @@ const SIGNAL_LABELS: Record<string, string> = {
   source_diversity: "Source diversity", relevance: "Relevance",
 }
 
-const WEIGHT_KEYS = ["recency", "engagement", "bridging", "source_diversity", "relevance"] as const
+const WEIGHT_KEYS = ["recency", "engagement", "bridging", "sourceDiversity", "relevance"] as const
 
 function relTime(iso: string | null) {
   if (!iso) return "never"
@@ -184,9 +184,9 @@ function PanelCurrentRound({ status }: { status: AdminStatus }) {
     void queryClient.invalidateQueries({ queryKey: ["admin", "feed-health"] })
   }
 
-  const openMutation = useMutation({ mutationFn: () => adminApi.openVoting(), onSuccess: () => { invalidate(); setConfirm(null) } })
-  const closeMutation = useMutation({ mutationFn: () => adminApi.closeVoting(), onSuccess: () => { invalidate(); setConfirm(null) } })
-  const applyMutation = useMutation({ mutationFn: () => adminApi.transitionEpoch(), onSuccess: () => { invalidate(); setConfirm(null) } })
+  const openMutation = useMutation({ mutationFn: () => adminApi.transitionEpoch(), onSuccess: () => { invalidate(); setConfirm(null) } })
+  const closeMutation = useMutation({ mutationFn: () => adminApi.endVoting(false), onSuccess: () => { invalidate(); setConfirm(null) } })
+  const applyMutation = useMutation({ mutationFn: () => adminApi.approveResults(), onSuccess: () => { invalidate(); setConfirm(null) } })
 
   if (!epoch) {
     return (
@@ -255,7 +255,7 @@ function PanelCurrentRound({ status }: { status: AdminStatus }) {
         <ConfirmModal
           title={`Open voting for Round #${epoch.id}?`}
           body="This will open the round for member votes."
-          confirmLabel="Open voting"
+          confirmLabel="Advance round"
           loading={openMutation.isPending}
           onConfirm={() => openMutation.mutate()}
           onCancel={() => setConfirm(null)}

@@ -44,7 +44,8 @@ interface EpochView {
 function deriveEpochViews(epochs: EpochResponse[]): EpochView[] {
   const sorted = [...epochs].sort((a, b) => b.id - a.id)
   return sorted.map((epoch, i) => {
-    const prev = sorted[i + 1] // next-older round, or undefined for the oldest
+    const prev = sorted[i + 1]
+    const prevLoaded = i + 1 < sorted.length // next-older round, or undefined for the oldest
     const currInc = epoch.content_rules?.include_keywords ?? []
     const prevInc = prev?.content_rules?.include_keywords ?? []
     const currExc = epoch.content_rules?.exclude_keywords ?? []
@@ -59,14 +60,16 @@ function deriveEpochViews(epochs: EpochResponse[]): EpochView[] {
       closed_at: epoch.closed_at ?? null,
       weights: epoch.weights as Record<string, number>,
       prev_weights: prev ? (prev.weights as Record<string, number>) : undefined,
-      keywords_added: {
+      // For the oldest loaded round the previous round isn't in the window —
+      // report no diffs rather than fabricating "added everything".
+      keywords_added: prevLoaded ? {
         include: currInc.filter((w) => !prevInc.includes(w)),
         exclude: currExc.filter((w) => !prevExc.includes(w)),
-      },
-      keywords_removed: {
+      } : { include: [], exclude: [] },
+      keywords_removed: prevLoaded ? {
         include: prevInc.filter((w) => !currInc.includes(w)),
         exclude: prevExc.filter((w) => !currExc.includes(w)),
-      },
+      } : { include: [], exclude: [] },
     }
   })
 }
