@@ -73,6 +73,16 @@
       "path": "docs/SECURITY.md",
       "owner": "security",
       "lastReviewed": "2026-03-16"
+    },
+    {
+      "path": "docs/openapi-public.json",
+      "owner": "core",
+      "lastReviewed": "2026-07-04"
+    },
+    {
+      "path": "docs/docs-site/openapi.json",
+      "owner": "core",
+      "lastReviewed": "2026-07-04"
     }
   ]
 }

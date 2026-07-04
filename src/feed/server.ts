@@ -100,7 +100,7 @@ export async function createServer() {
           '- **Admin endpoints** additionally require the caller\'s DID to be in the `BOT_ADMIN_DIDS` allowlist.\n' +
           '- **Feed endpoints** are public (called by the Bluesky app). Auth is optional for subscriber tracking.\n' +
           '- **Transparency endpoints** are public and unauthenticated.',
-        version: '1.1.0',
+        version: '1.2.0',
         contact: {
           name: 'Community Feed',
           url: 'https://github.com/andrewnordstrom-eng/bluesky-community-feed',

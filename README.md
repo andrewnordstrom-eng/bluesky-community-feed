@@ -118,7 +118,7 @@ A production Bluesky custom feed where subscribers democratically vote on rankin
 |-------|-----------|
 | Backend | Node.js 20, TypeScript 6, Fastify 5 |
 | Data | PostgreSQL 16, Redis 7 |
-| Frontend | React 19, Vite 7 |
+| Frontend | Next.js 15 (React 19) static export, Tailwind, TanStack Query |
 | Protocol | `@atproto/api`, `@atproto/xrpc-server` |
 | NLP | winkNLP (topic classification) |
 | Testing | Vitest, Fastify inject |

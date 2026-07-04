@@ -84,7 +84,7 @@
         "tags": [
           "Feed"
         ],
-        "description": "Returns the DID document for did:web resolution. Used as a fallback \u2014 production uses did:plc.",
+        "description": "Returns the DID document for did:web resolution. Used as a fallback — production uses did:plc.",
         "responses": {
           "200": {
             "description": "Default Response",
@@ -838,7 +838,7 @@
                       "minimum": 0,
                       "maximum": 1
                     },
-                    "description": "Topic slug \u2192 weight mapping"
+                    "description": "Topic slug → weight mapping"
                   }
                 }
               }
@@ -1255,7 +1255,7 @@
         "tags": [
           "Topics"
         ],
-        "description": "Returns all active topics from the topic catalog with their current community-voted weights. Public endpoint \u2014 no authentication required.",
+        "description": "Returns all active topics from the topic catalog with their current community-voted weights. Public endpoint — no authentication required.",
         "responses": {
           "200": {
             "description": "Default Response",
@@ -1660,7 +1660,7 @@
                     },
                     "difference": {
                       "type": "object",
-                      "description": "Weight differences (epoch2 \u2212 epoch1)",
+                      "description": "Weight differences (epoch2 − epoch1)",
                       "properties": {
                         "recency": {
                           "type": "number"
@@ -2414,14 +2414,14 @@
                       "additionalProperties": {
                         "type": "integer"
                       },
-                      "description": "Keyword \u2192 vote count map for include keywords"
+                      "description": "Keyword → vote count map for include keywords"
                     },
                     "exclude_keyword_votes": {
                       "type": "object",
                       "additionalProperties": {
                         "type": "integer"
                       },
-                      "description": "Keyword \u2192 vote count map for exclude keywords"
+                      "description": "Keyword → vote count map for exclude keywords"
                     },
                     "total_voters": {
                       "type": "integer",
@@ -2480,7 +2480,7 @@
         "tags": [
           "Governance"
         ],
-        "description": "Returns the authenticated user's current research consent status. Research consent is separate from TOS \u2014 declining does not restrict governance access.",
+        "description": "Returns the authenticated user's current research consent status. Research consent is separate from TOS — declining does not restrict governance access.",
         "security": [
           {
             "cookieAuth": []
