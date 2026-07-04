@@ -6,6 +6,8 @@ import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import { SignInDialog } from "./sign-in-dialog"
 import { useAuth } from "@/components/auth-provider"
+import { useQuery } from "@tanstack/react-query"
+import { adminApi } from "@/lib/api/admin"
 import { useState, useEffect } from "react"
 import { createPortal } from "react-dom"
 import { cn } from "@/lib/utils"
@@ -67,8 +69,21 @@ export function AppShell({ user = null, children }: AppShellProps) {
 
   // Prefer live auth state over the legacy `user` prop for the signed-in area.
   const authedUser = isAuthenticated && session ? { handle: session.handle, did: session.did } : null
-  // Admin nav stays prop-driven — the session endpoint carries no admin flag.
-  const isAdmin = user?.isAdmin ?? false
+
+  // Admin nav is now driven by the real admin-status endpoint (shared cache key
+  // with the admin page). The session endpoint carries no admin flag, so the
+  // legacy `user.isAdmin` prop is only a fallback until the query resolves.
+  // A non-admin session returns 403 (retry:false keeps it a single probe), so
+  // `data` stays undefined and the fallback keeps the Admin link hidden.
+  const adminStatusQuery = useQuery({
+    queryKey: ["admin", "status", session?.did ?? "anon"],
+    staleTime: 5 * 60_000,
+    queryFn: adminApi.getStatus,
+    enabled: isAuthenticated,
+    retry: false,
+    select: (data) => data.isAdmin,
+  })
+  const isAdmin = adminStatusQuery.data ?? (user?.isAdmin ?? false)
 
   // Close mobile menu on route change
   useEffect(() => {
