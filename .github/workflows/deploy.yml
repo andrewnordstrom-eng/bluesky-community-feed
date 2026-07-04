@@ -66,7 +66,10 @@ jobs:
             # Build the web-next static export too, so cutover (WEB_DIST_DIR /
             # WEB_ROUTING_MODE env flip) is a pure config change with a fresh
             # build already on disk. Serving still defaults to web/dist.
-            cd web-next && npm ci && npm run build
+            cd web-next && npm ci
+            # One retry absorbs transient failures (e.g. the next/font fetch);
+            # a second failure is real and should stop the deploy.
+            npm run build || { echo "web-next build failed; retrying once..."; npm run build; }
             cd ..
             cd cli && npm ci && npx tsc
             cd ..
@@ -92,12 +95,12 @@ jobs:
               git checkout "$PREV_COMMIT"
               npm ci --ignore-scripts
               npm run build
-              # Rebuild both frontends at the rolled-back commit so the served
-              # assets match the running code (mirrors the forward build path).
-              cd web && npm ci && npm run build
-              cd ..
-              cd web-next && npm ci && npm run build
-              cd ..
+              # Best-effort frontend rebuilds at the rolled-back commit: the
+              # previous good build artifacts are still on disk (gitignored,
+              # untouched by checkout), so a rebuild failure must never block
+              # the service restart that completes the rollback.
+              (cd web && npm ci && npm run build) || echo "WARNING: web rollback rebuild failed; serving prior artifacts"
+              (cd web-next && npm ci && npm run build) || echo "WARNING: web-next rollback rebuild failed; serving prior artifacts"
               sudo systemctl restart bluesky-feed
               sleep 5
               echo "Rollback complete. Current health:"
