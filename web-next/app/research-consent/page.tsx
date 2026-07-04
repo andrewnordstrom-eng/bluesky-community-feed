@@ -109,7 +109,7 @@ export default function ResearchConsentPage() {
 
   const agreed = justSubmitted ? submitMutation.variables === true : stored?.consent === true
   const recordedAt = justSubmitted
-    ? submittedAt
+    ? (stored?.consentedAt ? new Date(stored.consentedAt) : submittedAt)
     : stored?.consentedAt
       ? new Date(stored.consentedAt)
       : null

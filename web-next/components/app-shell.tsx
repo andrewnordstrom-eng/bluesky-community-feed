@@ -76,7 +76,7 @@ export function AppShell({ user = null, children }: AppShellProps) {
   // A non-admin session returns 403 (retry:false keeps it a single probe), so
   // `data` stays undefined and the fallback keeps the Admin link hidden.
   const adminStatusQuery = useQuery({
-    queryKey: ["admin", "status"],
+    queryKey: ["admin", "status", session?.did ?? "anon"],
     staleTime: 5 * 60_000,
     queryFn: adminApi.getStatus,
     enabled: isAuthenticated,

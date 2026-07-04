@@ -304,6 +304,14 @@ function PanelWeightsOverride({ status }: { status: AdminStatus }) {
   const [weights, setWeights] = useState<Record<string, number>>(seed)
   const [confirm, setConfirm] = useState(false)
 
+  // Re-seed the sliders whenever the live epoch's weights change, so the
+  // override panel never submits values based on a stale round.
+  const epochWeightsKey = JSON.stringify(epoch?.weights ?? null)
+  useEffect(() => {
+    setWeights(seed())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [epochWeightsKey])
+
   const total = Object.values(weights).reduce((a, b) => a + b, 0)
   const isValid = Math.abs(total - 1) < 0.001
 
@@ -977,11 +985,11 @@ function AdminLoading() {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function AdminPage() {
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, session } = useAuth()
   const [signInOpen, setSignInOpen] = useState(false)
 
   const statusQuery = useQuery({
-    queryKey: ["admin", "status"],
+    queryKey: ["admin", "status", session?.did ?? "anon"],
     queryFn: adminApi.getStatus,
     enabled: isAuthenticated,
     retry: false,
