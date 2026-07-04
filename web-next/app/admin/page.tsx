@@ -46,6 +46,7 @@ type EpochPhase = "running" | "voting" | "review" | "waiting"
 function epochPhase(epoch: CurrentEpoch | null): EpochPhase {
   if (!epoch) return "waiting"
   const phase = (epoch as { phase?: string }).phase
+  if (phase === "results") return "review"
   if (phase === "voting" || phase === "review" || phase === "running") return phase
   if (epoch.votingOpen) return "voting"
   return "running"
@@ -1009,7 +1010,18 @@ export default function AdminPage() {
     body = <AdminLoading />
   } else if (statusQuery.isError) {
     const code = axios.isAxiosError(statusQuery.error) ? statusQuery.error.response?.status : undefined
-    body = code === 401 || code === 403 ? (
+    body = code === 401 ? (
+      <div className="min-h-[calc(100vh-56px)] flex items-center justify-center px-5 py-16">
+        <div className="w-full max-w-md">
+          <EmptyState
+            heading="Session expired"
+            body="Your session has ended. Sign in again to access the admin console."
+            showCorgi={false}
+            action={{ label: "Sign in", onClick: () => setSignInOpen(true) }}
+          />
+        </div>
+      </div>
+    ) : code === 403 ? (
       <div className="min-h-[calc(100vh-56px)] flex items-center justify-center px-5 py-16">
         <div className="w-full max-w-md">
           <EmptyState

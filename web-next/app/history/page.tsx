@@ -287,7 +287,7 @@ function AuditRow({ entry }: { entry: AuditLogEntry }) {
 
 /* ─── Detail panel ─────────────────────────────────────── */
 
-function DetailPanel({ epoch, epochAudit }: { epoch: EpochView; epochAudit: AuditLogEntry[] }) {
+function DetailPanel({ epoch, epochAudit, auditWindowNote }: { epoch: EpochView; epochAudit: AuditLogEntry[]; auditWindowNote?: string }) {
   const diffs = weightDiff(epoch)
   const hasKeywordChanges =
     epoch.keywords_added.include.length +
@@ -416,7 +416,7 @@ function DetailPanel({ epoch, epochAudit }: { epoch: EpochView; epochAudit: Audi
       {/* ── Per-round audit events ────────────────────────── */}
       <section aria-label={`Audit events for round ${epoch.id}`}>
         <p className="text-[10px] font-mono text-foreground/40 uppercase tracking-widest mb-2">
-          Audit events · Round #{epoch.id}
+          Audit events · Round #{epoch.id}{auditWindowNote ? ` (${auditWindowNote})` : ""}
         </p>
         {epochAudit.length === 0 ? (
           <EmptyState
@@ -475,6 +475,7 @@ export default function HistoryPage() {
     queryKey: ["transparency", "audit", auditLimit],
     queryFn: () => transparencyApi.getAuditLog({ limit: auditLimit }),
     retry: false,
+    placeholderData: (prev) => prev,
   })
 
   const epochViews = useMemo(
@@ -575,7 +576,7 @@ export default function HistoryPage() {
             <main className="w-full lg:flex-1 min-w-0 rounded-xl border border-border bg-card p-4 sm:p-6 lg:p-7">
               <DetailPanel
                 epoch={selectedEpoch}
-                epochAudit={auditEntries.filter((e) => e.epoch_id === selectedEpoch.id)}
+                epochAudit={auditEntries.filter((e) => e.epoch_id === selectedEpoch.id)} auditWindowNote={`from the ${auditEntries.length} most recent loaded events`}
               />
             </main>
           </div>
