@@ -48,7 +48,9 @@ function epochPhase(epoch: CurrentEpoch | null): EpochPhase {
   const phase = (epoch as { phase?: string }).phase
   if (phase === "results") return "review"
   if (phase === "voting" || phase === "review" || phase === "running") return phase
-  if (epoch.votingOpen) return "voting"
+  // Fall back to `status` (what AdminStatus.system.currentEpoch actually exposes)
+  if (epoch.status === "results") return "review"
+  if (epoch.status === "voting" || epoch.votingOpen) return "voting"
   return "running"
 }
 
