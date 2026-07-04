@@ -19,33 +19,6 @@ import {
 } from '../../scoring/score-reader.js';
 import type { PostExplanation, TopicBreakdownEntry } from '../transparency.types.js';
 
-interface CurrentScoringRunValue {
-  run_id?: unknown;
-  epoch_id?: unknown;
-}
-
-async function getCurrentScoringRunScope(): Promise<{ runId: string; epochId: number } | null> {
-  const result = await db.query<{ value: CurrentScoringRunValue }>(
-    `SELECT value
-     FROM system_status
-     WHERE key = 'current_scoring_run'`
-  );
-
-  const value = result.rows[0]?.value;
-  if (!value || typeof value !== 'object') {
-    return null;
-  }
-
-  if (typeof value.run_id !== 'string' || typeof value.epoch_id !== 'number') {
-    return null;
-  }
-
-  return {
-    runId: value.run_id,
-    epochId: value.epoch_id,
-  };
-}
-
 export function registerPostExplainRoute(app: FastifyInstance): void {
   app.get(
     '/api/transparency/post/:uri',
@@ -151,8 +124,6 @@ export function registerPostExplainRoute(app: FastifyInstance): void {
 
         const epochId = epochResult.rows[0].id;
         const epochDescription = epochResult.rows[0].description;
-        const runScope = await getCurrentScoringRunScope();
-        const runIdFilter = runScope?.epochId === epochId ? runScope.runId : undefined;
 
         // Decomposed score via the storage-agnostic reader. Behind
         // SCORE_LONGTABLE_READ_ENABLED it reads from post_score_components;
@@ -160,7 +131,6 @@ export function registerPostExplainRoute(app: FastifyInstance): void {
         const record = await readPostScore({
           postUri: decodedUri,
           epochId,
-          runId: runIdFilter,
         });
 
         if (!record) {

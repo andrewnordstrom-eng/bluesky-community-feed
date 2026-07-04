@@ -31,33 +31,6 @@ const CounterfactualQuerySchema = z.object({
 /** JSON Schema for OpenAPI documentation. */
 const CounterfactualQueryJsonSchema = zodToJsonSchema(CounterfactualQuerySchema, { target: 'jsonSchema7' });
 
-interface CurrentScoringRunValue {
-  run_id?: unknown;
-  epoch_id?: unknown;
-}
-
-async function getCurrentScoringRunScope(): Promise<{ runId: string; epochId: number } | null> {
-  const result = await db.query<{ value: CurrentScoringRunValue }>(
-    `SELECT value
-     FROM system_status
-     WHERE key = 'current_scoring_run'`
-  );
-
-  const value = result.rows[0]?.value;
-  if (!value || typeof value !== 'object') {
-    return null;
-  }
-
-  if (typeof value.run_id !== 'string' || typeof value.epoch_id !== 'number') {
-    return null;
-  }
-
-  return {
-    runId: value.run_id,
-    epochId: value.epoch_id,
-  };
-}
-
 export function registerCounterfactualRoute(app: FastifyInstance): void {
   app.get(
     '/api/transparency/counterfactual',
@@ -165,9 +138,6 @@ export function registerCounterfactualRoute(app: FastifyInstance): void {
 
         const epoch = epochResult.rows[0];
         const epochId = epoch.id;
-        const runScope = await getCurrentScoringRunScope();
-        const runIdFilter =
-          runScope && runScope.epochId === epochId ? runScope.runId : undefined;
 
         // Fetch top posts with per-component raw scores from current epoch via
         // the storage-agnostic batch reader. Fetch more than limit so rank
@@ -176,7 +146,6 @@ export function registerCounterfactualRoute(app: FastifyInstance): void {
         const batchRows = await readPostScoresForEpoch({
           epochId,
           limit: fetchLimit,
-          runId: runIdFilter,
         });
 
         const currentWeights = {
