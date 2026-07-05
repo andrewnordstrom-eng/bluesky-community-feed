@@ -12,7 +12,7 @@ const pillars = [
     ),
     heading: "MIT licensed",
     body: "Read every line. Fork it. Self-host it. The code is yours.",
-    href: "https://github.com/corgi-feed/corgi",
+    href: "https://github.com/andrewnordstrom-eng/bluesky-community-feed",
     linkLabel: "View on GitHub",
   },
   {
@@ -24,7 +24,7 @@ const pillars = [
     ),
     heading: "Self-hostable",
     body: "Run Corgi on your own infrastructure. No dependency on our servers.",
-    href: "https://github.com/corgi-feed/corgi#self-hosting",
+    href: "https://docs.corgi.network",
     linkLabel: "Hosting docs",
   },
   {
@@ -37,7 +37,7 @@ const pillars = [
     ),
     heading: "Community-built",
     body: "PRs welcome. If something bothers you about the algorithm, you can fix it.",
-    href: "https://github.com/corgi-feed/corgi/contribute",
+    href: "https://github.com/andrewnordstrom-eng/bluesky-community-feed",
     linkLabel: "Contribute",
   },
 ]

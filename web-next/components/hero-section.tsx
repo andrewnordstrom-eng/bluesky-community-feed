@@ -123,7 +123,7 @@ export function HeroSection() {
 
       {/* Eyebrow — GitHub star badge */}
       <a
-        href="https://github.com/corgi-feed/corgi"
+        href="https://github.com/andrewnordstrom-eng/bluesky-community-feed"
         target="_blank"
         rel="noopener noreferrer"
         className="relative z-10 mb-6 md:mb-7 inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-border bg-card/80 hover:bg-card transition-colors text-xs font-medium text-foreground/70 hover:text-foreground shadow-sm"
@@ -152,7 +152,7 @@ export function HeroSection() {
 
       {/* CTAs */}
       <div className="relative z-10 flex flex-col sm:flex-row items-center gap-3">
-        <Link href="#">
+        <Link href="/sign-in">
           <Button className="bg-primary text-primary-foreground hover:bg-primary-dark px-7 py-3 rounded-full font-medium text-base shadow-[0_2px_8px_rgba(200,97,44,0.35),0_1px_2px_rgba(200,97,44,0.2)] hover:shadow-[0_4px_16px_rgba(200,97,44,0.4),0_1px_2px_rgba(200,97,44,0.2)] transition-all duration-200">
             Connect your Bluesky account
           </Button>

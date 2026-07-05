@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useQuery } from "@tanstack/react-query"
@@ -130,7 +130,11 @@ const CheckIcon = () => (
 export default function DashboardPage() {
   const router = useRouter()
   const [explainUri, setExplainUri] = useState("")
-  const [lastUpdated] = useState(() => new Date())
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null)
+
+  useEffect(() => {
+    setLastUpdated(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }))
+  }, [])
 
   const statsQuery = useQuery({
     queryKey: ["transparency", "stats"],
@@ -179,7 +183,7 @@ export default function DashboardPage() {
             <p className="text-sm text-foreground/55">
               {roundId != null ? `Round #${roundId}` : "Round —"} · {voteCount ?? 0} votes ·{" "}
               <span className="font-mono text-xs">
-                Updated {lastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                Updated {lastUpdated ?? "--:--"}
               </span>
             </p>
           </div>

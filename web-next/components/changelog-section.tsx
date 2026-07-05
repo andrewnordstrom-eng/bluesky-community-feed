@@ -42,7 +42,7 @@ export function ChangelogSection() {
           </p>
         </div>
         <Link
-          href="#"
+          href="https://github.com/andrewnordstrom-eng/bluesky-community-feed/commits/main"
           className="text-primary text-sm font-medium hover:underline underline-offset-2 flex-shrink-0"
         >
           Full changelog &rarr;

@@ -24,6 +24,8 @@ export interface AppUser {
 interface AppShellProps {
   /** Retained for compat. Signed-in/out UI is derived from useAuth(), not this. */
   user?: AppUser | null
+  /** Lets routes that own their own sign-in dialog avoid duplicate dialog roots. */
+  suppressAuthDialog?: boolean
   children: React.ReactNode
 }
 
@@ -61,11 +63,12 @@ const NAV_ITEMS = [
   { label: "Ledger",    href: "/history" },
 ]
 
-export function AppShell({ user = null, children }: AppShellProps) {
+export function AppShell({ user = null, suppressAuthDialog, children }: AppShellProps) {
   const pathname = usePathname()
   const { session, isAuthenticated, logout } = useAuth()
   const [signInOpen, setSignInOpen] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const authDialogEnabled = !suppressAuthDialog
 
   // Prefer live auth state over the legacy `user` prop for the signed-in area.
   const authedUser = isAuthenticated && session ? { handle: session.handle, did: session.did } : null
@@ -94,10 +97,10 @@ export function AppShell({ user = null, children }: AppShellProps) {
   // Deriving the lock from both states avoids dropping the dialog's scroll lock
   // when the menu closes in the same interaction (menu → Connect Bluesky → dialog).
   useEffect(() => {
-    const shouldLock = mobileMenuOpen || signInOpen
+    const shouldLock = mobileMenuOpen || (authDialogEnabled && signInOpen)
     document.body.style.overflow = shouldLock ? "hidden" : ""
     return () => { document.body.style.overflow = "" }
-  }, [mobileMenuOpen, signInOpen])
+  }, [authDialogEnabled, mobileMenuOpen, signInOpen])
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
@@ -173,7 +176,7 @@ export function AppShell({ user = null, children }: AppShellProps) {
                   Sign out
                 </Button>
               </div>
-            ) : (
+            ) : authDialogEnabled ? (
               /* Logged-out state */
               <div className="flex items-center gap-2">
                 <button
@@ -190,7 +193,7 @@ export function AppShell({ user = null, children }: AppShellProps) {
                   Connect Bluesky
                 </Button>
               </div>
-            )}
+            ) : null}
 
             {/* Hamburger button — mobile only */}
             <button
@@ -261,7 +264,7 @@ export function AppShell({ user = null, children }: AppShellProps) {
                     Sign out
                   </button>
                 </>
-              ) : (
+              ) : authDialogEnabled ? (
                 <>
                   <button
                     onClick={() => { setMobileMenuOpen(false); setSignInOpen(true) }}
@@ -276,7 +279,7 @@ export function AppShell({ user = null, children }: AppShellProps) {
                     Connect Bluesky
                   </Button>
                 </>
-              )}
+              ) : null}
             </div>
           </div>
         </div>,
@@ -288,7 +291,7 @@ export function AppShell({ user = null, children }: AppShellProps) {
         {children}
       </main>
 
-      <SignInDialog open={signInOpen} onOpenChange={setSignInOpen} />
+      {authDialogEnabled && <SignInDialog open={signInOpen} onOpenChange={setSignInOpen} />}
     </div>
   )
 }

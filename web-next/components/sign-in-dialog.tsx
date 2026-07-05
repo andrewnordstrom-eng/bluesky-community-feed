@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import Image from "next/image"
+import Link from "next/link"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -154,13 +155,13 @@ export function SignInDialog({ open, onOpenChange }: SignInDialogProps) {
 
           <p className="text-center text-foreground/40 text-xs leading-relaxed">
             By signing in, you agree to our{" "}
-            <a href="#" className="text-foreground/60 underline underline-offset-2 hover:text-foreground transition-colors">
+            <Link href="/tos" className="text-foreground/60 underline underline-offset-2 hover:text-foreground transition-colors">
               Terms of Service
-            </a>{" "}
+            </Link>{" "}
             and{" "}
-            <a href="#" className="text-foreground/60 underline underline-offset-2 hover:text-foreground transition-colors">
+            <Link href="/privacy" className="text-foreground/60 underline underline-offset-2 hover:text-foreground transition-colors">
               Privacy Policy
-            </a>
+            </Link>
             .
           </p>
         </form>
