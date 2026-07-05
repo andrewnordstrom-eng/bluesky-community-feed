@@ -66,6 +66,22 @@ describe('check-legal-docs.sh', () => {
     }
   });
 
+  it('rejects a completely empty legal directory', () => {
+    const legalDir = createTempRoot();
+
+    try {
+      const result = runCheck(legalDir);
+
+      assertSpawnCompleted(result);
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(
+        `Missing or empty ${path.join(legalDir, 'TERMS_OF_SERVICE.md')}`,
+      );
+    } finally {
+      rmSync(legalDir, { recursive: true, force: true });
+    }
+  });
+
   it('rejects a missing terms-of-service document', () => {
     const legalDir = createTempRoot();
 
@@ -160,6 +176,44 @@ describe('check-legal-docs.sh', () => {
 
     try {
       writeFileSync(path.join(legalDir, 'PRIVACY_POLICY.md'), '');
+      const result = runCheck(legalDir);
+
+      assertSpawnCompleted(result);
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(
+        `Missing or empty ${path.join(legalDir, 'PRIVACY_POLICY.md')}`,
+      );
+    } finally {
+      rmSync(legalDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a privacy-policy path that is a directory', () => {
+    const legalDir = createTempRoot();
+
+    try {
+      writeTermsOfService(legalDir);
+      mkdirSync(path.join(legalDir, 'PRIVACY_POLICY.md'));
+      const result = runCheck(legalDir);
+
+      assertSpawnCompleted(result);
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(
+        `Missing or empty ${path.join(legalDir, 'PRIVACY_POLICY.md')}`,
+      );
+    } finally {
+      rmSync(legalDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a privacy-policy path that is a symlink', () => {
+    const legalDir = createTempRoot();
+
+    try {
+      writeTermsOfService(legalDir);
+      const linkedPrivacyPath = path.join(legalDir, 'PRIVACY_SOURCE.md');
+      writeFileSync(linkedPrivacyPath, '# Privacy\n');
+      symlinkSync(linkedPrivacyPath, path.join(legalDir, 'PRIVACY_POLICY.md'));
       const result = runCheck(legalDir);
 
       assertSpawnCompleted(result);
