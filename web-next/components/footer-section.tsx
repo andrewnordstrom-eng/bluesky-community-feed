@@ -1,3 +1,5 @@
+import Link from "next/link"
+
 export function FooterSection() {
   return (
     <footer className="w-full bg-background border-t border-border/70">
@@ -22,9 +24,11 @@ export function FooterSection() {
             </a>
             <span className="text-foreground/20">·</span>
             <a
-              href="#"
+              href="https://github.com/andrewnordstrom-eng/bluesky-community-feed"
               aria-label="GitHub"
               className="text-foreground/40 hover:text-primary transition-colors text-xs font-medium"
+              target="_blank"
+              rel="noopener noreferrer"
             >
               GitHub
             </a>
@@ -39,26 +43,26 @@ export function FooterSection() {
               <a href="#features-section" className="text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors">
                 How it works
               </a>
-              <a href="#" className="text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors">
+              <Link href="/demo" className="text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors">
                 Score breakdown
-              </a>
-              <a href="#" className="text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors">
+              </Link>
+              <Link href="/history" className="text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors">
                 Epoch history
-              </a>
+              </Link>
             </div>
           </div>
           <div className="flex flex-col gap-3">
             <h3 className="text-foreground/40 text-xs font-semibold tracking-wide uppercase">Governance</h3>
             <div className="flex flex-col gap-2">
-              <a href="#" className="text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors">
-                Voting guide
-              </a>
-              <a href="#" className="text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors">
-                Audit log
-              </a>
-              <a href="#" className="text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors">
-                Propose a rule
-              </a>
+              <Link href="/vote" className="text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors">
+                Community ballot
+              </Link>
+              <Link href="/dashboard" className="text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors">
+                Transparency dashboard
+              </Link>
+              <Link href="/research-consent" className="text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors">
+                Research consent
+              </Link>
             </div>
           </div>
           <div className="flex flex-col gap-3">
@@ -67,15 +71,25 @@ export function FooterSection() {
               <a href="#faq-section" className="text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors">
                 FAQ
               </a>
-              <a href="#" className="text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors">
+              <a
+                href="https://docs.corgi.network"
+                className="text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
                 Documentation
               </a>
-              <a href="#" className="text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors">
-                Data exports
+              <a
+                href="https://docs.corgi.network/openapi.json"
+                className="text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Export API
               </a>
-              <a href="#" className="text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors">
+              <Link href="/privacy" className="text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors">
                 Privacy policy
-              </a>
+              </Link>
             </div>
           </div>
         </div>

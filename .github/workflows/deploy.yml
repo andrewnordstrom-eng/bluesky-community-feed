@@ -25,15 +25,15 @@ jobs:
 
             # Save current commit for rollback
             PREV_COMMIT=$(git rev-parse HEAD)
-
-            git pull origin main
-            npm ci --ignore-scripts
-            node scripts/audit-allowlist.mjs --audit-level=high
-            npm run build
-            # Run tests against deterministic defaults from .env.example,
-            # not production tuning values from /opt/bluesky-feed/.env.
             ENV_BACKUP=""
+            ENV_RESTORE_ARMED=false
+            ROLLBACK_ARTIFACT_DIR="$(mktemp -d /tmp/bluesky-feed-artifacts.XXXXXX)"
+            WEB_DIST_SNAPSHOT=false
+            WEB_NEXT_OUT_SNAPSHOT=false
             restore_env_file() {
+              if [ "${ENV_RESTORE_ARMED}" != "true" ]; then
+                return 0
+              fi
               if [ -n "${ENV_BACKUP}" ] && [ -f "${ENV_BACKUP}" ]; then
                 cp "${ENV_BACKUP}" .env
                 rm -f "${ENV_BACKUP}"
@@ -41,22 +41,179 @@ jobs:
               else
                 rm -f .env
               fi
+              ENV_RESTORE_ARMED=false
             }
+            restore_frontend_artifacts() {
+              cd /opt/bluesky-feed
+              RESTORE_STATUS=0
+              if [ "$WEB_DIST_SNAPSHOT" = "true" ]; then
+                rm -rf web/dist || RESTORE_STATUS=1
+                mkdir -p web || RESTORE_STATUS=1
+                cp -a "$ROLLBACK_ARTIFACT_DIR/web-dist" web/dist || RESTORE_STATUS=1
+              fi
+              if [ "$WEB_NEXT_OUT_SNAPSHOT" = "true" ]; then
+                rm -rf web-next/out || RESTORE_STATUS=1
+                mkdir -p web-next || RESTORE_STATUS=1
+                cp -a "$ROLLBACK_ARTIFACT_DIR/web-next-out" web-next/out || RESTORE_STATUS=1
+              fi
+              return "$RESTORE_STATUS"
+            }
+            cleanup_rollback_artifacts() {
+              rm -rf "$ROLLBACK_ARTIFACT_DIR"
+            }
+            cleanup_env_backup() {
+              if [ -n "${ENV_BACKUP}" ]; then
+                rm -f "${ENV_BACKUP}"
+                ENV_BACKUP=""
+              fi
+            }
+            write_rollback_recovery_marker() {
+              local RECOVERY_REASON="$1"
+              {
+                echo "manual_recovery_required=true"
+                echo "reason=\"$RECOVERY_REASON\""
+                echo "previous_commit=$PREV_COMMIT"
+                date -u '+timestamp=%Y-%m-%dT%H:%M:%SZ'
+              } > "$ROLLBACK_ARTIFACT_DIR/MANUAL_RECOVERY_REQUIRED.txt"
+            }
+            exit_before_restart() {
+              local EXIT_CODE="$1"
+              trap - ERR
+              cd /opt/bluesky-feed
+              echo "Rolling back to $PREV_COMMIT..."
+              restore_env_file || true
+              if rollback_checkout; then
+                ROLLBACK_STATUS=0
+              else
+                ROLLBACK_STATUS=$?
+              fi
+              cleanup_env_backup
+              if [ "$ROLLBACK_STATUS" -eq 2 ]; then
+                echo "Preserving rollback artifacts for manual recovery at: $ROLLBACK_ARTIFACT_DIR"
+                exit "$EXIT_CODE"
+              fi
+              cleanup_rollback_artifacts
+              exit "$EXIT_CODE"
+            }
+            rollback_checkout() {
+              cd /opt/bluesky-feed
+              if git checkout main; then
+                CHECKOUT_BRANCH_STATUS=0
+              else
+                CHECKOUT_BRANCH_STATUS=1
+                write_rollback_recovery_marker "git checkout main failed during rollback"
+                echo "ERROR: git checkout main failed during rollback; refusing to build or restart unknown code"
+                return 2
+              fi
+              if git reset --hard "$PREV_COMMIT"; then
+                RESET_STATUS=0
+              else
+                RESET_STATUS=1
+                write_rollback_recovery_marker "git reset --hard $PREV_COMMIT failed during rollback"
+                echo "ERROR: git reset --hard $PREV_COMMIT failed during rollback; refusing to build or restart unknown code"
+                return 2
+              fi
+              if npm ci --ignore-scripts; then
+                INSTALL_STATUS=0
+              else
+                INSTALL_STATUS=1
+              fi
+              if npm run build; then
+                BACKEND_BUILD_STATUS=0
+              else
+                BACKEND_BUILD_STATUS=1
+              fi
+              if restore_frontend_artifacts; then
+                ARTIFACT_RESTORE_STATUS=0
+              else
+                ARTIFACT_RESTORE_STATUS=1
+              fi
+              if [ "$ARTIFACT_RESTORE_STATUS" -ne 0 ]; then
+                echo "WARNING: frontend artifact restore failed; attempting service restart anyway"
+              fi
+
+              if [ "$CHECKOUT_BRANCH_STATUS" -ne 0 ] || [ "$RESET_STATUS" -ne 0 ] || [ "$INSTALL_STATUS" -ne 0 ] || [ "$BACKEND_BUILD_STATUS" -ne 0 ] || [ "$ARTIFACT_RESTORE_STATUS" -ne 0 ]; then
+                echo "WARNING: rollback checkout/install/backend build failed; attempting service restart anyway"
+                return 1
+              fi
+              return 0
+            }
+            fail_and_rollback() {
+              local ROLLBACK_REASON="$1"
+              trap - ERR
+              echo "Rolling back to $PREV_COMMIT..."
+              if rollback_checkout; then
+                ROLLBACK_STATUS=0
+              else
+                ROLLBACK_STATUS=$?
+              fi
+              if [ "$ROLLBACK_STATUS" -eq 2 ]; then
+                echo "ERROR: rollback checkout failed; refusing to restart service on unknown code"
+                echo "Preserving rollback artifacts for manual recovery at: $ROLLBACK_ARTIFACT_DIR"
+                exit 1
+              fi
+              if [ "$ROLLBACK_STATUS" -ne 0 ]; then
+                echo "WARNING: rollback preparation was incomplete; attempting service restart anyway"
+              fi
+              sudo systemctl restart bluesky-feed || echo "WARNING: service restart failed after rollback"
+              if [ "$ROLLBACK_REASON" = "health" ]; then
+                sleep 5
+                echo "Rollback complete. Current health:"
+                curl -s http://localhost:3001/health || echo "Still unhealthy after rollback"
+              fi
+              cleanup_rollback_artifacts
+              exit 1
+            }
+            rollback_before_restart() {
+              EXIT_CODE=$?
+              echo "DEPLOY FAILED before service restart"
+              echo "Rolling back to $PREV_COMMIT..."
+              trap - ERR
+              cd /opt/bluesky-feed
+              restore_env_file || true
+              if rollback_checkout; then
+                ROLLBACK_STATUS=0
+              else
+                ROLLBACK_STATUS=$?
+              fi
+              cleanup_env_backup
+              if [ "$ROLLBACK_STATUS" -eq 2 ]; then
+                echo "Preserving rollback artifacts for manual recovery at: $ROLLBACK_ARTIFACT_DIR"
+                exit "$EXIT_CODE"
+              fi
+              cleanup_rollback_artifacts
+              exit "$EXIT_CODE"
+            }
+            trap rollback_before_restart ERR
+            if [ -d web/dist ]; then
+              cp -a web/dist "$ROLLBACK_ARTIFACT_DIR/web-dist"
+              WEB_DIST_SNAPSHOT=true
+            fi
+            if [ -d web-next/out ]; then
+              cp -a web-next/out "$ROLLBACK_ARTIFACT_DIR/web-next-out"
+              WEB_NEXT_OUT_SNAPSHOT=true
+            fi
+
+            git pull origin main
+            npm ci --ignore-scripts
+            node scripts/audit-allowlist.mjs --audit-level=high
+            npm run build
+            # Run tests against deterministic defaults from .env.example,
+            # not production tuning values from /opt/bluesky-feed/.env.
             if [ -f .env ]; then
               ENV_BACKUP="$(mktemp /tmp/bluesky-feed-env-backup.XXXXXX)"
               cp .env "${ENV_BACKUP}"
               if ! cmp -s .env "${ENV_BACKUP}"; then
                 echo "Failed to verify .env backup integrity"
-                rm -f "${ENV_BACKUP}"
-                ENV_BACKUP=""
-                exit 1
+                exit_before_restart 1
               fi
             fi
-            trap restore_env_file EXIT
             if [ ! -f .env.example ]; then
               echo ".env.example is missing; cannot run deterministic deploy tests"
-              exit 1
+              exit_before_restart 1
             fi
+            ENV_RESTORE_ARMED=true
+            trap restore_env_file EXIT
             cp .env.example .env
             npm run test -- --reporter=verbose --run
             restore_env_file
@@ -67,13 +224,19 @@ jobs:
             # WEB_ROUTING_MODE env flip) is a pure config change with a fresh
             # build already on disk. Serving still defaults to web/dist.
             cd web-next && npm ci
+            npm run lint
             # One retry absorbs transient failures (e.g. the next/font fetch);
             # a second failure is real and should stop the deploy.
             npm run build || { echo "web-next build failed; retrying once..."; npm run build; }
+            node ../scripts/audit-allowlist.mjs --audit-level=moderate || { echo "web-next audit failed; retrying once..."; node ../scripts/audit-allowlist.mjs --audit-level=moderate; }
             cd ..
             cd cli && npm ci && npx tsc
             cd ..
-            sudo systemctl restart bluesky-feed
+            trap - ERR
+            if ! sudo systemctl restart bluesky-feed; then
+              echo "DEPLOY FAILED: service restart command failed"
+              fail_and_rollback "restart"
+            fi
 
             # Post-deploy health verification (3 retries, 10s apart)
             echo "Waiting 10s for startup..."
@@ -91,23 +254,10 @@ jobs:
 
             if [ "$HEALTHY" = "false" ]; then
               echo "DEPLOY FAILED: service unhealthy after restart"
-              echo "Rolling back to $PREV_COMMIT..."
-              git checkout "$PREV_COMMIT"
-              npm ci --ignore-scripts
-              npm run build
-              # Best-effort frontend rebuilds at the rolled-back commit: the
-              # previous good build artifacts are still on disk (gitignored,
-              # untouched by checkout), so a rebuild failure must never block
-              # the service restart that completes the rollback.
-              (cd web && npm ci && npm run build) || echo "WARNING: web rollback rebuild failed; serving prior artifacts"
-              (cd web-next && npm ci && npm run build) || echo "WARNING: web-next rollback rebuild failed; serving prior artifacts"
-              sudo systemctl restart bluesky-feed
-              sleep 5
-              echo "Rollback complete. Current health:"
-              curl -s http://localhost:3001/health || echo "Still unhealthy after rollback"
-              exit 1
+              fail_and_rollback "health"
             fi
 
+            cleanup_rollback_artifacts
             echo "Deploy successful"
 
       - name: Ping health monitor on success

@@ -49,7 +49,7 @@ export function GetStartedSection() {
         </div>
       </div>
 
-      <Link href="#">
+      <Link href="/sign-in">
         <Button className="bg-primary text-primary-foreground hover:bg-primary-dark px-7 py-3 rounded-full font-medium text-base shadow-[0_2px_8px_rgba(200,97,44,0.35),0_1px_2px_rgba(200,97,44,0.2)] hover:shadow-[0_4px_16px_rgba(200,97,44,0.4)] transition-all duration-200">
           Connect your Bluesky account
         </Button>

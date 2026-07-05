@@ -24,14 +24,17 @@ interface ScoreRadarProps {
 }
 
 /* Custom dot — solid ginger circle */
-function GingerDot(props: {
-  cx?: number; cy?: number; r?: number; fill?: string
+export function GingerDot(props: {
+  cx?: number | null; cy?: number | null
 }) {
-  const { cx = 0, cy = 0 } = props
+  if (props.cx == null || props.cy == null) {
+    return null
+  }
+
   return (
     <circle
-      cx={cx}
-      cy={cy}
+      cx={props.cx}
+      cy={props.cy}
       r={4}
       fill="hsl(21 63% 48%)"
       stroke="hsl(40 100% 99%)"
@@ -40,13 +43,22 @@ function GingerDot(props: {
   )
 }
 
+interface RadarTooltipPayload {
+  name: string
+  value: number
+  dataKey: string
+  payload?: {
+    label?: string
+  }
+}
+
 /* Custom tooltip */
 function RadarTooltip({ active, payload }: {
   active?: boolean
-  payload?: Array<{ name: string; value: number; dataKey: string }>
+  payload?: RadarTooltipPayload[]
 }) {
   if (!active || !payload?.length) return null
-  const label = payload[0]?.payload?.label as string | undefined
+  const label = payload[0]?.payload?.label
   return (
     <div className="rounded-lg border border-border bg-card shadow-md px-3 py-2 text-xs">
       <p className="font-semibold text-foreground mb-1.5">{label}</p>

@@ -125,6 +125,55 @@ jobs:
       - name: Security audit (frontend)
         run: cd web && npm audit --audit-level=moderate
 
+  web-next-verify:
+    name: web-next-verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "20.19.0"
+          cache: "npm"
+          cache-dependency-path: web-next/package-lock.json
+
+      - name: Install web-next dependencies
+        run: cd web-next && npm ci
+
+      - name: Validate web-next Axios pin
+        run: |
+          node --input-type=module -e '
+            import fs from "node:fs";
+
+            const pkg = JSON.parse(fs.readFileSync("web-next/package.json", "utf8"));
+            const lock = JSON.parse(fs.readFileSync("web-next/package-lock.json", "utf8"));
+            const declared = pkg.dependencies?.axios;
+            const resolved = lock.packages?.["node_modules/axios"]?.version;
+            if (!declared || !/^\d+\.\d+\.\d+$/.test(declared)) {
+              throw new Error(`web-next/package.json must pin axios to an exact version (no ^/~/range); found ${declared ?? "missing"}`);
+            }
+            if (declared !== resolved) {
+              throw new Error(`web-next/package.json axios (${declared}) must match package-lock.json resolved axios (${resolved ?? "missing"})`);
+            }
+          '
+
+      - name: Lint web-next
+        run: cd web-next && npm run lint
+
+      - name: Test web-next
+        run: cd web-next && npm test -- --run
+
+      - name: Build web-next static export
+        run: cd web-next && npm run build
+
+      - name: Security audit (web-next)
+        run: cd web-next && node ../scripts/audit-allowlist.mjs --audit-level=moderate
+
   report-scripts-verify:
     name: report-scripts-verify
     runs-on: ubuntu-latest

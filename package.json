@@ -26,7 +26,7 @@
     "sdk:build": "cd packages/feed-sdk && tsc -p tsconfig.json",
     "sdk:clean": "cd packages/feed-sdk && rm -rf dist",
     "sdk:fixture": "tsc -p tests/fixtures/example-external-component.tsconfig.json",
-    "verify": "npm run build && npm test -- --run && npm run cli:build && npm run build:mcp-local && npm run sdk:build && npm run sdk:fixture && cd web && npm run lint && npm run build && cd ../web-next && npm run build",
+    "verify": "npm run build && npm test -- --run && npm run cli:build && npm run build:mcp-local && npm run sdk:build && npm run sdk:fixture && cd web && npm run lint && npm run build && cd ../web-next && npm run lint && npm test -- --run && npm run build",
     "prepare": "husky"
   },
   "workspaces": [

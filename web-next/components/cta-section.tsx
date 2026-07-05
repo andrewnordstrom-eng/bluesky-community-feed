@@ -20,7 +20,7 @@ export function CTASection() {
         </div>
 
         <div className="flex flex-col sm:flex-row items-center gap-3">
-          <Link href="#">
+          <Link href="/sign-in">
             <Button
               className="px-8 py-3 bg-primary text-primary-foreground text-base font-medium rounded-full shadow-[0_2px_8px_rgba(200,97,44,0.35),0_1px_2px_rgba(200,97,44,0.2)] hover:bg-primary-dark hover:shadow-[0_4px_16px_rgba(200,97,44,0.4)] transition-all duration-200"
               size="lg"
