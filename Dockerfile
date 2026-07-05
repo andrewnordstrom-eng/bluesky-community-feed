@@ -46,6 +46,13 @@ COPY --from=builder /app/dist ./dist
 # Copy database migrations (needed at runtime)
 COPY src/db/migrations ./src/db/migrations
 
+# Copy legal documents (needed by /api/legal/* at runtime)
+COPY legal/TERMS_OF_SERVICE.md legal/PRIVACY_POLICY.md ./legal/
+RUN test -f /app/legal/TERMS_OF_SERVICE.md || { echo 'Missing /app/legal/TERMS_OF_SERVICE.md' >&2; exit 1; }; \
+    test -f /app/legal/PRIVACY_POLICY.md || { echo 'Missing /app/legal/PRIVACY_POLICY.md' >&2; exit 1; }; \
+    unexpected_file="$(find /app/legal -maxdepth 1 -type f ! -name TERMS_OF_SERVICE.md ! -name PRIVACY_POLICY.md -print -quit)"; \
+    test -z "${unexpected_file}" || { echo "Unexpected file in /app/legal: ${unexpected_file}" >&2; exit 1; }
+
 # Create non-root user for security
 RUN addgroup -g 1001 -S appgroup && \
     adduser -u 1001 -S appuser -G appgroup
@@ -64,4 +71,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget -qO- http://localhost:3000/health/ready || exit 1
 
 # Start the application
-CMD ["node", "dist/index.js"]
+CMD ["sh", "-c", "test -f /app/legal/TERMS_OF_SERVICE.md || { echo 'Missing /app/legal/TERMS_OF_SERVICE.md' >&2; exit 1; }; test -f /app/legal/PRIVACY_POLICY.md || { echo 'Missing /app/legal/PRIVACY_POLICY.md' >&2; exit 1; }; exec node dist/index.js"]
