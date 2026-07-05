@@ -46,6 +46,11 @@ COPY --from=builder /app/dist ./dist
 # Copy database migrations (needed at runtime)
 COPY src/db/migrations ./src/db/migrations
 
+# Copy legal documents (needed by /api/legal/* at runtime)
+COPY scripts/check-legal-docs.sh ./scripts/check-legal-docs.sh
+COPY legal/TERMS_OF_SERVICE.md legal/PRIVACY_POLICY.md ./legal/
+RUN sh /app/scripts/check-legal-docs.sh /app/legal
+
 # Create non-root user for security
 RUN addgroup -g 1001 -S appgroup && \
     adduser -u 1001 -S appuser -G appgroup
@@ -64,4 +69,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget -qO- http://localhost:3000/health/ready || exit 1
 
 # Start the application
-CMD ["node", "dist/index.js"]
+CMD ["sh", "-c", "sh /app/scripts/check-legal-docs.sh /app/legal && exec node dist/index.js"]
