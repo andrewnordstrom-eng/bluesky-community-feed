@@ -1217,3 +1217,28 @@ The previous lab receipts proved the main local gates, but several receipt-integ
 
 ### Open questions
 - Shared-environment/staging claims remain blocked on explicit target/operator/window/rollback/artifact approval and repeated DB-pool-instrumented voting runs.
+
+## 2026-07-06 #05 — PROJ-1551 backend CI import-order retry
+**Branch:** `dev/PROJ-1551-corgi-validation`
+**Commits:** code fix `d7a233c`
+**Files changed:** `scripts/jetstream-replay.ts`, `scripts/memory-isolated-stress.ts`, `scripts/sim-campaign.ts`, `scripts/sim-preflight.ts`, `scripts/vote-load.ts`, `docs/dev-journal.md`
+
+### What changed
+Moved Testcontainers value imports in the lab CLI scripts into the ephemeral-container execution paths, while keeping the container handle imports type-only. The runtime container behavior stays in the guarded path; dry-run, invalid-argument, and preflight-skip paths no longer load optional Testcontainers dependencies before CLI validation.
+
+### Why
+GitHub PR #302 `backend-verify` failed under Node 20.19.0 before CLI validation in `tests/vote-load-cli.test.ts`, because static Testcontainers imports loaded `undici` and crashed with `webidl.util.markAsUncloneable is not a function`. That made invalid-argument tests report the dependency crash instead of the expected `--valid-requests`, `--users`, `--connections`, or unknown-flag validation errors.
+
+### Measurements
+- GitHub PR #302 failing CI receipt before the fix: run `28818957727`, job `85465508809`, `backend-verify`, Node 20.19.0, failing suite `tests/vote-load-cli.test.ts`.
+- Focused CLI regression passed after the import-order fix: 3 files / 26 tests via `npx vitest run tests/vote-load-cli.test.ts tests/memory-isolated-cli.test.ts tests/sim-preflight.test.ts` with dummy non-production env.
+- `npm run build`: pass.
+- `npm run build:lab-memory`: pass.
+- Compiled lab dry-run passed: `node dist-lab/scripts/memory-isolated-stress.js --dry-run --runs 1 --amount 1 --connections 1`.
+- `npm run docs:verify`: pass, 14 tracked docs / 28 markdown files scanned.
+- `git diff --check`: pass.
+- `npm run verify` sandbox run reached 96/97 files and 830/840 tests before sandbox `listen/connect EPERM` on `127.0.0.1`; escalated loopback rerun passed 97/97 files and 840/840 tests plus backend build, CLI build, SDK fixture, web lint/build, and web-next build.
+
+### Decisions & alternatives
+- Kept staging/systemd, production traffic, Docker tasking, and shared databases untouched.
+- Did not downgrade or pin Testcontainers/undici in this validation branch; the root issue was import order on paths that do not need containers.
