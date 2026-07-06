@@ -1187,7 +1187,7 @@ The validation packet should land against the same mainline that now includes th
 
 ## 2026-07-06 #04 — PROJ-1551 receipt-integrity hardening and lab refresh
 **Branch:** `dev/PROJ-1551-corgi-validation`
-**Commits:** `6e102ee`
+**Commits:** PR closeout at `154e55b`; this follow-up records post-closeout verification.
 **Files changed:** `src/feed/request-tracker.ts`, `src/ingestion/jetstream.ts`, `src/harness/jetstream-replay.ts`, `src/harness/lab-artifacts.ts`, `scripts/jetstream-replay.ts`, `scripts/memory-isolated-stress.ts`, `scripts/vote-load.ts`, `tests/feed-request-tracker.test.ts`, `tests/jetstream-message-processing.test.ts`, `tests/jetstream-replay-harness.test.ts`, `tests/harness/lab-artifacts.test.ts`, `tests/memory-isolated-cli.test.ts`, `docs/lab/2026-07-05-corgi-ingestion-voting-validation.md`, `docs/RECSYS_VALIDATION_EVIDENCE.md`, `docs/STABILITY_TEST.md`, `docs/dev-journal.md`
 
 ### What changed
@@ -1207,11 +1207,11 @@ The previous lab receipts proved the main local gates, but several receipt-integ
 - HTTP voting load refreshed: 8,000/8,000 valid vote POSTs returned `200`, p95 48.18 ms, p99 101.06 ms, max 319.53 ms, errors/timeouts/non-2xx 0, exact vote/audit/long-table reconciliation, rate-limit phase 20 accepted + 5 `429`, exact post-rate-limit aggregate rows 501 / 8,020 / 2,505, cleanup failures 0; manifest `artifacts/lab/PROJ-1551/2026-07-06T19-38-04-859Z/manifest.json`.
 - Fixed tsx memory gate refreshed: normal median/p95 44.75 MB / 50.27 MB, no-op 42.94 MB / 51.09 MB, max peak RSS 251.34 MB / 234.20 MB, tracker drops 0, remaining connections 0; manifest `artifacts/lab/PROJ-1551/2026-07-06T19-38-23-532Z/manifest.json`.
 - Compiled prod-parity memory gate refreshed: normal median/p95 36.43 MB / 39.49 MB, no-op 30.14 MB / 40.10 MB, max peak RSS 215.92 MB / 215.70 MB, tracker drops 0, remaining connections 0; manifest `artifacts/lab/PROJ-1551/2026-07-06T19-42-01-707Z/manifest.json`.
+- Post-fix CodeRabbit attempt first returned recoverable rate limit with a 3-minute wait; retry exited 0 with `review_skipped`, message `No changes detected`, and findings 0. Treat this as a completed CLI interaction, not as a fresh substantive vendor review.
 
 ### Decisions & alternatives
 - Kept staging/systemd, production traffic, and shared DB saturation untouched.
-- Treated the CodeRabbit stream as actionable evidence for fixes, not as a clean completed vendor review, because the command was stopped after emitting findings and did not produce a final clean pass.
-- Post-fix CodeRabbit reruns with `.coderabbit.yaml` were blocked by recoverable vendor rate limits after waits of 2 minutes and 20 seconds; final retry reported an 8-minute wait. Do not claim a clean post-fix CodeRabbit pass.
+- Treated the CodeRabbit stream as actionable evidence for fixes. The post-fix retry exited 0 with `review_skipped` and 0 findings, but did not run a fresh substantive review.
 - Left the larger subscriber digest-secret split and distributed scoring-lock work as separate design/ops follow-ups rather than slipping broader production behavior changes into this validation branch.
 
 ### Open questions
