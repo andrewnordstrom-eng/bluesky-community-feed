@@ -11,8 +11,9 @@
 import { db } from '../../db/client.js';
 import { logger } from '../../lib/logger.js';
 import { COLLECTIONS } from '../jetstream.types.js';
+import type { IngestionEventOutcome } from '../outcomes.js';
 
-export async function handleDelete(uri: string, collection: string): Promise<void> {
+export async function handleDelete(uri: string, collection: string): Promise<IngestionEventOutcome> {
   try {
     switch (collection) {
       case COLLECTIONS.POST:
@@ -27,11 +28,11 @@ export async function handleDelete(uri: string, collection: string): Promise<voi
 
           if (postResult.rowCount === 0) {
             logger.debug({ uri }, 'Duplicate post delete received; no state change');
-            break;
+            return 'delete-post-noop';
           }
         }
         logger.debug({ uri }, 'Post marked as deleted');
-        break;
+        return 'delete-post-applied';
 
       case COLLECTIONS.LIKE:
         {
@@ -45,7 +46,7 @@ export async function handleDelete(uri: string, collection: string): Promise<voi
 
           if (likeResult.rowCount === 0) {
             logger.debug({ uri }, 'Duplicate like delete received; no state change');
-            break;
+            return 'delete-like-noop';
           }
 
           if (likeResult.rows[0]?.subject_uri) {
@@ -58,7 +59,7 @@ export async function handleDelete(uri: string, collection: string): Promise<voi
           }
         }
         logger.debug({ uri }, 'Like marked as deleted');
-        break;
+        return 'delete-like-applied';
 
       case COLLECTIONS.REPOST:
         {
@@ -72,7 +73,7 @@ export async function handleDelete(uri: string, collection: string): Promise<voi
 
           if (repostResult.rowCount === 0) {
             logger.debug({ uri }, 'Duplicate repost delete received; no state change');
-            break;
+            return 'delete-repost-noop';
           }
 
           if (repostResult.rows[0]?.subject_uri) {
@@ -85,7 +86,7 @@ export async function handleDelete(uri: string, collection: string): Promise<voi
           }
         }
         logger.debug({ uri }, 'Repost marked as deleted');
-        break;
+        return 'delete-repost-applied';
 
       case COLLECTIONS.FOLLOW:
         {
@@ -99,18 +100,19 @@ export async function handleDelete(uri: string, collection: string): Promise<voi
 
           if (followResult.rowCount === 0) {
             logger.debug({ uri }, 'Duplicate follow delete received; no state change');
-            break;
+            return 'delete-follow-noop';
           }
         }
         logger.debug({ uri }, 'Follow marked as deleted');
-        break;
+        return 'delete-follow-applied';
 
       default:
         // Ignore deletions for collections we don't track
-        break;
+        return 'delete-untracked-ignored';
     }
   } catch (err) {
     logger.error({ err, uri, collection }, 'Failed to handle deletion');
     // Don't rethrow - log and continue processing other events
+    return 'delete-handler-error';
   }
 }

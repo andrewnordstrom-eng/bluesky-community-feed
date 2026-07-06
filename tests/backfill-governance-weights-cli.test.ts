@@ -16,7 +16,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const SCRIPT = path.resolve('scripts', 'backfill-governance-weights.ts');
-const TSX = path.resolve('node_modules', '.bin', 'tsx');
+const TSX_LOADER = path.resolve('node_modules', 'tsx', 'dist', 'loader.mjs');
 const SENTINEL = 'postgresql://sentinel-user:sentinel-pass@sentinel-host:6543/sentinel-db';
 
 /**
@@ -30,14 +30,14 @@ function assertSpawnCompleted(result: SpawnSyncReturns<string>): void {
 }
 
 function runScript(args: string[], envOverrides: Record<string, string | undefined>) {
-  const env = { ...process.env, ...envOverrides };
+  const env = { ...process.env, NODE_ENV: 'test', ...envOverrides };
   for (const [k, v] of Object.entries(envOverrides)) {
     if (v === undefined) delete env[k];
   }
   // Run from /tmp so the script's `dotenv.config()` does not find a .env in
   // the repo cwd and silently re-populate DATABASE_URL from it. tsx and the
   // script use absolute paths, so cwd is otherwise irrelevant.
-  return spawnSync(TSX, [SCRIPT, ...args], {
+  return spawnSync(process.execPath, ['--import', TSX_LOADER, SCRIPT, ...args], {
     cwd: '/tmp',
     env,
     encoding: 'utf8',

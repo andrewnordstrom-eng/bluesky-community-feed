@@ -10,7 +10,6 @@
  */
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { randomUUID } from 'crypto';
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { ErrorResponseSchema } from '../../lib/openapi.js';
@@ -21,14 +20,19 @@ import { upsertSubscriberAsync } from '../../db/queries/subscribers.js';
 import { encodeCursor, decodeCursor } from '../cursor.js';
 import { verifyFeedRequesterDid } from '../jwt-verifier.js';
 import { isParticipantApproved } from '../access-control.js';
+import { enqueueFeedRequestTracking } from '../request-tracker.js';
+import { getCurrentFeedSnapshot, getFeedSnapshotById } from '../snapshot-cache.js';
 
 // The AT-URI for this feed
 const FEED_URI = `at://${config.FEEDGEN_PUBLISHER_DID}/app.bsky.feed.generator/community-gov`;
 const MIN_CURSOR_OFFSET = 0;
 const MAX_CURSOR_OFFSET = 10000;
+const SnapshotIdSchema = z.string().min(1).max(128).regex(/^[A-Za-z0-9:_-]+$/);
 
 interface FeedRequestTrackingContext {
   authHeader: string | undefined;
+  precomputedViewerDid: string | undefined;
+  signal: AbortSignal;
   snapshotId: string;
   pageOffset: number;
   postsServed: number;
@@ -36,14 +40,68 @@ interface FeedRequestTrackingContext {
   responseTimeMs: number;
 }
 
-async function trackFeedRequest(context: FeedRequestTrackingContext): Promise<void> {
-  const viewerDid = await verifyFeedRequesterDid(context.authHeader);
-  if (viewerDid) {
-    upsertSubscriberAsync(viewerDid);
+function readAbortReason(signal: AbortSignal): Error {
+  if (signal.reason instanceof Error) {
+    return signal.reason;
+  }
+  return new Error('feed request tracking aborted');
+}
+
+async function waitForTrackingOperation<T>(
+  signal: AbortSignal,
+  operation: () => Promise<T>,
+  operationName: string
+): Promise<T> {
+  if (signal.aborted) {
+    throw readAbortReason(signal);
   }
 
+  return new Promise<T>((resolve, reject) => {
+    const abort = (): void => {
+      reject(readAbortReason(signal));
+    };
+
+    signal.addEventListener('abort', abort, { once: true });
+    let operationPromise: Promise<T>;
+    try {
+      operationPromise = operation();
+    } catch (err) {
+      signal.removeEventListener('abort', abort);
+      reject(err);
+      return;
+    }
+    operationPromise
+      .then(resolve, reject)
+      .finally(() => {
+        signal.removeEventListener('abort', abort);
+      });
+  }).catch((err: unknown) => {
+    if (signal.aborted) {
+      throw readAbortReason(signal);
+    }
+    if (err instanceof Error) {
+      throw err;
+    }
+    throw new Error(`${operationName} failed with non-Error rejection: ${String(err)}`);
+  });
+}
+
+async function trackFeedRequest(context: FeedRequestTrackingContext): Promise<void> {
   try {
-    const epochIdStr = await redis.get('feed:epoch');
+    const viewerDid =
+      context.precomputedViewerDid ??
+      (await waitForTrackingOperation(
+        context.signal,
+        () => verifyFeedRequesterDid(context.authHeader),
+        'verifyFeedRequesterDid'
+      ));
+
+    const epochIdStr = await waitForTrackingOperation(
+      context.signal,
+      () => redis.get('feed:epoch'),
+      'redis.get(feed:epoch)'
+    );
+
     const logEntry = JSON.stringify({
       viewer_did: viewerDid,
       epoch_id: epochIdStr ? parseInt(epochIdStr, 10) : 0,
@@ -59,14 +117,23 @@ async function trackFeedRequest(context: FeedRequestTrackingContext): Promise<vo
     const pipeline = redis.pipeline();
     pipeline.rpush('feed:request_log', logEntry);
     pipeline.ltrim('feed:request_log', -100000, -1);
-    await pipeline.exec();
+    await waitForTrackingOperation(
+      context.signal,
+      async () => {
+        if (viewerDid) {
+          await upsertSubscriberAsync(viewerDid);
+        }
+        await pipeline.exec();
+      },
+      'feed request tracking writes'
+    );
   } catch (err) {
+    if (context.signal.aborted) {
+      throw err;
+    }
     logger.warn({ err }, 'Failed to log feed request to Redis');
   }
 }
-
-// Snapshot TTL in seconds (5 minutes - matches scoring interval)
-const SNAPSHOT_TTL = 300;
 
 interface FeedSkeletonQuery {
   feed: string;
@@ -149,6 +216,9 @@ export function registerFeedSkeleton(app: FastifyInstance): void {
       }
 
       const { feed, cursor, limit } = parseResult.data;
+      const authHeader = request.headers.authorization;
+      const isFirstPage = !cursor;
+      let precomputedViewerDid: string | undefined;
 
       // Validate this is a request for OUR feed
       if (feed !== FEED_URI) {
@@ -161,10 +231,11 @@ export function registerFeedSkeleton(app: FastifyInstance): void {
 
       // Private feed mode: require approved participant
       if (config.FEED_PRIVATE_MODE) {
-        const viewerDid = await verifyFeedRequesterDid(request.headers.authorization);
+        const viewerDid = await verifyFeedRequesterDid(authHeader);
         if (!viewerDid) return reply.send({ feed: [] });
         const approved = await isParticipantApproved(viewerDid);
         if (!approved) return reply.send({ feed: [] });
+        precomputedViewerDid = viewerDid;
       }
 
       let postUris: string[];
@@ -191,43 +262,62 @@ export function registerFeedSkeleton(app: FastifyInstance): void {
         snapshotId = parsed.snapshotId;
         offset = parsed.offset;
 
+        if (!SnapshotIdSchema.safeParse(snapshotId).success) {
+          logger.warn({ snapshotIdLength: snapshotId.length }, 'Cursor snapshot id failed validation');
+          return reply.code(400).send({
+            error: 'ValidationError',
+            message: 'Invalid query parameters',
+            details: [
+              {
+                path: ['cursor'],
+                message: 'Cursor must contain a valid snapshot id',
+              },
+            ],
+          });
+        }
+
         if (offset < MIN_CURSOR_OFFSET || offset > MAX_CURSOR_OFFSET) {
           logger.warn({ snapshotId, offset }, 'Cursor offset out of supported bounds');
           return reply.send({ feed: [] });
         }
 
-        // Try to get snapshot from Redis
-        const snapshotData = await redis.get(`snapshot:${snapshotId}`);
-        if (!snapshotData) {
+        // Try to get snapshot from the shared in-memory/Redis snapshot cache.
+        let snapshot;
+        try {
+          snapshot = await getFeedSnapshotById(snapshotId);
+        } catch (err) {
+          logger.warn({ err, snapshotId }, 'Failed to read feed snapshot by id');
+          return reply.send({ feed: [] });
+        }
+        if (snapshot === null) {
           // Snapshot expired, return empty to signal client to refresh
           logger.debug({ snapshotId }, 'Snapshot expired');
           return reply.send({ feed: [] });
         }
 
-        const allUris: string[] = JSON.parse(snapshotData);
-        postUris = allUris.slice(offset, offset + limit);
+        postUris = snapshot.uris.slice(offset, offset + limit);
       } else {
-        // First page: create new snapshot from current rankings
-        snapshotId = randomUUID().substring(0, 8);
+        // First page: use the current scoring snapshot. It is shared for the scoring TTL.
         offset = 0;
-
-        // Get ranked posts from Redis sorted set (descending by score)
-        const rankedUris = await redis.zrevrange('feed:current', 0, config.FEED_MAX_POSTS - 1);
-
-        if (rankedUris.length === 0) {
+        let snapshot;
+        try {
+          snapshot = await getCurrentFeedSnapshot();
+        } catch (err) {
+          logger.warn({ err }, 'Failed to read current feed snapshot');
+          return reply.send({ feed: [] });
+        }
+        if (snapshot === null) {
           logger.debug('No posts in feed');
           return reply.send({ feed: [] });
         }
 
-        // Cache snapshot for pagination stability
-        await redis.setex(`snapshot:${snapshotId}`, SNAPSHOT_TTL, JSON.stringify(rankedUris));
-
-        postUris = rankedUris.slice(0, limit);
+        snapshotId = snapshot.snapshotId;
+        postUris = snapshot.uris.slice(0, limit);
       }
 
       // Check for pinned announcement (first page only)
       let pinnedUri: string | null = null;
-      if (offset === 0) {
+      if (isFirstPage) {
         const pinnedData = await redis.get('bot:latest_announcement');
         if (pinnedData) {
           try {
@@ -246,9 +336,11 @@ export function registerFeedSkeleton(app: FastifyInstance): void {
       const feedItems = pinnedUri
         ? [{ post: pinnedUri }, ...postUris.slice(0, limit - 1).map((uri) => ({ post: uri }))]
         : postUris.map((uri) => ({ post: uri }));
+      const servedPostUris = feedItems.map((item) => item.post);
+      const rankedItemsServed = pinnedUri ? Math.max(feedItems.length - 1, 0) : feedItems.length;
 
-      const nextOffset = offset + postUris.length;
-      const hasMore = postUris.length === limit;
+      const nextOffset = offset + rankedItemsServed;
+      const hasMore = pinnedUri ? postUris.length >= limit : postUris.length === limit;
       const responseTimeMs = Math.round(performance.now() - startTime);
 
       logger.debug(
@@ -256,7 +348,7 @@ export function registerFeedSkeleton(app: FastifyInstance): void {
           feedItems: feedItems.length,
           hasMore,
           snapshotId,
-          authHeaderPresent: Boolean(request.headers.authorization),
+          authHeaderPresent: Boolean(authHeader),
           responseTimeMs,
         },
         'Returning feed skeleton'
@@ -268,16 +360,21 @@ export function registerFeedSkeleton(app: FastifyInstance): void {
       };
 
       // Keep getFeedSkeleton hot path non-blocking: verification + tracking happens async.
-      setImmediate(() => {
-        void trackFeedRequest({
-          authHeader: request.headers.authorization,
+      const trackingAccepted = enqueueFeedRequestTracking((signal) =>
+        trackFeedRequest({
+          authHeader,
+          precomputedViewerDid,
+          signal,
           snapshotId,
           pageOffset: offset,
           postsServed: feedItems.length,
-          postUris,
+          postUris: servedPostUris,
           responseTimeMs,
-        });
-      });
+        })
+      );
+      if (!trackingAccepted) {
+        logger.warn({ snapshotId, pageOffset: offset }, 'Feed request tracking queue is full');
+      }
 
       return reply.send(response);
     }

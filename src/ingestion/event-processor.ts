@@ -12,11 +12,12 @@ import { handleRepost } from './handlers/repost-handler.js';
 import { handleFollow } from './handlers/follow-handler.js';
 import { handleDelete } from './handlers/delete-handler.js';
 import { logger } from '../lib/logger.js';
+import type { IngestionEventOutcome } from './outcomes.js';
 
-export async function processEvent(event: JetstreamEvent): Promise<void> {
+export async function processEvent(event: JetstreamEvent): Promise<IngestionEventOutcome> {
   // Only process commit events
   if (event.kind !== 'commit' || !event.commit) {
-    return;
+    return 'non-commit-ignored';
   }
 
   const { commit, did } = event;
@@ -24,13 +25,12 @@ export async function processEvent(event: JetstreamEvent): Promise<void> {
 
   // CRITICAL: Handle deletions for ALL collection types FIRST
   if (commit.operation === 'delete') {
-    await handleDelete(uri, commit.collection);
-    return;
+    return handleDelete(uri, commit.collection);
   }
 
   // Only process creates (skip updates for now - they're rare and complex)
   if (commit.operation !== 'create') {
-    return;
+    return 'update-ignored';
   }
 
   // Route to appropriate handler based on collection
@@ -38,37 +38,33 @@ export async function processEvent(event: JetstreamEvent): Promise<void> {
     case COLLECTIONS.POST:
       if (!commit.cid || !commit.record) {
         logger.warn({ uri }, 'Post missing cid or record');
-        return;
+        return 'post-missing-record';
       }
-      await handlePost(uri, did, commit.cid, commit.record);
-      break;
+      return handlePost(uri, did, commit.cid, commit.record);
 
     case COLLECTIONS.LIKE:
       if (!commit.record) {
         logger.warn({ uri }, 'Like missing record');
-        return;
+        return 'like-missing-record';
       }
-      await handleLike(uri, did, commit.record);
-      break;
+      return handleLike(uri, did, commit.record);
 
     case COLLECTIONS.REPOST:
       if (!commit.record) {
         logger.warn({ uri }, 'Repost missing record');
-        return;
+        return 'repost-missing-record';
       }
-      await handleRepost(uri, did, commit.record);
-      break;
+      return handleRepost(uri, did, commit.record);
 
     case COLLECTIONS.FOLLOW:
       if (!commit.record) {
         logger.warn({ uri }, 'Follow missing record');
-        return;
+        return 'follow-missing-record';
       }
-      await handleFollow(uri, did, commit.record);
-      break;
+      return handleFollow(uri, did, commit.record);
 
     default:
       // Ignore other collections
-      break;
+      return 'unknown-collection-ignored';
   }
 }

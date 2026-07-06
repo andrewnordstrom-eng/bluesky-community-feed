@@ -16,7 +16,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const SCRIPT = path.resolve('scripts', 'backfill-score-components.ts');
-const TSX = path.resolve('node_modules', '.bin', 'tsx');
+const TSX_LOADER = path.resolve('node_modules', 'tsx', 'dist', 'loader.mjs');
 const SENTINEL = 'postgresql://sentinel-user:sentinel-pass@sentinel-host:6543/sentinel-db';
 const UNSAFE_INTEGER = '9007199254740993';
 
@@ -34,7 +34,7 @@ function runScript(
   args: string[],
   envOverrides: Record<string, string | undefined>
 ): SpawnSyncReturns<string> {
-  const env = { ...process.env, ...envOverrides };
+  const env = { ...process.env, NODE_ENV: 'test', ...envOverrides };
   // Explicitly delete keys whose override value is undefined so the spawned
   // process sees the var as absent, not as the literal string "undefined".
   for (const [k, v] of Object.entries(envOverrides)) {
@@ -43,7 +43,7 @@ function runScript(
   // Run from /tmp so the script's `dotenv.config()` does not find a .env in
   // the repo cwd and silently re-populate DATABASE_URL from it. tsx and the
   // script use absolute paths, so cwd is otherwise irrelevant.
-  return spawnSync(TSX, [SCRIPT, ...args], {
+  return spawnSync(process.execPath, ['--import', TSX_LOADER, SCRIPT, ...args], {
     cwd: '/tmp',
     env,
     encoding: 'utf8',

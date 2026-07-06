@@ -1,8 +1,14 @@
+import { execFile } from 'node:child_process';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import path from 'node:path';
 import { performance } from 'node:perf_hooks';
+import { promisify } from 'node:util';
 import { describe, expect, it } from 'vitest';
 import { runHttpLoad, summarizeRate, type HttpLoadOptions, type HttpLoadRequest } from '../scripts/http-load.js';
 
+const execFileAsync = promisify(execFile);
+const LOAD_TEST_SCRIPT = path.resolve('scripts', 'load-test.ts');
+const TSX_LOADER = path.resolve('node_modules', 'tsx', 'dist', 'loader.mjs');
 const getRequest: HttpLoadRequest = {
   method: 'GET',
   path: '/',
@@ -314,6 +320,164 @@ describe('runHttpLoad execution', () => {
         expect(result.statusBuckets.s5xx).toBe(1);
         expect(result.non2xx).toBe(1);
         expect(result.errors).toBe(0);
+      }
+    );
+  });
+
+  it('keeps expected non-2xx responses out of failure counters', async () => {
+    await withHttpServer(
+      (_request, response) => {
+        response.writeHead(429, { 'content-type': 'text/plain' });
+        response.end('rate limited');
+      },
+      async (baseUrl) => {
+        const result = await runHttpLoad({
+          baseUrl,
+          amount: 1,
+          durationMs: null,
+          connections: 1,
+          timeoutMs: 1_000,
+          requests: [{ ...getRequest, expectedStatuses: [429] }],
+        });
+
+        expect(result.requests.total).toBe(1);
+        expect(result.statusBuckets.s4xx).toBe(1);
+        expect(result.statusCodes).toEqual({ '429': 1 });
+        expect(result.non2xx).toBe(0);
+        expect(result.unexpectedStatuses).toBe(0);
+      }
+    );
+  });
+
+  it('counts unexpected statuses against explicit expectations', async () => {
+    await withHttpServer(
+      (_request, response) => {
+        response.writeHead(503, { 'content-type': 'text/plain' });
+        response.end('unavailable');
+      },
+      async (baseUrl) => {
+        const result = await runHttpLoad({
+          baseUrl,
+          amount: 1,
+          durationMs: null,
+          connections: 1,
+          timeoutMs: 1_000,
+          requests: [{ ...getRequest, expectedStatuses: [429] }],
+        });
+
+        expect(result.statusBuckets.s5xx).toBe(1);
+        expect(result.statusCodes).toEqual({ '503': 1 });
+        expect(result.non2xx).toBe(1);
+        expect(result.unexpectedStatuses).toBe(1);
+      }
+    );
+  });
+
+  it('flags unexpected 2xx responses without incrementing non2xx', async () => {
+    await withHttpServer(
+      (_request, response) => {
+        response.writeHead(201, { 'content-type': 'text/plain' });
+        response.end('created');
+      },
+      async (baseUrl) => {
+        const result = await runHttpLoad({
+          baseUrl,
+          amount: 1,
+          durationMs: null,
+          connections: 1,
+          timeoutMs: 1_000,
+          requests: [{ ...getRequest, expectedStatuses: [200] }],
+        });
+
+        expect(result.statusBuckets.s2xx).toBe(1);
+        expect(result.non2xx).toBe(0);
+        expect(result.unexpectedStatuses).toBe(1);
+      }
+    );
+  });
+
+  it('rejects empty expected status lists', async () => {
+    await expect(
+      runHttpLoad({
+        baseUrl: 'http://127.0.0.1:65535',
+        amount: 1,
+        durationMs: null,
+        connections: 1,
+        timeoutMs: 1_000,
+        requests: [{ ...getRequest, expectedStatuses: [] }],
+      })
+    ).rejects.toThrow(RangeError);
+  });
+
+  it.each([99, 600, 200.5])('rejects invalid expected status %s', async (status) => {
+    await expect(
+      runHttpLoad({
+        baseUrl: 'http://127.0.0.1:65535',
+        amount: 1,
+        durationMs: null,
+        connections: 1,
+        timeoutMs: 1_000,
+        requests: [{ ...getRequest, expectedStatuses: [status] }],
+      })
+    ).rejects.toThrow(RangeError);
+  });
+
+  it('accepts expected status validation boundaries', async () => {
+    await withHttpServer(
+      (_request, response) => {
+        response.writeHead(200, { 'content-type': 'text/plain' });
+        response.end('ok');
+      },
+      async (baseUrl) => {
+        const result = await runHttpLoad({
+          baseUrl,
+          amount: 1,
+          durationMs: null,
+          connections: 1,
+          timeoutMs: 1_000,
+          requests: [{ ...getRequest, expectedStatuses: [100, 599] }],
+        });
+
+        expect(result.requests.total).toBe(1);
+        expect(result.unexpectedStatuses).toBe(1);
+      }
+    );
+  });
+
+  it('load-test CLI terminates promptly after printing the result', async () => {
+    await withHttpServer(
+      (_request, response) => {
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ feed: [] }));
+      },
+      async (baseUrl) => {
+        const result = await execFileAsync(
+          process.execPath,
+          [
+            '--import',
+            TSX_LOADER,
+            LOAD_TEST_SCRIPT,
+            '--url',
+            baseUrl,
+            '--connections',
+            '1',
+            '--duration',
+            '1',
+            '--target',
+            '10000',
+          ],
+          {
+            cwd: process.cwd(),
+            env: {
+              ...process.env,
+              FEED_URI: 'at://did:plc:loadtest/app.bsky.feed.generator/community-gov',
+            },
+            timeout: 8_000,
+          }
+        );
+
+        expect(result.stdout).toContain('PASS:');
+        expect(result.stderr).toBe('');
       }
     );
   });

@@ -11,11 +11,13 @@
  */
 
 import WebSocket from 'ws';
+import { z } from 'zod';
 import { config } from '../config.js';
 import { logger } from '../lib/logger.js';
 import { processEvent } from './event-processor.js';
 import { db } from '../db/client.js';
-import { JetstreamEvent, COLLECTIONS } from './jetstream.types.js';
+import { COLLECTIONS, type JetstreamEvent } from './jetstream.types.js';
+import type { IngestionEventOutcome } from './outcomes.js';
 
 // Collections we want to receive events for
 const WANTED_COLLECTIONS = [
@@ -31,6 +33,36 @@ const MAX_RECONNECT_DELAY = 60_000; // 60 seconds max backoff
 const FALLBACK_THRESHOLD = 5; // Switch to fallback after N consecutive failures
 const MAX_CONCURRENT_EVENTS = config.JETSTREAM_MAX_CONCURRENT;
 const MAX_PENDING_EVENTS = config.JETSTREAM_MAX_PENDING;
+
+const JetstreamCommitSchema = z.object({
+  rev: z.string().min(1),
+  operation: z.enum(['create', 'update', 'delete']),
+  collection: z.string().min(1),
+  rkey: z.string().min(1),
+  record: z.record(z.string(), z.unknown()).optional(),
+  cid: z.string().min(1).optional(),
+});
+
+const JetstreamEventSchema = z.discriminatedUnion('kind', [
+  z.object({
+    did: z.string().min(1),
+    time_us: z.number().int().positive().safe(),
+    kind: z.literal('commit'),
+    commit: JetstreamCommitSchema,
+  }),
+  z.object({
+    did: z.string().min(1),
+    time_us: z.number().int().positive().safe(),
+    kind: z.literal('identity'),
+    commit: JetstreamCommitSchema.optional(),
+  }),
+  z.object({
+    did: z.string().min(1),
+    time_us: z.number().int().positive().safe(),
+    kind: z.literal('account'),
+    commit: JetstreamCommitSchema.optional(),
+  }),
+]);
 
 // Concurrency control — prevents ingestion from starving the DB pool
 let activeEventCount = 0;
@@ -81,6 +113,14 @@ let metricsIntervalId: NodeJS.Timeout | null = null;
 let ws: WebSocket | null = null;
 let eventCounter = 0;
 let lastCursorUs: bigint | undefined;
+let maxCompletedCursorUs: bigint | undefined;
+let connectionGeneration = 0;
+interface CursorGenerationCount {
+  generation: number;
+  count: number;
+}
+const activeCursorUs = new Map<bigint, CursorGenerationCount>();
+const failedCursorUs = new Map<bigint, CursorGenerationCount>();
 let reconnectAttempts = 0;
 let consecutiveFailures = 0;
 let useFallback = false;
@@ -88,6 +128,22 @@ let isShuttingDown = false;
 let lastEventReceivedAt: Date | null = null;
 let lastDisconnectedAt: Date | null = null;
 const eventCountByMinute = new Map<number, number>();
+
+export interface JetstreamMessageProcessResult {
+  acquired: boolean;
+  dropped: boolean;
+  parsed: boolean;
+  processed: boolean;
+  ingestionOutcome: IngestionEventOutcome | null;
+  cursorUs: string | null;
+  cursorSaved: boolean;
+  errorMessage: string | null;
+  eventCounter: number;
+  queueState: {
+    active: number;
+    queued: number;
+  };
+}
 
 function currentMinuteBucket(nowMs: number): number {
   return Math.floor(nowMs / 60_000);
@@ -105,6 +161,231 @@ function recordEventAt(nowMs: number): void {
   const bucket = currentMinuteBucket(nowMs);
   eventCountByMinute.set(bucket, (eventCountByMinute.get(bucket) || 0) + 1);
   pruneOldEventBuckets(bucket);
+}
+
+function formatErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
+
+function sanitizeProcessError(error: unknown): { logContext: Record<string, unknown>; errorMessage: string } {
+  if (error instanceof SyntaxError) {
+    return {
+      logContext: { errName: error.name },
+      errorMessage: 'invalid Jetstream JSON payload',
+    };
+  }
+  return {
+    logContext: { err: error },
+    errorMessage: formatErrorMessage(error),
+  };
+}
+
+function parseJetstreamEvent(data: Buffer): JetstreamEvent {
+  const decoded = JSON.parse(data.toString()) as unknown;
+  const parsed = JetstreamEventSchema.safeParse(decoded);
+  if (!parsed.success) {
+    const detail = parsed.error.issues
+      .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
+      .join('; ');
+    throw new Error(`invalid Jetstream event payload: ${detail}`);
+  }
+  return parsed.data;
+}
+
+function beginConnectionGeneration(): number {
+  connectionGeneration += 1;
+  activeCursorUs.clear();
+  failedCursorUs.clear();
+  return connectionGeneration;
+}
+
+function invalidateConnectionGeneration(): void {
+  connectionGeneration += 1;
+  activeCursorUs.clear();
+  failedCursorUs.clear();
+}
+
+function incrementCursorCount(
+  cursorCounts: Map<bigint, CursorGenerationCount>,
+  cursorUs: bigint,
+  generation: number
+): void {
+  const existing = cursorCounts.get(cursorUs);
+  if (existing && existing.generation === generation) {
+    existing.count += 1;
+    return;
+  }
+  cursorCounts.set(cursorUs, { generation, count: 1 });
+}
+
+function decrementCursorCount(
+  cursorCounts: Map<bigint, CursorGenerationCount>,
+  cursorUs: bigint,
+  generation: number
+): void {
+  const existing = cursorCounts.get(cursorUs);
+  if (!existing || existing.generation !== generation) {
+    return;
+  }
+  if (existing.count <= 1) {
+    cursorCounts.delete(cursorUs);
+    return;
+  }
+  existing.count -= 1;
+}
+
+function minimumUnsafeCursorUs(): bigint | undefined {
+  let minimum: bigint | undefined;
+  for (const [cursorUs, cursorCount] of activeCursorUs.entries()) {
+    if (cursorCount.generation !== connectionGeneration || cursorCount.count < 1) {
+      continue;
+    }
+    if (minimum === undefined || cursorUs < minimum) {
+      minimum = cursorUs;
+    }
+  }
+  for (const [cursorUs, cursorCount] of failedCursorUs.entries()) {
+    if (cursorCount.generation !== connectionGeneration || cursorCount.count < 1) {
+      continue;
+    }
+    if (minimum === undefined || cursorUs < minimum) {
+      minimum = cursorUs;
+    }
+  }
+  return minimum;
+}
+
+function markCursorCompleted(cursorUs: bigint): bigint | undefined {
+  if (maxCompletedCursorUs === undefined || cursorUs > maxCompletedCursorUs) {
+    maxCompletedCursorUs = cursorUs;
+  }
+
+  const minimumUnsafe = minimumUnsafeCursorUs();
+  if (minimumUnsafe !== undefined && maxCompletedCursorUs >= minimumUnsafe) {
+    const safeCursorUs = minimumUnsafe - 1n;
+    return safeCursorUs > 0n ? safeCursorUs : undefined;
+  }
+  return maxCompletedCursorUs;
+}
+
+async function processJetstreamMessageData(
+  data: Buffer,
+  onQueueOverflow: () => void,
+  messageGeneration: number | null
+): Promise<JetstreamMessageProcessResult> {
+  const effectiveGeneration = messageGeneration ?? connectionGeneration;
+  const acquired = await acquireSlot();
+  if (!acquired) {
+    droppedEventCount++;
+    onQueueOverflow();
+    return {
+      acquired: false,
+      dropped: true,
+      parsed: false,
+      processed: false,
+      ingestionOutcome: null,
+      cursorUs: null,
+      cursorSaved: false,
+      errorMessage: 'jetstream queue full',
+      eventCounter,
+      queueState: { active: activeEventCount, queued: eventQueue.length },
+    };
+  }
+
+  let cursorUs: string | null = null;
+  let cursorSaved = false;
+  let parsed = false;
+  let ingestionOutcome: IngestionEventOutcome | null = null;
+  let eventCursorUs: bigint | null = null;
+
+  try {
+    const event = parseJetstreamEvent(data);
+    parsed = true;
+    if (event.time_us) {
+      eventCursorUs = BigInt(event.time_us);
+      incrementCursorCount(activeCursorUs, eventCursorUs, effectiveGeneration);
+    }
+    try {
+      ingestionOutcome = await processEvent(event);
+      if (
+        eventCursorUs !== null &&
+        effectiveGeneration === connectionGeneration
+      ) {
+        decrementCursorCount(failedCursorUs, eventCursorUs, effectiveGeneration);
+      }
+    } finally {
+      if (eventCursorUs !== null) {
+        decrementCursorCount(activeCursorUs, eventCursorUs, effectiveGeneration);
+      }
+    }
+
+    // Track last event time for health checks
+    const nowMs = Date.now();
+    lastEventReceivedAt = new Date(nowMs);
+    recordEventAt(nowMs);
+
+    // Track cursor for persistence
+    if (eventCursorUs !== null && effectiveGeneration === connectionGeneration) {
+      lastCursorUs = markCursorCompleted(eventCursorUs);
+      cursorUs = lastCursorUs === undefined ? null : lastCursorUs.toString();
+      eventCounter++;
+
+      // Persist cursor every CURSOR_SAVE_INTERVAL events
+      if (eventCounter >= CURSOR_SAVE_INTERVAL && lastCursorUs !== undefined) {
+        const cursorToSave = lastCursorUs;
+        eventCounter = 0;
+        cursorSaved = await saveCursor(cursorToSave);
+        if (cursorSaved) {
+          logger.debug({ cursor: cursorToSave.toString() }, 'Cursor saved');
+        } else {
+          logger.warn({ cursor: cursorToSave.toString() }, 'Cursor save failed; continuing with interval backoff');
+        }
+      }
+    }
+
+    return {
+      acquired: true,
+      dropped: false,
+      parsed: true,
+      processed: true,
+      ingestionOutcome,
+      cursorUs,
+      cursorSaved,
+      errorMessage: null,
+      eventCounter,
+      queueState: { active: activeEventCount, queued: eventQueue.length },
+    };
+  } catch (err) {
+    // DO NOT crash on individual event errors. Log and continue.
+    if (eventCursorUs !== null) {
+      if (effectiveGeneration === connectionGeneration) {
+        incrementCursorCount(failedCursorUs, eventCursorUs, effectiveGeneration);
+      }
+      cursorUs = lastCursorUs === undefined ? null : lastCursorUs.toString();
+    }
+    const sanitizedError = sanitizeProcessError(err);
+    logger.error(
+      { ...sanitizedError.logContext, payloadBytes: data.byteLength },
+      'Failed to process Jetstream event'
+    );
+    return {
+      acquired: true,
+      dropped: false,
+      parsed,
+      processed: false,
+      ingestionOutcome,
+      cursorUs,
+      cursorSaved,
+      errorMessage: sanitizedError.errorMessage,
+      eventCounter,
+      queueState: { active: activeEventCount, queued: eventQueue.length },
+    };
+  } finally {
+    releaseSlot();
+  }
 }
 
 /**
@@ -203,11 +484,13 @@ function connect(cursor?: bigint): void {
 
   const url = buildUrl(cursor);
   const instanceType = useFallback ? 'fallback' : 'primary';
+  const sessionGeneration = beginConnectionGeneration();
   logger.info({ url: url.substring(0, 80) + '...', instanceType }, 'Connecting to Jetstream');
 
-  ws = new WebSocket(url);
+  const socket = new WebSocket(url);
+  ws = socket;
 
-  ws.on('open', () => {
+  socket.on('open', () => {
     logger.info({ instanceType }, 'Jetstream connection established');
     reconnectAttempts = 0;
     consecutiveFailures = 0;
@@ -215,53 +498,28 @@ function connect(cursor?: bigint): void {
     lastDisconnectedAt = null;
   });
 
-  ws.on('message', async (data: Buffer) => {
-    // Concurrency gate — wait for a slot so we don't exhaust the DB pool
-    const acquired = await acquireSlot();
-    if (!acquired) {
-      droppedEventCount++;
-      if (!isShuttingDown && ws && ws.readyState === WebSocket.OPEN) {
+  socket.on('message', (data: Buffer) => {
+    void processJetstreamMessageData(data, () => {
+      if (!isShuttingDown && ws === socket && socket.readyState === WebSocket.OPEN) {
         handleQueueOverload();
       }
-      return;
-    }
-
-    try {
-      const event = JSON.parse(data.toString()) as JetstreamEvent;
-      await processEvent(event);
-
-      // Track last event time for health checks
-      const nowMs = Date.now();
-      lastEventReceivedAt = new Date(nowMs);
-      recordEventAt(nowMs);
-
-      // Track cursor for persistence
-      if (event.time_us) {
-        lastCursorUs = BigInt(event.time_us);
-        eventCounter++;
-
-        // Persist cursor every CURSOR_SAVE_INTERVAL events
-        if (eventCounter >= CURSOR_SAVE_INTERVAL) {
-          await saveCursor(lastCursorUs);
-          eventCounter = 0;
-          logger.debug({ cursor: lastCursorUs.toString() }, 'Cursor saved');
-        }
-      }
-    } catch (err) {
-      // DO NOT crash on individual event errors. Log and continue.
+    }, sessionGeneration).catch((err: unknown) => {
       logger.error(
-        { err, data: data.toString().substring(0, 200) },
-        'Failed to process Jetstream event'
+        { errName: err instanceof Error ? err.name : 'unknown' },
+        'Unhandled Jetstream message error'
       );
-    } finally {
-      releaseSlot();
-    }
+    });
   });
 
-  ws.on('close', (code, reason) => {
-    ws = null;
+  socket.on('close', (code, reason) => {
+    if (ws === socket) {
+      ws = null;
+    }
     lastDisconnectedAt = new Date();
     queueOverflowReconnectInProgress = false;
+    if (sessionGeneration === connectionGeneration) {
+      invalidateConnectionGeneration();
+    }
     drainQueuedSlots(false);
     logger.warn({ code, reason: reason.toString() }, 'Jetstream connection closed');
     if (!isShuttingDown) {
@@ -270,7 +528,7 @@ function connect(cursor?: bigint): void {
     }
   });
 
-  ws.on('error', (err) => {
+  socket.on('error', (err) => {
     logger.error({ err }, 'Jetstream WebSocket error');
     // 'close' event will fire after this, triggering reconnect
   });
@@ -356,16 +614,32 @@ async function getLastCursor(): Promise<bigint | undefined> {
 /**
  * Save the cursor to the database.
  */
-async function saveCursor(cursorUs: bigint): Promise<void> {
+async function saveCursor(cursorUs: bigint): Promise<boolean> {
   try {
     await db.query(
       `INSERT INTO jetstream_cursor (id, cursor_us, updated_at)
        VALUES (1, $1, NOW())
-       ON CONFLICT (id) DO UPDATE SET cursor_us = $1, updated_at = NOW()`,
+       ON CONFLICT (id) DO UPDATE SET
+         cursor_us = GREATEST(jetstream_cursor.cursor_us, EXCLUDED.cursor_us),
+         updated_at = CASE
+           WHEN jetstream_cursor.cursor_us < EXCLUDED.cursor_us THEN NOW()
+           ELSE jetstream_cursor.updated_at
+         END`,
       [cursorUs.toString()]
     );
+    for (const [failedCursor, cursorCount] of failedCursorUs.entries()) {
+      if (cursorCount.generation !== connectionGeneration) {
+        failedCursorUs.delete(failedCursor);
+        continue;
+      }
+      if (failedCursor <= cursorUs) {
+        failedCursorUs.delete(failedCursor);
+      }
+    }
+    return true;
   } catch (err) {
     logger.error({ err }, 'Failed to save cursor');
+    return false;
   }
 }
 
@@ -426,6 +700,21 @@ export function triggerJetstreamReconnect(): void {
 }
 
 /**
+ * Operator escape hatch for a known-bad parsed event that keeps pinning cursor persistence.
+ * Use only after preserving the failing payload/cursor in external incident evidence.
+ */
+export function clearJetstreamFailedCursorPins(reason: string): number {
+  if (reason.trim().length === 0) {
+    throw new RangeError('reason must be a non-empty string when clearing Jetstream failed cursor pins');
+  }
+
+  const clearedCount = failedCursorUs.size;
+  failedCursorUs.clear();
+  logger.warn({ clearedCount, reason }, 'Cleared Jetstream failed cursor pins by operator request');
+  return clearedCount;
+}
+
+/**
  * Test-only helpers for queue/backpressure behavior.
  */
 export const __testJetstreamQueue = {
@@ -439,6 +728,15 @@ export const __testJetstreamQueue = {
     eventQueue.length = 0;
     queueOverflowReconnectInProgress = false;
     droppedEventCount = 0;
+    eventCounter = 0;
+    lastCursorUs = undefined;
+    maxCompletedCursorUs = undefined;
+    connectionGeneration = 0;
+    activeCursorUs.clear();
+    failedCursorUs.clear();
+    lastEventReceivedAt = null;
+    lastDisconnectedAt = null;
+    eventCountByMinute.clear();
   },
   getState(): { active: number; queued: number } {
     return { active: activeEventCount, queued: eventQueue.length };
@@ -448,5 +746,17 @@ export const __testJetstreamQueue = {
   },
   resetDroppedCount(): void {
     droppedEventCount = 0;
+  },
+  processMessage(data: Buffer): Promise<JetstreamMessageProcessResult> {
+    return processJetstreamMessageData(data, () => undefined, null);
+  },
+  invalidateConnectionForTests(): void {
+    invalidateConnectionGeneration();
+  },
+  getCursorState(): { eventCounter: number; lastCursorUs: string | null } {
+    return {
+      eventCounter,
+      lastCursorUs: lastCursorUs === undefined ? null : lastCursorUs.toString(),
+    };
   },
 };

@@ -33,8 +33,8 @@ describe('engagement attribution - likes', () => {
   });
 
   it('fires epoch-scoped attribution UPDATE after successful like insert', async () => {
-    // First call: INSERT like → success (new row)
-    dbQueryMock.mockResolvedValueOnce({ rows: [{ uri: 'at://like/1' }], rowCount: 1 });
+    // First call: INSERT like outcome -> success (new tracked row)
+    dbQueryMock.mockResolvedValueOnce({ rows: [{ inserted: true, subjectExists: true }], rowCount: 1 });
     // Second call: UPDATE post_engagement
     dbQueryMock.mockResolvedValueOnce({ rows: [], rowCount: 1 });
     // Third call: UPDATE engagement_attributions (fire-and-forget)
@@ -66,7 +66,7 @@ describe('engagement attribution - likes', () => {
   });
 
   it('does not fire attribution when like is duplicate', async () => {
-    // INSERT like → duplicate (rowCount = 0, ON CONFLICT DO NOTHING)
+    // INSERT like outcome -> tracked subject, duplicate like.
     dbQueryMock.mockResolvedValueOnce({ rows: [], rowCount: 0 });
 
     await handleLike(
@@ -82,8 +82,8 @@ describe('engagement attribution - likes', () => {
   });
 
   it('attribution failure does not prevent like from being stored', async () => {
-    // INSERT like → success
-    dbQueryMock.mockResolvedValueOnce({ rows: [{ uri: 'at://like/1' }], rowCount: 1 });
+    // INSERT like outcome -> success
+    dbQueryMock.mockResolvedValueOnce({ rows: [{ inserted: true, subjectExists: true }], rowCount: 1 });
     // UPDATE post_engagement → success
     dbQueryMock.mockResolvedValueOnce({ rows: [], rowCount: 1 });
     // UPDATE attribution → FAILS
@@ -102,12 +102,12 @@ describe('engagement attribution - likes', () => {
   });
 
   it('leaves attribution untouched when active epoch does not match', async () => {
-    // INSERT like → success
-    dbQueryMock.mockResolvedValueOnce({ rows: [{ uri: 'at://like/1' }], rowCount: 1 });
+    // INSERT like outcome -> success
+    dbQueryMock.mockResolvedValueOnce({ rows: [{ inserted: true, subjectExists: true }], rowCount: 1 });
     // UPDATE post_engagement → success
     dbQueryMock.mockResolvedValueOnce({ rows: [], rowCount: 1 });
     // UPDATE attribution → no row updated (epoch mismatch)
-    dbQueryMock.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    dbQueryMock.mockResolvedValueOnce({ rows: [{ inserted: false, subjectExists: true }], rowCount: 1 });
 
     await handleLike(
       'at://did:plc:liker/app.bsky.feed.like/1',
@@ -128,7 +128,7 @@ describe('engagement attribution - reposts', () => {
   });
 
   it('fires epoch-scoped attribution UPDATE after successful repost insert', async () => {
-    dbQueryMock.mockResolvedValueOnce({ rows: [{ uri: 'at://repost/1' }], rowCount: 1 });
+    dbQueryMock.mockResolvedValueOnce({ rows: [{ inserted: true, subjectExists: true }], rowCount: 1 });
     dbQueryMock.mockResolvedValueOnce({ rows: [], rowCount: 1 });
     dbQueryMock.mockResolvedValueOnce({ rows: [], rowCount: 0 });
 
@@ -155,7 +155,7 @@ describe('engagement attribution - reposts', () => {
   });
 
   it('does not fire attribution when repost is duplicate', async () => {
-    dbQueryMock.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    dbQueryMock.mockResolvedValueOnce({ rows: [{ inserted: false, subjectExists: true }], rowCount: 1 });
 
     await handleRepost(
       'at://did:plc:reposter/app.bsky.feed.repost/1',
@@ -169,7 +169,7 @@ describe('engagement attribution - reposts', () => {
   });
 
   it('attribution failure does not prevent repost from being stored', async () => {
-    dbQueryMock.mockResolvedValueOnce({ rows: [{ uri: 'at://repost/1' }], rowCount: 1 });
+    dbQueryMock.mockResolvedValueOnce({ rows: [{ inserted: true, subjectExists: true }], rowCount: 1 });
     dbQueryMock.mockResolvedValueOnce({ rows: [], rowCount: 1 });
     dbQueryMock.mockRejectedValueOnce(new Error('attribution table gone'));
 
@@ -185,7 +185,7 @@ describe('engagement attribution - reposts', () => {
   });
 
   it('updates attribution when active epoch matches', async () => {
-    dbQueryMock.mockResolvedValueOnce({ rows: [{ uri: 'at://repost/1' }], rowCount: 1 });
+    dbQueryMock.mockResolvedValueOnce({ rows: [{ inserted: true, subjectExists: true }], rowCount: 1 });
     dbQueryMock.mockResolvedValueOnce({ rows: [], rowCount: 1 });
     dbQueryMock.mockResolvedValueOnce({ rows: [], rowCount: 1 });
 
