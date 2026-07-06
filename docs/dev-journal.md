@@ -1237,7 +1237,7 @@ GitHub PR #302 `backend-verify` failed under Node 20.19.0 before CLI validation 
 - Compiled lab dry-run passed: `node dist-lab/scripts/memory-isolated-stress.js --dry-run --runs 1 --amount 1 --connections 1`.
 - `npm run docs:verify`: pass, 14 tracked docs / 28 markdown files scanned.
 - `git diff --check`: pass.
-- `npm run verify` sandbox run reached 96/97 files and 830/840 tests before sandbox `listen/connect EPERM` on `127.0.0.1`; escalated loopback rerun passed 97/97 files and 840/840 tests plus backend build, CLI build, SDK fixture, web lint/build, and web-next build.
+- `npm run verify` with dummy non-production env and local loopback/IPC permission: pass, including root build, 97 files / 840 tests, CLI build, MCP-local skip, SDK build, SDK fixture, web lint/build, and web-next build.
 
 ### Decisions & alternatives
 - Kept staging/systemd, production traffic, Docker tasking, and shared databases untouched.
