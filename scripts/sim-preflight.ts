@@ -9,8 +9,8 @@
 import { execFile } from 'node:child_process';
 import { readFile, readdir } from 'node:fs/promises';
 import { promisify } from 'node:util';
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
-import { RedisContainer, type StartedRedisContainer } from '@testcontainers/redis';
+import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
+import type { StartedRedisContainer } from '@testcontainers/redis';
 import { runMigrations } from './migrate.js';
 
 interface PreflightOptions {
@@ -178,6 +178,10 @@ async function checkTestcontainersAndMigrations(): Promise<string> {
   let detail: string | undefined;
 
   try {
+    const [{ PostgreSqlContainer }, { RedisContainer }] = await Promise.all([
+      import('@testcontainers/postgresql'),
+      import('@testcontainers/redis'),
+    ]);
     const [pgResult, redisResult] = await Promise.allSettled([
       new PostgreSqlContainer('postgres:16')
         .withDatabase('corgi_sim_preflight')

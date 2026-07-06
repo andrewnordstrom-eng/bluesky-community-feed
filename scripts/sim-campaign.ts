@@ -9,8 +9,8 @@
 
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
-import { RedisContainer, type StartedRedisContainer } from '@testcontainers/redis';
+import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
+import type { StartedRedisContainer } from '@testcontainers/redis';
 import { runMigrations } from './migrate.js';
 import { assertEphemeralTarget } from '../src/harness/prod-guard.js';
 import {
@@ -236,6 +236,10 @@ async function buildEphemeralTarget(): Promise<CampaignTarget> {
   let redis: StartedRedisContainer | undefined;
 
   try {
+    const [{ PostgreSqlContainer }, { RedisContainer }] = await Promise.all([
+      import('@testcontainers/postgresql'),
+      import('@testcontainers/redis'),
+    ]);
     const [pgResult, redisResult] = await Promise.allSettled([
       new PostgreSqlContainer('postgres:16')
         .withDatabase('corgi_sim_campaign')

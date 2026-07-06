@@ -7,8 +7,8 @@ import { execFile, fork, type ChildProcess } from 'node:child_process';
 import { access } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
-import { RedisContainer, type StartedRedisContainer } from '@testcontainers/redis';
+import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
+import type { StartedRedisContainer } from '@testcontainers/redis';
 import { runHttpLoad, type HttpLoadRequest } from './http-load.js';
 import { runMigrations } from './migrate.js';
 import { assertEphemeralTarget } from '../src/harness/prod-guard.js';
@@ -429,6 +429,10 @@ async function startTarget(options: CliOptions): Promise<MemoryTarget> {
     let pg: StartedPostgreSqlContainer | undefined;
     let redis: StartedRedisContainer | undefined;
     try {
+      const [{ PostgreSqlContainer }, { RedisContainer }] = await Promise.all([
+        import('@testcontainers/postgresql'),
+        import('@testcontainers/redis'),
+      ]);
       pg = await new PostgreSqlContainer('postgres:16-alpine').start();
       redis = await new RedisContainer('redis:7-alpine').start();
       const databaseUrl = normalizePostgresUrl(pg.getConnectionUri());

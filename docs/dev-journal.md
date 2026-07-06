@@ -1191,7 +1191,7 @@ The validation packet should land against the same mainline that now includes th
 **Files changed:** `src/feed/request-tracker.ts`, `src/ingestion/jetstream.ts`, `src/harness/jetstream-replay.ts`, `src/harness/lab-artifacts.ts`, `scripts/jetstream-replay.ts`, `scripts/memory-isolated-stress.ts`, `scripts/vote-load.ts`, `tests/feed-request-tracker.test.ts`, `tests/jetstream-message-processing.test.ts`, `tests/jetstream-replay-harness.test.ts`, `tests/harness/lab-artifacts.test.ts`, `tests/memory-isolated-cli.test.ts`, `docs/lab/2026-07-05-corgi-ingestion-voting-validation.md`, `docs/RECSYS_VALIDATION_EVIDENCE.md`, `docs/STABILITY_TEST.md`, `docs/dev-journal.md`
 
 ### What changed
-Fixed the valid major findings emitted during the latest CodeRabbit stream: abort-aware feed-tracking tasks now count as timed out instead of completed, Jetstream cursor persistence is monotonic under overlapping saves, replay state expectations use fixture expected outcomes instead of observed outcomes, lab manifests are schema-validated before write, lab guard checks happen before `CORGI_SIM_ALLOW` defaults are set, container cleanup failures propagate, and memory CLI arguments are bounded/rejected explicitly.
+Fixed the valid major findings emitted during the latest CodeRabbit stream: abort-aware feed-tracking tasks now count as timed out instead of completed, Jetstream cursor persistence is monotonic under overlapping saves, replay state expectations use fixture expected outcomes instead of observed outcomes, lab manifests are schema-validated before write, lab guard checks happen before `CORGI_SIM_ALLOW` defaults are set, container cleanup failures propagate, and memory CLI arguments are bounded/rejected explicitly. The lab scripts also now import Testcontainers dynamically only inside the ephemeral-container path, so dry-run and non-ephemeral CLI paths do not require Testcontainers module loading.
 
 ### Why
 The previous lab receipts proved the main local gates, but several receipt-integrity edges could make a passing artifact less defensible than it looked. PROJ-1551 needs claims supported by quantitative receipts, so the gate code itself must fail loudly when validation assumptions are wrong.
@@ -1200,6 +1200,7 @@ The previous lab receipts proved the main local gates, but several receipt-integ
 - Focused receipt-integrity slice passed: 6 files / 71 tests.
 - `npm run build`: pass.
 - `npm run build:lab-memory`: pass.
+- Focused CLI/lab-script slice passed after dynamic Testcontainers import hardening: 5 files / 52 tests.
 - Full regression suite with dummy non-production env and local loopback/IPC permission passed: 97 files / 840 tests.
 - `npm run docs:verify`: pass, 14 tracked docs / 28 markdown files scanned.
 - `git diff --check`: pass.

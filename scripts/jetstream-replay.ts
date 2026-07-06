@@ -6,8 +6,8 @@
  */
 
 import path from 'node:path';
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
-import { RedisContainer, type StartedRedisContainer } from '@testcontainers/redis';
+import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
+import type { StartedRedisContainer } from '@testcontainers/redis';
 import { runMigrations } from './migrate.js';
 import { assertEphemeralTarget } from '../src/harness/prod-guard.js';
 import {
@@ -217,6 +217,10 @@ async function startTarget(options: CliOptions): Promise<ReplayTarget> {
     let pg: StartedPostgreSqlContainer | undefined;
     let redis: StartedRedisContainer | undefined;
     try {
+      const [{ PostgreSqlContainer }, { RedisContainer }] = await Promise.all([
+        import('@testcontainers/postgresql'),
+        import('@testcontainers/redis'),
+      ]);
       pg = await new PostgreSqlContainer('postgres:16-alpine').start();
       redis = await new RedisContainer('redis:7-alpine').start();
       const databaseUrl = normalizePostgresUrl(pg.getConnectionUri());
