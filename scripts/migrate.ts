@@ -7,6 +7,7 @@ import pg from 'pg';
 const { Client } = pg;
 const MIGRATIONS_DIR = path.resolve(process.cwd(), 'src/db/migrations');
 const MIGRATIONS_TABLE = 'schema_migrations';
+const NON_TRANSACTIONAL_MIGRATION_MARKER = '-- migrate: no-transaction';
 const LEGACY_MIGRATION_SENTINEL_TABLES = ['posts', 'governance_epochs', 'post_scores'] as const;
 
 const LEGACY_MIGRATION_PROBES: Record<string, string> = {
@@ -122,6 +123,10 @@ async function queryBoolean(client: pg.Client, sql: string): Promise<boolean> {
   return result.rows[0]?.applied === true;
 }
 
+export function shouldRunMigrationInTransaction(sql: string): boolean {
+  return !sql.includes(NON_TRANSACTIONAL_MIGRATION_MARKER);
+}
+
 export async function detectLegacySchema(client: pg.Client): Promise<boolean> {
   for (const tableName of LEGACY_MIGRATION_SENTINEL_TABLES) {
     const result = await client.query<{ exists: boolean }>(
@@ -208,6 +213,18 @@ export async function runMigrations(databaseUrl = process.env.DATABASE_URL): Pro
       const sql = await readFile(migrationPath, 'utf8');
 
       console.log(`[apply] ${filename}`);
+      if (!shouldRunMigrationInTransaction(sql)) {
+        try {
+          await client.query(sql);
+          await client.query(`INSERT INTO ${MIGRATIONS_TABLE} (filename) VALUES ($1)`, [filename]);
+          console.log(`[done] ${filename}`);
+        } catch (err) {
+          console.error(`[failed] ${filename}`);
+          throw err;
+        }
+        continue;
+      }
+
       await client.query('BEGIN');
       try {
         await client.query(sql);

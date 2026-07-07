@@ -1,12 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Client } from 'pg';
-import { bootstrapLegacyMigrations } from '../scripts/migrate.ts';
+import { bootstrapLegacyMigrations, shouldRunMigrationInTransaction } from '../scripts/migrate.ts';
 
 function asClient(queryImpl: Client['query']): Client {
   return { query: queryImpl } as unknown as Client;
 }
 
 describe('migration bootstrap for legacy schemas', () => {
+  it('detects migrations that must run outside transaction wrappers', () => {
+    expect(shouldRunMigrationInTransaction('CREATE TABLE example (id int);')).toBe(true);
+    expect(shouldRunMigrationInTransaction('-- migrate: no-transaction')).toBe(false);
+    expect(shouldRunMigrationInTransaction('SELECT 1;\n-- migrate: no-transaction')).toBe(false);
+    expect(shouldRunMigrationInTransaction('-- migrate: no-transaction\nCREATE INDEX CONCURRENTLY idx ON example(id);')).toBe(false);
+  });
+
   it('marks detected legacy migrations as applied when tracking table is empty', async () => {
     const inserted: string[] = [];
     const queryMock = vi.fn(async (sql: unknown, params?: unknown[]) => {

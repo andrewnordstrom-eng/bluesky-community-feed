@@ -29,7 +29,13 @@ describe('transparency routes current-run scoping', () => {
         rows: [{ value: { run_id: 'run-1', epoch_id: 2 } }],
       })
       .mockResolvedValueOnce({
-        rows: [{ total_posts: '10', unique_authors: '8', avg_bridging: '0.3', avg_engagement: '0.4', median_bridging: '0.25', median_total: '0.5' }],
+        rows: [{ total_posts: '10', unique_authors: '8', median_total: '0.5' }],
+      })
+      .mockResolvedValueOnce({
+        rows: [{ avg: '0.3', median: '0.25', count: '10' }],
+      })
+      .mockResolvedValueOnce({
+        rows: [{ avg: '0.4', median: '0.35', count: '10' }],
       })
       .mockResolvedValueOnce({ rows: [{ count: '5' }] })
       .mockResolvedValueOnce({ rows: [] });
@@ -44,6 +50,15 @@ describe('transparency routes current-run scoping', () => {
 
     expect(response.statusCode).toBe(200);
     expect(String(dbQueryMock.mock.calls[2]?.[0])).toContain("component_details->>'run_id'");
+
+    const scopedPostScoreCalls = dbQueryMock.mock.calls
+      .map((call) => String(call[0]))
+      .filter((query) => query.includes('FROM post_scores ps'));
+
+    expect(scopedPostScoreCalls.length).toBeGreaterThanOrEqual(3);
+    for (const query of scopedPostScoreCalls) {
+      expect(query).toContain("ps.component_details->>'run_id'");
+    }
 
     await app.close();
   });

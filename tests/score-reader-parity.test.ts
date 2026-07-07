@@ -299,6 +299,64 @@ describe('readEpochComponentStats parity', () => {
     expect(wide).toBeNull();
     expect(long).toBeNull();
   });
+
+  it('starts run-scoped long-table component stats from post_scores', async () => {
+    configMock.SCORE_LONGTABLE_READ_ENABLED = true;
+    dbQueryMock.mockResolvedValueOnce({
+      rows: [{ avg: '0.42', median: '0.40', count: '50' }],
+    });
+
+    const stats = await readEpochComponentStats({
+      epochId: EPOCH_ID,
+      componentKey: 'bridging',
+      runId: 'run-xyz',
+    });
+
+    const query = String(dbQueryMock.mock.calls[0]?.[0]);
+    expect(stats).toEqual({ avg: 0.42, median: 0.4, count: 50 });
+    expect(query).toContain('FROM post_scores ps');
+    expect(query).toContain('JOIN post_score_components psc');
+    expect(query).toContain("ps.component_details->>'run_id'");
+    expect(dbQueryMock.mock.calls[0]?.[1]).toEqual([EPOCH_ID, 'bridging', 'run-xyz']);
+  });
+
+  it('keeps unscoped long-table component stats on the component index path', async () => {
+    configMock.SCORE_LONGTABLE_READ_ENABLED = true;
+    dbQueryMock.mockResolvedValueOnce({
+      rows: [{ avg: '0.42', median: '0.40', count: '50' }],
+    });
+
+    const stats = await readEpochComponentStats({
+      epochId: EPOCH_ID,
+      componentKey: 'bridging',
+    });
+
+    const query = String(dbQueryMock.mock.calls[0]?.[0]);
+    expect(stats).toEqual({ avg: 0.42, median: 0.4, count: 50 });
+    expect(query).toContain('FROM post_score_components psc');
+    expect(query).not.toContain('FROM post_scores ps');
+    expect(query).not.toContain("component_details->>'run_id'");
+    expect(dbQueryMock.mock.calls[0]?.[1]).toEqual([EPOCH_ID, 'bridging']);
+  });
+
+  it('applies run scoping on the wide component stats path', async () => {
+    configMock.SCORE_LONGTABLE_READ_ENABLED = false;
+    dbQueryMock.mockResolvedValueOnce({
+      rows: [{ avg: '0.42', median: '0.40', count: '50' }],
+    });
+
+    const stats = await readEpochComponentStats({
+      epochId: EPOCH_ID,
+      componentKey: 'bridging',
+      runId: 'run-xyz',
+    });
+
+    const query = String(dbQueryMock.mock.calls[0]?.[0]);
+    expect(stats).toEqual({ avg: 0.42, median: 0.4, count: 50 });
+    expect(query).toContain('FROM post_scores');
+    expect(query).toContain("component_details->>'run_id'");
+    expect(dbQueryMock.mock.calls[0]?.[1]).toEqual([EPOCH_ID, 'run-xyz']);
+  });
 });
 
 // ────────────────────────────────────────────────────────────────────────────
