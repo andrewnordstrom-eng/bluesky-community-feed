@@ -15,11 +15,18 @@ import { config } from '../../config.js';
 import { db } from '../../db/client.js';
 import { logger } from '../../lib/logger.js';
 import { ErrorResponseSchema } from '../../lib/openapi.js';
+import { readEpochComponentStats } from '../../scoring/score-reader.js';
 import type { FeedStats } from '../transparency.types.js';
 
 interface CurrentScoringRunValue {
   run_id?: unknown;
   epoch_id?: unknown;
+}
+
+interface BaseFeedStatsRow {
+  total_posts: string;
+  unique_authors: string;
+  median_total: string | null;
 }
 
 async function getCurrentScoringRunScope(): Promise<{ runId: string; epochId: number } | null> {
@@ -125,50 +132,42 @@ export function registerFeedStatsRoute(app: FastifyInstance): void {
       const epochId = epoch.id;
       const runScope = await getCurrentScoringRunScope();
 
-      // Aggregate metrics for current epoch. The wide-column path is the
-      // original single-query aggregation; the long-table path uses FILTER
-      // expressions over post_score_components for per-component aggregates
-      // while keeping total_score / author_did on post_scores. Both paths
-      // emit one query that returns the same six fields.
-      const statsParams: unknown[] = [epochId];
+      // Keep feed-level stats on post_scores so the long-table read path does
+      // not multiply every score row by every component row. Per-component
+      // distributions are fetched below via the storage-agnostic score reader.
+      const baseStatsParams: unknown[] = [epochId];
       let runScopeClause = '';
       if (runScope && runScope.epochId === epochId) {
-        statsParams.push(runScope.runId);
-        runScopeClause = `AND ps.component_details->>'run_id' = $${statsParams.length}`;
+        baseStatsParams.push(runScope.runId);
+        runScopeClause = `AND ps.component_details->>'run_id' = $${baseStatsParams.length}`;
       }
 
-      const statsSql = config.SCORE_LONGTABLE_READ_ENABLED
-        ? `
-          SELECT
-            COUNT(DISTINCT ps.post_uri) as total_posts,
-            COUNT(DISTINCT p.author_did) as unique_authors,
-            AVG(psc.raw) FILTER (WHERE psc.component_key = 'bridging') as avg_bridging,
-            AVG(psc.raw) FILTER (WHERE psc.component_key = 'engagement') as avg_engagement,
-            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY psc.raw)
-              FILTER (WHERE psc.component_key = 'bridging') as median_bridging,
-            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ps.total_score) as median_total
-          FROM post_scores ps
-          JOIN posts p ON ps.post_uri = p.uri
-          LEFT JOIN post_score_components psc
-            ON psc.post_uri = ps.post_uri AND psc.epoch_id = ps.epoch_id
-          WHERE ps.epoch_id = $1
-            ${runScopeClause}
-          `
-        : `
-          SELECT
-            COUNT(*) as total_posts,
-            COUNT(DISTINCT p.author_did) as unique_authors,
-            AVG(ps.bridging_score) as avg_bridging,
-            AVG(ps.engagement_score) as avg_engagement,
-            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ps.bridging_score) as median_bridging,
-            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ps.total_score) as median_total
-          FROM post_scores ps
-          JOIN posts p ON ps.post_uri = p.uri
-          WHERE ps.epoch_id = $1
-            ${runScopeClause}
-          `;
+      const baseStatsResult = await db.query<BaseFeedStatsRow>(
+        `SELECT
+           COUNT(*)::text as total_posts,
+           COUNT(DISTINCT p.author_did)::text as unique_authors,
+           PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ps.total_score)::text as median_total
+         FROM post_scores ps
+         JOIN posts p ON ps.post_uri = p.uri
+         WHERE ps.epoch_id = $1
+           ${runScopeClause}`,
+        baseStatsParams
+      );
 
-      const statsResult = await db.query(statsSql, statsParams);
+      const componentStatsOptions = runScope && runScope.epochId === epochId
+        ? { epochId, runId: runScope.runId }
+        : { epochId };
+
+      const [bridgingStats, engagementStats] = await Promise.all([
+        readEpochComponentStats({
+          ...componentStatsOptions,
+          componentKey: 'bridging',
+        }),
+        readEpochComponentStats({
+          ...componentStatsOptions,
+          componentKey: 'engagement',
+        }),
+      ]);
 
       // Vote count for current epoch
       const voteCountResult = await db.query(
@@ -182,7 +181,7 @@ export function registerFeedStatsRoute(app: FastifyInstance): void {
         [epochId]
       );
 
-      const stats = statsResult.rows[0];
+      const stats = baseStatsResult.rows[0];
       const metrics = metricsResult.rows[0];
 
       const response: FeedStats = {
@@ -199,12 +198,12 @@ export function registerFeedStatsRoute(app: FastifyInstance): void {
           created_at: epoch.created_at,
         },
         feed_stats: {
-          total_posts_scored: parseInt(stats.total_posts, 10) || 0,
-          unique_authors: parseInt(stats.unique_authors, 10) || 0,
-          avg_bridging_score: parseFloat(stats.avg_bridging) || 0,
-          avg_engagement_score: parseFloat(stats.avg_engagement) || 0,
-          median_bridging_score: parseFloat(stats.median_bridging) || 0,
-          median_total_score: parseFloat(stats.median_total) || 0,
+          total_posts_scored: parseInt(stats?.total_posts ?? '0', 10) || 0,
+          unique_authors: parseInt(stats?.unique_authors ?? '0', 10) || 0,
+          avg_bridging_score: bridgingStats?.avg ?? 0,
+          avg_engagement_score: engagementStats?.avg ?? 0,
+          median_bridging_score: bridgingStats?.median ?? 0,
+          median_total_score: parseFloat(stats?.median_total ?? '0') || 0,
         },
         governance: {
           votes_this_epoch: parseInt(voteCountResult.rows[0].count, 10) || 0,

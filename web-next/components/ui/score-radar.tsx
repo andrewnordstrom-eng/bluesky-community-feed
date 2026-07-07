@@ -43,10 +43,10 @@ function GingerDot(props: {
 /* Custom tooltip */
 function RadarTooltip({ active, payload }: {
   active?: boolean
-  payload?: Array<{ name: string; value: number; dataKey: string }>
+  payload?: Array<{ name: string; value: number; dataKey: string; payload?: { label?: string } }>
 }) {
   if (!active || !payload?.length) return null
-  const label = payload[0]?.payload?.label as string | undefined
+  const label = payload[0]?.payload?.label
   return (
     <div className="rounded-lg border border-border bg-card shadow-md px-3 py-2 text-xs">
       <p className="font-semibold text-foreground mb-1.5">{label}</p>
