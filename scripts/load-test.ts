@@ -55,6 +55,7 @@ async function runLoadTest(): Promise<void> {
         path: testPath,
         headers: { Accept: 'application/json' },
         body: null,
+        expectedStatuses: [200],
       },
     ],
   });
@@ -86,21 +87,41 @@ async function runLoadTest(): Promise<void> {
   console.log(`  Total errors: ${result.errors}`);
   console.log(`  Timeouts: ${result.timeouts}`);
   console.log(`  Non-2xx responses: ${result.non2xx}`);
+  console.log(`  Unexpected statuses: ${result.unexpectedStatuses}`);
+  console.log(`  Status codes: ${JSON.stringify(result.statusCodes)}`);
   console.log('');
   console.log('='.repeat(60));
 
   // Evaluate pass/fail
-  const passed = result.latency.p95 <= P95_TARGET_MS;
+  const passed =
+    result.latency.p95 <= P95_TARGET_MS &&
+    result.errors === 0 &&
+    result.timeouts === 0 &&
+    result.non2xx === 0 &&
+    result.statusBuckets.s5xx === 0 &&
+    result.unexpectedStatuses === 0;
   if (passed) {
-    console.log(`\nPASS: p95 latency (${result.latency.p95}ms) is within target (<${P95_TARGET_MS}ms)`);
-    process.exit(0);
+    console.log(
+      `\nPASS: p95 latency (${result.latency.p95}ms) is within target (<${P95_TARGET_MS}ms) with zero errors, timeouts, non-2xx, or unexpected statuses`
+    );
+    process.exitCode = 0;
   } else {
-    console.log(`\nFAIL: p95 latency (${result.latency.p95}ms) exceeds target (<${P95_TARGET_MS}ms)`);
-    process.exit(1);
+    console.log(
+      `\nFAIL: gate miss; p95=${result.latency.p95}ms target=<${P95_TARGET_MS}ms errors=${result.errors} timeouts=${result.timeouts} non2xx=${result.non2xx} unexpectedStatuses=${result.unexpectedStatuses} s5xx=${result.statusBuckets.s5xx}`
+    );
+    process.exitCode = 1;
   }
 }
 
-runLoadTest().catch((err) => {
-  console.error('Load test failed:', err);
-  process.exit(1);
-});
+async function main(): Promise<never> {
+  try {
+    await runLoadTest();
+  } catch (err) {
+    console.error('Load test failed:', err);
+    process.exitCode = 1;
+  }
+
+  process.exit(process.exitCode ?? 0);
+}
+
+void main();

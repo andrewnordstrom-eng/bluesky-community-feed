@@ -1,12 +1,14 @@
 import Fastify from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { config } from '../../src/config.js';
 import { redis } from '../../src/db/redis.js';
 import { registerFeedSkeleton } from '../../src/feed/routes/feed-skeleton.js';
+import { clearCurrentFeedSnapshotMemoryCache } from '../../src/feed/snapshot-cache.js';
 import type { HttpLoadRequest } from '../../scripts/http-load.js';
 import { runHttpLoad } from '../../scripts/http-load.js';
 import { AssertionResult, ScenarioResult, makeJwt, nowIso, rssMb, summarizeAssertions } from './_helpers.js';
 
-interface FeedPassResult {
+export interface FeedPassResult {
   label: string;
   p50: number;
   p95: number;
@@ -37,7 +39,83 @@ interface NoopRedisPipeline {
   exec: () => Promise<[]>;
 }
 
-async function runLoad(baseUrl: string, validCursor: string | null, noOpRpush: boolean): Promise<FeedPassResult> {
+interface FeedSkeletonStressFixture {
+  app: FastifyInstance;
+  baseUrl: string;
+  validCursor: string | null;
+}
+
+async function listSnapshotKeys(): Promise<string[]> {
+  const keys: string[] = [];
+  let cursor = '0';
+  do {
+    const [nextCursor, batch] = await redis.scan(cursor, 'MATCH', 'snapshot:*', 'COUNT', '1000');
+    cursor = nextCursor;
+    keys.push(...batch);
+  } while (cursor !== '0');
+  return keys;
+}
+
+async function resetFeedSkeletonStressState(): Promise<void> {
+  clearCurrentFeedSnapshotMemoryCache();
+  const snapshotKeys = await listSnapshotKeys();
+  await redis.del('feed:current');
+  await redis.del('feed:request_log');
+  await redis.del('feed:current_snapshot_id');
+  await redis.del('feed:current_snapshot_generation');
+  for (let index = 0; index < snapshotKeys.length; index += 500) {
+    await redis.del(...snapshotKeys.slice(index, index + 500));
+  }
+}
+
+async function setupFeedSkeletonStressFixture(): Promise<FeedSkeletonStressFixture> {
+  const app = Fastify();
+  try {
+    registerFeedSkeleton(app);
+    const feedUri = `at://${config.FEEDGEN_PUBLISHER_DID}/app.bsky.feed.generator/community-gov`;
+
+    await app.listen({ host: '127.0.0.1', port: 0 });
+    const address = app.server.address();
+    if (address === null || typeof address === 'string') {
+      throw new Error(`feed skeleton stress server address was not a TCP address: ${String(address)}`);
+    }
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    await resetFeedSkeletonStressState();
+    await redis.set('feed:epoch', '1');
+
+    const pipeline = redis.pipeline();
+    for (let i = 0; i < 2000; i++) {
+      const score = 2000 - i;
+      const uri = `at://did:plc:feedstressauthor${i % 200}/app.bsky.feed.post/${i}`;
+      pipeline.zadd('feed:current', score, uri);
+    }
+    await pipeline.exec();
+
+    const seedResponse = await fetch(
+      `${baseUrl}/xrpc/app.bsky.feed.getFeedSkeleton?feed=${encodeURIComponent(feedUri)}&limit=50`
+    );
+    if (!seedResponse.ok) {
+      throw new Error(`feed skeleton stress seed request failed with status ${seedResponse.status}`);
+    }
+    const seedJson = (await seedResponse.json()) as { cursor?: string };
+    return {
+      app,
+      baseUrl,
+      validCursor: seedJson.cursor ?? null,
+    };
+  } catch (error: unknown) {
+    await app.close().catch(() => undefined);
+    throw error;
+  }
+}
+
+async function runLoad(
+  baseUrl: string,
+  validCursor: string | null,
+  noOpRpush: boolean,
+  amount: number,
+  connections: number
+): Promise<FeedPassResult> {
   const originalPipeline = redis.pipeline.bind(redis);
   if (noOpRpush) {
     (redis as unknown as { pipeline: () => NoopRedisPipeline }).pipeline = () => {
@@ -101,9 +179,9 @@ async function runLoad(baseUrl: string, validCursor: string | null, noOpRpush: b
   try {
     const result = await runHttpLoad({
       baseUrl,
-      amount: 10_000,
+      amount,
       durationMs: null,
-      connections: 100,
+      connections,
       timeoutMs: 30_000,
       requests,
     });
@@ -141,41 +219,74 @@ async function runLoad(baseUrl: string, validCursor: string | null, noOpRpush: b
   }
 }
 
+export async function runFeedSkeletonStressMode(
+  noOpRpush: boolean,
+  amount: number,
+  connections: number
+): Promise<ScenarioResult> {
+  const startedAt = nowIso();
+  const startMs = Date.now();
+  const assertions: AssertionResult[] = [];
+  const errors: string[] = [];
+  let app: FastifyInstance | null = null;
+
+  try {
+    const fixture = await setupFeedSkeletonStressFixture();
+    app = fixture.app;
+    const pass = await runLoad(fixture.baseUrl, fixture.validCursor, noOpRpush, amount, connections);
+    assertions.push({
+      name: `p95_below_100ms_${pass.label}`,
+      pass: pass.p95 < 100,
+      detail: `${pass.label} p95=${pass.p95}ms`,
+    });
+
+    return {
+      name: `feed-skeleton-load-${pass.label}`,
+      startedAt,
+      endedAt: nowIso(),
+      durationMs: Date.now() - startMs,
+      success: summarizeAssertions(assertions),
+      metrics: {
+        pass,
+      },
+      assertions,
+      errors,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    errors.push(message);
+    return {
+      name: noOpRpush ? 'feed-skeleton-load-rpush_noop' : 'feed-skeleton-load-rpush_normal',
+      startedAt,
+      endedAt: nowIso(),
+      durationMs: Date.now() - startMs,
+      success: false,
+      metrics: {},
+      assertions,
+      errors,
+    };
+  } finally {
+    try {
+      await app?.close();
+    } catch {
+      // ignore close errors in stress script
+    }
+  }
+}
+
 export async function runFeedSkeletonStress(): Promise<ScenarioResult> {
   const startedAt = nowIso();
   const startMs = Date.now();
   const assertions: AssertionResult[] = [];
   const errors: string[] = [];
-
-  const app = Fastify();
-  registerFeedSkeleton(app);
-  const feedUri = `at://${config.FEEDGEN_PUBLISHER_DID}/app.bsky.feed.generator/community-gov`;
-
-  const basePort = 3400 + Math.floor(Math.random() * 300);
-  await app.listen({ host: '127.0.0.1', port: basePort });
-  const baseUrl = `http://127.0.0.1:${basePort}`;
+  let app: FastifyInstance | null = null;
 
   try {
-    await redis.del('feed:current');
-    await redis.del('feed:request_log');
-    await redis.set('feed:epoch', '1');
+    const fixture = await setupFeedSkeletonStressFixture();
+    app = fixture.app;
 
-    const pipeline = redis.pipeline();
-    for (let i = 0; i < 2000; i++) {
-      const score = 2000 - i;
-      const uri = `at://did:plc:feedstressauthor${i % 200}/app.bsky.feed.post/${i}`;
-      pipeline.zadd('feed:current', score, uri);
-    }
-    await pipeline.exec();
-
-    const seedResponse = await fetch(
-      `${baseUrl}/xrpc/app.bsky.feed.getFeedSkeleton?feed=${encodeURIComponent(feedUri)}&limit=50`
-    );
-    const seedJson = (await seedResponse.json()) as { cursor?: string };
-    const validCursor = seedJson.cursor ?? null;
-
-    const normal = await runLoad(baseUrl, validCursor, false);
-    const noop = await runLoad(baseUrl, validCursor, true);
+    const normal = await runLoad(fixture.baseUrl, fixture.validCursor, false, 10_000, 100);
+    const noop = await runLoad(fixture.baseUrl, fixture.validCursor, true, 10_000, 100);
 
     assertions.push({
       name: 'p95_below_100ms_normal',
@@ -222,7 +333,7 @@ export async function runFeedSkeletonStress(): Promise<ScenarioResult> {
     };
   } finally {
     try {
-      await app.close();
+      await app?.close();
     } catch {
       // ignore close errors in stress script
     }

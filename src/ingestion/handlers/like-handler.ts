@@ -7,6 +7,7 @@
 
 import { db } from '../../db/client.js';
 import { logger } from '../../lib/logger.js';
+import type { IngestionEventOutcome } from '../outcomes.js';
 
 interface LikeRecord {
   subject?: {
@@ -16,17 +17,22 @@ interface LikeRecord {
   createdAt?: string;
 }
 
+interface LikeInsertOutcomeRow {
+  inserted?: boolean;
+  subjectExists?: boolean;
+}
+
 export async function handleLike(
   uri: string,
   authorDid: string,
   record: Record<string, unknown>
-): Promise<void> {
+): Promise<IngestionEventOutcome> {
   const likeRecord = record as LikeRecord;
 
   const subjectUri = likeRecord.subject?.uri;
   if (!subjectUri) {
     logger.warn({ uri }, 'Like missing subject URI');
-    return;
+    return 'like-missing-subject';
   }
 
   const createdAt = likeRecord.createdAt ?? new Date().toISOString();
@@ -34,17 +40,28 @@ export async function handleLike(
   try {
     // Insert like only if the referenced post exists in our system.
     // This filters out the vast majority of firehose likes (for posts we don't track).
-    const result = await db.query(
-      `INSERT INTO likes (uri, author_did, subject_uri, created_at)
-       SELECT $1, $2, $3, $4
-       WHERE EXISTS (SELECT 1 FROM posts WHERE uri = $3)
-       ON CONFLICT (uri) DO NOTHING
-       RETURNING uri`,
+    const result = await db.query<LikeInsertOutcomeRow>(
+      `WITH subject AS (
+         SELECT 1 FROM posts WHERE uri = $3 AND deleted = FALSE LIMIT 1
+       ),
+       inserted AS (
+         INSERT INTO likes (uri, author_did, subject_uri, created_at)
+         SELECT $1, $2, $3, $4
+         FROM subject
+         ON CONFLICT (uri) DO NOTHING
+         RETURNING uri
+       )
+       SELECT
+         EXISTS (SELECT 1 FROM inserted) AS "inserted",
+         EXISTS (SELECT 1 FROM subject) AS "subjectExists"`,
       [uri, authorDid, subjectUri, createdAt]
     );
+    const outcome = result.rows[0];
+    const inserted = outcome?.inserted === true;
+    const subjectExists = outcome?.subjectExists === true;
 
     // Only increment counter if this was a new insert (not a duplicate)
-    if (result.rowCount && result.rowCount > 0) {
+    if (inserted) {
       await db.query(
         `UPDATE post_engagement SET like_count = like_count + 1, updated_at = NOW()
          WHERE post_uri = $1`,
@@ -69,11 +86,16 @@ export async function handleLike(
            AND ea.engaged_at IS NULL`,
         [subjectUri, authorDid]
       ).catch((err) => logger.warn({ err, subjectUri }, 'Attribution update failed'));
+
+      logger.debug({ uri, subjectUri }, 'Like indexed');
+      return 'like-inserted';
     }
 
-    logger.debug({ uri, subjectUri }, 'Like indexed');
+    logger.debug({ uri, subjectUri, subjectExists }, 'Like skipped (duplicate or untracked subject)');
+    return subjectExists ? 'like-duplicate-noop' : 'like-untracked-ignored';
   } catch (err) {
     logger.error({ err, uri }, 'Failed to insert like');
     // Don't rethrow - log and continue processing other events
+    return 'like-handler-error';
   }
 }

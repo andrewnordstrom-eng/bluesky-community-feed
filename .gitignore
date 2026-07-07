@@ -3,6 +3,7 @@ node_modules/
 
 # Build output
 dist/
+dist-lab/
 
 # Environment files
 .env
@@ -67,6 +68,11 @@ test-results/
 
 # Research exports
 data/exports/
+artifacts/**
+!artifacts/
+!artifacts/lab/
+!artifacts/lab/README.md
+!artifacts/lab/manifest.schema.json
 
 # Local agent overlays
 /.agent-admission/

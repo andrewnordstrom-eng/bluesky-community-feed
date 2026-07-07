@@ -18,6 +18,7 @@ import {
   isJetstreamConnected,
   getJetstreamDisconnectedAt,
 } from '../../ingestion/jetstream.js';
+import { getSubscriberDigestUnavailableTotal } from '../../db/queries/subscribers.js';
 import { logger } from '../../lib/logger.js';
 import { adminSecurity } from '../../lib/openapi.js';
 
@@ -219,6 +220,7 @@ export function registerVitalsRoutes(app: FastifyInstance): void {
             total: parseInt(subscriberStats[0]?.total ?? '0', 10),
             active_24h: parseInt(subscriberStats[0]?.active_24h ?? '0', 10),
             active_7d: parseInt(subscriberStats[0]?.active_7d ?? '0', 10),
+            digest_unavailable_total: getSubscriberDigestUnavailableTotal(),
           }
         : null,
     };

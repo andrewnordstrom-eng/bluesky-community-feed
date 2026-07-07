@@ -10,6 +10,46 @@
 export { ScenarioV1Schema, PopulationConfigSchema, PersonaMixSchema, parseScenario } from './scenario.js';
 export type { Scenario, ScenarioV1, PopulationConfig, PersonaMix, ParseScenarioResult } from './scenario.js';
 
+export {
+  CAMPAIGN_STAGE_IDS,
+  SIMULATED_EPOCH_CAMPAIGN,
+  campaignManifest,
+  parseCampaignStageId,
+  scenarioForCampaignRun,
+  selectCampaignStages,
+  totalCampaignRuns,
+} from './campaign.js';
+export type {
+  CampaignManifest,
+  CampaignManifestStage,
+  CampaignSelection,
+  CampaignStage,
+  CampaignStageId,
+} from './campaign.js';
+
+export {
+  collectArtifactDescriptor,
+  collectGitBranch,
+  collectGitState,
+  collectRuntimeState,
+  createLabRunId,
+  ensureDirectory,
+  resolveLabRunDirectory,
+  sha256File,
+  sha256Text,
+  writeChecksums,
+  writeJsonArtifact,
+  writeLabManifest,
+} from './lab-artifacts.js';
+export type {
+  LabArtifactDescriptor,
+  LabClaim,
+  LabCommandReceipt,
+  LabGitState,
+  LabManifest,
+  LabRuntimeState,
+} from './lab-artifacts.js';
+
 export { Simulation } from './simulation.js';
 export type {
   SimulationDeps,

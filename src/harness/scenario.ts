@@ -52,9 +52,9 @@ export type PersonaMix = z.infer<typeof PersonaMixSchema>;
 export const PopulationConfigSchema = z
   .object({
     /** How many synthetic subscribers (governance voters) to seed. */
-    subscriberCount: z.number().int().min(1).max(2000).default(30),
+    subscriberCount: z.number().int().min(1).max(10_000).default(30),
     /** How many synthetic posts to seed into the scoring window. */
-    postCount: z.number().int().min(0).max(5000).default(50),
+    postCount: z.number().int().min(0).max(50_000).default(50),
     /** Fraction of subscribers who cast a weight vote (0..1). */
     voteParticipationRate: z.number().min(0).max(1).default(0.8),
     /** Fraction of voters who additionally cast a content (keyword) vote. */

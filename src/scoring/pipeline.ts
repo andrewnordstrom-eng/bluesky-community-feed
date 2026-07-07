@@ -14,6 +14,7 @@
 import { db } from '../db/client.js';
 import { redis } from '../db/redis.js';
 import { config } from '../config.js';
+import { invalidateCurrentFeedSnapshot } from '../feed/snapshot-cache.js';
 import { logger } from '../lib/logger.js';
 import { getActiveEpoch } from '../db/queries/epochs.js';
 import { randomUUID } from 'crypto';
@@ -52,6 +53,7 @@ let incrementalRunCount = 0;
 
 // Avoid repeated warnings when a rollout exposes a missing dynamic component weight.
 let missingWeightWarned = new Set<string>();
+let scoringRunInFlight: Promise<void> | null = null;
 
 /**
  * Get the timestamp of the last successful scoring run.
@@ -68,6 +70,7 @@ export function __resetPipelineState(): void {
   lastScoredEpochId = null;
   incrementalRunCount = 0;
   missingWeightWarned = new Set<string>();
+  scoringRunInFlight = null;
 }
 
 /**
@@ -75,17 +78,44 @@ export function __resetPipelineState(): void {
  * This is the main entry point called by the scheduler.
  */
 export async function runScoringPipeline(): Promise<void> {
+  if (scoringRunInFlight !== null) {
+    logger.warn('Scoring pipeline already running; skipping overlapping trigger');
+    return;
+  }
+
+  const scoringRun = runScoringPipelineInternal();
+  scoringRunInFlight = scoringRun;
+  void scoringRun.then(
+    () => {
+      if (scoringRunInFlight === scoringRun) {
+        scoringRunInFlight = null;
+      }
+    },
+    () => {
+      if (scoringRunInFlight === scoringRun) {
+        scoringRunInFlight = null;
+      }
+    }
+  );
+
+  let timeout: NodeJS.Timeout | null = null;
   const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(
+    timeout = setTimeout(
       () => reject(new Error('Scoring pipeline timed out')),
       SCORING_TIMEOUT_MS
     );
   });
 
-  await Promise.race([
-    runScoringPipelineInternal(),
-    timeoutPromise,
-  ]);
+  try {
+    await Promise.race([
+      scoringRun,
+      timeoutPromise,
+    ]);
+  } finally {
+    if (timeout !== null) {
+      clearTimeout(timeout);
+    }
+  }
 }
 
 /**
@@ -304,7 +334,7 @@ async function getPostsForScoring(contentRules: ContentRules): Promise<PostForSc
   const cutoffMs = config.SCORING_WINDOW_HOURS * 60 * 60 * 1000;
   const cutoff = new Date(Date.now() - cutoffMs);
 
-  const clauses: string[] = ['p.deleted = FALSE', 'p.created_at > $1'];
+  const clauses: string[] = ['p.deleted = FALSE', 'p.created_at > $1', 'p.created_at <= NOW()'];
   const params: unknown[] = [cutoff.toISOString()];
 
   if (contentRules.includeKeywords.length > 0) {
@@ -451,6 +481,7 @@ async function getPostsForIncrementalScoring(
       LEFT JOIN post_scores ps ON p.uri = ps.post_uri AND ps.epoch_id = $2
       WHERE p.deleted = FALSE
         AND p.created_at > $1
+        AND p.created_at <= NOW()
         AND ps.post_uri IS NULL
         ${offsetContentFilterSql}
       ORDER BY p.created_at DESC
@@ -469,6 +500,7 @@ async function getPostsForIncrementalScoring(
       INNER JOIN post_scores ps ON p.uri = ps.post_uri AND ps.epoch_id = $2
       WHERE p.deleted = FALSE
         AND p.created_at > $1
+        AND p.created_at <= NOW()
         AND pe.updated_at > ps.scored_at
         ${offsetContentFilterSql}
       ORDER BY p.created_at DESC
@@ -722,6 +754,7 @@ async function writeToRedisFromDb(epochId: number, runId: string): Promise<void>
      WHERE ps.epoch_id = $1
        AND p.deleted = FALSE
        AND p.created_at > $3
+       AND p.created_at <= NOW()
        AND ps.relevance_score >= $4
      ORDER BY ps.total_score DESC
      LIMIT $2`,
@@ -771,7 +804,7 @@ async function writeToRedisFromDb(epochId: number, runId: string): Promise<void>
   // Use Redis pipeline for atomic batch write
   const pipeline = redis.pipeline();
 
-  // Delete old feed
+  // Delete old feed; invalidate the shared pagination snapshot only after the write is durable.
   pipeline.del('feed:current');
 
   // Add all posts to sorted set (score = total_score)
@@ -786,6 +819,11 @@ async function writeToRedisFromDb(epochId: number, runId: string): Promise<void>
   pipeline.set('feed:count', topPosts.length.toString());
 
   await pipeline.exec();
+  try {
+    await invalidateCurrentFeedSnapshot();
+  } catch (err) {
+    logger.warn({ err, epochId, runId }, 'Failed to invalidate current feed snapshot cache after feed write');
+  }
 
   if (topPosts.length === 0) {
     logger.info({ epochId }, 'Feed cleared in Redis due to empty scoring result');

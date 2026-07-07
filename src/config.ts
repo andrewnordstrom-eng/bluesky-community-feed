@@ -23,7 +23,7 @@ function zodEnvBool(defaultValue: boolean) {
   );
 }
 
-const ConfigSchema = z.object({
+export const ConfigSchema = z.object({
   // Identity
   FEEDGEN_SERVICE_DID: z.string().startsWith('did:'),
   FEEDGEN_PUBLISHER_DID: z.string().startsWith('did:'),
@@ -43,6 +43,7 @@ const ConfigSchema = z.object({
 
   // Redis
   REDIS_URL: z.string().startsWith('redis://'),
+  REDIS_COMMAND_TIMEOUT_MS: z.coerce.number().int().min(100).default(5_000),
 
   // Feed requester JWT verification
   FEED_JWT_AUDIENCE: z.string().default(''),
@@ -56,7 +57,7 @@ const ConfigSchema = z.object({
   SCORING_FULL_RESCORE_INTERVAL: z.coerce.number().int().min(1).default(6),
   SCORING_CANDIDATE_LIMIT: z.coerce.number().min(100).default(5_000),
   SCORING_TIMEOUT_MS: z.coerce.number().min(30_000).default(240_000),
-  FEED_MAX_POSTS: z.coerce.number().default(1000),
+  FEED_MAX_POSTS: z.coerce.number().int().min(1).default(1000),
   /**
    * Dual-write post score decomposition into the long-table post_score_components
    * (migration 021) in addition to the wide columns in post_scores. Default on once

@@ -248,7 +248,7 @@ async function ensureActiveTopics(db: QueryableDb, slugs: readonly string[]): Pr
 /** Max rows per batched `INSERT ... VALUES (...),(...)` — keeps a single
  *  query's parameter count (`rows * columnsPerRow`) well under Postgres's
  *  65535 bound and query text to a sane size, even at this harness's max
- *  population sizes (2000 subscribers / 5000 posts). */
+ *  population sizes (10000 subscribers / 50000 posts). */
 const INSERT_BATCH_SIZE = 500;
 
 /** Max concurrent `writeVoteWeights` dual-writes in flight. Each is an
