@@ -11,7 +11,13 @@ const MAX_QUEUED = 20_000;
 const SCHEDULE_DELAY_MS = 0;
 const DROP_WARNING_INTERVAL_MS = 60_000;
 const TASK_WARNING_INTERVAL_MS = 60_000;
-export const FEED_REQUEST_TRACKER_TASK_TIMEOUT_MS = 30_000;
+const BACKEND_SATURATION_WARNING_INTERVAL_MS = 60_000;
+const DB_STATEMENT_TIMEOUT_HEADROOM_MS = 1_000;
+export const FEED_REQUEST_TRACKER_TASK_TIMEOUT_MS = Math.max(
+  30_000,
+  config.DB_STATEMENT_TIMEOUT + DB_STATEMENT_TIMEOUT_HEADROOM_MS
+);
+export const FEED_REQUEST_TRACKER_MAX_ABANDONED_BACKEND_OPS = FEED_REQUEST_TRACKER_MAX_IN_FLIGHT;
 let taskTimeoutMs = FEED_REQUEST_TRACKER_TASK_TIMEOUT_MS;
 
 type TrackingTask = (signal: AbortSignal) => Promise<void>;
@@ -31,8 +37,12 @@ export interface FeedRequestTrackerStats {
   failed: number;
   timedOut: number;
   dropped: number;
+  backendSaturationDropped: number;
+  abandonedBackendOps: number;
+  abandonedBackendOpsTotal: number;
   maxQueuedObserved: number;
   maxInFlightObserved: number;
+  maxAbandonedBackendOpsObserved: number;
 }
 
 interface DrainWaiter {
@@ -52,8 +62,12 @@ const stats: FeedRequestTrackerStats = {
   failed: 0,
   timedOut: 0,
   dropped: 0,
+  backendSaturationDropped: 0,
+  abandonedBackendOps: 0,
+  abandonedBackendOpsTotal: 0,
   maxQueuedObserved: 0,
   maxInFlightObserved: 0,
+  maxAbandonedBackendOpsObserved: 0,
 };
 
 let scheduled = false;
@@ -63,6 +77,8 @@ let timeoutWarningArmed = true;
 let lastTimeoutWarningAtMs = 0;
 let failureWarningArmed = true;
 let lastFailureWarningAtMs = 0;
+let backendSaturationWarningArmed = true;
+let lastBackendSaturationWarningAtMs = 0;
 
 function queuedLength(): number {
   return queue.length - queueHead;
@@ -96,8 +112,12 @@ function snapshotStats(): FeedRequestTrackerStats {
     failed: stats.failed,
     timedOut: stats.timedOut,
     dropped: stats.dropped,
+    backendSaturationDropped: stats.backendSaturationDropped,
+    abandonedBackendOps: stats.abandonedBackendOps,
+    abandonedBackendOpsTotal: stats.abandonedBackendOpsTotal,
     maxQueuedObserved: stats.maxQueuedObserved,
     maxInFlightObserved: stats.maxInFlightObserved,
+    maxAbandonedBackendOpsObserved: stats.maxAbandonedBackendOpsObserved,
   };
 }
 
@@ -105,10 +125,14 @@ function updateDepthStats(): void {
   stats.queued = queuedLength();
   stats.maxQueuedObserved = Math.max(stats.maxQueuedObserved, stats.queued);
   stats.maxInFlightObserved = Math.max(stats.maxInFlightObserved, stats.inFlight);
+  stats.maxAbandonedBackendOpsObserved = Math.max(
+    stats.maxAbandonedBackendOpsObserved,
+    stats.abandonedBackendOps
+  );
 }
 
 function resolveDrainWaitersIfIdle(): void {
-  if (queuedLength() > 0 || stats.inFlight > 0) {
+  if (queuedLength() > 0 || stats.inFlight > 0 || stats.abandonedBackendOps > 0) {
     return;
   }
 
@@ -119,31 +143,49 @@ function resolveDrainWaitersIfIdle(): void {
   }
 }
 
+function maybeWarnOnBackendSaturation(operationName: string): void {
+  const nowMs = Date.now();
+  if (!backendSaturationWarningArmed && nowMs - lastBackendSaturationWarningAtMs < BACKEND_SATURATION_WARNING_INTERVAL_MS) {
+    return;
+  }
+
+  backendSaturationWarningArmed = false;
+  lastBackendSaturationWarningAtMs = nowMs;
+  logger.warn(
+    {
+      operationName,
+      abandonedBackendOps: stats.abandonedBackendOps,
+      abandonedBackendOpsTotal: stats.abandonedBackendOpsTotal,
+      backendSaturationDropped: stats.backendSaturationDropped,
+      maxAbandonedBackendOps: FEED_REQUEST_TRACKER_MAX_ABANDONED_BACKEND_OPS,
+    },
+    'Feed request tracking backend operations are saturated'
+  );
+}
+
 function runTask(task: TrackingTask): void {
   stats.inFlight += 1;
   updateDepthStats();
   const abortController = new AbortController();
   let timeout: NodeJS.Timeout | null = null;
-  const timeoutPromise = new Promise<never>((_resolve, reject) => {
-    timeout = setTimeout(() => {
-      const error = new FeedRequestTrackingTimeoutError(taskTimeoutMs);
-      reject(error);
-      abortController.abort(error);
-    }, taskTimeoutMs);
-  });
+  let timedOut = false;
+  timeout = setTimeout(() => {
+    timedOut = true;
+    const error = new FeedRequestTrackingTimeoutError(taskTimeoutMs);
+    abortController.abort(error);
+    stats.timedOut += 1;
+    maybeWarnOnTaskError(error, 'timeout');
+  }, taskTimeoutMs);
 
   void Promise.resolve()
-    .then(() => Promise.race([task(abortController.signal), timeoutPromise]))
+    .then(() => task(abortController.signal))
     .then(() => {
-      stats.completed += 1;
-      timeoutWarningArmed = true;
-      failureWarningArmed = true;
+      if (!timedOut) {
+        stats.completed += 1;
+      }
     })
     .catch((error: unknown) => {
-      if (error instanceof FeedRequestTrackingTimeoutError) {
-        stats.timedOut += 1;
-        maybeWarnOnTaskError(error, 'timeout');
-      } else {
+      if (!timedOut) {
         stats.failed += 1;
         maybeWarnOnTaskError(error, 'failure');
       }
@@ -154,6 +196,11 @@ function runTask(task: TrackingTask): void {
       }
       stats.inFlight -= 1;
       updateDepthStats();
+      if (queuedLength() === 0 && stats.inFlight === 0 && stats.abandonedBackendOps === 0) {
+        timeoutWarningArmed = true;
+        failureWarningArmed = true;
+        backendSaturationWarningArmed = true;
+      }
       drainQueue();
       resolveDrainWaitersIfIdle();
     });
@@ -223,6 +270,14 @@ function maybeWarnOnTaskError(error: unknown, warningKind: 'timeout' | 'failure'
 }
 
 export function enqueueFeedRequestTracking(task: TrackingTask): boolean {
+  if (stats.abandonedBackendOps >= FEED_REQUEST_TRACKER_MAX_ABANDONED_BACKEND_OPS) {
+    stats.dropped += 1;
+    stats.backendSaturationDropped += 1;
+    updateDepthStats();
+    maybeWarnOnBackendSaturation('enqueueFeedRequestTracking');
+    return false;
+  }
+
   if (queuedLength() >= MAX_QUEUED) {
     stats.dropped += 1;
     updateDepthStats();
@@ -237,6 +292,34 @@ export function enqueueFeedRequestTracking(task: TrackingTask): boolean {
   return true;
 }
 
+export function noteFeedRequestTrackingAbandonedBackendOperation(operationName: string): () => void {
+  if (operationName.length === 0) {
+    throw new RangeError('operationName must be non-empty');
+  }
+
+  let settled = false;
+  stats.abandonedBackendOps += 1;
+  stats.abandonedBackendOpsTotal += 1;
+  updateDepthStats();
+  if (stats.abandonedBackendOps >= FEED_REQUEST_TRACKER_MAX_ABANDONED_BACKEND_OPS) {
+    maybeWarnOnBackendSaturation(operationName);
+  }
+
+  return () => {
+    if (settled) {
+      return;
+    }
+    settled = true;
+    stats.abandonedBackendOps -= 1;
+    updateDepthStats();
+    if (queuedLength() === 0 && stats.inFlight === 0 && stats.abandonedBackendOps === 0) {
+      backendSaturationWarningArmed = true;
+    }
+    drainQueue();
+    resolveDrainWaitersIfIdle();
+  };
+}
+
 export function getFeedRequestTrackerStats(): FeedRequestTrackerStats {
   return snapshotStats();
 }
@@ -246,7 +329,7 @@ export async function drainFeedRequestTracker(timeoutMs: number): Promise<FeedRe
     throw new RangeError(`timeoutMs must be a positive integer; received ${timeoutMs}`);
   }
 
-  if (queuedLength() === 0 && stats.inFlight === 0) {
+  if (queuedLength() === 0 && stats.inFlight === 0 && stats.abandonedBackendOps === 0) {
     return snapshotStats();
   }
 
@@ -266,7 +349,7 @@ export async function drainFeedRequestTracker(timeoutMs: number): Promise<FeedRe
 }
 
 export function __resetFeedRequestTrackerForTests(): void {
-  if (queuedLength() > 0 || stats.inFlight > 0) {
+  if (queuedLength() > 0 || stats.inFlight > 0 || stats.abandonedBackendOps > 0) {
     throw new Error(`cannot reset active feed request tracker: ${JSON.stringify(snapshotStats())}`);
   }
 
@@ -279,8 +362,12 @@ export function __resetFeedRequestTrackerForTests(): void {
   stats.failed = 0;
   stats.timedOut = 0;
   stats.dropped = 0;
+  stats.backendSaturationDropped = 0;
+  stats.abandonedBackendOps = 0;
+  stats.abandonedBackendOpsTotal = 0;
   stats.maxQueuedObserved = 0;
   stats.maxInFlightObserved = 0;
+  stats.maxAbandonedBackendOpsObserved = 0;
   taskTimeoutMs = FEED_REQUEST_TRACKER_TASK_TIMEOUT_MS;
   scheduled = false;
   dropWarningArmed = true;
@@ -289,6 +376,8 @@ export function __resetFeedRequestTrackerForTests(): void {
   lastTimeoutWarningAtMs = 0;
   failureWarningArmed = true;
   lastFailureWarningAtMs = 0;
+  backendSaturationWarningArmed = true;
+  lastBackendSaturationWarningAtMs = 0;
 }
 
 export function __setFeedRequestTrackerTaskTimeoutForTests(timeoutMs: number): void {

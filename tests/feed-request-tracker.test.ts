@@ -11,12 +11,14 @@ vi.mock('../src/lib/logger.js', () => ({
 }));
 
 import {
+  FEED_REQUEST_TRACKER_MAX_ABANDONED_BACKEND_OPS,
   FEED_REQUEST_TRACKER_MAX_IN_FLIGHT,
   __resetFeedRequestTrackerForTests,
   __setFeedRequestTrackerTaskTimeoutForTests,
   drainFeedRequestTracker,
   enqueueFeedRequestTracking,
   getFeedRequestTrackerStats,
+  noteFeedRequestTrackingAbandonedBackendOperation,
 } from '../src/feed/request-tracker.js';
 
 describe('feed request tracker', () => {
@@ -77,6 +79,23 @@ describe('feed request tracker', () => {
     expect(stats.inFlight).toBe(0);
   });
 
+  it('re-arms failure warnings after failed work drains to idle', async () => {
+    const firstAccepted = enqueueFeedRequestTracking(async () => {
+      throw new Error('first tracking write failed');
+    });
+    expect(firstAccepted).toBe(true);
+    await drainFeedRequestTracker(1000);
+
+    const secondAccepted = enqueueFeedRequestTracking(async () => {
+      throw new Error('second tracking write failed');
+    });
+    expect(secondAccepted).toBe(true);
+    await drainFeedRequestTracker(1000);
+
+    const failureWarnings = loggerWarnMock.mock.calls.filter((call) => call[1] === 'Feed request tracking task failed');
+    expect(failureWarnings).toHaveLength(2);
+  });
+
   it('resolves immediately when already idle', async () => {
     const stats = await drainFeedRequestTracker(1);
     expect(stats.queued).toBe(0);
@@ -108,13 +127,14 @@ describe('feed request tracker', () => {
     await drainFeedRequestTracker(1000);
   });
 
-  it('times out and aborts hanging tasks, releases the slot, and accepts later work', async () => {
+  it('times out and aborts hanging tasks, then releases the slot after settlement', async () => {
     __setFeedRequestTrackerTaskTimeoutForTests(5);
     let observedSignal: AbortSignal | null = null;
     const accepted = enqueueFeedRequestTracking(
       (signal) =>
-        new Promise<void>(() => {
+        new Promise<void>((resolve) => {
           observedSignal = signal;
+          signal.addEventListener('abort', () => resolve(), { once: true });
         })
     );
     expect(accepted).toBe(true);
@@ -141,6 +161,65 @@ describe('feed request tracker', () => {
     expect(recoveredStats.inFlight).toBe(0);
   });
 
+  it('holds a timed-out slot until the underlying task settles', async () => {
+    __setFeedRequestTrackerTaskTimeoutForTests(5);
+    let releaseTask: (() => void) | null = null;
+    const accepted = enqueueFeedRequestTracking(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseTask = resolve;
+        })
+    );
+    expect(accepted).toBe(true);
+
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 20);
+    });
+
+    const timedOutStats = getFeedRequestTrackerStats();
+    expect(timedOutStats.timedOut).toBe(1);
+    expect(timedOutStats.inFlight).toBe(1);
+    await expect(drainFeedRequestTracker(1)).rejects.toThrow(/did not drain/);
+
+    releaseTask?.();
+    const drainedStats = await drainFeedRequestTracker(1000);
+    expect(drainedStats.timedOut).toBe(1);
+    expect(drainedStats.completed).toBe(0);
+    expect(drainedStats.inFlight).toBe(0);
+  });
+
+  it('treats late task rejection after timeout as timeout-only', async () => {
+    __setFeedRequestTrackerTaskTimeoutForTests(5);
+    let rejectTask: ((error: Error) => void) | null = null;
+    const accepted = enqueueFeedRequestTracking(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectTask = reject;
+        })
+    );
+    expect(accepted).toBe(true);
+
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 20);
+    });
+    expect(getFeedRequestTrackerStats()).toMatchObject({
+      timedOut: 1,
+      failed: 0,
+      inFlight: 1,
+    });
+
+    rejectTask?.(new Error('late tracking write failure'));
+    const drainedStats = await drainFeedRequestTracker(1000);
+
+    expect(drainedStats.timedOut).toBe(1);
+    expect(drainedStats.failed).toBe(0);
+    expect(drainedStats.inFlight).toBe(0);
+    expect(loggerWarnMock.mock.calls.filter((call) => call[1] === 'Feed request tracking task timed out')).toHaveLength(
+      1
+    );
+    expect(loggerWarnMock.mock.calls.filter((call) => call[1] === 'Feed request tracking task failed')).toHaveLength(0);
+  });
+
   it('records abort-aware task resolution as a timeout, not a completion', async () => {
     __setFeedRequestTrackerTaskTimeoutForTests(5);
     const accepted = enqueueFeedRequestTracking(
@@ -159,14 +238,38 @@ describe('feed request tracker', () => {
     expect(stats.inFlight).toBe(0);
   });
 
+  it('re-arms timeout warnings after timed-out work drains to idle', async () => {
+    __setFeedRequestTrackerTaskTimeoutForTests(5);
+    const firstAccepted = enqueueFeedRequestTracking(
+      (signal) =>
+        new Promise<void>((resolve) => {
+          signal.addEventListener('abort', () => resolve(), { once: true });
+        })
+    );
+    expect(firstAccepted).toBe(true);
+    await drainFeedRequestTracker(1000);
+
+    const secondAccepted = enqueueFeedRequestTracking(
+      (signal) =>
+        new Promise<void>((resolve) => {
+          signal.addEventListener('abort', () => resolve(), { once: true });
+        })
+    );
+    expect(secondAccepted).toBe(true);
+    await drainFeedRequestTracker(1000);
+
+    const timeoutWarnings = loggerWarnMock.mock.calls.filter((call) => call[1] === 'Feed request tracking task timed out');
+    expect(timeoutWarnings).toHaveLength(2);
+  });
+
   it('starts queued work after timed-out tasks release concurrency slots', async () => {
     __setFeedRequestTrackerTaskTimeoutForTests(5);
     let lateTaskStarted = false;
     for (let index = 0; index < FEED_REQUEST_TRACKER_MAX_IN_FLIGHT; index += 1) {
       const accepted = enqueueFeedRequestTracking(
-        () =>
-          new Promise<void>(() => {
-            // Intentionally never resolves.
+        (signal) =>
+          new Promise<void>((resolve) => {
+            signal.addEventListener('abort', () => resolve(), { once: true });
           })
       );
       expect(accepted).toBe(true);
@@ -353,6 +456,51 @@ describe('feed request tracker', () => {
       setTimeout(resolve, 0);
     });
     resolveTask?.();
+    await drainFeedRequestTracker(1000);
+  });
+
+  it('keeps abandoned backend operations in drain and reset gates until settlement', async () => {
+    const releaseBackendOperation = noteFeedRequestTrackingAbandonedBackendOperation('test.backend.operation');
+
+    expect(getFeedRequestTrackerStats()).toMatchObject({
+      abandonedBackendOps: 1,
+      abandonedBackendOpsTotal: 1,
+      maxAbandonedBackendOpsObserved: 1,
+    });
+    await expect(drainFeedRequestTracker(1)).rejects.toThrow(/did not drain/);
+    expect(() => __resetFeedRequestTrackerForTests()).toThrow(/cannot reset active/);
+
+    releaseBackendOperation();
+    const drainedStats = await drainFeedRequestTracker(1000);
+    expect(drainedStats.abandonedBackendOps).toBe(0);
+    expect(drainedStats.abandonedBackendOpsTotal).toBe(1);
+    expect(drainedStats.maxAbandonedBackendOpsObserved).toBe(1);
+  });
+
+  it('drops tracking tasks while abandoned backend operations are saturated', async () => {
+    const releaseBackendOperations: Array<() => void> = [];
+    for (let index = 0; index < FEED_REQUEST_TRACKER_MAX_ABANDONED_BACKEND_OPS; index += 1) {
+      releaseBackendOperations.push(noteFeedRequestTrackingAbandonedBackendOperation(`test.backend.operation.${index}`));
+    }
+
+    const accepted = enqueueFeedRequestTracking(async () => undefined);
+    expect(accepted).toBe(false);
+    expect(getFeedRequestTrackerStats()).toMatchObject({
+      abandonedBackendOps: FEED_REQUEST_TRACKER_MAX_ABANDONED_BACKEND_OPS,
+      backendSaturationDropped: 1,
+      dropped: 1,
+    });
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        abandonedBackendOps: FEED_REQUEST_TRACKER_MAX_ABANDONED_BACKEND_OPS,
+        maxAbandonedBackendOps: FEED_REQUEST_TRACKER_MAX_ABANDONED_BACKEND_OPS,
+      }),
+      'Feed request tracking backend operations are saturated'
+    );
+
+    for (const releaseBackendOperation of releaseBackendOperations) {
+      releaseBackendOperation();
+    }
     await drainFeedRequestTracker(1000);
   });
 

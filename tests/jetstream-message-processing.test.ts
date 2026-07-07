@@ -29,6 +29,35 @@ vi.mock('../src/ingestion/event-processor.js', () => ({
 
 import { __testJetstreamQueue, clearJetstreamFailedCursorPins } from '../src/ingestion/jetstream.js';
 
+function identityMessage(did: string, timeUs: number): Buffer {
+  return Buffer.from(JSON.stringify({ did, time_us: timeUs, kind: 'identity' }), 'utf8');
+}
+
+function postCommitMessage(did: string, timeUs: number, rkey: string): Buffer {
+  return Buffer.from(
+    JSON.stringify({
+      did,
+      time_us: timeUs,
+      kind: 'commit',
+      commit: {
+        rev: `rev-${rkey}`,
+        cid: `cid-${rkey}`,
+        operation: 'create',
+        collection: 'app.bsky.feed.post',
+        rkey,
+        record: { text: `post ${rkey}` },
+      },
+    }),
+    'utf8'
+  );
+}
+
+function deadLetterInsertCalls(): unknown[][] {
+  return dbQueryMock.mock.calls.filter(([query]) =>
+    String(query).includes('INSERT INTO jetstream_failed_cursor_dead_letters')
+  );
+}
+
 describe('Jetstream message processing', () => {
   beforeEach(() => {
     dbQueryMock.mockReset();
@@ -41,6 +70,7 @@ describe('Jetstream message processing', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     __testJetstreamQueue.reset();
   });
 
@@ -185,7 +215,7 @@ describe('Jetstream message processing', () => {
     }
 
     const failedResult = await __testJetstreamQueue.processMessage(
-      Buffer.from(JSON.stringify({ did: 'did:plc:cursor-user', time_us: 1000, kind: 'identity' }), 'utf8')
+      postCommitMessage('did:plc:cursor-user', 1000, 'failed-post')
     );
     const newerResult = await __testJetstreamQueue.processMessage(
       Buffer.from(JSON.stringify({ did: 'did:plc:cursor-user', time_us: 1001, kind: 'identity' }), 'utf8')
@@ -200,6 +230,433 @@ describe('Jetstream message processing', () => {
     });
     expect(dbQueryMock).toHaveBeenCalledTimes(1);
     expect(dbQueryMock.mock.calls[0]?.[1]).toEqual(['999']);
+  });
+
+  it('does not advance the persisted cursor beyond a resolved handler-error outcome', async () => {
+    dbQueryMock.mockResolvedValue({ rowCount: 1, rows: [] });
+    processEventMock.mockImplementation((event: { time_us?: number }) => {
+      if (event.time_us === 1000) {
+        return Promise.resolve('post-handler-error');
+      }
+      return Promise.resolve('non-commit-ignored');
+    });
+
+    for (let index = 1; index <= 999; index += 1) {
+      await __testJetstreamQueue.processMessage(
+        Buffer.from(JSON.stringify({ did: 'did:plc:cursor-user', time_us: index, kind: 'identity' }), 'utf8')
+      );
+    }
+
+    const failedResult = await __testJetstreamQueue.processMessage(
+      Buffer.from(JSON.stringify({ did: 'did:plc:cursor-user', time_us: 1000, kind: 'identity' }), 'utf8')
+    );
+    const newerResult = await __testJetstreamQueue.processMessage(
+      Buffer.from(JSON.stringify({ did: 'did:plc:cursor-user', time_us: 1001, kind: 'identity' }), 'utf8')
+    );
+
+    expect(failedResult.processed).toBe(false);
+    expect(failedResult.ingestionOutcome).toBe('post-handler-error');
+    expect(failedResult.errorMessage).toBe('post-handler-error');
+    expect(newerResult.cursorSaved).toBe(true);
+    expect(newerResult.cursorUs).toBe('999');
+    expect(__testJetstreamQueue.getCursorState()).toEqual({
+      eventCounter: 0,
+      lastCursorUs: '999',
+    });
+    expect(dbQueryMock).toHaveBeenCalledTimes(1);
+    expect(dbQueryMock.mock.calls[0]?.[1]).toEqual(['999']);
+  });
+
+  it('keeps a failed duplicate cursor timestamp pinned when a different event at that timestamp succeeds', async () => {
+    dbQueryMock.mockResolvedValue({ rowCount: 1, rows: [] });
+    const cursorSaveInterval = __testJetstreamQueue.cursorSaveInterval;
+    const duplicateCursor = cursorSaveInterval;
+    let failedDuplicateAttempts = 0;
+    processEventMock.mockImplementation((event: { commit?: { rkey?: string } }) => {
+      if (event.commit?.rkey === 'failed-duplicate') {
+        failedDuplicateAttempts += 1;
+        if (failedDuplicateAttempts > 1) {
+          return Promise.resolve('non-commit-ignored');
+        }
+        return Promise.resolve('post-handler-error');
+      }
+      return Promise.resolve('non-commit-ignored');
+    });
+
+    for (let index = 1; index < cursorSaveInterval; index += 1) {
+      await __testJetstreamQueue.processMessage(identityMessage('did:plc:cursor-user', index));
+    }
+
+    const failedDuplicateResult = await __testJetstreamQueue.processMessage(
+      postCommitMessage('did:plc:cursor-user', duplicateCursor, 'failed-duplicate')
+    );
+    const successfulDuplicateResult = await __testJetstreamQueue.processMessage(
+      postCommitMessage('did:plc:cursor-user', duplicateCursor, 'successful-duplicate')
+    );
+    const replayedFailedDuplicateResult = await __testJetstreamQueue.processMessage(
+      postCommitMessage('did:plc:cursor-user', duplicateCursor, 'failed-duplicate')
+    );
+
+    expect(failedDuplicateResult.processed).toBe(false);
+    expect(failedDuplicateResult.ingestionOutcome).toBe('post-handler-error');
+    expect(successfulDuplicateResult.processed).toBe(true);
+    expect(successfulDuplicateResult.cursorSaved).toBe(true);
+    expect(successfulDuplicateResult.cursorUs).toBe(String(cursorSaveInterval - 1));
+    expect(replayedFailedDuplicateResult.processed).toBe(true);
+    expect(replayedFailedDuplicateResult.cursorUs).toBe(String(cursorSaveInterval));
+    expect(dbQueryMock).toHaveBeenCalledTimes(1);
+    expect(dbQueryMock.mock.calls[0]?.[1]).toEqual([String(cursorSaveInterval - 1)]);
+  });
+
+  it('keeps a permanent failed cursor pinned without growing pins during later successful traffic', async () => {
+    dbQueryMock.mockResolvedValue({ rowCount: 1, rows: [] });
+    const cursorSaveInterval = __testJetstreamQueue.cursorSaveInterval;
+    const failedCursor = cursorSaveInterval;
+    processEventMock.mockImplementation((event: { commit?: { rkey?: string } }) => {
+      if (event.commit?.rkey === 'permanent-failure') {
+        return Promise.resolve('post-handler-error');
+      }
+      return Promise.resolve('non-commit-ignored');
+    });
+
+    for (let index = 1; index < cursorSaveInterval; index += 1) {
+      await __testJetstreamQueue.processMessage(identityMessage('did:plc:cursor-user', index));
+    }
+
+    const failedResult = await __testJetstreamQueue.processMessage(
+      postCommitMessage('did:plc:cursor-user', failedCursor, 'permanent-failure')
+    );
+    for (let index = failedCursor + 1; index <= failedCursor + cursorSaveInterval * 2; index += 1) {
+      await __testJetstreamQueue.processMessage(identityMessage('did:plc:cursor-user', index));
+    }
+
+    expect(failedResult.processed).toBe(false);
+    expect(__testJetstreamQueue.getCursorState().lastCursorUs).toBe(String(cursorSaveInterval - 1));
+    expect(__testJetstreamQueue.getFailedCursorPinCount()).toBe(1);
+    expect(dbQueryMock).toHaveBeenCalledTimes(2);
+    for (const call of dbQueryMock.mock.calls) {
+      expect(call[1]).toEqual([String(cursorSaveInterval - 1)]);
+    }
+  });
+
+  it('pins the cursor when post processing throws before later traffic advances', async () => {
+    dbQueryMock.mockResolvedValue({ rowCount: 1, rows: [] });
+    const cursorSaveInterval = __testJetstreamQueue.cursorSaveInterval;
+    processEventMock.mockImplementation((event: { commit?: { rkey?: string } }) => {
+      if (event.commit?.rkey === 'throwing-post') {
+        return Promise.reject(new Error('post handler threw'));
+      }
+      return Promise.resolve('non-commit-ignored');
+    });
+
+    for (let index = 1; index < cursorSaveInterval; index += 1) {
+      await __testJetstreamQueue.processMessage(identityMessage('did:plc:cursor-user', index));
+    }
+
+    const failedResult = await __testJetstreamQueue.processMessage(
+      postCommitMessage('did:plc:cursor-user', cursorSaveInterval, 'throwing-post')
+    );
+    const newerResult = await __testJetstreamQueue.processMessage(
+      identityMessage('did:plc:cursor-user', cursorSaveInterval + 1)
+    );
+
+    expect(failedResult.processed).toBe(false);
+    expect(failedResult.errorMessage).toBe('post handler threw');
+    expect(__testJetstreamQueue.getFailedCursorPinCount()).toBe(1);
+    expect(newerResult.cursorSaved).toBe(true);
+    expect(newerResult.cursorUs).toBe(String(cursorSaveInterval - 1));
+    expect(__testJetstreamQueue.getCursorState()).toEqual({
+      eventCounter: 0,
+      lastCursorUs: String(cursorSaveInterval - 1),
+    });
+  });
+
+  it('clears thrown failure pins across reconnect generation invalidation before replay', async () => {
+    dbQueryMock.mockResolvedValue({ rowCount: 1, rows: [] });
+    const cursorSaveInterval = __testJetstreamQueue.cursorSaveInterval;
+    let shouldThrow = true;
+    processEventMock.mockImplementation((event: { commit?: { rkey?: string } }) => {
+      if (event.commit?.rkey === 'replayed-post' && shouldThrow) {
+        shouldThrow = false;
+        return Promise.reject(new Error('stale post handler threw'));
+      }
+      return Promise.resolve('non-commit-ignored');
+    });
+
+    for (let index = 1; index < cursorSaveInterval; index += 1) {
+      await __testJetstreamQueue.processMessage(identityMessage('did:plc:cursor-user', index));
+    }
+
+    const failedResult = await __testJetstreamQueue.processMessage(
+      postCommitMessage('did:plc:cursor-user', cursorSaveInterval, 'replayed-post')
+    );
+    expect(failedResult.processed).toBe(false);
+    expect(__testJetstreamQueue.getFailedCursorPinCount()).toBe(1);
+
+    __testJetstreamQueue.invalidateConnectionForTests();
+    expect(__testJetstreamQueue.getFailedCursorPinCount()).toBe(0);
+
+    const replayResult = await __testJetstreamQueue.processMessage(
+      postCommitMessage('did:plc:cursor-user', cursorSaveInterval, 'replayed-post')
+    );
+
+    expect(replayResult.processed).toBe(true);
+    expect(replayResult.cursorSaved).toBe(true);
+    expect(replayResult.cursorUs).toBe(String(cursorSaveInterval));
+    expect(__testJetstreamQueue.getFailedCursorPinCount()).toBe(0);
+    expect(dbQueryMock).toHaveBeenCalledTimes(1);
+    expect(dbQueryMock.mock.calls[0]?.[1]).toEqual([String(cursorSaveInterval)]);
+  });
+
+  it('dead-letters a repeatedly failing cursor pin after the retry budget', async () => {
+    dbQueryMock.mockResolvedValue({ rowCount: 1, rows: [] });
+    const cursorSaveInterval = __testJetstreamQueue.cursorSaveInterval;
+    processEventMock.mockImplementation((event: { commit?: { rkey?: string } }) => {
+      if (event.commit?.rkey === 'poison-post') {
+        return Promise.reject(new Error('poison post handler threw'));
+      }
+      return Promise.resolve('non-commit-ignored');
+    });
+
+    for (let index = 1; index < cursorSaveInterval; index += 1) {
+      await __testJetstreamQueue.processMessage(identityMessage('did:plc:cursor-user', index));
+    }
+
+    for (let attempt = 0; attempt < __testJetstreamQueue.failedCursorPinRetryLimit; attempt += 1) {
+      const failedResult = await __testJetstreamQueue.processMessage(
+        postCommitMessage('did:plc:cursor-user', cursorSaveInterval, 'poison-post')
+      );
+      expect(failedResult.processed).toBe(false);
+    }
+
+    expect(__testJetstreamQueue.getFailedCursorPinCount()).toBe(0);
+    expect(__testJetstreamQueue.getFailedCursorDeadLetterCount()).toBe(1);
+    expect((deadLetterInsertCalls()[0]?.[1] as unknown[])[3]).toBe('retry_limit');
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cursorUs: String(cursorSaveInterval),
+        failureCount: __testJetstreamQueue.failedCursorPinRetryLimit,
+        retryLimit: __testJetstreamQueue.failedCursorPinRetryLimit,
+      }),
+      'Dead-lettered Jetstream event after repeated handler failures'
+    );
+
+    const newerResult = await __testJetstreamQueue.processMessage(
+      identityMessage('did:plc:cursor-user', cursorSaveInterval + 1)
+    );
+    expect(newerResult.cursorSaved).toBe(true);
+    expect(newerResult.cursorUs).toBe(String(cursorSaveInterval + 1));
+    expect(dbQueryMock.mock.calls.at(-1)?.[1]).toEqual([String(cursorSaveInterval + 1)]);
+  });
+
+  it('serializes overlapping retry-limit failures for the same event', async () => {
+    const deadLetterResolvers: Array<() => void> = [];
+    let deadLetterInsertStarted: (() => void) | null = null;
+    const deadLetterInsertStartedPromise = new Promise<void>((resolve) => {
+      deadLetterInsertStarted = resolve;
+    });
+    dbQueryMock.mockImplementation((query: unknown) => {
+      if (String(query).includes('INSERT INTO jetstream_failed_cursor_dead_letters')) {
+        deadLetterInsertStarted?.();
+        return new Promise((resolve) => {
+          deadLetterResolvers.push(() => resolve({ rowCount: 1, rows: [] }));
+        });
+      }
+      return Promise.resolve({ rowCount: 1, rows: [] });
+    });
+    processEventMock.mockResolvedValue('post-handler-error');
+    const poisonMessage = postCommitMessage('did:plc:cursor-user', 1000, 'overlapping-poison-post');
+
+    for (let attempt = 1; attempt < __testJetstreamQueue.failedCursorPinRetryLimit; attempt += 1) {
+      await __testJetstreamQueue.processMessage(poisonMessage);
+    }
+    expect(__testJetstreamQueue.getFailedCursorPinCount()).toBe(1);
+
+    const firstRetryPromise = __testJetstreamQueue.processMessage(poisonMessage);
+    await deadLetterInsertStartedPromise;
+    const secondRetryPromise = __testJetstreamQueue.processMessage(poisonMessage);
+    await new Promise((resolve) => {
+      setTimeout(resolve, 0);
+    });
+    const overlappingDeadLetterInsertCount = deadLetterInsertCalls().length;
+    for (const resolveDeadLetter of deadLetterResolvers) {
+      resolveDeadLetter();
+    }
+
+    const [firstRetryResult, secondRetryResult] = await Promise.all([firstRetryPromise, secondRetryPromise]);
+
+    expect(firstRetryResult.processed).toBe(false);
+    expect(secondRetryResult.processed).toBe(false);
+    expect(overlappingDeadLetterInsertCount).toBe(1);
+    expect(deadLetterInsertCalls()).toHaveLength(1);
+    expect(__testJetstreamQueue.getFailedCursorDeadLetterCount()).toBe(1);
+    expect(__testJetstreamQueue.getFailedCursorPinCount()).toBe(1);
+  });
+
+  it('keeps a failed cursor pinned when durable dead-letter persistence fails', async () => {
+    dbQueryMock.mockImplementation((query: unknown) => {
+      if (String(query).includes('INSERT INTO jetstream_failed_cursor_dead_letters')) {
+        return Promise.reject(new Error('dead-letter database unavailable'));
+      }
+      return Promise.resolve({ rowCount: 1, rows: [] });
+    });
+    const cursorSaveInterval = __testJetstreamQueue.cursorSaveInterval;
+    processEventMock.mockImplementation((event: { commit?: { rkey?: string } }) => {
+      if (event.commit?.rkey === 'poison-post') {
+        return Promise.reject(new Error('poison post handler threw'));
+      }
+      return Promise.resolve('non-commit-ignored');
+    });
+
+    for (let index = 1; index < cursorSaveInterval; index += 1) {
+      await __testJetstreamQueue.processMessage(identityMessage('did:plc:cursor-user', index));
+    }
+
+    for (let attempt = 0; attempt < __testJetstreamQueue.failedCursorPinRetryLimit; attempt += 1) {
+      await __testJetstreamQueue.processMessage(
+        postCommitMessage('did:plc:cursor-user', cursorSaveInterval, 'poison-post')
+      );
+    }
+
+    expect(__testJetstreamQueue.getFailedCursorPinCount()).toBe(1);
+    expect(__testJetstreamQueue.getFailedCursorDeadLetterCount()).toBe(0);
+    expect(deadLetterInsertCalls()).toHaveLength(1);
+    expect(loggerErrorMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reason: 'retry_limit',
+        cursorUs: String(cursorSaveInterval),
+      }),
+      'Failed to persist Jetstream dead-letter event'
+    );
+
+    const newerResult = await __testJetstreamQueue.processMessage(
+      identityMessage('did:plc:cursor-user', cursorSaveInterval + 1)
+    );
+    expect(newerResult.cursorSaved).toBe(true);
+    expect(newerResult.cursorUs).toBe(String(cursorSaveInterval - 1));
+    expect(__testJetstreamQueue.getCursorState().lastCursorUs).toBe(String(cursorSaveInterval - 1));
+    expect(dbQueryMock.mock.calls.at(-1)?.[1]).toEqual([String(cursorSaveInterval - 1)]);
+  });
+
+  it('bounds distinct failed cursor pins and dead-letters the oldest over the limit', async () => {
+    processEventMock.mockResolvedValue('post-handler-error');
+
+    for (let index = 1; index <= __testJetstreamQueue.failedCursorPinMaxCount + 1; index += 1) {
+      await __testJetstreamQueue.processMessage(
+        postCommitMessage('did:plc:cursor-user', index, `failed-post-${index}`)
+      );
+    }
+
+    expect(__testJetstreamQueue.getFailedCursorPinCount()).toBe(__testJetstreamQueue.failedCursorPinMaxCount);
+    expect(__testJetstreamQueue.getFailedCursorDeadLetterCount()).toBe(1);
+    expect((deadLetterInsertCalls()[0]?.[1] as unknown[])[3]).toBe('pin_limit');
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        maxFailedCursorPins: __testJetstreamQueue.failedCursorPinMaxCount,
+      }),
+      'Dead-lettered oldest Jetstream failed cursor pin after pin limit'
+    );
+  });
+
+  it('bounds distinct failed cursor pins when dead-letter persistence fails during eviction', async () => {
+    dbQueryMock.mockImplementation((query: unknown) => {
+      if (String(query).includes('INSERT INTO jetstream_failed_cursor_dead_letters')) {
+        return Promise.reject(new Error('dead-letter database unavailable'));
+      }
+      return Promise.resolve({ rowCount: 1, rows: [] });
+    });
+    processEventMock.mockResolvedValue('post-handler-error');
+
+    for (let index = 1; index <= __testJetstreamQueue.failedCursorPinMaxCount + 1; index += 1) {
+      await __testJetstreamQueue.processMessage(
+        postCommitMessage('did:plc:cursor-user', index, `failed-post-${index}`)
+      );
+      expect(__testJetstreamQueue.getFailedCursorPinCount()).toBeLessThanOrEqual(
+        __testJetstreamQueue.failedCursorPinMaxCount
+      );
+    }
+
+    expect(__testJetstreamQueue.getFailedCursorPinCount()).toBe(__testJetstreamQueue.failedCursorPinMaxCount);
+    expect(__testJetstreamQueue.getFailedCursorDeadLetterCount()).toBe(0);
+    expect(deadLetterInsertCalls()).toHaveLength(1);
+    expect(loggerErrorMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reason: 'pin_limit',
+      }),
+      'Failed to persist Jetstream dead-letter event'
+    );
+  });
+
+  it('does not pin or advance a failed message from a stale connection generation', async () => {
+    processEventMock.mockRejectedValueOnce(new Error('stale generation handler threw'));
+    __testJetstreamQueue.invalidateConnectionForTests();
+
+    const result = await __testJetstreamQueue.processMessageForGeneration(
+      postCommitMessage('did:plc:cursor-user', 1000, 'stale-generation-post'),
+      0
+    );
+
+    expect(result.processed).toBe(false);
+    expect(result.errorMessage).toBe('stale generation handler threw');
+    expect(__testJetstreamQueue.getFailedCursorPinCount()).toBe(0);
+    expect(__testJetstreamQueue.getCursorState()).toEqual({
+      eventCounter: 0,
+      lastCursorUs: null,
+    });
+  });
+
+  it('expires old failed cursor pins so later safe cursor saves can advance', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-06T00:00:00.000Z'));
+    dbQueryMock.mockResolvedValue({ rowCount: 1, rows: [] });
+    const cursorSaveInterval = __testJetstreamQueue.cursorSaveInterval;
+    processEventMock.mockImplementation((event: { commit?: { rkey?: string } }) => {
+      if (event.commit?.rkey === 'expired-pin-post') {
+        return Promise.resolve('post-handler-error');
+      }
+      return Promise.resolve('non-commit-ignored');
+    });
+
+    for (let index = 1; index < cursorSaveInterval; index += 1) {
+      await __testJetstreamQueue.processMessage(identityMessage('did:plc:cursor-user', index));
+    }
+
+    const failedResult = await __testJetstreamQueue.processMessage(
+      postCommitMessage('did:plc:cursor-user', cursorSaveInterval, 'expired-pin-post')
+    );
+    expect(failedResult.processed).toBe(false);
+    expect(__testJetstreamQueue.getFailedCursorPinCount()).toBe(1);
+
+    vi.setSystemTime(new Date(Date.now() + __testJetstreamQueue.failedCursorPinMaxAgeMs - 1));
+    const justUnderAgeResult = await __testJetstreamQueue.processMessage(
+      identityMessage('did:plc:cursor-user', cursorSaveInterval + 1)
+    );
+
+    expect(justUnderAgeResult.cursorSaved).toBe(true);
+    expect(justUnderAgeResult.cursorUs).toBe(String(cursorSaveInterval - 1));
+    expect(__testJetstreamQueue.getFailedCursorPinCount()).toBe(1);
+
+    vi.setSystemTime(new Date(Date.now() + 2));
+    const expiredResult = await __testJetstreamQueue.processMessage(
+      identityMessage('did:plc:cursor-user', cursorSaveInterval + 2)
+    );
+
+    expect(expiredResult.cursorUs).toBe(String(cursorSaveInterval + 2));
+    expect(__testJetstreamQueue.getFailedCursorPinCount()).toBe(0);
+    expect(__testJetstreamQueue.getFailedCursorDeadLetterCount()).toBe(1);
+    for (let index = cursorSaveInterval + 3; index <= cursorSaveInterval * 2 + 1; index += 1) {
+      await __testJetstreamQueue.processMessage(identityMessage('did:plc:cursor-user', index));
+    }
+
+    expect(dbQueryMock.mock.calls.at(-1)?.[1]).toEqual([String(cursorSaveInterval * 2 + 1)]);
+    expect((deadLetterInsertCalls()[0]?.[1] as unknown[])[3]).toBe('age_limit');
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expiredCount: 1,
+        maxAgeMs: __testJetstreamQueue.failedCursorPinMaxAgeMs,
+      }),
+      'Expired Jetstream failed cursor pins after age limit'
+    );
   });
 
   it('allows a previously failed cursor to advance after the same event replays successfully', async () => {

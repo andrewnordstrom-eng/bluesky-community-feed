@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { dbQueryMock, loggerWarnMock } = vi.hoisted(() => ({
+const { dbQueryMock, loggerErrorMock, loggerWarnMock } = vi.hoisted(() => ({
   dbQueryMock: vi.fn(),
+  loggerErrorMock: vi.fn(),
   loggerWarnMock: vi.fn(),
 }));
 
@@ -13,6 +14,7 @@ vi.mock('../src/db/client.js', () => ({
 
 vi.mock('../src/lib/logger.js', () => ({
   logger: {
+    error: loggerErrorMock,
     warn: loggerWarnMock,
   },
 }));
@@ -22,6 +24,7 @@ import { upsertSubscriberAsync } from '../src/db/queries/subscribers.js';
 describe('subscriber query logging', () => {
   beforeEach(() => {
     dbQueryMock.mockReset();
+    loggerErrorMock.mockReset();
     loggerWarnMock.mockReset();
   });
 
@@ -88,5 +91,40 @@ describe('subscriber query logging', () => {
     expect(context.didDigest).toMatch(/^[a-f0-9]{16}$/);
     expect(context.subscriberError).toEqual(expectedSubscriberError);
     expect(JSON.stringify(context)).not.toContain(did);
+  });
+
+  it('does not reject or log raw DID when digest secret resolution fails during DB error handling', async () => {
+    vi.resetModules();
+    vi.doMock('../src/config.js', () => ({
+      config: {
+        EXPORT_ANONYMIZATION_SALT: '',
+        NODE_ENV: 'production',
+      },
+    }));
+    try {
+      const {
+        getSubscriberDigestUnavailableTotal,
+        upsertSubscriberAsync: productionUpsertSubscriberAsync,
+      } = await import('../src/db/queries/subscribers.js');
+      const did = 'did:plc:subscriber-secret';
+      dbQueryMock.mockRejectedValue(new Error(`database unavailable for ${did}`));
+
+      await expect(productionUpsertSubscriberAsync(did)).resolves.toBeUndefined();
+      await expect(productionUpsertSubscriberAsync(did)).resolves.toBeUndefined();
+
+      expect(getSubscriberDigestUnavailableTotal()).toBe(2);
+      expect(loggerErrorMock).toHaveBeenCalledTimes(2);
+      const [digestContext] = loggerErrorMock.mock.calls[0] as [Record<string, unknown>, string];
+      expect(digestContext.subscriberError).toEqual({ name: 'Error' });
+      expect(loggerWarnMock).toHaveBeenCalledTimes(2);
+      const [upsertContext] = loggerWarnMock.mock.calls[0] as [Record<string, unknown>, string];
+      expect(upsertContext.didDigest).toBe('unavailable');
+      expect(upsertContext.subscriberError).toEqual({ name: 'Error' });
+      expect(JSON.stringify(loggerErrorMock.mock.calls)).not.toContain(did);
+      expect(JSON.stringify(loggerWarnMock.mock.calls)).not.toContain(did);
+    } finally {
+      vi.doUnmock('../src/config.js');
+      vi.resetModules();
+    }
   });
 });

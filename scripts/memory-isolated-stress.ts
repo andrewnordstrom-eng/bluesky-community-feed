@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { execFile, fork, type ChildProcess } from 'node:child_process';
 import { access } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import type { StartedRedisContainer } from '@testcontainers/redis';
@@ -98,9 +99,14 @@ interface FeedRequestTrackerStatsMessage {
   enqueued: number;
   completed: number;
   failed: number;
+  timedOut: number;
   dropped: number;
+  backendSaturationDropped: number;
+  abandonedBackendOps: number;
+  abandonedBackendOpsTotal: number;
   maxQueuedObserved: number;
   maxInFlightObserved: number;
+  maxAbandonedBackendOpsObserved: number;
 }
 
 interface MemorySnapshotMessage {
@@ -157,6 +163,10 @@ const DEFAULT_CONNECTIONS = 100;
 const MAX_RUNS = 50;
 const MAX_AMOUNT = 100_000;
 const MAX_CONNECTIONS = 1_000;
+const MAX_AFTER_GC_DELTA_MB_PER_RUN = 128;
+const MEDIAN_AFTER_GC_DELTA_MB_PER_MODE = 64;
+const P95_AFTER_GC_DELTA_MB_PER_MODE = 96;
+const MAX_PEAK_RSS_MB_PER_MODE = 512;
 const DEFAULT_ARTIFACTS_ROOT = 'artifacts/lab';
 const SAMPLE_INTERVAL_MS = 500;
 const CHILD_MESSAGE_TIMEOUT_MS = 60_000;
@@ -445,7 +455,12 @@ async function startTarget(options: CliOptions): Promise<MemoryTarget> {
         stop: async () => stopContainers(pg, redis),
       };
     } catch (error: unknown) {
-      await stopContainers(pg, redis);
+      try {
+        await stopContainers(pg, redis);
+      } catch (cleanupError: unknown) {
+        const cleanupMessage = cleanupError instanceof Error ? cleanupError.message : String(cleanupError);
+        console.warn(`failed to clean up memory-stress containers after startup error: ${cleanupMessage}`);
+      }
       if (error instanceof Error) {
         throw new Error(`failed to start ephemeral memory target: ${error.message}`);
       }
@@ -854,7 +869,7 @@ function parsedResultSucceeded(parsed: Record<string, unknown> | null): boolean 
   return (result as { success?: unknown }).success === true;
 }
 
-function parsedTrackerDropped(parsed: Record<string, unknown> | null): number {
+function parsedTrackerNumberField(parsed: Record<string, unknown> | null, name: string): number {
   if (parsed === null) {
     return 0;
   }
@@ -866,8 +881,8 @@ function parsedTrackerDropped(parsed: Record<string, unknown> | null): number {
   if (typeof tracker !== 'object' || tracker === null) {
     return 0;
   }
-  const dropped = (tracker as { dropped?: unknown }).dropped;
-  return typeof dropped === 'number' && Number.isFinite(dropped) ? dropped : 0;
+  const value = (tracker as Record<string, unknown>)[name];
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
 function parsedRemainingConnections(parsed: Record<string, unknown> | null): number {
@@ -909,19 +924,27 @@ function modeStats(mode: 'normal' | 'noop', childRuns: readonly ChildRun[]): Mod
 function summaryPassed(summary: MemorySummary): boolean {
   const everyChildPassed = summary.childRuns.every((run) => run.exitCode === 0 && run.parsed !== null);
   const everyLoadPassed = summary.childRuns.every((run) => parsedResultSucceeded(run.parsed));
-  const noDroppedTracking = summary.childRuns.every((run) => parsedTrackerDropped(run.parsed) === 0);
+  const noDroppedTracking = summary.childRuns.every((run) => parsedTrackerNumberField(run.parsed, 'dropped') === 0);
+  const noBackendSaturationDrops = summary.childRuns.every(
+    (run) => parsedTrackerNumberField(run.parsed, 'backendSaturationDropped') === 0
+  );
+  const noAbandonedBackendOps = summary.childRuns.every(
+    (run) => parsedTrackerNumberField(run.parsed, 'abandonedBackendOps') === 0
+  );
   const noRemainingConnections = summary.childRuns.every((run) => parsedRemainingConnections(run.parsed) === 0);
   const stats = [summary.modes.normal, summary.modes.noop];
   return (
     everyChildPassed &&
     everyLoadPassed &&
     noDroppedTracking &&
+    noBackendSaturationDrops &&
+    noAbandonedBackendOps &&
     noRemainingConnections &&
     stats.every((stat) => stat.runs === summary.runsPerMode) &&
-    stats.every((stat) => stat.maxAfterGcDeltaMb <= 128) &&
-    stats.every((stat) => stat.medianAfterGcDeltaMb <= 64) &&
-    stats.every((stat) => stat.p95AfterGcDeltaMb <= 96) &&
-    stats.every((stat) => stat.maxPeakRssMb <= 512)
+    stats.every((stat) => stat.maxAfterGcDeltaMb <= MAX_AFTER_GC_DELTA_MB_PER_RUN) &&
+    stats.every((stat) => stat.medianAfterGcDeltaMb <= MEDIAN_AFTER_GC_DELTA_MB_PER_MODE) &&
+    stats.every((stat) => stat.p95AfterGcDeltaMb <= P95_AFTER_GC_DELTA_MB_PER_MODE) &&
+    stats.every((stat) => stat.maxPeakRssMb <= MAX_PEAK_RSS_MB_PER_MODE)
   );
 }
 
@@ -963,7 +986,7 @@ function collectHeapSnapshotPaths(childRuns: readonly ChildRun[]): string[] {
   return paths;
 }
 
-async function runMemory(options: CliOptions): Promise<void> {
+export async function runMemory(options: CliOptions): Promise<void> {
   const startedAt = new Date();
   const childRuntime = resolveChildRuntime(options);
   const runId = createLabRunId(startedAt);
@@ -1000,12 +1023,14 @@ async function runMemory(options: CliOptions): Promise<void> {
     }
 
     const thresholds = {
-      maxAfterGcDeltaMbPerRun: '<=128',
-      medianAfterGcDeltaMbPerMode: '<=64',
-      p95AfterGcDeltaMbPerMode: '<=96',
-      maxPeakRssMbPerMode: '<=512',
+      maxAfterGcDeltaMbPerRun: `<=${MAX_AFTER_GC_DELTA_MB_PER_RUN}`,
+      medianAfterGcDeltaMbPerMode: `<=${MEDIAN_AFTER_GC_DELTA_MB_PER_MODE}`,
+      p95AfterGcDeltaMbPerMode: `<=${P95_AFTER_GC_DELTA_MB_PER_MODE}`,
+      maxPeakRssMbPerMode: `<=${MAX_PEAK_RSS_MB_PER_MODE}`,
       baseline: `${WARMUP_AMOUNT} external warmup requests before before-GC snapshot`,
       droppedTracking: 0,
+      backendSaturationDropped: 0,
+      abandonedBackendOps: 0,
       remainingConnections: 0,
       childExitCode: 0,
     };
@@ -1107,12 +1132,22 @@ async function runMemory(options: CliOptions): Promise<void> {
   }
 }
 
-const options = parseArgs(process.argv.slice(2));
-runMemory(options).catch((error: unknown) => {
-  if (error instanceof Error) {
-    console.error(error.message);
-  } else {
-    console.error('memory isolated stress failed with non-Error thrown');
+function isDirectCliInvocation(): boolean {
+  const entrypoint = process.argv[1];
+  if (entrypoint === undefined) {
+    return false;
   }
-  process.exit(1);
-});
+  return path.resolve(entrypoint) === fileURLToPath(import.meta.url);
+}
+
+if (isDirectCliInvocation()) {
+  const options = parseArgs(process.argv.slice(2));
+  runMemory(options).catch((error: unknown) => {
+    if (error instanceof Error) {
+      console.error(error.message);
+    } else {
+      console.error('memory isolated stress failed with non-Error thrown');
+    }
+    process.exit(1);
+  });
+}

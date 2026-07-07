@@ -33,4 +33,38 @@ describe('ConfigSchema', () => {
       })
     ).toThrow();
   });
+
+  it('defaults FEED_MAX_POSTS and REDIS_COMMAND_TIMEOUT_MS when omitted', () => {
+    const parsed = ConfigSchema.parse(baseEnv);
+
+    expect(parsed.FEED_MAX_POSTS).toBe(1000);
+    expect(parsed.REDIS_COMMAND_TIMEOUT_MS).toBe(5000);
+  });
+
+  it.each(['abc', ''])('rejects non-numeric FEED_MAX_POSTS=%s', (feedMaxPosts) => {
+    expect(() =>
+      ConfigSchema.parse({
+        ...baseEnv,
+        FEED_MAX_POSTS: feedMaxPosts,
+      })
+    ).toThrow();
+  });
+
+  it.each(['99', '1.5', 'abc', ''])('rejects invalid REDIS_COMMAND_TIMEOUT_MS=%s', (timeoutMs) => {
+    expect(() =>
+      ConfigSchema.parse({
+        ...baseEnv,
+        REDIS_COMMAND_TIMEOUT_MS: timeoutMs,
+      })
+    ).toThrow();
+  });
+
+  it('accepts REDIS_COMMAND_TIMEOUT_MS at the minimum boundary', () => {
+    const parsed = ConfigSchema.parse({
+      ...baseEnv,
+      REDIS_COMMAND_TIMEOUT_MS: '100',
+    });
+
+    expect(parsed.REDIS_COMMAND_TIMEOUT_MS).toBe(100);
+  });
 });

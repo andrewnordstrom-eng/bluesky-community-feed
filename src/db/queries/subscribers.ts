@@ -9,6 +9,8 @@ import { db } from '../client.js';
 import { logger } from '../../lib/logger.js';
 import { config } from '../../config.js';
 
+let subscriberDigestUnavailableTotal = 0;
+
 function resolveDidDigestSecret(): string {
   if (config.EXPORT_ANONYMIZATION_SALT.length > 0) {
     return config.EXPORT_ANONYMIZATION_SALT;
@@ -21,6 +23,20 @@ function resolveDidDigestSecret(): string {
 
 function digestDid(did: string): string {
   return createHmac('sha256', resolveDidDigestSecret()).update(did).digest('hex').slice(0, 16);
+}
+
+function safeDigestDid(did: string): string {
+  try {
+    return digestDid(did);
+  } catch (err) {
+    subscriberDigestUnavailableTotal += 1;
+    logger.error({ subscriberError: safeSubscriberError(err) }, 'Subscriber DID digest unavailable');
+    return 'unavailable';
+  }
+}
+
+export function getSubscriberDigestUnavailableTotal(): number {
+  return subscriberDigestUnavailableTotal;
 }
 
 function readStringProperty(source: object, key: string): string | undefined {
@@ -56,6 +72,6 @@ export async function upsertSubscriberAsync(did: string): Promise<void> {
       [did]
     );
   } catch (err) {
-    logger.warn({ subscriberError: safeSubscriberError(err), didDigest: digestDid(did) }, 'Subscriber upsert failed');
+    logger.warn({ subscriberError: safeSubscriberError(err), didDigest: safeDigestDid(did) }, 'Subscriber upsert failed');
   }
 }

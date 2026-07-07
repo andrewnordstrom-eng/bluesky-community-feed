@@ -8,6 +8,7 @@ import { getHeapSpaceStatistics, getHeapStatistics, writeHeapSnapshot } from 'no
 import { config } from '../../src/config.js';
 import { redis } from '../../src/db/redis.js';
 import { registerFeedSkeleton } from '../../src/feed/routes/feed-skeleton.js';
+import { clearCurrentFeedSnapshotMemoryCache } from '../../src/feed/snapshot-cache.js';
 import {
   drainFeedRequestTracker,
   getFeedRequestTrackerStats,
@@ -221,10 +222,12 @@ function installNoopRequestLogPipeline(): void {
 
 async function seedFeed(): Promise<string> {
   const feedUri = `at://${config.FEEDGEN_PUBLISHER_DID}/app.bsky.feed.generator/community-gov`;
+  clearCurrentFeedSnapshotMemoryCache();
   const snapshotKeys = await listSnapshotKeys();
   await redis.del('feed:current');
   await redis.del('feed:request_log');
   await redis.del('feed:current_snapshot_id');
+  await redis.del('feed:current_snapshot_generation');
   for (let index = 0; index < snapshotKeys.length; index += 500) {
     await redis.del(...snapshotKeys.slice(index, index + 500));
   }

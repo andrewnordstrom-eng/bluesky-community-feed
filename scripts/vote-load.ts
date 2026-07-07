@@ -120,6 +120,7 @@ const DEFAULT_ARTIFACTS_ROOT = 'artifacts/lab';
 const SESSION_TTL_SECONDS = 3600;
 const DB_POOL_HEADROOM = 10;
 const MIN_DB_POOL_MAX = 50;
+const EPHEMERAL_POSTGRES_RESERVED_CONNECTIONS = 20;
 const RATE_LIMIT_REQUESTS = 25;
 const RATE_LIMIT_ACCEPTED = 20;
 const BOOLEAN_FLAGS = new Set(['--dry-run', '--ephemeral']);
@@ -332,7 +333,10 @@ async function startTarget(options: CliOptions): Promise<VoteTarget> {
         import('@testcontainers/postgresql'),
         import('@testcontainers/redis'),
       ]);
-      pg = await new PostgreSqlContainer('postgres:16-alpine').start();
+      const maxConnections = dbPoolMaxForVoteLoad(options.connections) + EPHEMERAL_POSTGRES_RESERVED_CONNECTIONS;
+      pg = await new PostgreSqlContainer('postgres:16-alpine')
+        .withCommand(['postgres', '-c', `max_connections=${maxConnections}`])
+        .start();
       redis = await new RedisContainer('redis:7-alpine').start();
       const databaseUrl = normalizePostgresUrl(pg.getConnectionUri());
       const redisUrl = redis.getConnectionUrl();

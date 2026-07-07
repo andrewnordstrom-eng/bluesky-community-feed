@@ -109,7 +109,7 @@ Command targets:
 
 Result: Vitest reported 7 files, 83 tests passed.
 
-Follow-up feed tracking slice: `npx vitest tests/feed-skeleton-tracking.test.ts tests/feed-request-tracker.test.ts --run` passed 2 files / 24 tests after adding coverage that a stalled tracking Redis read honors the request tracker timeout, releases its slot, reports `timedOut=1`, leaves `inFlight=0` and `queued=0`, and does not proceed to the Redis write pipeline after the abort.
+Adversarial backend-detach slice: `npx vitest tests/feed-request-tracker.test.ts tests/feed-skeleton-tracking.test.ts --run` with dummy non-production env passed 2 files / 42 tests after adding abandoned-backend-operation accounting. Stalled verifier, subscriber, Redis read, and Redis pipeline promises now report `timedOut`, keep `abandonedBackendOps > 0` until the underlying promise settles, make `drainFeedRequestTracker()` and test reset fail while abandoned operations remain, and only clear after the backend promise resolves or rejects.
 
 Follow-up CLI/load-accounting slice: `npx vitest tests/http-load.test.ts tests/engagement-ingestion-filter.test.ts tests/jetstream-message-processing.test.ts tests/sim-preflight.test.ts tests/vote-load-cli.test.ts --run` passed 5 files / 65 tests after hardening the standalone load-test process exit path, expected-status accounting coverage, repo-local `tsx` CLI loading, and explicit subprocess test timeouts.
 
@@ -594,8 +594,9 @@ Do not claim yet:
 
 1. Prepare a separate ops/staging plan to adopt and verify `NODE_OPTIONS=--max-old-space-size=896 --max-semi-space-size=16` outside the lab child. Do not edit systemd units or run staging/prod saturation without explicit approval, abort thresholds, and rollback.
 2. Add a checked-in test-env command or documented `.env.test` recipe for repeatable local suite runs.
-3. Add S0-S5 campaign output to CI or a manually triggered workflow once runtime cost and container availability are acceptable.
-4. Extend recorded replay to a live Jetstream capture file with explicit event-count, collection mix, cursor provenance, and replay checksum.
-5. Add mixed ingestion storm coverage for reposts, replies, deletes, unlikes, duplicate events, and out-of-order delivery.
-6. Propose a staging saturation plan with target host/database, traffic ceiling, abort thresholds, rollback path, and explicit confirmation that production is outside blast radius before any shared-environment load.
-7. Keep the RecSys demo paper language tied to the confirmed local/synthetic evidence until staging or production receipts exist.
+3. Rerun the full memory-isolated and compiled prod-parity gates under the current protocol so manifests explicitly include `abandonedBackendOps=0` and `backendSaturationDropped=0` in addition to tracker drops and remaining connections.
+4. Add S0-S5 campaign output to CI or a manually triggered workflow once runtime cost and container availability are acceptable.
+5. Extend recorded replay to a live Jetstream capture file with explicit event-count, collection mix, cursor provenance, and replay checksum.
+6. Add mixed ingestion storm coverage for reposts, replies, deletes, unlikes, duplicate events, and out-of-order delivery.
+7. Propose a staging saturation plan with target host/database, traffic ceiling, abort thresholds, rollback path, and explicit confirmation that production is outside blast radius before any shared-environment load.
+8. Keep the RecSys demo paper language tied to the confirmed local/synthetic evidence until staging or production receipts exist.

@@ -33,6 +33,10 @@ const MAX_RECONNECT_DELAY = 60_000; // 60 seconds max backoff
 const FALLBACK_THRESHOLD = 5; // Switch to fallback after N consecutive failures
 const MAX_CONCURRENT_EVENTS = config.JETSTREAM_MAX_CONCURRENT;
 const MAX_PENDING_EVENTS = config.JETSTREAM_MAX_PENDING;
+const FAILED_CURSOR_PIN_RETRY_LIMIT = 3;
+const FAILED_CURSOR_PIN_MAX_COUNT = 1000;
+const FAILED_CURSOR_PIN_MAX_AGE_MS = 5 * 60_000;
+const FAILED_CURSOR_PIN_WARNING_INTERVAL_MS = 60_000;
 
 const JetstreamCommitSchema = z.object({
   rev: z.string().min(1),
@@ -115,12 +119,39 @@ let eventCounter = 0;
 let lastCursorUs: bigint | undefined;
 let maxCompletedCursorUs: bigint | undefined;
 let connectionGeneration = 0;
+
+const HANDLER_ERROR_OUTCOMES = new Set<IngestionEventOutcome>([
+  'post-handler-error',
+  'like-handler-error',
+  'repost-handler-error',
+  'follow-handler-error',
+  'delete-handler-error',
+]);
+
+function isHandlerErrorOutcome(outcome: IngestionEventOutcome): boolean {
+  return HANDLER_ERROR_OUTCOMES.has(outcome);
+}
+
 interface CursorGenerationCount {
   generation: number;
   count: number;
 }
+
+interface FailedCursorPin {
+  cursorUs: bigint;
+  generation: number;
+  failureCount: number;
+  firstSeenAtMs: number;
+  lastSeenAtMs: number;
+}
+
+type FailedCursorDeadLetterReason = 'retry_limit' | 'pin_limit' | 'age_limit';
+
 const activeCursorUs = new Map<bigint, CursorGenerationCount>();
-const failedCursorUs = new Map<bigint, CursorGenerationCount>();
+const failedCursorPins = new Map<string, FailedCursorPin>();
+let failedCursorPinMutationLock: Promise<void> = Promise.resolve();
+let lastFailedCursorPinWarningAtMs = 0;
+let failedCursorDeadLetterCount = 0;
 let reconnectAttempts = 0;
 let consecutiveFailures = 0;
 let useFallback = false;
@@ -195,17 +226,72 @@ function parseJetstreamEvent(data: Buffer): JetstreamEvent {
   return parsed.data;
 }
 
+function stableJsonStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableJsonStringify(item)).join(',')}]`;
+  }
+  if (value !== null && typeof value === 'object') {
+    const sortedEntries = Object.entries(value as Record<string, unknown>).sort(([leftKey], [rightKey]) =>
+      leftKey.localeCompare(rightKey)
+    );
+    return `{${sortedEntries
+      .map(([key, entryValue]) => `${JSON.stringify(key)}:${stableJsonStringify(entryValue)}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
+}
+
+function failedCursorPinKey(event: JetstreamEvent): string {
+  return stableJsonStringify([
+    event.time_us,
+    event.kind,
+    event.did,
+    event.commit?.operation ?? null,
+    event.commit?.collection ?? null,
+    event.commit?.rkey ?? null,
+    event.commit?.rev ?? null,
+    event.commit?.cid ?? null,
+  ]);
+}
+
+async function withFailedCursorPinLock<T>(operation: () => Promise<T>): Promise<T> {
+  const previousLock = failedCursorPinMutationLock;
+  let releaseLock!: () => void;
+  failedCursorPinMutationLock = new Promise<void>((resolve) => {
+    releaseLock = resolve;
+  });
+  await previousLock;
+  try {
+    return await operation();
+  } finally {
+    releaseLock();
+  }
+}
+
+function deleteFailedCursorPinIfCurrent(eventKey: string, expectedPin: FailedCursorPin): void {
+  if (failedCursorPins.get(eventKey) === expectedPin) {
+    failedCursorPins.delete(eventKey);
+  }
+}
+
+function resetFailedCursorPinState(): void {
+  failedCursorPins.clear();
+  failedCursorPinMutationLock = Promise.resolve();
+  lastFailedCursorPinWarningAtMs = 0;
+  failedCursorDeadLetterCount = 0;
+}
+
 function beginConnectionGeneration(): number {
   connectionGeneration += 1;
   activeCursorUs.clear();
-  failedCursorUs.clear();
+  resetFailedCursorPinState();
   return connectionGeneration;
 }
 
 function invalidateConnectionGeneration(): void {
   connectionGeneration += 1;
   activeCursorUs.clear();
-  failedCursorUs.clear();
+  resetFailedCursorPinState();
 }
 
 function incrementCursorCount(
@@ -237,7 +323,212 @@ function decrementCursorCount(
   existing.count -= 1;
 }
 
-function minimumUnsafeCursorUs(): bigint | undefined {
+function oldestFailedCursorPinAgeMs(nowMs: number): number {
+  let oldestSeenAtMs: number | undefined;
+  for (const failedCursorPin of failedCursorPins.values()) {
+    if (failedCursorPin.generation !== connectionGeneration) {
+      continue;
+    }
+    if (oldestSeenAtMs === undefined || failedCursorPin.firstSeenAtMs < oldestSeenAtMs) {
+      oldestSeenAtMs = failedCursorPin.firstSeenAtMs;
+    }
+  }
+  return oldestSeenAtMs === undefined ? 0 : Math.max(nowMs - oldestSeenAtMs, 0);
+}
+
+function warnOnFailedCursorPins(reason: string, nowMs: number): void {
+  if (nowMs - lastFailedCursorPinWarningAtMs < FAILED_CURSOR_PIN_WARNING_INTERVAL_MS) {
+    return;
+  }
+  lastFailedCursorPinWarningAtMs = nowMs;
+  logger.warn(
+    {
+      reason,
+      failedCursorPins: failedCursorPins.size,
+      oldestFailedCursorPinAgeMs: oldestFailedCursorPinAgeMs(nowMs),
+    },
+    'Jetstream failed cursor pins require operator attention'
+  );
+}
+
+async function recordFailedCursorDeadLetter(
+  eventKey: string,
+  failedCursorPin: FailedCursorPin,
+  reason: FailedCursorDeadLetterReason,
+  nowMs: number,
+  metadata: Record<string, unknown>
+): Promise<boolean> {
+  try {
+    await db.query(
+      `INSERT INTO jetstream_failed_cursor_dead_letters
+         (event_key, cursor_us, generation, reason, failure_count, first_seen_at, last_seen_at, metadata)
+       VALUES ($1, $2, $3, $4, $5, to_timestamp($6 / 1000.0), to_timestamp($7 / 1000.0), $8::jsonb)`,
+      [
+        eventKey,
+        failedCursorPin.cursorUs.toString(),
+        failedCursorPin.generation,
+        reason,
+        failedCursorPin.failureCount,
+        failedCursorPin.firstSeenAtMs,
+        failedCursorPin.lastSeenAtMs,
+        JSON.stringify({
+          ...metadata,
+          recordedAtMs: nowMs,
+        }),
+      ]
+    );
+    failedCursorDeadLetterCount += 1;
+    return true;
+  } catch (err) {
+    logger.error({ err, reason, cursorUs: failedCursorPin.cursorUs.toString() }, 'Failed to persist Jetstream dead-letter event');
+    return false;
+  }
+}
+
+async function evictOldestFailedCursorPinUnlocked(nowMs: number): Promise<void> {
+  let oldestEventKey: string | undefined;
+  let oldestPin: FailedCursorPin | undefined;
+  for (const [eventKey, failedCursorPin] of failedCursorPins.entries()) {
+    if (
+      oldestPin === undefined ||
+      failedCursorPin.firstSeenAtMs < oldestPin.firstSeenAtMs
+    ) {
+      oldestEventKey = eventKey;
+      oldestPin = failedCursorPin;
+    }
+  }
+  if (oldestEventKey === undefined || oldestPin === undefined) {
+    return;
+  }
+  const recorded = await recordFailedCursorDeadLetter(oldestEventKey, oldestPin, 'pin_limit', nowMs, {
+    maxFailedCursorPins: FAILED_CURSOR_PIN_MAX_COUNT,
+  });
+  deleteFailedCursorPinIfCurrent(oldestEventKey, oldestPin);
+  logger.warn(
+    {
+      cursorUs: oldestPin.cursorUs.toString(),
+      failedCursorPins: failedCursorPins.size,
+      maxFailedCursorPins: FAILED_CURSOR_PIN_MAX_COUNT,
+      oldestFailedCursorPinAgeMs: oldestFailedCursorPinAgeMs(nowMs),
+      durableRecordWritten: recorded,
+    },
+    'Dead-lettered oldest Jetstream failed cursor pin after pin limit'
+  );
+}
+
+async function pruneExpiredFailedCursorPins(nowMs: number): Promise<void> {
+  await withFailedCursorPinLock(async () => {
+    let expiredCount = 0;
+    let durableRecordsWritten = 0;
+    let oldestExpiredCursorUs: string | undefined;
+    for (const [eventKey, failedCursorPin] of failedCursorPins.entries()) {
+      if (failedCursorPin.generation !== connectionGeneration) {
+        failedCursorPins.delete(eventKey);
+        continue;
+      }
+      if (nowMs - failedCursorPin.firstSeenAtMs < FAILED_CURSOR_PIN_MAX_AGE_MS) {
+        continue;
+      }
+      const recorded = await recordFailedCursorDeadLetter(eventKey, failedCursorPin, 'age_limit', nowMs, {
+        maxAgeMs: FAILED_CURSOR_PIN_MAX_AGE_MS,
+      });
+      if (recorded) {
+        durableRecordsWritten += 1;
+      }
+      expiredCount += 1;
+      oldestExpiredCursorUs ??= failedCursorPin.cursorUs.toString();
+      deleteFailedCursorPinIfCurrent(eventKey, failedCursorPin);
+    }
+    if (expiredCount === 0) {
+      return;
+    }
+    logger.warn(
+      {
+        expiredCount,
+        failedCursorPins: failedCursorPins.size,
+        maxAgeMs: FAILED_CURSOR_PIN_MAX_AGE_MS,
+        oldestExpiredCursorUs,
+        durableRecordsAttempted: expiredCount,
+        durableRecordsWritten,
+      },
+      'Expired Jetstream failed cursor pins after age limit'
+    );
+  });
+}
+
+async function addFailedCursorPin(eventKey: string, cursorUs: bigint, generation: number): Promise<void> {
+  await withFailedCursorPinLock(async () => {
+    const nowMs = Date.now();
+    const existing = failedCursorPins.get(eventKey);
+    if (existing && existing.generation === generation) {
+      const failureCount = existing.failureCount + 1;
+      if (failureCount >= FAILED_CURSOR_PIN_RETRY_LIMIT) {
+        const deadLetterPin = {
+          ...existing,
+          cursorUs,
+          failureCount,
+          lastSeenAtMs: nowMs,
+        };
+        failedCursorPins.set(eventKey, deadLetterPin);
+        const recorded = await recordFailedCursorDeadLetter(eventKey, deadLetterPin, 'retry_limit', nowMs, {
+          retryLimit: FAILED_CURSOR_PIN_RETRY_LIMIT,
+        });
+        if (!recorded) {
+          return;
+        }
+        deleteFailedCursorPinIfCurrent(eventKey, deadLetterPin);
+        logger.warn(
+          {
+            cursorUs: cursorUs.toString(),
+            failureCount,
+            retryLimit: FAILED_CURSOR_PIN_RETRY_LIMIT,
+            failedCursorPins: failedCursorPins.size,
+            oldestFailedCursorPinAgeMs: oldestFailedCursorPinAgeMs(nowMs),
+          },
+          'Dead-lettered Jetstream event after repeated handler failures'
+        );
+        return;
+      }
+      failedCursorPins.set(eventKey, {
+        ...existing,
+        cursorUs,
+        failureCount,
+        lastSeenAtMs: nowMs,
+      });
+      warnOnFailedCursorPins('repeated_failure', nowMs);
+      return;
+    }
+
+    failedCursorPins.set(eventKey, {
+      cursorUs,
+      generation,
+      failureCount: 1,
+      firstSeenAtMs: nowMs,
+      lastSeenAtMs: nowMs,
+    });
+    while (failedCursorPins.size > FAILED_CURSOR_PIN_MAX_COUNT) {
+      const pinCountBeforeEviction = failedCursorPins.size;
+      await evictOldestFailedCursorPinUnlocked(nowMs);
+      if (failedCursorPins.size === pinCountBeforeEviction) {
+        break;
+      }
+    }
+    warnOnFailedCursorPins('pin_added', nowMs);
+  });
+}
+
+async function removeFailedCursorPin(eventKey: string, generation: number): Promise<void> {
+  await withFailedCursorPinLock(async () => {
+    const existing = failedCursorPins.get(eventKey);
+    if (!existing || existing.generation !== generation) {
+      return;
+    }
+    failedCursorPins.delete(eventKey);
+  });
+}
+
+async function minimumUnsafeCursorUs(): Promise<bigint | undefined> {
+  await pruneExpiredFailedCursorPins(Date.now());
   let minimum: bigint | undefined;
   for (const [cursorUs, cursorCount] of activeCursorUs.entries()) {
     if (cursorCount.generation !== connectionGeneration || cursorCount.count < 1) {
@@ -247,23 +538,23 @@ function minimumUnsafeCursorUs(): bigint | undefined {
       minimum = cursorUs;
     }
   }
-  for (const [cursorUs, cursorCount] of failedCursorUs.entries()) {
-    if (cursorCount.generation !== connectionGeneration || cursorCount.count < 1) {
+  for (const failedCursorPin of failedCursorPins.values()) {
+    if (failedCursorPin.generation !== connectionGeneration) {
       continue;
     }
-    if (minimum === undefined || cursorUs < minimum) {
-      minimum = cursorUs;
+    if (minimum === undefined || failedCursorPin.cursorUs < minimum) {
+      minimum = failedCursorPin.cursorUs;
     }
   }
   return minimum;
 }
 
-function markCursorCompleted(cursorUs: bigint): bigint | undefined {
+async function markCursorCompleted(cursorUs: bigint): Promise<bigint | undefined> {
   if (maxCompletedCursorUs === undefined || cursorUs > maxCompletedCursorUs) {
     maxCompletedCursorUs = cursorUs;
   }
 
-  const minimumUnsafe = minimumUnsafeCursorUs();
+  const minimumUnsafe = await minimumUnsafeCursorUs();
   if (minimumUnsafe !== undefined && maxCompletedCursorUs >= minimumUnsafe) {
     const safeCursorUs = minimumUnsafe - 1n;
     return safeCursorUs > 0n ? safeCursorUs : undefined;
@@ -300,21 +591,43 @@ async function processJetstreamMessageData(
   let parsed = false;
   let ingestionOutcome: IngestionEventOutcome | null = null;
   let eventCursorUs: bigint | null = null;
+  let eventForFailedCursorPin: JetstreamEvent | null = null;
+  let eventFailedCursorPinKey: string | null = null;
+
+  function resolveEventFailedCursorPinKey(): string | null {
+    if (eventForFailedCursorPin === null) {
+      return null;
+    }
+    eventFailedCursorPinKey ??= failedCursorPinKey(eventForFailedCursorPin);
+    return eventFailedCursorPinKey;
+  }
 
   try {
     const event = parseJetstreamEvent(data);
     parsed = true;
     if (event.time_us) {
       eventCursorUs = BigInt(event.time_us);
+      eventForFailedCursorPin = event;
       incrementCursorCount(activeCursorUs, eventCursorUs, effectiveGeneration);
     }
     try {
       ingestionOutcome = await processEvent(event);
       if (
         eventCursorUs !== null &&
+        eventForFailedCursorPin !== null &&
         effectiveGeneration === connectionGeneration
       ) {
-        decrementCursorCount(failedCursorUs, eventCursorUs, effectiveGeneration);
+        if (isHandlerErrorOutcome(ingestionOutcome)) {
+          const eventKey = resolveEventFailedCursorPinKey();
+          if (eventKey !== null) {
+            await addFailedCursorPin(eventKey, eventCursorUs, effectiveGeneration);
+          }
+        } else if (failedCursorPins.size > 0) {
+          const eventKey = resolveEventFailedCursorPinKey();
+          if (eventKey !== null) {
+            await removeFailedCursorPin(eventKey, effectiveGeneration);
+          }
+        }
       }
     } finally {
       if (eventCursorUs !== null) {
@@ -328,8 +641,9 @@ async function processJetstreamMessageData(
     recordEventAt(nowMs);
 
     // Track cursor for persistence
-    if (eventCursorUs !== null && effectiveGeneration === connectionGeneration) {
-      lastCursorUs = markCursorCompleted(eventCursorUs);
+    const processedSuccessfully = ingestionOutcome !== null && !isHandlerErrorOutcome(ingestionOutcome);
+    if (eventCursorUs !== null && effectiveGeneration === connectionGeneration && processedSuccessfully) {
+      lastCursorUs = await markCursorCompleted(eventCursorUs);
       cursorUs = lastCursorUs === undefined ? null : lastCursorUs.toString();
       eventCounter++;
 
@@ -350,19 +664,20 @@ async function processJetstreamMessageData(
       acquired: true,
       dropped: false,
       parsed: true,
-      processed: true,
+      processed: processedSuccessfully,
       ingestionOutcome,
       cursorUs,
       cursorSaved,
-      errorMessage: null,
+      errorMessage: processedSuccessfully ? null : ingestionOutcome,
       eventCounter,
       queueState: { active: activeEventCount, queued: eventQueue.length },
     };
   } catch (err) {
     // DO NOT crash on individual event errors. Log and continue.
     if (eventCursorUs !== null) {
-      if (effectiveGeneration === connectionGeneration) {
-        incrementCursorCount(failedCursorUs, eventCursorUs, effectiveGeneration);
+      const eventKey = resolveEventFailedCursorPinKey();
+      if (eventKey !== null && effectiveGeneration === connectionGeneration) {
+        await addFailedCursorPin(eventKey, eventCursorUs, effectiveGeneration);
       }
       cursorUs = lastCursorUs === undefined ? null : lastCursorUs.toString();
     }
@@ -627,15 +942,17 @@ async function saveCursor(cursorUs: bigint): Promise<boolean> {
          END`,
       [cursorUs.toString()]
     );
-    for (const [failedCursor, cursorCount] of failedCursorUs.entries()) {
-      if (cursorCount.generation !== connectionGeneration) {
-        failedCursorUs.delete(failedCursor);
-        continue;
+    await withFailedCursorPinLock(async () => {
+      for (const [eventKey, failedCursorPin] of failedCursorPins.entries()) {
+        if (failedCursorPin.generation !== connectionGeneration) {
+          failedCursorPins.delete(eventKey);
+          continue;
+        }
+        if (failedCursorPin.cursorUs <= cursorUs) {
+          failedCursorPins.delete(eventKey);
+        }
       }
-      if (failedCursor <= cursorUs) {
-        failedCursorUs.delete(failedCursor);
-      }
-    }
+    });
     return true;
   } catch (err) {
     logger.error({ err }, 'Failed to save cursor');
@@ -708,8 +1025,8 @@ export function clearJetstreamFailedCursorPins(reason: string): number {
     throw new RangeError('reason must be a non-empty string when clearing Jetstream failed cursor pins');
   }
 
-  const clearedCount = failedCursorUs.size;
-  failedCursorUs.clear();
+  const clearedCount = failedCursorPins.size;
+  failedCursorPins.clear();
   logger.warn({ clearedCount, reason }, 'Cleared Jetstream failed cursor pins by operator request');
   return clearedCount;
 }
@@ -720,6 +1037,10 @@ export function clearJetstreamFailedCursorPins(reason: string): number {
 export const __testJetstreamQueue = {
   maxConcurrentEvents: MAX_CONCURRENT_EVENTS,
   maxPendingEvents: MAX_PENDING_EVENTS,
+  cursorSaveInterval: CURSOR_SAVE_INTERVAL,
+  failedCursorPinRetryLimit: FAILED_CURSOR_PIN_RETRY_LIMIT,
+  failedCursorPinMaxCount: FAILED_CURSOR_PIN_MAX_COUNT,
+  failedCursorPinMaxAgeMs: FAILED_CURSOR_PIN_MAX_AGE_MS,
   acquireSlot,
   releaseSlot,
   drainQueuedSlots,
@@ -733,7 +1054,7 @@ export const __testJetstreamQueue = {
     maxCompletedCursorUs = undefined;
     connectionGeneration = 0;
     activeCursorUs.clear();
-    failedCursorUs.clear();
+    resetFailedCursorPinState();
     lastEventReceivedAt = null;
     lastDisconnectedAt = null;
     eventCountByMinute.clear();
@@ -747,8 +1068,17 @@ export const __testJetstreamQueue = {
   resetDroppedCount(): void {
     droppedEventCount = 0;
   },
+  getFailedCursorPinCount(): number {
+    return failedCursorPins.size;
+  },
+  getFailedCursorDeadLetterCount(): number {
+    return failedCursorDeadLetterCount;
+  },
   processMessage(data: Buffer): Promise<JetstreamMessageProcessResult> {
     return processJetstreamMessageData(data, () => undefined, null);
+  },
+  processMessageForGeneration(data: Buffer, messageGeneration: number): Promise<JetstreamMessageProcessResult> {
+    return processJetstreamMessageData(data, () => undefined, messageGeneration);
   },
   invalidateConnectionForTests(): void {
     invalidateConnectionGeneration();

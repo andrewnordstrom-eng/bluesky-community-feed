@@ -1242,3 +1242,119 @@ GitHub PR #302 `backend-verify` failed under Node 20.19.0 before CLI validation 
 ### Decisions & alternatives
 - Kept staging/systemd, production traffic, Docker tasking, and shared databases untouched.
 - Did not downgrade or pin Testcontainers/undici in this validation branch; the root issue was import order on paths that do not need containers.
+
+## 2026-07-06 #06 — PROJ-1551 CodeRabbit hardening loop
+
+**Branch:** `dev/PROJ-1551-corgi-validation`
+**Commits:** pending
+**Files changed:** request tracking, feed request logging, Jetstream cursor/dead-letter handling, subscriber logging, validation scripts, regression tests, and migration `023_jetstream_failed_cursor_dead_letters.sql`.
+
+### What changed
+
+Ran CodeRabbit CLI on the uncommitted PR diff after the spending cap cleared for CLI review execution. Fixed the valid runtime findings instead of treating the stale PR status as current truth:
+
+- Feed request tracking now keeps timeout accounting distinct from late task completion/rejection, re-arms warning gates after idle drains, and adds abort-path regressions for verifier, subscriber, Redis read, and Redis pipeline stalls.
+- Feed request logging now dispatches the Redis request-log pipeline eagerly and independently from subscriber upsert, so subscriber stalls do not suppress request-log writes.
+- Jetstream handler-error outcomes no longer advance the cursor. Failed cursor pins are keyed by event identity, generation-scoped, retry-bounded, age-bounded, max-count-bounded, and dead-lettered durably before the pin is removed.
+- Added migration `023_jetstream_failed_cursor_dead_letters.sql` for durable failed-cursor dead-letter audit rows.
+- Subscriber upsert redaction now keeps the catch path non-throwing if DID digest secret resolution fails, emits a sanitized error log, increments a digest-unavailable counter, and still avoids raw DID leakage.
+- Vote-load and memory-isolated stress harnesses now carry the prior CodeRabbit hardening around ephemeral Postgres connection budget, cleanup error preservation, and shared threshold constants.
+
+### Why
+
+The PR was blocked by a stale CodeRabbit app status, but the CLI cap had passed enough to run substantive reviews. The review loop found real correctness issues in cursor safety and async tracking behavior. PROJ-1551 claims depend on ingestion and validation receipts being defensible under handler failures, stalled tracking dependencies, and dead-letter audit requirements.
+
+### Measurements
+
+- CodeRabbit CLI `coderabbit review --agent -t uncommitted -c .coderabbit.yaml`: multiple completed review passes emitted actionable findings; latest post-fix retry was blocked by recoverable `rate_limit` with wait time `11 minutes`. Do not claim a clean final CodeRabbit pass yet.
+- `npm run verify` with dummy non-production env and local loopback/IPC permission: pass, including root build, 97 files / 868 Vitest tests, CLI build, MCP-local skip, SDK build, SDK fixture, web lint/build, and web-next build.
+- `npm --silent run sim:preflight`: pass, 4/4 checks; Docker server 29.4.3; Testcontainers started `postgres:16` and `redis:7-alpine`; migrations `001` through `023` applied.
+- `npm run build:lab-memory`: pass.
+- `npm run docs:verify`: pass, 14 tracked docs / 28 markdown files scanned.
+- `git diff --check`: pass.
+
+### Decisions & alternatives
+
+- Kept staging/systemd, production traffic, Docker tasking beyond Testcontainers, and shared databases untouched.
+- Treated CodeRabbit "trivial" labels skeptically: implemented test-only gaps when cheap, but also promoted the durable dead-letter requirement to runtime work because log-only drops were not recoverable.
+- Retry-limit skips remain blocked when durable dead-letter persistence fails. Pin-limit and age-limit cleanup still remove pins to enforce memory and age bounds, while logging the failed durable write.
+- CodeRabbit final clean state remains pending on the vendor rate-limit retry.
+
+## 2026-07-06 #07 — PROJ-1551 final local hardening receipts and CodeRabbit cap state
+
+**Branch:** `dev/PROJ-1551-corgi-validation`
+**Commits:** pending
+**Files changed:** request tracking, feed request logging, Jetstream failed-cursor locking/dead-letter handling, subscriber logging, memory/vote validation scripts, regression tests, docs, and migration `023_jetstream_failed_cursor_dead_letters.sql`.
+
+### What changed
+
+Continued the CodeRabbit hardening loop from entry #06 and fixed the remaining still-valid emitted issues:
+
+- Serialized Jetstream `failedCursorPins` mutations across awaited dead-letter inserts, guarded post-await deletes against reconnect/reset key reuse, and added a concurrent same-event retry-limit regression that proves one durable dead-letter plus one fresh pin.
+- Downgraded route-local feed tracking failure logging to debug so repeated Redis/subscriber tracking failures rely on the request tracker's rate-limited warnings instead of one warn per request.
+- Kept the feed request tracker timeout above the configured Postgres statement timeout by default, preserving DB statement-timeout headroom while tests still override the task timeout deterministically.
+- Extended subscriber digest-unavailable coverage to prove the production-mode counter increments per failed call without leaking raw DIDs.
+- Made the memory-isolated harness importable without auto-running, then covered startup-error cleanup when both stops fail, one stop fails, and cleanup succeeds.
+- Added the small CLI timeout single-source-of-truth regression requested by the final CodeRabbit stream.
+
+### Why
+
+The remaining findings were mostly low-severity test coverage, but they protected real evidence claims: failed Jetstream events must not race cursor safety, feed tracking must not create log storms under dependency failures, and startup cleanup tests must prove the original startup error is preserved regardless of cleanup outcome.
+
+### Measurements
+
+- Focused review slice after final fixes: `npx vitest run tests/jetstream-message-processing.test.ts tests/feed-skeleton-tracking.test.ts tests/subscribers-log-redaction.test.ts tests/memory-isolated-cli.test.ts` passed, 4 files / 60 tests.
+- `npm run build`: pass.
+- `npm run build:lab-memory`: pass.
+- `npm run docs:verify`: pass, 14 tracked docs / 28 markdown files scanned.
+- `git diff --check`: pass.
+- `npm --silent run sim:preflight`: pass, generated `2026-07-07T00:54:49.393Z`, 4/4 checks, Docker server 29.4.3, Testcontainers `postgres:16`/`redis:7-alpine`, migrations `001` through `023` applied.
+- Final `npm run verify` with dummy non-production env and local loopback/IPC permission: pass, including root build, 97 files / 876 Vitest tests, CLI build, MCP-local skip, SDK build, SDK fixture, web lint/build, and web-next build.
+- CodeRabbit rerun after the first final-fix batch exceeded the 10-minute window, emitted 4 issues, and was stopped; all 4 were fixed.
+- CodeRabbit rerun after that exceeded the 10-minute window, emitted 2 trivial issues, and was stopped; both were fixed.
+- Final CodeRabbit attempt after the green local gates returned recoverable `rate_limit` with wait time `6 minutes`; after waiting 6 minutes plus an 8-second buffer, retries still returned recoverable `rate_limit` with wait times `4 seconds` and then `4 minutes`. Do not claim a clean final CodeRabbit pass.
+
+### Decisions & alternatives
+
+- Stopped the CodeRabbit retry loop after the moving vendor wait window returned another 4-minute cap; local verification is green, but vendor freshness is not clean.
+- Kept staging/systemd, production traffic, credentials, DNS, deploys, and shared database saturation untouched.
+- Kept retry-limit dead-letter DB failure fail-closed for cursor advancement, while pin-limit and age-limit cleanup remain bounded even if durable audit insertion fails.
+
+### Open questions
+
+- CodeRabbit vendor freshness remains blocked by recoverable rate limit; rerun once the cap actually clears.
+- Shared-environment/staging claims remain blocked on explicit target/operator/window/rollback/artifact approval and repeated DB-pool-instrumented voting runs.
+
+## 2026-07-06 #08 — PROJ-1551 adversarial tracker accounting closeout
+
+**Branch:** `dev/PROJ-1551-corgi-validation`
+**Commits:** pending
+**Files changed:** `src/feed/request-tracker.ts`, `src/feed/routes/feed-skeleton.ts`, `scripts/memory-isolated-stress.ts`, `tests/feed-request-tracker.test.ts`, `tests/feed-skeleton-tracking.test.ts`, `docs/lab/2026-07-05-corgi-ingestion-voting-validation.md`, `docs/RECSYS_VALIDATION_EVIDENCE.md`, `docs/dev-journal.md`.
+
+### What changed
+
+Closed the adversarial review gap where an abort-aware wrapper could reject on timeout while the underlying Redis, subscriber DB, or verifier promise continued outside tracker accounting:
+
+- Added `abandonedBackendOps`, total, max-observed, and backend-saturation drop counters to feed request tracker stats.
+- Made tracker drain/reset wait for abandoned backend operations to settle, not only queued/in-flight app tasks.
+- Added a circuit breaker that drops new tracking work when abandoned backend operations reach the request-tracker concurrency ceiling.
+- Wrapped feed-skeleton tracking operations so abort-before-settle records an abandoned backend operation and clears it only when the original promise resolves or rejects.
+- Updated the memory harness pass/fail gate to require `abandonedBackendOps=0` and `backendSaturationDropped=0` on future runs.
+
+### Why
+
+The previous timeout tests proved the response path stayed non-blocking, but they did not prove dependency-stall backpressure. A Redis/DB/verifier stall could still leave detached backend promises alive after app-level tracking reported idle. That would make memory and saturation receipts overstate recovery under dependency-stall conditions.
+
+### Measurements
+
+- Focused adversarial tracker slice with dummy non-production env: `npx vitest tests/feed-request-tracker.test.ts tests/feed-skeleton-tracking.test.ts --run` passed, 2 files / 42 tests.
+- Broader focused hardening slice with dummy non-production env: `npx vitest tests/config.test.ts tests/feed-request-tracker.test.ts tests/feed-skeleton-tracking.test.ts tests/memory-isolated-cli.test.ts tests/subscribers-log-redaction.test.ts tests/jetstream-message-processing.test.ts --run` passed, 6 files / 98 tests.
+- `npm run build` with dummy non-production env: pass.
+- `npm run build:lab-memory` with dummy non-production env: pass.
+- Full `npm run verify` with dummy non-production env and local loopback/IPC permission: pass, including root build, 97 files / 878 Vitest tests, CLI build, MCP-local skip, SDK build, SDK fixture, web lint/build, and web-next build.
+
+### Decisions & alternatives
+
+- Kept the feed response non-blocking, but made abandoned backend work visible and gated instead of treating abort as cancellation.
+- Did not rerun the full 5-run memory gate in this entry; prior memory receipts remain valid for their recorded protocol, while future memory gates now include abandoned-backend-operation assertions.
+- Kept staging/systemd, production traffic, credentials, DNS, deploys, and shared databases untouched.

@@ -79,7 +79,7 @@ and blocked claims live in the lab journal above.
 - The local real-route HTTP voting load gate passed for 8,000 requests, 500 users, and 100 connections on the current canonical run with p95 48.18 ms and exact reconciliation, with one earlier failed 100-connection attempt retained as a repeatability warning.
 - The local process-isolated feed memory gate passed for 5 runs per mode at 10,000 requests and 100 connections under the recorded lab child runtime with explicit 896 MB old-space, 16 MB semi-space, and a 1,000-request warmup baseline.
 - The local compiled prod-parity memory gate passed for 5 runs per mode at 10,000 requests and 100 connections under the proposed 896 MB old-space, 16 MB semi-space, compiled child runtime, and the same warmup-baseline methodology.
-- Feed request tracking now has local regression coverage proving stalled tracking Redis reads honor the tracker timeout, release the slot, and do not continue to write tracking rows after abort.
+- Feed request tracking now has local regression coverage proving stalled verifier, subscriber, Redis read, and Redis pipeline promises honor the tracker timeout while remaining counted as `abandonedBackendOps` until the underlying promise settles; drain/reset gates fail while abandoned backend operations remain.
 - Feed request tracking queue saturation now emits a rate-limited operator warning and has local regression coverage for drop accounting plus concurrent drain waiters.
 - Private feed requests now reuse the already verified/approved DID for background tracking instead of verifying the same JWT twice.
 - Subscriber upsert failure logging now has local regression coverage for string, null, and non-string-property rejection values without raw DID leakage.
@@ -104,6 +104,7 @@ and blocked claims live in the lab journal above.
 
 1. Get explicit approval for the lab-journal `[PLAN DRAFT]` target, operator, time window, rollback command, artifact destination, and no-production-blast-radius boundary; then execute Phase 0 read-only baseline only.
 2. Reproducible local test-env wrapper for clean-worktree test runs.
-3. Optional CI/manual workflow for S0-S3 campaign gates and S4-S5 capacity runs.
-4. Live Jetstream capture/replay receipt with event-count, collection-mix, cursor, and checksum provenance.
-5. Staging saturation execution only after the approved runtime plan's memory/feed, Jetstream/scoring, repeated voting-load, DB-pool-utilization, and external voting phases pass on an isolated target.
+3. Rerun the full memory-isolated and compiled prod-parity gates under the current protocol so manifests explicitly include `abandonedBackendOps=0` and `backendSaturationDropped=0`.
+4. Optional CI/manual workflow for S0-S3 campaign gates and S4-S5 capacity runs.
+5. Live Jetstream capture/replay receipt with event-count, collection-mix, cursor, and checksum provenance.
+6. Staging saturation execution only after the approved runtime plan's memory/feed, Jetstream/scoring, repeated voting-load, DB-pool-utilization, and external voting phases pass on an isolated target.

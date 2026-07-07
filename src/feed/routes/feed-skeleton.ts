@@ -20,7 +20,10 @@ import { upsertSubscriberAsync } from '../../db/queries/subscribers.js';
 import { encodeCursor, decodeCursor } from '../cursor.js';
 import { verifyFeedRequesterDid } from '../jwt-verifier.js';
 import { isParticipantApproved } from '../access-control.js';
-import { enqueueFeedRequestTracking } from '../request-tracker.js';
+import {
+  enqueueFeedRequestTracking,
+  noteFeedRequestTrackingAbandonedBackendOperation,
+} from '../request-tracker.js';
 import { getCurrentFeedSnapshot, getFeedSnapshotById } from '../snapshot-cache.js';
 
 // The AT-URI for this feed
@@ -57,7 +60,21 @@ async function waitForTrackingOperation<T>(
   }
 
   return new Promise<T>((resolve, reject) => {
+    let operationSettled = false;
+    let releaseAbandonedBackendOperation: (() => void) | null = null;
+
+    const releaseIfAbandoned = (): void => {
+      if (releaseAbandonedBackendOperation === null) {
+        return;
+      }
+      releaseAbandonedBackendOperation();
+      releaseAbandonedBackendOperation = null;
+    };
+
     const abort = (): void => {
+      if (!operationSettled && releaseAbandonedBackendOperation === null) {
+        releaseAbandonedBackendOperation = noteFeedRequestTrackingAbandonedBackendOperation(operationName);
+      }
       reject(readAbortReason(signal));
     };
 
@@ -73,6 +90,8 @@ async function waitForTrackingOperation<T>(
     operationPromise
       .then(resolve, reject)
       .finally(() => {
+        operationSettled = true;
+        releaseIfAbandoned();
         signal.removeEventListener('abort', abort);
       });
   }).catch((err: unknown) => {
@@ -117,21 +136,35 @@ async function trackFeedRequest(context: FeedRequestTrackingContext): Promise<vo
     const pipeline = redis.pipeline();
     pipeline.rpush('feed:request_log', logEntry);
     pipeline.ltrim('feed:request_log', -100000, -1);
-    await waitForTrackingOperation(
-      context.signal,
-      async () => {
-        if (viewerDid) {
-          await upsertSubscriberAsync(viewerDid);
-        }
-        await pipeline.exec();
-      },
-      'feed request tracking writes'
-    );
+    if (context.signal.aborted) {
+      throw readAbortReason(context.signal);
+    }
+    const trackingWrites: Array<Promise<unknown>> = [
+      waitForTrackingOperation(
+        context.signal,
+        () => pipeline.exec(),
+        'redis.pipeline.exec(feed:request_log)'
+      ),
+    ];
+    if (viewerDid) {
+      trackingWrites.push(
+        waitForTrackingOperation(
+          context.signal,
+          () => upsertSubscriberAsync(viewerDid),
+          'upsertSubscriberAsync'
+        )
+      );
+    }
+    await Promise.all(trackingWrites);
   } catch (err) {
     if (context.signal.aborted) {
       throw err;
     }
-    logger.warn({ err }, 'Failed to log feed request to Redis');
+    logger.debug({ err }, 'Feed request tracking failed; tracker will emit rate-limited warning');
+    if (err instanceof Error) {
+      throw err;
+    }
+    throw new Error(`feed request tracking failed with non-Error rejection: ${String(err)}`);
   }
 }
 

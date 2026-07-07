@@ -43,6 +43,7 @@ export const ConfigSchema = z.object({
 
   // Redis
   REDIS_URL: z.string().startsWith('redis://'),
+  REDIS_COMMAND_TIMEOUT_MS: z.coerce.number().int().min(100).default(5_000),
 
   // Feed requester JWT verification
   FEED_JWT_AUDIENCE: z.string().default(''),
