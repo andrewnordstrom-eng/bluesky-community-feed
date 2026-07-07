@@ -4,10 +4,21 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 const { Client } = pg;
 const MIGRATIONS_DIR = path.resolve(process.cwd(), 'src/db/migrations');
 const MIGRATIONS_TABLE = 'schema_migrations';
 const NON_TRANSACTIONAL_MIGRATION_MARKER = '-- migrate: no-transaction';
+const NON_TRANSACTIONAL_MIGRATION_MARKER_PATTERN = new RegExp(
+  `^\\s*${escapeRegExp(NON_TRANSACTIONAL_MIGRATION_MARKER)}\\s*$`,
+  'm'
+);
+const POST_SCORES_RUN_SCOPE_INDEX_MIGRATION = '024_post_scores_run_scope_index.sql';
+const POST_SCORES_RUN_SCOPE_INDEX_NAME = 'idx_scores_epoch_run_total';
+const POST_SCORES_RUN_SCOPE_INDEX_REGCLASS = `public.${POST_SCORES_RUN_SCOPE_INDEX_NAME}`;
 const LEGACY_MIGRATION_SENTINEL_TABLES = ['posts', 'governance_epochs', 'post_scores'] as const;
 
 const LEGACY_MIGRATION_PROBES: Record<string, string> = {
@@ -123,8 +134,61 @@ async function queryBoolean(client: pg.Client, sql: string): Promise<boolean> {
   return result.rows[0]?.applied === true;
 }
 
+export class MigrationVerificationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'MigrationVerificationError';
+  }
+}
+
 export function shouldRunMigrationInTransaction(sql: string): boolean {
-  return !sql.includes(NON_TRANSACTIONAL_MIGRATION_MARKER);
+  return !NON_TRANSACTIONAL_MIGRATION_MARKER_PATTERN.test(sql);
+}
+
+export async function verifyRequiredMigrationSideEffects(
+  client: pg.Client,
+  filename: string
+): Promise<void> {
+  if (filename !== POST_SCORES_RUN_SCOPE_INDEX_MIGRATION) {
+    return;
+  }
+
+  const result = await client.query<{ index_exists: boolean; index_is_valid: boolean }>(
+    `
+      SELECT
+        to_regclass($1) IS NOT NULL AS index_exists,
+        COALESCE((
+          SELECT pg_index.indisvalid
+          FROM pg_class index_class
+          JOIN pg_index ON pg_index.indexrelid = index_class.oid
+          JOIN pg_namespace namespace ON namespace.oid = index_class.relnamespace
+          WHERE namespace.nspname = $2
+            AND index_class.relname = $3
+        ), false) AS index_is_valid
+    `,
+    [POST_SCORES_RUN_SCOPE_INDEX_REGCLASS, 'public', POST_SCORES_RUN_SCOPE_INDEX_NAME]
+  );
+  const verification = result.rows[0];
+
+  if (verification?.index_exists === true && verification.index_is_valid === true) {
+    return;
+  }
+
+  throw new MigrationVerificationError(
+    `Migration ${filename} did not leave a valid ${POST_SCORES_RUN_SCOPE_INDEX_REGCLASS} index: ` +
+      `index_exists=${String(verification?.index_exists ?? false)} ` +
+      `index_is_valid=${String(verification?.index_is_valid ?? false)}`
+  );
+}
+
+export async function applyNonTransactionalMigration(
+  client: pg.Client,
+  filename: string,
+  sql: string
+): Promise<void> {
+  await client.query(sql);
+  await verifyRequiredMigrationSideEffects(client, filename);
+  await client.query(`INSERT INTO ${MIGRATIONS_TABLE} (filename) VALUES ($1)`, [filename]);
 }
 
 export async function detectLegacySchema(client: pg.Client): Promise<boolean> {
@@ -215,8 +279,7 @@ export async function runMigrations(databaseUrl = process.env.DATABASE_URL): Pro
       console.log(`[apply] ${filename}`);
       if (!shouldRunMigrationInTransaction(sql)) {
         try {
-          await client.query(sql);
-          await client.query(`INSERT INTO ${MIGRATIONS_TABLE} (filename) VALUES ($1)`, [filename]);
+          await applyNonTransactionalMigration(client, filename, sql);
           console.log(`[done] ${filename}`);
         } catch (err) {
           console.error(`[failed] ${filename}`);

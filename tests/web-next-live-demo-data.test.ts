@@ -106,6 +106,34 @@ describe('web-next live demo data helpers', () => {
     ).toThrow(LiveDemoDataError);
   });
 
+  it('fails explicitly when live explanation component fields are non-finite', () => {
+    expect(() =>
+      scoreComponentsFromExplanation({
+        ...EXPLANATION_FIXTURE,
+        components: {
+          ...EXPLANATION_FIXTURE.components,
+          recency: {
+            ...EXPLANATION_FIXTURE.components.recency,
+            raw_score: Number.NaN,
+          },
+        },
+      }),
+    ).toThrow(LiveDemoDataError);
+
+    expect(() =>
+      scoreComponentsFromExplanation({
+        ...EXPLANATION_FIXTURE,
+        components: {
+          ...EXPLANATION_FIXTURE.components,
+          relevance: {
+            ...EXPLANATION_FIXTURE.components.relevance,
+            weighted: Number.POSITIVE_INFINITY,
+          },
+        },
+      }),
+    ).toThrow(LiveDemoDataError);
+  });
+
   it('normalizes live relevance topic breakdowns', () => {
     expect(topicBreakdownFromExplanation(EXPLANATION_FIXTURE)).toEqual([
       {

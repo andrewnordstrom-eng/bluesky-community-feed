@@ -111,9 +111,28 @@ function sanitizedReceiptScanContent(content: string): string {
   return sanitizeStringLiterals([content]).join('\n');
 }
 
+function extractBareJsxText(content: string): string[] {
+  const textNodes: string[] = [];
+  const textNodePattern = /<([A-Za-z][A-Za-z0-9.:_-]*)(?:\s[^<>]*)?>([^<>{}]*)<\/\1>/g;
+  let match = textNodePattern.exec(content);
+
+  while (match !== null) {
+    const textNode = (match[2] ?? '').replace(/\s+/g, ' ').trim();
+    if (textNode.length > 0) {
+      textNodes.push(textNode);
+    }
+    match = textNodePattern.exec(content);
+  }
+
+  return textNodes;
+}
+
 function expectAnonymizedLiveReceiptContent(content: string, label: string): void {
   const sanitizedContent = sanitizedReceiptScanContent(content);
-  const stringLiterals = sanitizeStringLiterals(extractStringLiterals(content)).join('\n');
+  const domainHandleScanContent = sanitizeStringLiterals([
+    ...extractStringLiterals(content),
+    ...extractBareJsxText(content),
+  ]).join('\n');
 
   for (const forbiddenPattern of FULL_CONTENT_LIVE_RECEIPT_PATTERNS) {
     expect(
@@ -123,7 +142,7 @@ function expectAnonymizedLiveReceiptContent(content: string, label: string): voi
   }
 
   expect(
-    stringLiterals,
+    domainHandleScanContent,
     `${label} contains domain-style handle`,
   ).not.toMatch(DOMAIN_HANDLE_PATTERN);
 }
@@ -328,6 +347,15 @@ describe('web-next demo receipt fixtures', () => {
     expect(() => expectAnonymizedLiveReceiptContent(commentOnlyLeak, 'synthetic comment leak')).toThrow(
       /synthetic comment leak contains PLC DID/,
     );
+  });
+
+  it('catches domain-style handles in bare JSX text nodes', () => {
+    expect(() =>
+      expectAnonymizedLiveReceiptContent(
+        '<div className="receipt-row">leaked-author.example.social</div>',
+        'synthetic JSX text leak',
+      )
+    ).toThrow(/synthetic JSX text leak contains domain-style handle/);
   });
 
   it('extracts markdown sections with explicit edge behavior', () => {
