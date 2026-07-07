@@ -12,12 +12,30 @@ import {
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const WEB_NEXT_ROOT = path.join(REPO_ROOT, 'web-next');
 const LIVE_METRICS_SNAPSHOT_FILE = path.join(WEB_NEXT_ROOT, 'lib', 'live-metrics-snapshot.ts');
+const README_FILE = path.join(REPO_ROOT, 'README.md');
+const DEV_JOURNAL_FILE = path.join(REPO_ROOT, 'docs', 'dev-journal.md');
+const LAB_METRICS_PACKET_FILE = path.join(
+  REPO_ROOT,
+  'docs',
+  'lab',
+  '2026-07-07-recsys-live-metrics-packet.md',
+);
 
 const UI_FIXTURE_FILES = [
   path.join(REPO_ROOT, 'web-next', 'app', 'demo', 'page.tsx'),
   path.join(REPO_ROOT, 'web-next', 'components', 'dashboard-preview.tsx'),
   path.join(REPO_ROOT, 'web-next', 'components', 'hero-section.tsx'),
   LIVE_METRICS_SNAPSHOT_FILE,
+];
+
+const PUBLIC_RECEIPT_DOC_FILES = [
+  README_FILE,
+  DEV_JOURNAL_FILE,
+  LAB_METRICS_PACKET_FILE,
+];
+
+const PUBLIC_RECEIPT_EXAMPLE_SECTION_FILES = [
+  LAB_METRICS_PACKET_FILE,
 ];
 
 const DOMAIN_HANDLE_PATTERN =
@@ -30,9 +48,33 @@ const FORBIDDEN_LIVE_RECEIPT_PATTERNS = [
   { name: 'PLC DID', pattern: /did:plc:/i },
   { name: 'Bluesky handle', pattern: /[a-z0-9._-]+\.bsky\.social/i },
   { name: 'domain-style handle', pattern: DOMAIN_HANDLE_PATTERN },
-  { name: 'known receipt handle', pattern: /\b(elainesque|waveforest|kdinjenzenvo|sonicstadium)\b/i },
-  { name: 'known receipt text', pattern: /Also, this is just funny\./i },
 ];
+
+const FORBIDDEN_PUBLIC_DOC_RECEIPT_PATTERNS = [
+  { name: 'raw PLC DID', pattern: /did:plc:[a-z0-9]{20,}/i },
+  { name: 'encoded PLC DID', pattern: /did%3Aplc%3A[a-z0-9]{20,}/i },
+  { name: 'raw AT Protocol URI', pattern: /at:\/\/did:plc:[a-z0-9]+\/[a-z0-9.]+\/[a-z0-9._-]+/i },
+  {
+    name: 'encoded AT Protocol URI',
+    pattern: /at%3A%2F%2Fdid%3Aplc%3A[a-z0-9]+%2F[a-z0-9.]+%2F[a-z0-9._-]+/i,
+  },
+  { name: 'Bluesky handle', pattern: /[a-z0-9._-]+\.bsky\.social/i },
+];
+
+const FORBIDDEN_PUBLIC_DOC_EXAMPLE_SECTION_PATTERNS = [
+  { name: 'raw PLC DID', pattern: /did:plc:[a-z0-9]{20,}/i },
+  { name: 'raw AT Protocol post URI', pattern: /at:\/\/did:plc:[a-z0-9]+\/app\.bsky\.feed\.post\/[a-z0-9]+/i },
+  {
+    name: 'encoded AT Protocol post URI',
+    pattern: /at%3A%2F%2Fdid%3Aplc%3A[a-z0-9]+%2Fapp\.bsky\.feed\.post%2F[a-z0-9]+/i,
+  },
+  { name: 'Bluesky handle', pattern: /[a-z0-9._-]+\.bsky\.social/i },
+];
+
+interface PublicReceiptDocSection {
+  readonly label: string;
+  readonly content: string;
+}
 
 function readFixtureFile(fixtureFile: string): string {
   try {
@@ -100,6 +142,89 @@ function relativeFixturePaths(fixtureFiles: string[]): string[] {
   return fixtureFiles.map((fixtureFile) => path.relative(REPO_ROOT, fixtureFile)).sort();
 }
 
+function escapeRegExp(input: string): string {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function extractMarkdownSection(content: string, heading: string): string {
+  const headingPattern = new RegExp(`^## ${escapeRegExp(heading)}\\s*\\r?$`, 'm');
+  const headingMatch = headingPattern.exec(content);
+
+  if (headingMatch === null) {
+    throw new Error(`Unable to find markdown section: ${heading}`);
+  }
+
+  const sectionStartIndex = headingMatch.index + headingMatch[0].length;
+  const afterHeading = content.slice(sectionStartIndex);
+  const remainingContent = afterHeading.startsWith('\r\n')
+    ? afterHeading.slice(2)
+    : afterHeading.startsWith('\n')
+      ? afterHeading.slice(1)
+      : afterHeading;
+  const nextSectionMatch = /^## /m.exec(remainingContent);
+
+  if (nextSectionMatch === null) {
+    return remainingContent;
+  }
+
+  return remainingContent.slice(0, nextSectionMatch.index);
+}
+
+function extractMarkdownSectionByHeadingFragment(content: string, headingFragment: string): string {
+  const headingPattern = new RegExp(`^## .*${escapeRegExp(headingFragment)}.*\\r?$`, 'm');
+  const headingMatch = headingPattern.exec(content);
+
+  if (headingMatch === null) {
+    throw new Error(`Unable to find markdown section containing: ${headingFragment}`);
+  }
+
+  const heading = headingMatch[0].replace(/^##\s+/, '').trim();
+  return extractMarkdownSection(content, heading);
+}
+
+function extractLineContaining(content: string, needle: string): string {
+  const line = content.split(/\r?\n/).find((candidate) => candidate.includes(needle));
+
+  if (line === undefined) {
+    throw new Error(`Unable to find line containing: ${needle}`);
+  }
+
+  return line;
+}
+
+function publicReceiptDocSections(): PublicReceiptDocSection[] {
+  const readme = readFixtureFile(README_FILE);
+  const devJournal = readFixtureFile(DEV_JOURNAL_FILE);
+  const labMetricsPacket = readFixtureFile(LAB_METRICS_PACKET_FILE);
+
+  return [
+    {
+      label: 'README.md live production snapshot',
+      content: extractLineContaining(readme, 'Live production snapshot:'),
+    },
+    {
+      label: 'docs/dev-journal.md PROJ-1433 entry',
+      content: extractMarkdownSectionByHeadingFragment(devJournal, 'PROJ-1433 live metrics packet'),
+    },
+    {
+      label: 'metrics packet receipt commands',
+      content: extractMarkdownSection(labMetricsPacket, 'Receipt Commands'),
+    },
+    {
+      label: 'metrics packet live production claims',
+      content: extractMarkdownSection(labMetricsPacket, 'Live Production Claims'),
+    },
+    {
+      label: 'metrics packet post explanation',
+      content: extractMarkdownSection(labMetricsPacket, 'Post Explanation Example'),
+    },
+    {
+      label: 'metrics packet copy guidance',
+      content: extractMarkdownSection(labMetricsPacket, 'Copy Guidance'),
+    },
+  ];
+}
+
 describe('web-next demo receipt fixtures', () => {
   it('keeps the scanned fixture set exhaustive for live snapshot importers', () => {
     expect(relativeFixturePaths(UI_FIXTURE_FILES)).toEqual(
@@ -121,6 +246,48 @@ describe('web-next demo receipt fixtures', () => {
     }
   });
 
+  it('keeps public PROJ-1433 receipt docs anonymized for the rank-one example', () => {
+    expect(relativeFixturePaths(PUBLIC_RECEIPT_DOC_FILES)).toEqual([
+      'README.md',
+      'docs/dev-journal.md',
+      'docs/lab/2026-07-07-recsys-live-metrics-packet.md',
+    ]);
+
+    for (const section of publicReceiptDocSections()) {
+      for (const forbiddenPattern of FORBIDDEN_PUBLIC_DOC_RECEIPT_PATTERNS) {
+        expect(
+          section.content,
+          `${section.label} contains ${forbiddenPattern.name}`,
+        ).not.toMatch(forbiddenPattern.pattern);
+      }
+    }
+  });
+
+  it('keeps the public post explanation section free of structural raw identifiers', () => {
+    for (const fixtureFile of PUBLIC_RECEIPT_EXAMPLE_SECTION_FILES) {
+      const content = readFixtureFile(fixtureFile);
+      const section = extractMarkdownSection(content, 'Post Explanation Example');
+
+      for (const forbiddenPattern of FORBIDDEN_PUBLIC_DOC_EXAMPLE_SECTION_PATTERNS) {
+        expect(
+          section,
+          `${path.relative(REPO_ROOT, fixtureFile)} Post Explanation Example contains ${forbiddenPattern.name}`,
+        ).not.toMatch(forbiddenPattern.pattern);
+      }
+    }
+  });
+
+  it('keeps the public post explanation sensitive fields explicitly redacted', () => {
+    for (const fixtureFile of PUBLIC_RECEIPT_EXAMPLE_SECTION_FILES) {
+      const content = readFixtureFile(fixtureFile);
+      const section = extractMarkdownSection(content, 'Post Explanation Example');
+
+      expect(section).toMatch(/- Post text: redacted from the public tracked packet/);
+      expect(section).toMatch(/- Raw production URI: redacted from the public tracked packet/);
+      expect(section).toMatch(/- Raw author DID and handle: redacted from the public tracked packet/);
+    }
+  });
+
   it('extracts multiline template literals for live identifier checks', () => {
     const content = [
       'const fixture = `',
@@ -135,14 +302,24 @@ describe('web-next demo receipt fixtures', () => {
     expect(stringLiterals).toMatch(/[a-z0-9._-]+\.bsky\.social/i);
   });
 
+  it('extracts markdown sections with explicit edge behavior', () => {
+    expect(() => extractMarkdownSection('## Other\nbody', 'Missing')).toThrow(
+      'Unable to find markdown section: Missing',
+    );
+    expect(extractMarkdownSection('## First\nbody\n## Target\nfinal body', 'Target')).toBe('final body');
+    expect(extractMarkdownSection('## Target\nlast section line 1\nlast section line 2\n', 'Target')).toBe(
+      'last section line 1\nlast section line 2\n',
+    );
+    expect(extractMarkdownSection('## Empty\n## Next\nnext body', 'Empty')).toBe('');
+    expect(extractMarkdownSection('## Target  \r\nbody\r\n## Next\r\nnext body', 'Target')).toBe('body\r\n');
+  });
+
   it('proves forbidden receipt patterns catch synthetic live identifiers', () => {
     const samples = [
       { name: 'AT Protocol post URI', value: 'at://did:plc:example/app.bsky.feed.post/abc' },
       { name: 'PLC DID', value: 'did:plc:example1234567890' },
       { name: 'Bluesky handle', value: 'author.bsky.social' },
       { name: 'domain-style handle', value: 'author.example.social' },
-      { name: 'known receipt handle', value: 'elainesque' },
-      { name: 'known receipt text', value: 'Also, this is just funny.' },
     ];
 
     for (const sample of samples) {

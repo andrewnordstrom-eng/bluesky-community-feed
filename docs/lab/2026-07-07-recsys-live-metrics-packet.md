@@ -5,6 +5,7 @@ Collected: 2026-07-07T03:00:57Z
 Environment: live production, `https://feed.corgi.network`
 Repo base: `origin/main` at `da2450fd28a014f2e94d2c46721f6e42413c0ad2`
 Admin scope: public endpoints only; no admin cookies, bearer tokens, database credentials, or export secrets used
+Public redaction boundary: this tracked packet preserves numeric production receipts, endpoint provenance, timestamps, ranks, and caveats, but redacts raw DIDs, AT-URIs, author handles, and post text. Unredacted identifiers belong only in operator-local/private review notes.
 
 ## Receipt Commands
 
@@ -13,10 +14,10 @@ curl -sS https://feed.corgi.network/health
 curl -sS https://feed.corgi.network/xrpc/app.bsky.feed.describeFeedGenerator
 curl -sS https://feed.corgi.network/api/governance/weights
 curl -sS https://feed.corgi.network/api/transparency/stats
-curl -sS 'https://feed.corgi.network/xrpc/app.bsky.feed.getFeedSkeleton?feed=at%3A%2F%2Fdid%3Aplc%3Aamzyknmm4auxijvykyfgznw2%2Fapp.bsky.feed.generator%2Fcommunity-gov&limit=100'
+curl -sS 'https://feed.corgi.network/xrpc/app.bsky.feed.getFeedSkeleton?feed=<redacted-public-feed-uri>&limit=100'
 curl -sS 'https://feed.corgi.network/api/transparency/counterfactual?recency=0.2&engagement=0.5&bridging=0.1&source_diversity=0.1&relevance=0.1&limit=10'
-curl -sS 'https://feed.corgi.network/api/transparency/post/at%3A%2F%2Fdid%3Aplc%3Adv4t4hwp2bzm2ruyim2hpssa%2Fapp.bsky.feed.post%2F3mpaxvobadc2e'
-curl -sS 'https://public.api.bsky.app/xrpc/app.bsky.feed.getPostThread?uri=at%3A%2F%2Fdid%3Aplc%3Adv4t4hwp2bzm2ruyim2hpssa%2Fapp.bsky.feed.post%2F3mpaxvobadc2e&depth=0'
+curl -sS 'https://feed.corgi.network/api/transparency/post/<redacted-production-receipt-uri>'
+curl -sS 'https://public.api.bsky.app/xrpc/app.bsky.feed.getPostThread?uri=<redacted-production-receipt-uri>&depth=0'
 ```
 
 ## Live Production Claims
@@ -24,8 +25,8 @@ curl -sS 'https://public.api.bsky.app/xrpc/app.bsky.feed.getPostThread?uri=at%3A
 | Metric | Value | Receipt |
 |---|---:|---|
 | Health | `{"status":"ok"}` | `/health` |
-| Feed generator DID | `did:plc:amzyknmm4auxijvykyfgznw2` | `describeFeedGenerator` |
-| Feed URI | `at://did:plc:amzyknmm4auxijvykyfgznw2/app.bsky.feed.generator/community-gov` | `describeFeedGenerator` |
+| Feed generator identity | redacted in the public tracked packet | `describeFeedGenerator` |
+| Feed URI | redacted in the public tracked packet | `describeFeedGenerator` |
 | Active epoch | `2` | `/api/transparency/stats`, `/api/governance/weights` |
 | Epoch status | `active` | `/api/transparency/stats` |
 | Epoch created | `2026-02-07T21:38:06.153Z` | `/api/transparency/stats` |
@@ -54,19 +55,18 @@ The governance weights endpoint reports the epoch description as `FORCED transit
 
 ## Post Explanation Example
 
-Production post:
+Anonymized production explanation receipt:
 
 ```text
-at://did:plc:dv4t4hwp2bzm2ruyim2hpssa/app.bsky.feed.post/3mpaxvobadc2e
+production-receipt-rank-1
 ```
 
-Public Bluesky appview context:
+Public Bluesky appview context was fetched for the raw production URI during collection, but the tracked packet intentionally does not publish the example post URI, DID, author handle, or text.
 
-- Author handle: `elainesque.bsky.social`
-- Post text: `Also, this is just funny.`
-- Created: `2026-06-27T07:49:32.745Z`
-- Indexed: `2026-06-27T07:49:34.782Z`
-- Engagement at appview fetch time: 10 likes, 6 reposts, 0 replies, 0 quotes
+- Author label: `Production receipt 001`
+- Post text: redacted from the public tracked packet
+- Raw production URI: redacted from the public tracked packet
+- Raw author DID and handle: redacted from the public tracked packet
 
 Corgi explanation receipt:
 
@@ -128,7 +128,7 @@ Receipt summary for the top 10 current posts:
 | Max absolute rank change | `13` |
 | Average absolute rank change | `4.1` |
 
-Largest observed movement in this receipt: the current rank-1 post above moves to rank 14 under the engagement-heavy counterfactual (`rank_delta = -13`).
+Largest observed movement in this receipt: anonymized `production-receipt-rank-1` moves from current rank 1 to rank 14 under the engagement-heavy counterfactual (`rank_delta = -13`).
 
 ## Simulation-Derived And Local Claims
 
@@ -153,7 +153,7 @@ Final branch verification used dummy non-production environment values and local
 Safe live-production wording:
 
 - "As of 2026-07-07 03:00 UTC, Corgi's public transparency endpoint reported epoch 2 active with 3,348 scored posts, 3,007 unique authors, and 0 votes in the current epoch."
-- "A public post explanation shows a rank-1 production post with total score 0.8486, all five component contributions, and a pure-engagement counterfactual rank of 4."
+- "An anonymized public production explanation shows a rank-1 post with total score 0.8486, all five component contributions, and a pure-engagement counterfactual rank of 4."
 - "An engagement-heavy counterfactual over the top 10 current posts moved 4 posts up and 6 down, with max rank change 13 and average absolute change 4.1."
 
 Unsafe wording:

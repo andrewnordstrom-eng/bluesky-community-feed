@@ -1400,4 +1400,4 @@ PROJ-1433 requires every metric used in the paper or site to have a receipt and 
 - Treated the feed skeleton `limit=100` result as a served-page receipt, not total corpus volume.
 - Removed hard Sybil-resistance wording from refreshed paper/site claims. Current safe wording is simulation/mechanism evidence only, and the metrics packet preserves the PROJ-1551 warning that synthetic voter populations do not prove real electorate behavior, Sybil resistance, personhood, or abuse resistance.
 - Kept the `web-next` type fixes scoped to validation blockers discovered during PROJ-1433; no visual behavior was intentionally changed in those two helper components.
-- Kept real handles, post text, DIDs, and source URIs in the internal metrics packet only; public site and paper copy now use anonymized receipt labels while preserving the numeric proof.
+- Redacted the example production post's raw handle, post text, DID, and source URI from the public metrics packet and UI fixtures; public site and paper copy now use anonymized receipt labels while preserving the numeric proof.
