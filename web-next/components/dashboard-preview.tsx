@@ -5,7 +5,7 @@ export function DashboardPreview() {
   const signals = LIVE_RANK_ONE_EXPLANATION.components.map((component) => ({
     label: component.label,
     weight: component.weight,
-    value: `+${component.raw_score.toFixed(2)}`,
+    value: `${component.raw_score >= 0 ? "+" : "-"}${Math.abs(component.raw_score).toFixed(2)}`,
     bar: Math.round(component.raw_score * 100),
     positive: component.weighted >= 0,
   }))

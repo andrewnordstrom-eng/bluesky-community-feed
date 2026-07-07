@@ -232,7 +232,7 @@ function StepCounterfactual() {
     },
     {
       label: moved === "up" ? "Positions gained" : moved === "down" ? "Positions lost" : "Rank change",
-      value: moved === "up" ? `+${diff}` : moved === "down" ? `${diff}` : "—",
+      value: moved === "up" ? `+${diff}` : moved === "down" ? `${Math.abs(diff)}` : "—",
       sub: moved === "up" ? "Moved up by community governance" : moved === "down" ? "Moved down by community governance" : "No rank movement",
       color: diff > 0 ? "text-success" : diff < 0 ? "text-tongue-foreground" : "text-foreground/40",
       bg: diff > 0 ? "bg-success/10 border-success/20" : diff < 0 ? "bg-tongue/10 border-tongue/20" : "bg-biscuit border-border",

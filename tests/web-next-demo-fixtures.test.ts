@@ -49,6 +49,9 @@ const FORBIDDEN_LIVE_RECEIPT_PATTERNS = [
   { name: 'Bluesky handle', pattern: /[a-z0-9._-]+\.bsky\.social/i },
   { name: 'domain-style handle', pattern: DOMAIN_HANDLE_PATTERN },
 ];
+const FULL_CONTENT_LIVE_RECEIPT_PATTERNS = FORBIDDEN_LIVE_RECEIPT_PATTERNS.filter(
+  (forbiddenPattern) => forbiddenPattern.name !== 'domain-style handle',
+);
 
 const FORBIDDEN_PUBLIC_DOC_RECEIPT_PATTERNS = [
   { name: 'raw PLC DID', pattern: /did:plc:[a-z0-9]{20,}/i },
@@ -102,6 +105,27 @@ function sanitizeStringLiterals(literals: string[]): string[] {
   return literals
     .map((literal) => literal.replace(/https?:\/\/\S+/gi, ''))
     .filter((literal) => literal.length > 0);
+}
+
+function sanitizedReceiptScanContent(content: string): string {
+  return sanitizeStringLiterals([content]).join('\n');
+}
+
+function expectAnonymizedLiveReceiptContent(content: string, label: string): void {
+  const sanitizedContent = sanitizedReceiptScanContent(content);
+  const stringLiterals = sanitizeStringLiterals(extractStringLiterals(content)).join('\n');
+
+  for (const forbiddenPattern of FULL_CONTENT_LIVE_RECEIPT_PATTERNS) {
+    expect(
+      sanitizedContent,
+      `${label} contains ${forbiddenPattern.name}`,
+    ).not.toMatch(forbiddenPattern.pattern);
+  }
+
+  expect(
+    stringLiterals,
+    `${label} contains domain-style handle`,
+  ).not.toMatch(DOMAIN_HANDLE_PATTERN);
 }
 
 function listCodeFiles(directory: string): string[] {
@@ -235,14 +259,7 @@ describe('web-next demo receipt fixtures', () => {
   it('keeps public UI fixtures anonymized while preserving numeric receipts', () => {
     for (const fixtureFile of UI_FIXTURE_FILES) {
       const content = readFixtureFile(fixtureFile);
-      const stringLiterals = sanitizeStringLiterals(extractStringLiterals(content));
-
-      for (const forbiddenPattern of FORBIDDEN_LIVE_RECEIPT_PATTERNS) {
-        expect(
-          stringLiterals.join('\n'),
-          `${path.relative(REPO_ROOT, fixtureFile)} contains ${forbiddenPattern.name}`,
-        ).not.toMatch(forbiddenPattern.pattern);
-      }
+      expectAnonymizedLiveReceiptContent(content, path.relative(REPO_ROOT, fixtureFile));
     }
   });
 
@@ -300,6 +317,17 @@ describe('web-next demo receipt fixtures', () => {
 
     expect(stringLiterals).toMatch(/did:plc:/i);
     expect(stringLiterals).toMatch(/[a-z0-9._-]+\.bsky\.social/i);
+  });
+
+  it('catches live identifiers outside string literals in fixture content', () => {
+    const commentOnlyLeak = [
+      '// did:plc:commentonlyleak1234567890',
+      '/* author.bsky.social */',
+    ].join('\n');
+
+    expect(() => expectAnonymizedLiveReceiptContent(commentOnlyLeak, 'synthetic comment leak')).toThrow(
+      /synthetic comment leak contains PLC DID/,
+    );
   });
 
   it('extracts markdown sections with explicit edge behavior', () => {
