@@ -1,12 +1,15 @@
 // Score breakdown card — the "killer feature" UI shown below the hero
+import { LIVE_METRICS_SNAPSHOT, LIVE_RANK_ONE_EXPLANATION } from "@/lib/live-metrics-snapshot"
+
 export function DashboardPreview() {
-  const signals = [
-    { label: "Recency", weight: 0.35, value: "+0.82", bar: 82, positive: true },
-    { label: "Reply depth", weight: 0.25, value: "+0.61", bar: 61, positive: true },
-    { label: "Follows author", weight: 0.20, value: "+0.44", bar: 44, positive: true },
-    { label: "Quality score", weight: 0.15, value: "+0.29", bar: 29, positive: true },
-    { label: "Spam risk", weight: 0.05, value: "-0.04", bar: 8, positive: false },
-  ]
+  const signals = LIVE_RANK_ONE_EXPLANATION.components.map((component) => ({
+    label: component.label,
+    weight: component.weight,
+    value: `+${component.raw_score.toFixed(2)}`,
+    bar: Math.round(component.raw_score * 100),
+    positive: component.weighted >= 0,
+  }))
+  const totalScorePrefix = LIVE_RANK_ONE_EXPLANATION.totalScore >= 0 ? "+" : "-"
 
   return (
     <div className="w-full max-w-[900px]">
@@ -22,14 +25,14 @@ export function DashboardPreview() {
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1 flex-wrap">
-              <span className="text-foreground font-semibold text-sm">alicia.bsky.social</span>
-              <span className="text-foreground/40 text-xs">· 2h</span>
+              <span className="text-foreground font-semibold text-sm">{LIVE_RANK_ONE_EXPLANATION.authorLabel}</span>
+              <span className="text-foreground/40 text-xs">· anonymized live receipt</span>
               <span className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs font-semibold font-mono">
-                score: 0.57
+                score: {LIVE_RANK_ONE_EXPLANATION.totalScore.toFixed(2)}
               </span>
             </div>
             <p className="text-foreground/80 text-sm leading-relaxed">
-              The governance model here is genuinely novel. Watching my community vote in real time and see the feed update is unlike anything else on Bluesky.
+              {LIVE_RANK_ONE_EXPLANATION.text}
             </p>
           </div>
         </div>
@@ -67,10 +70,12 @@ export function DashboardPreview() {
           {/* Total — anchors the right side and ties the math together */}
           <div className="mt-4 pt-3 border-t border-border flex items-center justify-between">
             <span className="text-foreground text-sm font-semibold">Total score</span>
-            <span className="text-primary text-lg font-bold font-mono">+0.57</span>
+            <span className="text-primary text-lg font-bold font-mono">
+              {totalScorePrefix}{Math.abs(LIVE_RANK_ONE_EXPLANATION.totalScore).toFixed(2)}
+            </span>
           </div>
           <div className="mt-3 flex items-center justify-between">
-            <span className="text-foreground/40 text-xs">Epoch #47 · voted by 312 members</span>
+            <span className="text-foreground/40 text-xs">Epoch #{LIVE_METRICS_SNAPSHOT.epochId} · refreshed {LIVE_METRICS_SNAPSHOT.collectedAtLabel}</span>
             <button className="text-primary text-xs font-medium hover:underline">
               View epoch history &rarr;
             </button>
