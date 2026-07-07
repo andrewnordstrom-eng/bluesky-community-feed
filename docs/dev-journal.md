@@ -1358,3 +1358,46 @@ The previous timeout tests proved the response path stayed non-blocking, but the
 - Kept the feed response non-blocking, but made abandoned backend work visible and gated instead of treating abort as cancellation.
 - Did not rerun the full 5-run memory gate in this entry; prior memory receipts remain valid for their recorded protocol, while future memory gates now include abandoned-backend-operation assertions.
 - Kept staging/systemd, production traffic, credentials, DNS, deploys, and shared databases untouched.
+
+## 2026-07-07 #01 — PROJ-1433 live metrics packet and paper/site refresh
+
+**Branch:** `anordstrom/proj-1433-recsys-live-metrics-and-figures-packet-is-refreshed-from`
+**Commits:** see branch history for this PROJ-1433 refresh commit
+**Files changed:** `docs/lab/2026-07-07-recsys-live-metrics-packet.md`, `README.md`, `web-next/lib/live-metrics-snapshot.ts`, `web-next/components/hero-section.tsx`, `web-next/components/dashboard-preview.tsx`, `web-next/app/demo/page.tsx`, `web-next/components/animated-section.tsx`, `web-next/components/ui/score-radar.tsx`, `tests/web-next-demo-fixtures.test.ts`, `docs/dev-journal.md`, external workspace paper draft `corgi-recsys2026-paper-draft.md`.
+
+### What changed
+
+- Added a dated PROJ-1433 metrics packet with public production endpoint commands, exact timestamps, raw metric values, counterfactual summaries, and caveats.
+- Updated README and Corgi `web-next` homepage/demo copy from fake or stale figures to the 2026-07-07 live-production snapshot.
+- Replaced the demo walkthrough's fake epoch 47 / 312-vote fixture with epoch 2, 3,348 scored posts, 3,007 unique authors, 0 current-epoch votes, and a public rank-1 post explanation receipt.
+- Fixed two pre-existing `web-next` TypeScript validation blockers in animation and radar tooltip components so the branch can pass direct `npx tsc --noEmit`, not only the configured Next build that skips type validation.
+- Addressed CodeRabbit's valid major privacy finding by anonymizing public UI receipt fixtures, moving shared snapshot values into `web-next/lib/live-metrics-snapshot.ts`, and adding a regression guard that rejects live Bluesky handles, DIDs, AT-URIs, and known receipt text in the public demo fixtures.
+- Refreshed the external demo-paper draft with the same live numbers and downgraded the old Sybil-resistance paragraph to bounded simulation/mechanism evidence.
+
+### Why
+
+PROJ-1433 requires every metric used in the paper or site to have a receipt and to be classified as live production, demo-seeded, or simulation-derived. The prior paper draft still carried a 2026-06-27 snapshot and an obsolete Sybil-resistance claim pointing at a test file that no longer exists.
+
+### Measurements
+
+- `curl -sS https://feed.corgi.network/health`: pass, `{"status":"ok"}`.
+- `curl -sS https://feed.corgi.network/api/transparency/stats`: pass; epoch 2 active, 3,348 scored posts, 3,007 unique authors, 0 current-epoch votes, median total score 0.5312066730135393.
+- `curl -sS https://feed.corgi.network/api/governance/weights`: pass; recency 0.25, engagement 0.20, bridging 0.10, source diversity 0.10, relevance 0.35; epoch description says forced transition from epoch 1 with 2 votes.
+- `curl -sS ...getFeedSkeleton...limit=100`: pass; returned 100 post URIs plus a cursor, proving a served page rather than total feed size.
+- `curl -sS ...counterfactual?recency=0.2&engagement=0.5&bridging=0.1&source_diversity=0.1&relevance=0.1&limit=10`: pass; 4 posts moved up, 6 moved down, max rank change 13, average absolute rank change 4.1.
+- `curl -sS .../api/transparency/post/<rank-1-uri>`: pass; total score 0.8486208006784361, community rank 1, pure-engagement rank 4, component rows recorded in the metrics packet.
+- `git diff --check`: pass.
+- `npx tsc --noEmit` from `web-next`: pass after the narrow type-only fixes.
+- `npx vitest tests/web-next-demo-fixtures.test.ts --run` with dummy non-production env: pass, 1 file / 1 test.
+- `npm run docs:verify`: pass, 14 tracked docs / 29 markdown files scanned.
+- Full `npm run verify` with dummy non-production env and local loopback/IPC permission: pass, including root build, 98 files / 879 Vitest tests, CLI build, MCP-local skip, SDK build, SDK fixture, web lint/build, and web-next build.
+- CodeRabbit CLI `coderabbit review --agent -t committed -c .coderabbit.yaml`: returned 2 issues before this fix pass, 1 valid major privacy issue and 1 trivial drift issue; both were addressed in the public UI fixture update.
+- Fresh strategyproofness simulation rerun did not produce a result in this worktree: Vitest/Testcontainers failed before tests with `Could not find a working container runtime strategy`, even though `docker info` showed Docker Desktop server 29.4.3 running.
+
+### Decisions & alternatives
+
+- Used only public endpoints for production receipts; no admin export, database query, cookie, bearer token, or host mutation was used.
+- Treated the feed skeleton `limit=100` result as a served-page receipt, not total corpus volume.
+- Removed hard Sybil-resistance wording from refreshed paper/site claims. Current safe wording is simulation/mechanism evidence only, and the metrics packet preserves the PROJ-1551 warning that synthetic voter populations do not prove real electorate behavior, Sybil resistance, personhood, or abuse resistance.
+- Kept the `web-next` type fixes scoped to validation blockers discovered during PROJ-1433; no visual behavior was intentionally changed in those two helper components.
+- Kept real handles, post text, DIDs, and source URIs in the internal metrics packet only; public site and paper copy now use anonymized receipt labels while preserving the numeric proof.

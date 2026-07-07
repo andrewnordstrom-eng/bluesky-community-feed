@@ -3,73 +3,53 @@
 import { useState } from "react"
 import Link from "next/link"
 import { AppShell } from "@/components/app-shell"
-import { ScoreBreakdown, type ScoreComponent } from "@/components/ui/score-breakdown"
+import { ScoreBreakdown } from "@/components/ui/score-breakdown"
 import { ScoreRadar } from "@/components/ui/score-radar"
 import { WeightBar } from "@/components/ui/weight-bar"
 import { StatusChip } from "@/components/ui/status-chip"
+import { LIVE_FEED_POSTS, LIVE_METRICS_SNAPSHOT, LIVE_RANK_ONE_EXPLANATION } from "@/lib/live-metrics-snapshot"
 
 // ── Mock data (seam-exact field names) ───────────────────────────────────────
 
 const MOCK_STATS = {
-  epoch: { id: 47, phase: "voting" as const },
+  epoch: { id: LIVE_METRICS_SNAPSHOT.epochId, phase: "live" as const },
   feed_stats: {
-    total_posts_scored: 1240,
-    unique_authors: 318,
-    avg_bridging: 0.41,
-    avg_total: 0.57,
+    total_posts_scored: LIVE_METRICS_SNAPSHOT.scoredPosts,
+    unique_authors: LIVE_METRICS_SNAPSHOT.uniqueAuthors,
+    avg_bridging: LIVE_METRICS_SNAPSHOT.avgBridging,
+    avg_engagement: LIVE_METRICS_SNAPSHOT.avgEngagement,
+    median_bridging: LIVE_METRICS_SNAPSHOT.medianBridging,
+    median_total: LIVE_METRICS_SNAPSHOT.medianTotal,
   },
-  governance: { votes_this_epoch: 312 },
-  metrics: {
-    author_gini: 0.34,
-    vs_chronological_overlap: 0.61,
-    vs_engagement_overlap: 0.44,
-  },
+  governance: { votes_this_epoch: LIVE_METRICS_SNAPSHOT.votesThisEpoch },
 }
 
-const MOCK_WEIGHTS = {
-  recency: 0.35,
-  engagement: 0.25,
-  bridging: 0.20,
-  source_diversity: 0.15,
-  relevance: 0.05,
-}
+const MOCK_WEIGHTS = LIVE_METRICS_SNAPSHOT.weights
 
-const MOCK_TOPICS = [
-  { slug: "machine-learning", name: "Machine learning", currentWeight: 0.62, communityAvg: 0.55 },
-  { slug: "open-source", name: "Open source", currentWeight: 0.71, communityAvg: 0.60 },
-  { slug: "science", name: "Science", currentWeight: 0.50, communityAvg: 0.50 },
-  { slug: "politics", name: "Politics", currentWeight: 0.32, communityAvg: 0.41 },
-  { slug: "sports", name: "Sports", currentWeight: 0.28, communityAvg: 0.35 },
-]
+const MOCK_TOPICS = LIVE_METRICS_SNAPSHOT.topics
 
 const MOCK_EXPLANATION = {
-  post_uri: "at://did:plc:abc123/app.bsky.feed.post/xyz789",
-  author: "maya.bsky.social",
-  text: "New benchmark results show open-source models closing the gap with proprietary ones on reasoning tasks.",
-  epoch_id: 47,
-  total_score: 0.57,
-  rank: 3,
-  components: [
-    { key: "recency",          label: "Recency",          raw_score: 0.82, weight: 0.35, weighted: 0.287 },
-    { key: "engagement",       label: "Engagement",       raw_score: 0.61, weight: 0.25, weighted: 0.153 },
-    { key: "bridging",         label: "Bridging",         raw_score: 0.44, weight: 0.20, weighted: 0.088 },
-    { key: "source_diversity", label: "Source diversity", raw_score: 0.29, weight: 0.15, weighted: 0.044 },
-    { key: "relevance",        label: "Relevance",        raw_score: 0.40, weight: 0.05, weighted: 0.020 },
-  ] satisfies ScoreComponent[],
+  post_uri: LIVE_RANK_ONE_EXPLANATION.receiptId,
+  author: LIVE_RANK_ONE_EXPLANATION.authorLabel,
+  text: LIVE_RANK_ONE_EXPLANATION.text,
+  epoch_id: LIVE_RANK_ONE_EXPLANATION.epochId,
+  total_score: LIVE_RANK_ONE_EXPLANATION.totalScore,
+  rank: LIVE_RANK_ONE_EXPLANATION.rank,
+  components: LIVE_RANK_ONE_EXPLANATION.components,
   governance_weights: MOCK_WEIGHTS,
   counterfactual: {
-    pure_engagement_rank: 9,
-    community_governed_rank: 3,
-    difference: 6,
+    pure_engagement_rank: LIVE_RANK_ONE_EXPLANATION.counterfactual.pureEngagementRank,
+    community_governed_rank: LIVE_RANK_ONE_EXPLANATION.counterfactual.communityGovernedRank,
+    difference: LIVE_RANK_ONE_EXPLANATION.counterfactual.difference,
   },
 }
 
 // ── Step definitions ──────────────────────────────────────────────────────────
 
 const STEPS = [
-  { id: 1, label: "Feed stats",    title: "How the feed performed" },
+  { id: 1, label: "Feed stats",    title: "Live production snapshot" },
   { id: 2, label: "Live feed",     title: "Posts ranked by your community" },
-  { id: 3, label: "Topic weights", title: "What your community amplifies" },
+  { id: 3, label: "Topic signal",  title: "What this post matched" },
   { id: 4, label: "Explain a post", title: "See exactly why this post ranked" },
   { id: 5, label: "Counterfactual", title: "What would have happened instead" },
 ]
@@ -77,17 +57,17 @@ const STEPS = [
 // ── Step content components ───────────────────────────────────────────────────
 
 function StepStats() {
-  const { feed_stats, epoch, governance, metrics } = MOCK_STATS
+  const { feed_stats, epoch, governance } = MOCK_STATS
   const stats = [
     { label: "Posts scored",    value: feed_stats.total_posts_scored.toLocaleString() },
     { label: "Authors",         value: feed_stats.unique_authors.toLocaleString() },
     { label: "Votes this round", value: governance.votes_this_epoch.toLocaleString() },
-    { label: "Avg score",       value: feed_stats.avg_total.toFixed(2) },
+    { label: "Median score",    value: feed_stats.median_total.toFixed(2) },
   ]
   const health = [
-    { label: "vs Chronological", value: `${Math.round(metrics.vs_chronological_overlap * 100)}%`, hint: "posts in common with time-sorted" },
-    { label: "vs Engagement-only", value: `${Math.round(metrics.vs_engagement_overlap * 100)}%`, hint: "posts in common with likes-sorted" },
-    { label: "Author diversity", value: metrics.author_gini.toFixed(2), hint: "Gini coefficient — lower is more diverse" },
+    { label: "Average bridging", value: feed_stats.avg_bridging.toFixed(2), hint: "mean raw bridging score" },
+    { label: "Average engagement", value: feed_stats.avg_engagement.toFixed(2), hint: "mean raw engagement score" },
+    { label: "Median bridging", value: feed_stats.median_bridging.toFixed(2), hint: "middle raw bridging score" },
   ]
   return (
     <div className="flex flex-col gap-8">
@@ -115,19 +95,13 @@ function StepStats() {
       </div>
       <div className="flex items-center gap-2 p-4 rounded-xl bg-biscuit/60 text-sm text-foreground/60 leading-relaxed">
         <StatusChip phase={epoch.phase} />
-        <span>Round #{epoch.id} is currently open for voting. Results update once the round closes.</span>
+        <span>Round #{epoch.id} is active. Snapshot refreshed from public endpoints on {LIVE_METRICS_SNAPSHOT.collectedAtLabel}.</span>
       </div>
     </div>
   )
 }
 
-const MOCK_FEED_POSTS = [
-  { rank: 1, author: "alice.bsky.social",  score: 0.74, text: "Open-source models are catching up fast — new reasoning benchmark shows parity with GPT-4." },
-  { rank: 2, author: "bob.bsky.social",    score: 0.68, text: "Science funding in the EU set to double over the next decade. Good news for open research." },
-  { rank: 3, author: "maya.bsky.social",   score: 0.57, text: "New benchmark results show open-source models closing the gap with proprietary ones." },
-  { rank: 4, author: "carlos.bsky.social", score: 0.51, text: "Some really thoughtful work coming out of independent ML labs this week." },
-  { rank: 5, author: "dana.bsky.social",   score: 0.44, text: "Bridging score matters more than you'd think — posts that connect different clusters bubble up." },
-]
+const MOCK_FEED_POSTS = LIVE_FEED_POSTS
 
 function StepFeed() {
   return (
@@ -149,7 +123,7 @@ function StepFeed() {
         </div>
       ))}
       <p className="text-xs text-foreground/40 text-center pt-2">
-        Ranked by community-voted weights, not engagement alone.
+        Top scored posts from the anonymized {LIVE_METRICS_SNAPSHOT.collectedAtLabel} production transparency receipt.
       </p>
     </div>
   )
@@ -159,7 +133,7 @@ function StepTopics() {
   return (
     <div className="flex flex-col gap-6">
       <p className="text-sm text-foreground/55 leading-relaxed">
-        Your community votes to boost or suppress topics. The bar shows the community&apos;s current applied weight — right of centre boosts, left reduces.
+        The explained post carried a stored relevance topic breakdown. This is public explanation data for that post, not a claim about all current feed topics.
       </p>
       <div className="flex flex-col">
         {MOCK_TOPICS.map((t) => {
@@ -219,7 +193,7 @@ function StepExplain() {
           <ScoreBreakdown
             components={components}
             total_score={total_score}
-            epochLabel="Round #47 · community weighted"
+            epochLabel="Round #2 · community weighted"
           />
         </div>
         <div className="lg:w-72 rounded-xl border border-border bg-card px-4 py-4 flex flex-col gap-3">
@@ -261,7 +235,7 @@ function StepCounterfactual() {
   return (
     <div className="flex flex-col gap-8">
       <p className="text-sm text-foreground/55 leading-relaxed max-w-xl">
-        This post scored <span className="font-mono font-semibold text-foreground">{total_score.toFixed(2)}</span> and ranked <span className="font-mono font-semibold text-foreground">#{rank}</span>. Without community governance, a pure engagement sort would have placed it much lower.
+        This post scored <span className="font-mono font-semibold text-foreground">{total_score.toFixed(2)}</span> and ranked <span className="font-mono font-semibold text-foreground">#{rank}</span>. A pure engagement sort would have placed it at rank #{counterfactual.pure_engagement_rank}.
       </p>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {boxes.map((box) => (
@@ -275,13 +249,13 @@ function StepCounterfactual() {
       <div className="rounded-xl bg-biscuit/60 border border-border px-5 py-4 flex flex-col gap-2">
         <p className="text-sm font-semibold text-foreground">This is what community governance means.</p>
         <p className="text-sm text-foreground/55 leading-relaxed">
-          The feed ranked this post higher not because it got the most likes, but because your community voted for bridging and source diversity — and this post delivered on both.
+          The feed ranked this post higher because the active epoch weights relevance and recency alongside engagement, and the stored explanation exposes each contribution.
         </p>
         <Link
           href="/vote"
           className="mt-1 inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:text-primary-dark transition-colors"
         >
-          Cast your vote in Round #47
+          Cast your vote in Round #2
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
@@ -318,7 +292,7 @@ export default function DemoPage() {
           <span className="text-[10px] font-mono uppercase tracking-widest text-foreground/35">Guided walkthrough</span>
           <h1 className="font-display text-2xl font-bold text-foreground tracking-normal">How Corgi works</h1>
           <p className="text-sm text-foreground/50 leading-relaxed max-w-lg">
-            A 5-step tour of the transparency loop — from community votes to ranked posts. Read-only; your feed is unchanged.
+            A 5-step tour using a dated live-production receipt. Read-only; your feed is unchanged.
           </p>
         </div>
 
@@ -425,7 +399,7 @@ export default function DemoPage() {
 
         {/* ── Footer note ──────────────────────────────────────────── */}
         <p className="text-center text-xs text-foreground/35 leading-relaxed">
-          This walkthrough uses sample data. Your actual feed data is live at{" "}
+          This walkthrough uses the 2026-07-07 live-production metrics packet. Current feed data is live at{" "}
           <Link href="/dashboard" className="text-primary hover:underline">Overview</Link>.
         </p>
       </div>

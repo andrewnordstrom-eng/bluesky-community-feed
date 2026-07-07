@@ -1,6 +1,7 @@
 import React from "react"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
+import { LIVE_METRICS_SNAPSHOT } from "@/lib/live-metrics-snapshot"
 
 export function HeroSection() {
   return (
@@ -166,6 +167,9 @@ export function HeroSection() {
       {/* Trust line */}
       <p className="relative z-10 mt-3 text-xs text-foreground/40 font-medium">
         Free &middot; App-password secure &middot; Leave anytime
+      </p>
+      <p className="relative z-10 mt-2 text-xs text-foreground/40 font-medium">
+        Live snapshot, {LIVE_METRICS_SNAPSHOT.collectedAtLabel}: {LIVE_METRICS_SNAPSHOT.scoredPosts.toLocaleString()} scored posts &middot; {LIVE_METRICS_SNAPSHOT.uniqueAuthors.toLocaleString()} authors &middot; epoch {LIVE_METRICS_SNAPSHOT.epochId} active
       </p>
     </section>
   )
