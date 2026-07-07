@@ -1388,9 +1388,9 @@ PROJ-1433 requires every metric used in the paper or site to have a receipt and 
 - `curl -sS .../api/transparency/post/<rank-1-uri>`: pass; total score 0.8486208006784361, community rank 1, pure-engagement rank 4, component rows recorded in the metrics packet.
 - `git diff --check`: pass.
 - `npx tsc --noEmit` from `web-next`: pass after the narrow type-only fixes.
-- `npx vitest tests/web-next-demo-fixtures.test.ts --run`: pass, 1 file / 7 tests.
+- `npx vitest tests/web-next-demo-fixtures.test.ts --run`: pass, 1 file / 11 tests.
 - `npm run docs:verify`: pass, 14 tracked docs / 29 markdown files scanned.
-- Full `npm run verify` with dummy non-production env and local loopback/IPC permission: pass, including root build, 98 files / 885 Vitest tests, CLI build, MCP-local skip, SDK build, SDK fixture, web lint/build, and web-next build.
+- Full `npm run verify` with dummy non-production env and local loopback/IPC permission: pass, including root build, 98 files / 889 Vitest tests, CLI build, MCP-local skip, SDK build, SDK fixture, web lint/build, and web-next build.
 - CodeRabbit CLI `coderabbit review --agent -t committed -c .coderabbit.yaml`: returned 2 issues before this fix pass, 1 valid major privacy issue and 1 trivial drift issue; both were addressed in the public UI fixture update.
 - Fresh strategyproofness simulation rerun did not produce a result in this worktree: Vitest/Testcontainers failed before tests with `Could not find a working container runtime strategy`, even though `docker info` showed Docker Desktop server 29.4.3 running.
 

@@ -146,7 +146,7 @@ Fresh local rerun attempt for `tests/harness/strategyproofness.sim.ts` on this b
 
 ## Branch Verification
 
-Final branch verification used dummy non-production environment values and local loopback/IPC permission. `npm run verify` passed on 2026-07-07 at 04:10 UTC, including root TypeScript build, 98 Vitest files / 885 tests, CLI build, MCP-local skip check, SDK build, SDK fixture, Vite lint/build, and Next static build. A direct `web-next` TypeScript guard also passed with `npx tsc --noEmit` after the branch fixed two pre-existing component type errors that Next's configured build does not enforce. The extra Vitest file guards the public `web-next` demo fixtures against accidentally committing live Bluesky handles, DIDs, AT-URIs, known receipt text, and receipt drift.
+Final branch verification used dummy non-production environment values and local loopback/IPC permission. `npm run verify` passed on 2026-07-07 at 04:10 UTC, including root TypeScript build, 98 Vitest files / 889 tests, CLI build, MCP-local skip check, SDK build, SDK fixture, Vite lint/build, and Next static build. A direct `web-next` TypeScript guard also passed with `npx tsc --noEmit` after the branch fixed two pre-existing component type errors that Next's configured build does not enforce. The extra Vitest file guards the public `web-next` demo fixtures against accidentally committing live Bluesky handles, DIDs, AT-URIs, known receipt text, and receipt drift.
 
 ## Copy Guidance
 
