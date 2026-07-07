@@ -109,6 +109,27 @@ describe('post handler content filtering', () => {
     expect(insertCalls.length).toBe(1);
   });
 
+  it('reports duplicate when the post insert no-ops even if engagement row initializes', async () => {
+    redisGetMock.mockResolvedValue(
+      JSON.stringify({
+        includeKeywords: [],
+        excludeKeywords: [],
+      })
+    );
+    dbQueryMock
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+      .mockResolvedValueOnce({ rows: [{ post_uri: 'at://did:plc:abc/app.bsky.feed.post/duplicate' }], rowCount: 1 });
+
+    const outcome = await handlePost(
+      'at://did:plc:abc/app.bsky.feed.post/duplicate',
+      'did:plc:abc',
+      'cidduplicate',
+      { text: 'Duplicate post with a late engagement row', createdAt: new Date().toISOString() }
+    );
+
+    expect(outcome).toBe('post-duplicate-noop');
+  });
+
   it('inserts posts when content filter fails (fail-open)', async () => {
     // Redis fails, DB falls back and also fails
     redisGetMock.mockRejectedValue(new Error('redis connection refused'));

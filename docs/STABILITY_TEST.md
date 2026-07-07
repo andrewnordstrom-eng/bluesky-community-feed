@@ -14,6 +14,16 @@ The stability test validates that the system can:
 
 Before starting the test, verify:
 
+- [ ] Local lab artifact protocol exists (`artifacts/lab/manifest.schema.json`)
+- [ ] Jetstream replay lab passes locally:
+  `npm run lab:jetstream-replay -- --ephemeral --events 1200`
+- [ ] Real HTTP voting lab passes locally:
+  `npm run lab:vote-load -- --ephemeral --valid-requests 8000 --users 500 --connections 100`
+- [ ] Process-isolated memory lab passes locally:
+  `npm run lab:memory-isolated -- --ephemeral --runs 5 --amount 10000 --connections 100`
+- [ ] Compiled prod-parity memory lab passes locally:
+  `npm run lab:memory-prod-parity -- --ephemeral --runs 5 --amount 10000 --connections 100`
+- [ ] Each lab run has `manifest.json`, `checksums.sha256`, and cited summary artifacts under `artifacts/lab/PROJ-1551/<run-id>/`
 - [ ] Docker containers running (`docker compose ps`)
 - [ ] PostgreSQL has recent data (`SELECT COUNT(*) FROM posts`)
 - [ ] Redis is operational (`redis-cli ping`)
@@ -21,6 +31,8 @@ Before starting the test, verify:
 - [ ] Health endpoint returns healthy (`curl http://localhost:3000/health`)
 - [ ] Feed endpoint returns data (`curl "http://localhost:3000/xrpc/app.bsky.feed.getFeedSkeleton?feed=..."`)
 - [ ] Log files configured (or `docker logs` available)
+
+Current PROJ-1551 status: the Jetstream replay, real HTTP voting, and process-isolated memory lab gates have passing local receipts. The current Jetstream receipt is `artifacts/lab/PROJ-1551/2026-07-06T19-37-49-725Z/`; the HTTP voting receipt is `artifacts/lab/PROJ-1551/2026-07-06T19-38-04-859Z/`. The fixed tsx memory receipt is `artifacts/lab/PROJ-1551/2026-07-06T19-38-23-532Z/`. The compiled prod-parity memory receipt is `artifacts/lab/PROJ-1551/2026-07-06T19-42-01-707Z/`, with compiled heap-snapshot diagnostics in `artifacts/lab/PROJ-1551/2026-07-05T17-42-12-174Z/`. One preceding local 100-connection vote-load attempt failed with PostgreSQL pool connection timeouts before the current pass, so the staging gate must record repeated voting runs and DB pool utilization. The memory gates use `--max-old-space-size=896 --max-semi-space-size=16` and a 1,000-request external warmup baseline before the before-GC snapshot. The tracked systemd unit already has `--max-old-space-size=896`; the approval-gated next step is verifying/adopting the missing `--max-semi-space-size=16` on an approved staging or shadow target. This does not authorize staging or production saturation by itself; shared-environment load still requires an approved target, abort thresholds, rollback plan, and no production blast radius.
 
 ## Starting the Test
 
@@ -91,6 +103,11 @@ Expected:
 - p95 latency < 50ms
 - 0 errors
 - 0 timeouts
+- 0 non-2xx responses
+- 0 unexpected statuses
+- 0 5xx responses
+
+The load-test script exits non-zero if any of these gates fail.
 
 ### Failure Scenario Tests
 

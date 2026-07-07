@@ -7,6 +7,7 @@
 
 import { db } from '../../db/client.js';
 import { logger } from '../../lib/logger.js';
+import type { IngestionEventOutcome } from '../outcomes.js';
 
 interface RepostRecord {
   subject?: {
@@ -16,17 +17,22 @@ interface RepostRecord {
   createdAt?: string;
 }
 
+interface RepostInsertOutcomeRow {
+  inserted?: boolean;
+  subjectExists?: boolean;
+}
+
 export async function handleRepost(
   uri: string,
   authorDid: string,
   record: Record<string, unknown>
-): Promise<void> {
+): Promise<IngestionEventOutcome> {
   const repostRecord = record as RepostRecord;
 
   const subjectUri = repostRecord.subject?.uri;
   if (!subjectUri) {
     logger.warn({ uri }, 'Repost missing subject URI');
-    return;
+    return 'repost-missing-subject';
   }
 
   const createdAt = repostRecord.createdAt ?? new Date().toISOString();
@@ -34,17 +40,28 @@ export async function handleRepost(
   try {
     // Insert repost only if the referenced post exists in our system.
     // This filters out the vast majority of firehose reposts (for posts we don't track).
-    const result = await db.query(
-      `INSERT INTO reposts (uri, author_did, subject_uri, created_at)
-       SELECT $1, $2, $3, $4
-       WHERE EXISTS (SELECT 1 FROM posts WHERE uri = $3)
-       ON CONFLICT (uri) DO NOTHING
-       RETURNING uri`,
+    const result = await db.query<RepostInsertOutcomeRow>(
+      `WITH subject AS (
+         SELECT 1 FROM posts WHERE uri = $3 AND deleted = FALSE LIMIT 1
+       ),
+       inserted AS (
+         INSERT INTO reposts (uri, author_did, subject_uri, created_at)
+         SELECT $1, $2, $3, $4
+         FROM subject
+         ON CONFLICT (uri) DO NOTHING
+         RETURNING uri
+       )
+       SELECT
+         EXISTS (SELECT 1 FROM inserted) AS "inserted",
+         EXISTS (SELECT 1 FROM subject) AS "subjectExists"`,
       [uri, authorDid, subjectUri, createdAt]
     );
+    const outcome = result.rows[0];
+    const inserted = outcome?.inserted === true;
+    const subjectExists = outcome?.subjectExists === true;
 
     // Only increment counter if this was a new insert (not a duplicate)
-    if (result.rowCount && result.rowCount > 0) {
+    if (inserted) {
       await db.query(
         `UPDATE post_engagement SET repost_count = repost_count + 1, updated_at = NOW()
          WHERE post_uri = $1`,
@@ -69,11 +86,16 @@ export async function handleRepost(
            AND ea.engaged_at IS NULL`,
         [subjectUri, authorDid]
       ).catch((err) => logger.warn({ err, subjectUri }, 'Attribution update failed'));
+
+      logger.debug({ uri, subjectUri }, 'Repost indexed');
+      return 'repost-inserted';
     }
 
-    logger.debug({ uri, subjectUri }, 'Repost indexed');
+    logger.debug({ uri, subjectUri, subjectExists }, 'Repost skipped (duplicate or untracked subject)');
+    return subjectExists ? 'repost-duplicate-noop' : 'repost-untracked-ignored';
   } catch (err) {
     logger.error({ err, uri }, 'Failed to insert repost');
     // Don't rethrow - log and continue processing other events
+    return 'repost-handler-error';
   }
 }

@@ -853,7 +853,253 @@ The feed was down for days because the Node process was running but not respondi
 - UptimeRobot and Healthchecks.io accounts need manual setup (see `ops/setup-monitoring.sh`).
 - `HEALTHCHECK_PING_URL` GitHub secret needs to be configured for deploy/daily-health alerting.
 
-## 2026-07-05 #01 — web-next parity wiring and verification
+## 2026-07-05 #01 — RecSys validation lab harness and evidence packet
+**Branch:** `dev/PROJ-1551-corgi-validation`
+**Commits:** pending
+**Files changed:** `src/harness/campaign.ts`, `src/harness/jetstream-replay.ts`, `src/harness/lab-artifacts.ts`, `scripts/sim-preflight.ts`, `scripts/sim-campaign.ts`, `scripts/jetstream-replay.ts`, `scripts/vote-load.ts`, `scripts/memory-isolated-stress.ts`, `scripts/http-load.ts`, `scripts/load-test.ts`, `tests/harness/campaign.test.ts`, `tests/stress/feed-skeleton.stress.ts`, `tests/stress/feed-skeleton-memory-child.ts`, `tests/stress/feed-skeleton-memory-server.ts`, `docs/lab/2026-07-05-corgi-ingestion-voting-validation.md`, `docs/RECSYS_VALIDATION_EVIDENCE.md`, `docs/STABILITY_TEST.md`, `artifacts/lab/README.md`, `artifacts/lab/manifest.schema.json`, `.gitignore`, `package.json`, `src/harness/index.ts`, `src/harness/scenario.ts`, `src/harness/simulation.ts`, `src/ingestion/jetstream.ts`, `src/governance/routes/vote.ts`, `src/scoring/pipeline.ts`
+
+### What changed
+Added an executable simulated epoch campaign ladder around the existing governance/scoring harness, with preflight checks, dry-run manifests, ephemeral Postgres/Redis execution, campaign receipts, and focused tests. Added guarded lab runners for recorded Jetstream replay, real HTTP voting load, process-isolated memory stress, and durable artifact manifests/checksums under `artifacts/lab/PROJ-1551/<run-id>/`. Recorded the detailed lab evidence in `docs/lab/2026-07-05-corgi-ingestion-voting-validation.md`; `docs/RECSYS_VALIDATION_EVIDENCE.md` is only the summary index.
+
+### Why
+The July 15 RecSys packet needs quantitative, citation-ready evidence about what the ingestion, scoring, feed-serving, and voting paths do and do not prove. The previous evidence was scattered across command output and harness tests; this packages the local proof and marks production-scale gaps explicitly.
+
+### Measurements
+- Default suite: 89 files / 710 tests passed with dummy non-production config and local IPC/loopback access after the CodeRabbit hardening tests were added.
+- Initial governance harness: 16 files / 168 tests passed against real migrations plus ephemeral Postgres/Redis; the closeout rerun after added coverage passed 17 files / 178 tests in entry #04.
+- Campaign ladder executed through S5 locally: 10,000 users / 50,000 posts, 2 seeds, 8,000 votes per run, 10,000 score rows per run, 1,000 Redis feed rows per run.
+- Feed-skeleton stress: 20,000 mixed local requests, 100 connections, 0 errors, 0 timeouts, p95 26.22 ms with normal request logging.
+- Lab runner dry-runs passed for `lab:jetstream-replay`, `lab:vote-load`, and `lab:memory-isolated`; dry-runs verify CLI/artifact wiring only.
+- Small lab smokes passed end-to-end: 19-event Jetstream replay, 40-request / 4-user HTTP voting load with rate-limit phase, and 1-run-per-mode / 100-request process-isolated memory smoke.
+- Superseded Jetstream replay receipt passed: 1,200 events, 998.37 events/sec, handler p95 0.83 ms, p99 1.27 ms, 0 queue drops, 0 handler errors, 0 state mismatches, cursor lag 793 microseconds; manifest `artifacts/lab/PROJ-1551/2026-07-05T13-19-32-656Z/manifest.json`. Current receipt is recorded in entry #04.
+- Superseded HTTP voting receipt passed: 8,000/8,000 valid POSTs returned `200`, 500 users, 100 connections, p95 40.19 ms, p99 74.12 ms, exact vote/audit/long-table reconciliation, rate-limit phase 20 accepted + 5 `429`; manifest `artifacts/lab/PROJ-1551/2026-07-05T13-20-04-938Z/manifest.json`. Current receipt is recorded in entry #04.
+- Full process-isolated memory gate failed: normal mode median after-GC RSS delta 374.68 MB / p95 385.27 MB / max peak RSS 525.77 MB; no-op mode median 370.43 MB / p95 387.58 MB / max peak RSS 529.11 MB. All child exits were 0 and load phases were responsive, but the declared RSS ceilings were exceeded; manifest `artifacts/lab/PROJ-1551/2026-07-05T13-24-30-526Z/manifest.json`.
+- TypeScript source build passes after adding the replay/lab-artifact exports and vote OpenAPI schema correction.
+
+### Decisions & alternatives
+- Kept the detailed receipt in `docs/lab/` rather than expanding this dev-journal entry into a duplicate lab report.
+- Used throwaway Testcontainers for destructive campaign runs; no production or staging endpoint was load-tested.
+- Treated the evidence summary as a planning index, not as canonical lab provenance.
+- Kept bulky lab outputs ignored by git while tracking `artifacts/lab/README.md` and `artifacts/lab/manifest.schema.json`.
+- Left staging saturation behind an explicit approval gate; local lab runners are the next evidence step.
+- Fixed smoke-discovered runner issues before documenting them: Jetstream lab config defaults, vote subscriber seed shape, and memory child `--expose-gc` launch mode.
+- Switched memory measurement to a server-only child process with parent-generated HTTP load so client allocations are not counted as server RSS.
+- Fixed `runScoringPipeline()` to clear its timeout handle in `finally`; the full Jetstream replay initially produced a summary but kept the process open until that timer was cleaned up.
+
+### Open questions
+- The process-isolated memory gate is the current blocker. Need heap snapshots, external-memory accounting, socket/HTTP buffer attribution, and repeat runs after a concrete fix before claiming production memory readiness.
+- Production/staging DB saturation and external traffic testing remain approval-gated and should not be run until the local memory gate passes.
+
+## 2026-07-05 #02 — PROJ-1551 memory attribution and feed snapshot-cache fix
+**Branch:** `dev/PROJ-1551-corgi-validation`
+**Commits:** pending
+**Files changed:** `src/feed/request-tracker.ts`, `src/feed/snapshot-cache.ts`, `src/feed/routes/feed-skeleton.ts`, `src/feed/jwt-verifier.ts`, `src/db/queries/subscribers.ts`, `src/scoring/pipeline.ts`, `scripts/memory-isolated-stress.ts`, `tests/stress/feed-skeleton-memory-server.ts`, `tests/feed-request-tracker.test.ts`, `tests/feed-jwt-verifier.test.ts`, `tests/feed-skeleton-auth.test.ts`, `tests/feed-skeleton-hot-path.test.ts`, `tests/feed-skeleton-tracking.test.ts`, `tests/feed-skeleton-validation.test.ts`, `docs/lab/2026-07-05-corgi-ingestion-voting-validation.md`, `docs/RECSYS_VALIDATION_EVIDENCE.md`, `docs/STABILITY_TEST.md`
+
+### What changed
+Added bounded async feed-request tracking, cheap JWT claim preflight before DID resolution, shared current snapshot caching, and cursor snapshot-by-ID caching so cursor pagination no longer JSON-parses the full Redis snapshot for every request. The memory lab child now records and uses `node --expose-gc --max-semi-space-size=16 --import tsx`, and the memory server records heap spaces, heap statistics, external memory, array buffers, active resources, Redis request-log/snapshot counts, tracker stats, socket counts, and optional V8 heap snapshots.
+
+### Why
+The first full process-isolated memory gate was responsive but failed RSS ceilings. Diagnostics showed tracker drops 0, server connections 0, `snapshot:*` count 1 after the current-snapshot cache, small heap-used deltas, and a large allocation burst from repeated cursor snapshot parsing plus V8 young-generation sizing.
+
+### Measurements
+- Initial memory gate failed: normal median/p95 after-GC RSS delta 374.68 MB / 385.27 MB, no-op 370.43 MB / 387.58 MB, max peak RSS 525.77 MB / 529.11 MB; manifest `artifacts/lab/PROJ-1551/2026-07-05T13-24-30-526Z/manifest.json`.
+- Superseded memory gate passed: normal median/p95 after-GC RSS delta 45.11 MB / 53.07 MB, no-op 28.43 MB / 29.28 MB, max peak RSS 191.55 MB / 167.58 MB, tracker drops 0, remaining connections 0; manifest `artifacts/lab/PROJ-1551/2026-07-05T14-34-41-316Z/manifest.json`. Current warmup-baseline receipts are recorded in entry #04.
+- Superseded heap-snapshot diagnostic passed with before/after V8 snapshots; manifest `artifacts/lab/PROJ-1551/2026-07-05T14-35-09-768Z/manifest.json`. Current compiled heap-snapshot receipt is recorded in entry #04.
+- Focused regression suite: 8 files / 39 tests passed.
+- Full regression suite: 89 files / 710 tests passed with dummy non-production config and local IPC/loopback access after the CodeRabbit hardening tests were added.
+- `npm run build`: passed.
+
+### Decisions & alternatives
+- Kept the production systemd unit unchanged because PROJ-1551 marks systemd/host mutation out of scope without a separate approved plan.
+- Treated `v8.writeHeapSnapshot()` as a diagnostic artifact, not the primary memory gate, because snapshot creation changes RSS and blocks the event loop.
+- Used route-level snapshot caching instead of loosening RSS thresholds.
+
+### Open questions
+- Adopt and verify the same memory runtime control in staging or production only through an approved ops plan with abort thresholds and rollback.
+- Production/staging DB saturation and external traffic testing remain approval-gated.
+
+## 2026-07-05 #03 — PROJ-1551 compiled prod-parity memory gate
+**Branch:** `dev/PROJ-1551-corgi-validation`
+**Commits:** pending
+**Files changed:** `.gitignore`, `package.json`, `tsconfig.lab-memory.json`, `scripts/memory-isolated-stress.ts`, `tests/stress/feed-skeleton-memory-server.ts`, `docs/lab/2026-07-05-corgi-ingestion-voting-validation.md`, `docs/RECSYS_VALIDATION_EVIDENCE.md`, `docs/STABILITY_TEST.md`
+
+### What changed
+Added a narrow `tsconfig.lab-memory.json` compile target for the memory runner, its HTTP/migration helpers, `src/**/*`, and the memory server. Added `build:lab-memory` and `lab:memory-prod-parity` scripts. Added `--prod-parity` to the memory harness so compiled child processes run from `dist-lab/tests/stress/feed-skeleton-memory-server.js` with `node --expose-gc --max-old-space-size=896 --max-semi-space-size=16`.
+
+### Why
+The previous memory pass proved the fixed route under a tsx child runtime. Before touching staging or systemd, the lab needed a local production-shape proxy: compiled JS entrypoints plus the exact old-space and semi-space ceilings proposed for the service.
+
+### Measurements
+- `npm run build:lab-memory`: passed.
+- Prod-parity dry-run: `npm run lab:memory-prod-parity -- --dry-run --runs 1 --amount 100 --connections 2`; confirmed compiled child runtime and lab receipt shape.
+- Compiled prod-parity memory gate passed after the warmup-baseline protocol: normal median/p95 after-GC RSS delta 63.72 MB / 65.39 MB, no-op 63.07 MB / 64.01 MB, max peak RSS 247.02 MB / 240.23 MB, tracker drops 0, remaining connections 0; manifest `artifacts/lab/PROJ-1551/2026-07-05T17-40-57-460Z/manifest.json`.
+- Compiled heap-snapshot diagnostic passed: normal/no-op after-GC RSS deltas 2.91 MB / 3.45 MB, peak RSS 329.14 MB / 340.02 MB, heap-used deltas -0.83 MB / -0.76 MB, external memory essentially flat, array buffers essentially flat; manifest `artifacts/lab/PROJ-1551/2026-07-05T17-42-12-174Z/manifest.json`.
+
+### Decisions & alternatives
+- Kept the normal app `npm run build` unchanged because it intentionally compiles only `src/**/*`.
+- Used a separate ignored `dist-lab/` output so lab-only compiled scripts do not blur with production `dist/`.
+- Kept staging/systemd mutation approval-gated. The local compiled gate supports an ops plan; it is not itself a deployed-runtime receipt.
+
+### Open questions
+- Prepare the staging/systemd adoption plan for `NODE_OPTIONS=--max-old-space-size=896 --max-semi-space-size=16`, with abort thresholds, rollback, and no production blast radius.
+- After approval, verify the deployed process RSS/heap under the same traffic shape before any DB saturation or external voting traffic.
+
+## 2026-07-05 #04 — PROJ-1551 CodeRabbit hardening and refreshed lab receipts
+**Branch:** `dev/PROJ-1551-corgi-validation`
+**Commits:** pending
+**Files changed:** `src/feed/snapshot-cache.ts`, `src/feed/routes/feed-skeleton.ts`, `src/scoring/pipeline.ts`, `src/ingestion/jetstream.ts`, `src/ingestion/outcomes.ts`, `src/ingestion/event-processor.ts`, `src/ingestion/handlers/*`, `src/db/queries/subscribers.ts`, `scripts/jetstream-replay.ts`, `scripts/vote-load.ts`, `scripts/sim-campaign.ts`, `scripts/sim-preflight.ts`, `scripts/memory-isolated-stress.ts`, `tests/stress/feed-skeleton-memory-server.ts`, `tests/stress/feed-skeleton.stress.ts`, `docs/lab/2026-07-05-corgi-ingestion-voting-validation.md`, `docs/RECSYS_VALIDATION_EVIDENCE.md`, `docs/STABILITY_TEST.md`
+
+### What changed
+Addressed the major CodeRabbit findings against the uncommitted PROJ-1551 diff: snapshot-cache generation races, by-ID snapshot cache isolation, Redis pipeline invalidation ordering, Jetstream payload shape validation, cursor-save logging correctness, split replay/scoring and vote/rate-limit claims, stronger CLI argument validation, cleanup error preservation, child-process memory timeout handling, seed-response validation, and IPC flush before memory-child exit. Follow-up hardening added observed ingestion outcomes from each handler, raw payload/DID log redaction, safer CLI failure artifact writing, cursor snapshot ID validation, pinned-announcement cursor correctness, deterministic lab checksums, stricter manifest schema, and an atomic snapshot invalidation script. The memory lab now uses a 1,000-request external warmup baseline before the before-GC snapshot, so RSS gates measure steady-state stress growth rather than first-touch runtime allocation.
+
+### Why
+The first compiled memory rerun failed under the stricter child lifecycle because it measured runtime warmup residency as stress growth. Heap/external/socket diagnostics showed heap-used deltas near flat, external memory flat, sockets drained, tracker drops 0, and the same RSS shape in normal and no-op modes. The correct fix was to improve the methodology and keep the RSS ceiling, not loosen the claim.
+
+### Measurements
+- CodeRabbit review ran on the uncommitted diff and surfaced 43 issues; major correctness findings were fixed before these receipts were refreshed. Follow-up closeout reviews surfaced 32, 33, and 24 issues; the valid critical/major runtime/provenance findings were fixed before the final Jetstream and memory reruns.
+- Governance and campaign closeout: `npm run sim:core` passed 17 files / 178 tests, `npm --silent run sim:preflight` passed 4/4 checks, and `npm run sim:campaign -- --dry-run --max-stage S1` emitted 4 planned runs.
+- Jetstream replay refreshed: 1,200 events, 2,908.17 events/sec, handler p95 0.85 ms, p99 0.99 ms, durable mutations 821, durable mutations/sec 1,989.68, queue drops 0, handler errors 0, state mismatches 0, outcome mismatches 0, cursor lag 793 microseconds, scoring delay 5.72 ms, score rows 1; manifest `artifacts/lab/PROJ-1551/2026-07-05T21-44-07-216Z/manifest.json`.
+- HTTP voting load refreshed: 8,000/8,000 valid vote POSTs returned `200`, p95 42.67 ms, p99 84.19 ms, max 272.20 ms, errors/timeouts/non-2xx 0, exact vote/audit/long-table reconciliation, rate-limit phase 20 accepted + 5 `429`, exact post-rate-limit aggregate rows 501 / 8,020 / 2,505, cleanup failures 0; manifest `artifacts/lab/PROJ-1551/2026-07-05T21-44-41-155Z/manifest.json`.
+- Memory negative control: tsx child without explicit old-space failed after the warmup baseline with normal median/p95 after-GC RSS deltas 113.61 MB / 127.00 MB; manifest `artifacts/lab/PROJ-1551/2026-07-05T17-38-00-846Z/manifest.json`.
+- Fixed tsx memory gate passed with `--max-old-space-size=896 --max-semi-space-size=16`: normal median/p95 46.69 MB / 48.80 MB, no-op 39.88 MB / 49.20 MB, max peak RSS 240.42 MB / 236.92 MB; manifest `artifacts/lab/PROJ-1551/2026-07-05T21-45-05-496Z/manifest.json`.
+- Current-diff compiled prod-parity memory gate passed: normal median/p95 47.81 MB / 49.70 MB, no-op 40.08 MB / 46.89 MB, max peak RSS 231.03 MB / 226.11 MB; manifest `artifacts/lab/PROJ-1551/2026-07-05T21-46-24-461Z/manifest.json`.
+- Current-diff compiled heap-snapshot diagnostic passed: normal/no-op RSS deltas 2.91 MB / 3.45 MB, heap-used deltas -0.83 MB / -0.76 MB, external memory and array buffers essentially flat; manifest `artifacts/lab/PROJ-1551/2026-07-05T17-42-12-174Z/manifest.json`.
+- Focused hardening tests passed: 7 files / 83 tests for request-tracker timeout and FIFO queue behavior, snapshot-cache edge coverage, preflight failure JSON, lab-artifact metadata, HTTP expected-status accounting, engagement attribution, feed-skeleton stress setup, and Jetstream cursor/error handling.
+- Full regression suite passed after hardening: 93 files / 780 tests.
+- Build and docs gates passed after hardening: `npm run build`, `npm run build:lab-memory`, `git diff --check`, and `npm run docs:verify`.
+
+### Decisions & alternatives
+- Kept staging/systemd changes approval-gated. The lab supports an ops plan; it does not mutate deployed runtime.
+- Kept failed receipts in the journal because they prove the gates catch bad methodology and split claims correctly.
+- Treated heap snapshots as diagnostics only, because writing them changes RSS and blocks the event loop.
+
+### Open questions
+- Optional follow-up: address remaining CodeRabbit minor/trivial coverage and cleanup suggestions that are not runtime blockers.
+- Get explicit approval for the staging/runtime plan before any shared-environment saturation.
+
+## 2026-07-05 #05 — PROJ-1551 staging/runtime gate plan
+**Branch:** `dev/PROJ-1551-corgi-validation`
+**Commits:** pending
+**Files changed:** `src/ingestion/jetstream.ts`, `src/db/queries/subscribers.ts`, `tests/jetstream-message-processing.test.ts`, `tests/stress/feed-skeleton-memory-child.ts`, `tests/backfill-governance-weights-cli.test.ts`, `tests/backfill-score-components-cli.test.ts`, `tests/sim-preflight.test.ts`, `docs/lab/2026-07-05-corgi-ingestion-voting-validation.md`, `docs/RECSYS_VALIDATION_EVIDENCE.md`, `docs/STABILITY_TEST.md`, `docs/dev-journal.md`
+
+### What changed
+Added a `[PLAN DRAFT]` to the canonical lab journal for the next approval-gated move: verify the lab-proven runtime `NODE_OPTIONS=--max-old-space-size=896 --max-semi-space-size=16` on an explicitly approved staging or shadow target before any DB saturation or external voting load. Refreshed the stability/evidence docs to point at the then-current `21:44-21:46Z` lab receipts. Ran CodeRabbit on the uncommitted diff and fixed the valid major runtime issues it surfaced in this pass: generation-scoped Jetstream cursor safety across reconnects and deterministic Redis cleanup/exit in the standalone memory child. Also tightened subscriber DID digest fallback to development/test only and made subprocess CLI/preflight tests use the repo-local `tsx` loader instead of the IPC wrapper.
+
+### Why
+PROJ-1551's gate protocol forbids staging or production load without a separate explicit plan. The local compiled memory gate proves the route under compiled child processes; it does not prove deployed systemd/runtime behavior. The tracked service unit already has `--max-old-space-size=896`, so the next risk is verifying/adopting the missing `--max-semi-space-size=16` bound and measuring deployed RSS/latency before pushing into Jetstream, voting, or DB saturation.
+
+### Measurements
+- Basis receipt: compiled prod-parity memory gate passed 5 runs per mode at 10,000 requests and 100 connections, normal/no-op median after-GC RSS deltas 47.81 MB / 40.08 MB, p95 deltas 49.70 MB / 46.89 MB, max peak RSS 231.03 MB / 226.11 MB; manifest `artifacts/lab/PROJ-1551/2026-07-05T21-46-24-461Z/manifest.json`.
+- Attribution receipt: compiled heap-snapshot diagnostic passed with normal/no-op after-GC RSS deltas 2.91 MB / 3.45 MB, heap-used deltas -0.83 MB / -0.76 MB, and flat external memory; manifest `artifacts/lab/PROJ-1551/2026-07-05T17-42-12-174Z/manifest.json`.
+- CodeRabbit review on the uncommitted diff returned 27 issues. Valid major fixes landed in `src/ingestion/jetstream.ts`, `tests/jetstream-message-processing.test.ts`, and `tests/stress/feed-skeleton-memory-child.ts`; one cursor-assertion major was already covered by the existing replay assertions.
+- Focused post-review tests passed: Jetstream/subscriber slice 2 files / 13 tests; CLI/preflight slice 3 files / 23 tests.
+- Full regression suite passed with dummy non-production config and local IPC/loopback access: 93 files / 780 tests.
+- Build and docs gates passed: `npm run build`, `npm run build:lab-memory`, `npm run docs:verify`, and `git diff --check`.
+- Planned deployed-feed memory gate: 10,000 requests, 100 connections, p95 < 100 ms, errors 0, timeouts 0, non-2xx 0, 5xx 0, restart count unchanged, cgroup memory below 768 MB, and steady RSS below 512 MB after drain.
+
+### Decisions & alternatives
+- Kept this as a plan draft, not a service-unit or deployment change.
+- Sequenced the work as runtime/memory first, then Jetstream/scoring observation, then external HTTP voting, then DB saturation.
+- Required explicit target identity, rollback command, traffic source/rate, artifact destination, and proof of isolated data target before execution.
+
+### Open questions
+- Which host/service is the approved target: true staging, shadow production, or a freshly provisioned disposable target?
+- Where should durable shared-environment receipts live if they should not be committed under `artifacts/lab/PROJ-1551/<run-id>/`?
+
+## 2026-07-05 #06 — PROJ-1551 feed tracking abort hardening
+**Branch:** `dev/PROJ-1551-corgi-validation`
+**Commits:** pending
+**Files changed:** `src/feed/routes/feed-skeleton.ts`, `tests/feed-skeleton-tracking.test.ts`, `docs/lab/2026-07-05-corgi-ingestion-voting-validation.md`, `docs/RECSYS_VALIDATION_EVIDENCE.md`, `docs/dev-journal.md`
+
+### What changed
+Wrapped feed request tracking's DID verification, epoch read, and Redis write pipeline in abort-aware waits that share the request tracker timeout signal. Added regression coverage for a stalled `redis.get('feed:epoch')` call so a hung tracking read times out, releases the tracker slot, and does not continue to enqueue tracking writes after the request has already been counted as timed out.
+
+### Why
+The feed response path already decouples tracking from serving, but tracking work still needs bounded background lifetime. Without abort-aware Redis waits, a stuck Redis command could keep the tracking task alive after the slot was released, making tracker metrics overstate recovery and hiding background work during memory or saturation tests.
+
+### Measurements
+- Focused tracking slice passed: 2 files / 24 tests for `tests/feed-skeleton-tracking.test.ts` and `tests/feed-request-tracker.test.ts`.
+- Full regression suite passed with dummy non-production config and local IPC/loopback access: 93 files / 781 tests.
+- Build gates passed: `npm run build` and `npm run build:lab-memory`.
+
+### Decisions & alternatives
+- Kept the hardening local to feed request tracking instead of changing Redis client behavior globally.
+- Preserved the existing best-effort logging behavior for non-timeout tracking failures.
+
+### Open questions
+- Rerun docs and diff hygiene, then CodeRabbit, before considering this continuation closed.
+
+## 2026-07-05 #07 — PROJ-1551 current-head closeout receipts
+**Branch:** `dev/PROJ-1551-corgi-validation`
+**Commits:** pending
+**Files changed:** `scripts/sim-campaign.ts`, `scripts/memory-isolated-stress.ts`, `src/ingestion/jetstream.ts`, `tests/jetstream-message-processing.test.ts`, `tests/stress/feed-skeleton.stress.ts`, `docs/lab/2026-07-05-corgi-ingestion-voting-validation.md`, `docs/RECSYS_VALIDATION_EVIDENCE.md`, `docs/STABILITY_TEST.md`, `docs/dev-journal.md`
+
+### What changed
+Closed the final current-head evidence gap after the late CodeRabbit fixes. The campaign runner now defaults to the current clock when `--clock-ms` is omitted, so default ephemeral campaign runs score recent seeded posts instead of accidentally aging them out at Unix epoch time. The Jetstream cursor escape hatch, stress fixture cleanup, memory child listener cleanup, and campaign cleanup/default-clock fixes are now covered by fresh build/test/lab receipts.
+
+### Why
+The prior `21:44-21:46Z` receipts were no longer enough after changing Jetstream cursor handling and the memory/campaign scripts. PROJ-1551 requires quantitative proof tied to the code under review, so the lab gates were rerun and the docs were repointed to the new manifests.
+
+### Measurements
+- `npm run build`: pass.
+- `npm run build:lab-memory`: pass.
+- `npm run docs:verify`: pass after doc patch, 14 tracked docs / 28 markdown files scanned.
+- `git diff --check`: pass after doc patch.
+- Full regression suite passed with dummy non-production config and local IPC/loopback access: 93 files / 782 tests.
+- `npm run sim:core`: pass, 17 files / 178 tests, migrations 001-022 applied against Testcontainers Postgres/Redis.
+- `npm run sim:campaign -- --dry-run --max-stage S1`: pass, 4 planned runs.
+- `npm --silent run sim:preflight`: first current-head attempt failed because Testcontainers port binding exceeded the 10s preflight window; immediate retry passed 4/4 checks, Docker 29.4.3, migrations 001-022, migration check duration 1.667s.
+- `npm run sim:campaign -- --ephemeral --stage S0 --artifacts-dir /private/tmp/corgi-sim-campaign-s0-current-head`: pass, 30 users, 50 posts, 24 votes, 13 score rows, 12 Redis feed rows, scratch summary `/private/tmp/corgi-sim-campaign-s0-current-head/campaign-summary.json`.
+- Jetstream replay refreshed: 1,200 events, 2,958.43 events/sec, handler p95 0.83 ms, p99 0.99 ms, max 2.84 ms, durable mutations 821, durable mutations/sec 2,024.06, queue drops 0, handler errors 0, state mismatches 0, outcome mismatches 0, cursor lag 793 microseconds, scoring delay 5.27 ms, score rows 1; manifest `artifacts/lab/PROJ-1551/2026-07-05T22-17-41-693Z/manifest.json`.
+- HTTP voting load refreshed: 8,000/8,000 valid vote POSTs returned `200`, p95 41.91 ms, p99 77.90 ms, max 257.54 ms, errors/timeouts/non-2xx 0, exact vote/audit/long-table reconciliation, rate-limit phase 20 accepted + 5 `429`, exact post-rate-limit aggregate rows 501 / 8,020 / 2,505, cleanup failures 0; manifest `artifacts/lab/PROJ-1551/2026-07-05T22-17-58-509Z/manifest.json`.
+- Fixed tsx memory gate refreshed: normal median/p95 44.00 MB / 46.56 MB, no-op 42.72 MB / 53.36 MB, max peak RSS 239.89 MB / 240.98 MB, tracker drops 0, remaining connections 0; manifest `artifacts/lab/PROJ-1551/2026-07-05T22-18-16-183Z/manifest.json`.
+- Compiled prod-parity memory gate refreshed: normal median/p95 47.13 MB / 50.93 MB, no-op 44.24 MB / 47.83 MB, max peak RSS 230.52 MB / 226.05 MB, tracker drops 0, remaining connections 0; manifest `artifacts/lab/PROJ-1551/2026-07-05T22-19-36-438Z/manifest.json`.
+- CodeRabbit fresh full-diff review timed out without findings, review ID `11cad39b-c8de-4f4d-bbb3-2a52e95b380d`.
+- CodeRabbit fresh light full-diff review was stopped after repeated no-output heartbeats and no findings emitted.
+- CodeRabbit fresh light scoped ingestion review timed out without findings, review ID `e2947cc1-d489-4c4d-bdcf-88e7b2a9f0a7`.
+- `coderabbit review findings` still contained the prior 24 stored findings. The two cached major findings were stale against current code: `scripts/load-test.ts` already exits explicitly with `process.exit(process.exitCode ?? 0)`, and `tests/stress/feed-skeleton.stress.ts` already closes the Fastify app in a setup-failure `catch`. The cached memory timer finding was also stale; `waitForChildCloseWithin()` clears its timeout in `finally`.
+
+### Decisions & alternatives
+- Kept the first preflight timeout in the record instead of flattening it into the passing retry.
+- Kept staging/systemd and production saturation approval-gated; these receipts are local/non-production evidence only.
+- Retained older failing/negative-control memory receipts because they prove the gates catch bad methodology and separate claim surfaces.
+
+### Open questions
+- CodeRabbit service did not complete a fresh review after three attempts; keep the timeout review IDs in the closeout instead of claiming a clean vendor review.
+- Remaining cached minor/trivial findings are follow-up coverage/performance/nit items, not current PROJ-1551 blockers.
+- Superseded by the corrected Linear receipt and July 6 lab refresh in entry #02; staging execution remains behind the existing approval gate.
+
+## 2026-07-05 #08 — PROJ-1551 continuation hardening after review
+**Branch:** `dev/PROJ-1551-corgi-validation`
+**Commits:** pending
+**Files changed:** `scripts/load-test.ts`, `scripts/http-load.ts`, `src/feed/routes/feed-skeleton.ts`, `src/ingestion/handlers/like-handler.ts`, `src/ingestion/handlers/repost-handler.ts`, `tests/feed-skeleton-tracking.test.ts`, `tests/http-load.test.ts`, `tests/sim-preflight.test.ts`, `tests/vote-load-cli.test.ts`, `docs/lab/2026-07-05-corgi-ingestion-voting-validation.md`, `docs/RECSYS_VALIDATION_EVIDENCE.md`, `docs/dev-journal.md`
+
+### What changed
+Extended the feed request tracking timeout hardening with abort-aware waits around DID verification, the `feed:epoch` Redis read, and the tracking write pipeline. Addressed the still-valid CodeRabbit load-test process-lifetime finding by restoring an explicit CLI exit path after PASS/FAIL output and adding a subprocess smoke test that proves the script terminates promptly. Tightened HTTP expected-status accounting coverage, made vote-load CLI tests use the repo-local `tsx` loader, gave subprocess CLI tests explicit 30s budgets, and corrected like/repost debug logs so duplicate or untracked events are not logged as indexed inserts.
+
+### Why
+These are local rigor fixes for the lab evidence path. Feed tracking needs bounded background lifetime for memory and saturation tests; the standalone load-test CLI needs deterministic process shutdown; subprocess tests should not race Vitest's default 5s timeout while the child process budget is 30s; and ingestion logs should distinguish inserted events from duplicate/untracked no-ops.
+
+### Measurements
+- CodeRabbit review on the uncommitted diff returned 24 issues. The still-valid major load-test process-lifetime issue was fixed. The stress-fixture cleanup and memory-child timeout findings were already satisfied in current code. The distributed scoring-lock suggestion remains a larger architecture follow-up, not a safe local validation edit.
+- Focused feed tracking slice passed: 2 files / 24 tests.
+- Focused CLI/load-accounting slice passed: 5 files / 65 tests.
+- Full regression suite passed with dummy non-production config and local IPC/loopback access: 93 files / 785 tests.
+- Build gates passed: `npm run build` and `npm run build:lab-memory`.
+- `npm run docs:verify`: pass after doc patch, 14 tracked docs / 28 markdown files scanned.
+- `git diff --check`: pass after doc patch.
+- Post-fix CodeRabbit rerun failed with vendor timeout before findings were returned, review ID `129c1f80-f214-4201-b078-a45ec710ff3a`, `recoverable:false`.
+
+### Decisions & alternatives
+- Kept staging/systemd, production traffic, and shared DB saturation untouched.
+- Did not implement a distributed scoring lock inside this continuation because it changes cross-process production behavior and needs a separate design/rollout plan.
+- Kept the explicit load-test `process.exit` local to the standalone CLI rather than changing the reusable `runHttpLoad` helper.
+
+### Open questions
+- CodeRabbit did not return a fresh post-fix review result; retain the timeout review ID instead of claiming a clean vendor pass.
+- Superseded by the corrected July 6 Linear receipt in entry #02; keep staging execution behind the existing approval gate.
+
+## 2026-07-05 #09 — web-next parity wiring and verification
 
 **Branch:** `dev/PROJ-1557-finish-web-next-parity-wiring`
 **Base:** `origin/main` at `f2310a036cb668a9e7419ee8419a2cbe44dc9920`
@@ -951,3 +1197,263 @@ The old Vite site exposed legal, consent, vote, dashboard, history, post explana
 
 - Real production mutation E2E remains intentionally unexecuted. The user manually signed in through Chrome, but no vote, consent, or admin mutation was clicked because those actions require action-time approval and would change live account/server state.
 - CI job is added locally but not yet proven in GitHub Actions until this branch is pushed and CI runs on the remote.
+
+## 2026-07-06 #01 — PROJ-1551 queue saturation and redaction hardening
+**Branch:** `dev/PROJ-1551-corgi-validation`
+**Commits:** pending
+**Files changed:** `src/feed/request-tracker.ts`, `src/feed/routes/feed-skeleton.ts`, `tests/feed-request-tracker.test.ts`, `tests/feed-skeleton-auth.test.ts`, `tests/subscribers-log-redaction.test.ts`, `docs/lab/2026-07-05-corgi-ingestion-voting-validation.md`, `docs/RECSYS_VALIDATION_EVIDENCE.md`, `docs/dev-journal.md`
+
+### What changed
+Added a rate-limited operator warning when the feed request tracking queue is saturated and drops tracking work. Strengthened request-tracker tests for drop accounting, unchanged enqueue counts on rejected work, overlapping drain waiters, and a short drain timeout not canceling a concurrent long drain. Reused the already verified private-mode viewer DID for background request tracking so approved private feed requests do not verify the same JWT twice. Added subscriber log-redaction coverage for string, null, and object rejection values with non-string properties.
+
+### Why
+The local lab already measures tracker drops and queue depth, but saturation needs an operator-visible warning if the queue limit is reached. Private-mode tracking should not spend extra verifier work on the hot request path's already approved identity. Subscriber failures must stay redacted even when a dependency rejects with unusual values.
+
+### Measurements
+- Focused queue/redaction slice passed: 4 files / 35 tests.
+- Full regression suite passed with dummy non-production config and local IPC/loopback access: 93 files / 791 tests.
+- Build gates passed: `npm run build` and `npm run build:lab-memory`.
+
+### Decisions & alternatives
+- Kept saturation logging rate-limited to avoid turning a dropped-task storm into a log storm.
+- Kept the private-mode DID reuse scoped to feed request tracking only; access-control semantics are unchanged.
+- Kept staging/systemd, production traffic, and shared DB saturation untouched.
+
+### Open questions
+- Superseded by the corrected July 6 Linear receipt in entry #02; rerun docs/diff hygiene before PR closeout.
+- Remaining larger follow-up remains the distributed scoring lock design, which should not be slipped into the validation branch without a separate plan.
+
+## 2026-07-06 #02 — PROJ-1551 post-review lab receipt refresh
+**Branch:** `dev/PROJ-1551-corgi-validation`
+**Commits:** pending
+**Files changed:** `scripts/vote-load.ts`, `docs/lab/2026-07-05-corgi-ingestion-voting-validation.md`, `docs/RECSYS_VALIDATION_EVIDENCE.md`, `docs/STABILITY_TEST.md`, `docs/dev-journal.md`
+
+### What changed
+Refreshed the full local lab gates after the post-review hardening and the queue/redaction continuation. Repointed the evidence summary, lab journal, and stability checklist to the July 6 manifests. Added `DB_POOL_MAX` and `DB_STATEMENT_TIMEOUT` to the vote-load manifest allowlist so future receipts can show whether a vote-load pass depends on explicit database pool tuning.
+
+### Why
+The previous canonical lab manifests predated later request-tracking, logging, and test-hardening changes. PROJ-1551 is evidence-driven; current claims need current-head receipts, and a failed 100-connection vote-load attempt needed to stay visible rather than be hidden by a later passing retry.
+
+### Measurements
+- `npm run lab:jetstream-replay -- --ephemeral --events 1200`: pass, 1,200 events, 1,071.48 events/sec, handler p95 2.36 ms, p99 3.20 ms, max 10.68 ms, durable mutations 821, durable mutations/sec 733.07, queue drops 0, handler errors 0, state mismatches 0, outcome mismatches 0, cursor lag 793 microseconds, scoring delay 16.12 ms, score rows 1; manifest `artifacts/lab/PROJ-1551/2026-07-06T17-43-53-532Z/manifest.json`.
+- First current-head `npm run lab:vote-load -- --ephemeral --valid-requests 8000 --users 500 --connections 100`: fail, 7,903/8,000 valid `200` responses, 97 timeouts, p95 121.55 ms, 7,960/8,000 expected audit rows, and PostgreSQL pool connection timeouts; manifest `artifacts/lab/PROJ-1551/2026-07-06T17-44-14-781Z/manifest.json`.
+- Discriminator `npm run lab:vote-load -- --ephemeral --valid-requests 8000 --users 500 --connections 50`: pass, 8,000/8,000 valid `200` responses, p95 27.68 ms, p99 37.30 ms, max 98.40 ms, exact reconciliation; manifest `artifacts/lab/PROJ-1551/2026-07-06T18-25-11-074Z/manifest.json`.
+- Canonical repeat `npm run lab:vote-load -- --ephemeral --valid-requests 8000 --users 500 --connections 100`: pass, 8,000/8,000 valid `200` responses, p95 43.99 ms, p99 87.15 ms, max 288.42 ms, exact vote/audit/long-table reconciliation, 20 accepted + 5 rate-limited responses, cleanup failures 0; manifest `artifacts/lab/PROJ-1551/2026-07-06T18-26-05-568Z/manifest.json`.
+- `npm run lab:memory-isolated -- --ephemeral --runs 5 --amount 10000 --connections 100`: pass, normal median/p95 after-GC RSS deltas 42.45 MB / 46.80 MB, no-op 37.93 MB / 42.64 MB, max peak RSS 239.13 MB / 230.22 MB, tracker drops 0, remaining connections 0; manifest `artifacts/lab/PROJ-1551/2026-07-06T18-26-30-271Z/manifest.json`.
+- `npm run lab:memory-prod-parity -- --ephemeral --runs 5 --amount 10000 --connections 100`: pass, normal median/p95 after-GC RSS deltas 45.92 MB / 48.44 MB, no-op 47.97 MB / 50.39 MB, max peak RSS 228.30 MB / 226.86 MB, tracker drops 0, remaining connections 0; manifest `artifacts/lab/PROJ-1551/2026-07-06T18-27-54-834Z/manifest.json`.
+- `npm run build`: pass.
+- `npm run build:lab-memory`: pass.
+- First full `npm test -- --run` without dummy env failed at config import, 43 failed suites / 50 passed files, because required non-production config values were absent.
+- Full `npm test -- --run` with explicit dummy non-production env passed: 93 files / 791 tests.
+- `npm run docs:verify`: pass, 14 tracked docs / 28 markdown files scanned.
+- `git diff --check`: pass.
+- Fresh `coderabbit review --agent -t uncommitted` reached setup/analyzing, emitted no findings or review ID after repeated polls, and was stopped with SIGINT; exit code 130. Treat this as no fresh vendor result, not as a clean review.
+
+### Decisions & alternatives
+- Kept the failed 100-connection vote-load attempt in the journal and summary docs as a repeatability warning.
+- Kept staging/systemd, production traffic, and shared DB saturation untouched.
+- Treated the passing local vote-load retry as local evidence only; the approved staging gate must record repeated voting runs and DB pool utilization.
+- Retained the prior post-fix CodeRabbit timeout `129c1f80-f214-4201-b078-a45ec710ff3a` as the latest review ID because this fresh attempt did not return one.
+
+### Open questions
+- Shared-environment/staging claims remain blocked on explicit target/operator/window/rollback/artifact approval and repeated DB-pool-instrumented voting runs.
+
+## 2026-07-06 #03 — PROJ-1551 current-main PR closeout
+**Branch:** `dev/PROJ-1551-corgi-validation`
+**Commits:** pending
+**Files changed:** validation code, lab harness scripts, lab artifact schema, regression tests, and evidence docs.
+
+### What changed
+Fast-forwarded the validation worktree from `e9a8a4c` to current `origin/main` at `f2310a036cb668a9e7419ee8419a2cbe44dc9920`, preserving the PROJ-1551 local validation diff and bringing in the PROJ-1465 legal-doc runtime-image checks before PR creation. Ran CodeRabbit on the uncommitted diff; it exceeded the 10-minute completion window, but emitted actionable findings before being stopped. Fixed the valid major/minor findings around manifest claim evidence rules, feed request tracking DB-pool headroom, vote-load DB-pool sizing, `FEED_MAX_POSTS` bounds, subscriber digest config, by-ID snapshot cache eviction, soft-deleted like/repost subjects, and stress snapshot cleanup.
+
+### Why
+The validation packet should land against the same mainline that now includes the runtime legal-doc fix and its regression test. The earlier PROJ-1551 receipts were still valid local evidence, but the PR closeout needed a current-main build/test/docs hygiene pass.
+
+### Measurements
+- Full `npm run verify` with the same dummy non-production env and local loopback/IPC permission: pass; included root TypeScript build, 97 files / 840 Vitest tests, CLI build, MCP-local skip check, SDK build, SDK fixture, Vite lint/build, and Next static build.
+- `npm run build`: pass.
+- `npm run build:lab-memory`: pass.
+- Focused post-review slice (`tests/config.test.ts`, `tests/feed-request-tracker.test.ts`, `tests/feed-snapshot-cache.test.ts`, `tests/harness/lab-artifacts.test.ts`, `tests/engagement-ingestion-filter.test.ts`, `tests/vote-load-cli.test.ts`, `tests/subscribers-log-redaction.test.ts`): pass, 7 files / 88 tests.
+- Full `npm test -- --run` with explicit dummy non-production env and local loopback/IPC permission: pass, 97 files / 840 tests.
+- `npm run docs:verify`: pass, 14 tracked docs / 28 markdown files scanned.
+- `git diff --check`: pass.
+- Post-fix CodeRabbit reruns with `.coderabbit.yaml`: blocked by recoverable vendor rate limits after waits of 2 minutes and 20 seconds; final retry reported an 8-minute wait. Do not claim a clean post-fix CodeRabbit pass.
+
+### Decisions & alternatives
+- Kept staging/systemd, production traffic, and shared DB saturation untouched.
+- Kept the approval-gated staging/runtime plan as a plan only; no shared-environment load was executed.
+- Left CodeRabbit trivial coverage suggestions for a later cleanup lane where they did not affect runtime correctness or the PROJ-1551 evidence claim.
+
+## 2026-07-06 #04 — PROJ-1551 receipt-integrity hardening and lab refresh
+**Branch:** `dev/PROJ-1551-corgi-validation`
+**Commits:** PR closeout at `154e55b`; this follow-up records post-closeout verification.
+**Files changed:** `src/feed/request-tracker.ts`, `src/ingestion/jetstream.ts`, `src/harness/jetstream-replay.ts`, `src/harness/lab-artifacts.ts`, `scripts/jetstream-replay.ts`, `scripts/memory-isolated-stress.ts`, `scripts/vote-load.ts`, `tests/feed-request-tracker.test.ts`, `tests/jetstream-message-processing.test.ts`, `tests/jetstream-replay-harness.test.ts`, `tests/harness/lab-artifacts.test.ts`, `tests/memory-isolated-cli.test.ts`, `docs/lab/2026-07-05-corgi-ingestion-voting-validation.md`, `docs/RECSYS_VALIDATION_EVIDENCE.md`, `docs/STABILITY_TEST.md`, `docs/dev-journal.md`
+
+### What changed
+Fixed the valid major findings emitted during the latest CodeRabbit stream: abort-aware feed-tracking tasks now count as timed out instead of completed, Jetstream cursor persistence is monotonic under overlapping saves, replay state expectations use fixture expected outcomes instead of observed outcomes, lab manifests are schema-validated before write, lab guard checks happen before `CORGI_SIM_ALLOW` defaults are set, container cleanup failures propagate, and memory CLI arguments are bounded/rejected explicitly. The lab scripts also now import Testcontainers dynamically only inside the ephemeral-container path, so dry-run and non-ephemeral CLI paths do not require Testcontainers module loading.
+
+### Why
+The previous lab receipts proved the main local gates, but several receipt-integrity edges could make a passing artifact less defensible than it looked. PROJ-1551 needs claims supported by quantitative receipts, so the gate code itself must fail loudly when validation assumptions are wrong.
+
+### Measurements
+- Focused receipt-integrity slice passed: 6 files / 71 tests.
+- `npm run build`: pass.
+- `npm run build:lab-memory`: pass.
+- Focused CLI/lab-script slice passed after dynamic Testcontainers import hardening: 5 files / 52 tests.
+- Full regression suite with dummy non-production env and local loopback/IPC permission passed: 97 files / 840 tests.
+- `npm run docs:verify`: pass, 14 tracked docs / 28 markdown files scanned.
+- `git diff --check`: pass.
+- Jetstream replay refreshed: 1,200 events, 3,105.67 events/sec, handler p95 0.76 ms, p99 1.02 ms, max 5.13 ms, durable mutations 569, durable mutations/sec 1,472.61, queue drops 0, handler errors 0, state mismatches 0, outcome mismatches 0, cursor lag 793 microseconds, scoring delay 5.9 ms, score rows 1; manifest `artifacts/lab/PROJ-1551/2026-07-06T19-37-49-725Z/manifest.json`.
+- HTTP voting load refreshed: 8,000/8,000 valid vote POSTs returned `200`, p95 48.18 ms, p99 101.06 ms, max 319.53 ms, errors/timeouts/non-2xx 0, exact vote/audit/long-table reconciliation, rate-limit phase 20 accepted + 5 `429`, exact post-rate-limit aggregate rows 501 / 8,020 / 2,505, cleanup failures 0; manifest `artifacts/lab/PROJ-1551/2026-07-06T19-38-04-859Z/manifest.json`.
+- Fixed tsx memory gate refreshed: normal median/p95 44.75 MB / 50.27 MB, no-op 42.94 MB / 51.09 MB, max peak RSS 251.34 MB / 234.20 MB, tracker drops 0, remaining connections 0; manifest `artifacts/lab/PROJ-1551/2026-07-06T19-38-23-532Z/manifest.json`.
+- Compiled prod-parity memory gate refreshed: normal median/p95 36.43 MB / 39.49 MB, no-op 30.14 MB / 40.10 MB, max peak RSS 215.92 MB / 215.70 MB, tracker drops 0, remaining connections 0; manifest `artifacts/lab/PROJ-1551/2026-07-06T19-42-01-707Z/manifest.json`.
+- Post-fix CodeRabbit attempt first returned recoverable rate limit with a 3-minute wait; retry exited 0 with `review_skipped`, message `No changes detected`, and findings 0. Treat this as a completed CLI interaction, not as a fresh substantive vendor review.
+
+### Decisions & alternatives
+- Kept staging/systemd, production traffic, and shared DB saturation untouched.
+- Treated the CodeRabbit stream as actionable evidence for fixes. The post-fix retry exited 0 with `review_skipped` and 0 findings, but did not run a fresh substantive review.
+- Left the larger subscriber digest-secret split and distributed scoring-lock work as separate design/ops follow-ups rather than slipping broader production behavior changes into this validation branch.
+
+### Open questions
+- Shared-environment/staging claims remain blocked on explicit target/operator/window/rollback/artifact approval and repeated DB-pool-instrumented voting runs.
+
+## 2026-07-06 #05 — PROJ-1551 backend CI import-order retry
+**Branch:** `dev/PROJ-1551-corgi-validation`
+**Commits:** code fix `d7a233c`
+**Files changed:** `scripts/jetstream-replay.ts`, `scripts/memory-isolated-stress.ts`, `scripts/sim-campaign.ts`, `scripts/sim-preflight.ts`, `scripts/vote-load.ts`, `docs/dev-journal.md`
+
+### What changed
+Moved Testcontainers value imports in the lab CLI scripts into the ephemeral-container execution paths, while keeping the container handle imports type-only. The runtime container behavior stays in the guarded path; dry-run, invalid-argument, and preflight-skip paths no longer load optional Testcontainers dependencies before CLI validation.
+
+### Why
+GitHub PR #302 `backend-verify` failed under Node 20.19.0 before CLI validation in `tests/vote-load-cli.test.ts`, because static Testcontainers imports loaded `undici` and crashed with `webidl.util.markAsUncloneable is not a function`. That made invalid-argument tests report the dependency crash instead of the expected `--valid-requests`, `--users`, `--connections`, or unknown-flag validation errors.
+
+### Measurements
+- GitHub PR #302 failing CI receipt before the fix: run `28818957727`, job `85465508809`, `backend-verify`, Node 20.19.0, failing suite `tests/vote-load-cli.test.ts`.
+- Focused CLI regression passed after the import-order fix: 3 files / 26 tests via `npx vitest run tests/vote-load-cli.test.ts tests/memory-isolated-cli.test.ts tests/sim-preflight.test.ts` with dummy non-production env.
+- `npm run build`: pass.
+- `npm run build:lab-memory`: pass.
+- Compiled lab dry-run passed: `node dist-lab/scripts/memory-isolated-stress.js --dry-run --runs 1 --amount 1 --connections 1`.
+- `npm run docs:verify`: pass, 14 tracked docs / 28 markdown files scanned.
+- `git diff --check`: pass.
+- `npm run verify` with dummy non-production env and local loopback/IPC permission: pass, including root build, 97 files / 840 tests, CLI build, MCP-local skip, SDK build, SDK fixture, web lint/build, and web-next build.
+
+### Decisions & alternatives
+- Kept staging/systemd, production traffic, Docker tasking, and shared databases untouched.
+- Did not downgrade or pin Testcontainers/undici in this validation branch; the root issue was import order on paths that do not need containers.
+
+## 2026-07-06 #06 — PROJ-1551 CodeRabbit hardening loop
+
+**Branch:** `dev/PROJ-1551-corgi-validation`
+**Commits:** pending
+**Files changed:** request tracking, feed request logging, Jetstream cursor/dead-letter handling, subscriber logging, validation scripts, regression tests, and migration `023_jetstream_failed_cursor_dead_letters.sql`.
+
+### What changed
+
+Ran CodeRabbit CLI on the uncommitted PR diff after the spending cap cleared for CLI review execution. Fixed the valid runtime findings instead of treating the stale PR status as current truth:
+
+- Feed request tracking now keeps timeout accounting distinct from late task completion/rejection, re-arms warning gates after idle drains, and adds abort-path regressions for verifier, subscriber, Redis read, and Redis pipeline stalls.
+- Feed request logging now dispatches the Redis request-log pipeline eagerly and independently from subscriber upsert, so subscriber stalls do not suppress request-log writes.
+- Jetstream handler-error outcomes no longer advance the cursor. Failed cursor pins are keyed by event identity, generation-scoped, retry-bounded, age-bounded, max-count-bounded, and dead-lettered durably before the pin is removed.
+- Added migration `023_jetstream_failed_cursor_dead_letters.sql` for durable failed-cursor dead-letter audit rows.
+- Subscriber upsert redaction now keeps the catch path non-throwing if DID digest secret resolution fails, emits a sanitized error log, increments a digest-unavailable counter, and still avoids raw DID leakage.
+- Vote-load and memory-isolated stress harnesses now carry the prior CodeRabbit hardening around ephemeral Postgres connection budget, cleanup error preservation, and shared threshold constants.
+
+### Why
+
+The PR was blocked by a stale CodeRabbit app status, but the CLI cap had passed enough to run substantive reviews. The review loop found real correctness issues in cursor safety and async tracking behavior. PROJ-1551 claims depend on ingestion and validation receipts being defensible under handler failures, stalled tracking dependencies, and dead-letter audit requirements.
+
+### Measurements
+
+- CodeRabbit CLI `coderabbit review --agent -t uncommitted -c .coderabbit.yaml`: multiple completed review passes emitted actionable findings; latest post-fix retry was blocked by recoverable `rate_limit` with wait time `11 minutes`. Do not claim a clean final CodeRabbit pass yet.
+- `npm run verify` with dummy non-production env and local loopback/IPC permission: pass, including root build, 97 files / 868 Vitest tests, CLI build, MCP-local skip, SDK build, SDK fixture, web lint/build, and web-next build.
+- `npm --silent run sim:preflight`: pass, 4/4 checks; Docker server 29.4.3; Testcontainers started `postgres:16` and `redis:7-alpine`; migrations `001` through `023` applied.
+- `npm run build:lab-memory`: pass.
+- `npm run docs:verify`: pass, 14 tracked docs / 28 markdown files scanned.
+- `git diff --check`: pass.
+
+### Decisions & alternatives
+
+- Kept staging/systemd, production traffic, Docker tasking beyond Testcontainers, and shared databases untouched.
+- Treated CodeRabbit "trivial" labels skeptically: implemented test-only gaps when cheap, but also promoted the durable dead-letter requirement to runtime work because log-only drops were not recoverable.
+- Retry-limit skips remain blocked when durable dead-letter persistence fails. Pin-limit and age-limit cleanup still remove pins to enforce memory and age bounds, while logging the failed durable write.
+- CodeRabbit final clean state remains pending on the vendor rate-limit retry.
+
+## 2026-07-06 #07 — PROJ-1551 final local hardening receipts and CodeRabbit cap state
+
+**Branch:** `dev/PROJ-1551-corgi-validation`
+**Commits:** pending
+**Files changed:** request tracking, feed request logging, Jetstream failed-cursor locking/dead-letter handling, subscriber logging, memory/vote validation scripts, regression tests, docs, and migration `023_jetstream_failed_cursor_dead_letters.sql`.
+
+### What changed
+
+Continued the CodeRabbit hardening loop from entry #06 and fixed the remaining still-valid emitted issues:
+
+- Serialized Jetstream `failedCursorPins` mutations across awaited dead-letter inserts, guarded post-await deletes against reconnect/reset key reuse, and added a concurrent same-event retry-limit regression that proves one durable dead-letter plus one fresh pin.
+- Downgraded route-local feed tracking failure logging to debug so repeated Redis/subscriber tracking failures rely on the request tracker's rate-limited warnings instead of one warn per request.
+- Kept the feed request tracker timeout above the configured Postgres statement timeout by default, preserving DB statement-timeout headroom while tests still override the task timeout deterministically.
+- Extended subscriber digest-unavailable coverage to prove the production-mode counter increments per failed call without leaking raw DIDs.
+- Made the memory-isolated harness importable without auto-running, then covered startup-error cleanup when both stops fail, one stop fails, and cleanup succeeds.
+- Added the small CLI timeout single-source-of-truth regression requested by the final CodeRabbit stream.
+
+### Why
+
+The remaining findings were mostly low-severity test coverage, but they protected real evidence claims: failed Jetstream events must not race cursor safety, feed tracking must not create log storms under dependency failures, and startup cleanup tests must prove the original startup error is preserved regardless of cleanup outcome.
+
+### Measurements
+
+- Focused review slice after final fixes: `npx vitest run tests/jetstream-message-processing.test.ts tests/feed-skeleton-tracking.test.ts tests/subscribers-log-redaction.test.ts tests/memory-isolated-cli.test.ts` passed, 4 files / 60 tests.
+- `npm run build`: pass.
+- `npm run build:lab-memory`: pass.
+- `npm run docs:verify`: pass, 14 tracked docs / 28 markdown files scanned.
+- `git diff --check`: pass.
+- `npm --silent run sim:preflight`: pass, generated `2026-07-07T00:54:49.393Z`, 4/4 checks, Docker server 29.4.3, Testcontainers `postgres:16`/`redis:7-alpine`, migrations `001` through `023` applied.
+- Final `npm run verify` with dummy non-production env and local loopback/IPC permission: pass, including root build, 97 files / 876 Vitest tests, CLI build, MCP-local skip, SDK build, SDK fixture, web lint/build, and web-next build.
+- CodeRabbit rerun after the first final-fix batch exceeded the 10-minute window, emitted 4 issues, and was stopped; all 4 were fixed.
+- CodeRabbit rerun after that exceeded the 10-minute window, emitted 2 trivial issues, and was stopped; both were fixed.
+- Final CodeRabbit attempt after the green local gates returned recoverable `rate_limit` with wait time `6 minutes`; after waiting 6 minutes plus an 8-second buffer, retries still returned recoverable `rate_limit` with wait times `4 seconds` and then `4 minutes`. Do not claim a clean final CodeRabbit pass.
+
+### Decisions & alternatives
+
+- Stopped the CodeRabbit retry loop after the moving vendor wait window returned another 4-minute cap; local verification is green, but vendor freshness is not clean.
+- Kept staging/systemd, production traffic, credentials, DNS, deploys, and shared database saturation untouched.
+- Kept retry-limit dead-letter DB failure fail-closed for cursor advancement, while pin-limit and age-limit cleanup remain bounded even if durable audit insertion fails.
+
+### Open questions
+
+- CodeRabbit vendor freshness remains blocked by recoverable rate limit; rerun once the cap actually clears.
+- Shared-environment/staging claims remain blocked on explicit target/operator/window/rollback/artifact approval and repeated DB-pool-instrumented voting runs.
+
+## 2026-07-06 #08 — PROJ-1551 adversarial tracker accounting closeout
+
+**Branch:** `dev/PROJ-1551-corgi-validation`
+**Commits:** pending
+**Files changed:** `src/feed/request-tracker.ts`, `src/feed/routes/feed-skeleton.ts`, `scripts/memory-isolated-stress.ts`, `tests/feed-request-tracker.test.ts`, `tests/feed-skeleton-tracking.test.ts`, `docs/lab/2026-07-05-corgi-ingestion-voting-validation.md`, `docs/RECSYS_VALIDATION_EVIDENCE.md`, `docs/dev-journal.md`.
+
+### What changed
+
+Closed the adversarial review gap where an abort-aware wrapper could reject on timeout while the underlying Redis, subscriber DB, or verifier promise continued outside tracker accounting:
+
+- Added `abandonedBackendOps`, total, max-observed, and backend-saturation drop counters to feed request tracker stats.
+- Made tracker drain/reset wait for abandoned backend operations to settle, not only queued/in-flight app tasks.
+- Added a circuit breaker that drops new tracking work when abandoned backend operations reach the request-tracker concurrency ceiling.
+- Wrapped feed-skeleton tracking operations so abort-before-settle records an abandoned backend operation and clears it only when the original promise resolves or rejects.
+- Updated the memory harness pass/fail gate to require `abandonedBackendOps=0` and `backendSaturationDropped=0` on future runs.
+
+### Why
+
+The previous timeout tests proved the response path stayed non-blocking, but they did not prove dependency-stall backpressure. A Redis/DB/verifier stall could still leave detached backend promises alive after app-level tracking reported idle. That would make memory and saturation receipts overstate recovery under dependency-stall conditions.
+
+### Measurements
+
+- Focused adversarial tracker slice with dummy non-production env: `npx vitest tests/feed-request-tracker.test.ts tests/feed-skeleton-tracking.test.ts --run` passed, 2 files / 42 tests.
+- Broader focused hardening slice with dummy non-production env: `npx vitest tests/config.test.ts tests/feed-request-tracker.test.ts tests/feed-skeleton-tracking.test.ts tests/memory-isolated-cli.test.ts tests/subscribers-log-redaction.test.ts tests/jetstream-message-processing.test.ts --run` passed, 6 files / 98 tests.
+- `npm run build` with dummy non-production env: pass.
+- `npm run build:lab-memory` with dummy non-production env: pass.
+- Full `npm run verify` with dummy non-production env and local loopback/IPC permission: pass, including root build, 97 files / 878 Vitest tests, CLI build, MCP-local skip, SDK build, SDK fixture, web lint/build, and web-next build.
+
+### Decisions & alternatives
+
+- Kept the feed response non-blocking, but made abandoned backend work visible and gated instead of treating abort as cancellation.
+- Did not rerun the full 5-run memory gate in this entry; prior memory receipts remain valid for their recorded protocol, while future memory gates now include abandoned-backend-operation assertions.
+- Kept staging/systemd, production traffic, credentials, DNS, deploys, and shared databases untouched.

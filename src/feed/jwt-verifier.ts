@@ -71,11 +71,40 @@ function decodeJwtPayload(jwt: string): Record<string, unknown> | null {
 function validateIat(payload: Record<string, unknown>): boolean {
   const iat = payload.iat;
   if (typeof iat !== 'number' || !Number.isFinite(iat)) {
-    return true;
+    return false;
   }
 
   const maxAllowedIat = Math.floor(Date.now() / 1000) + config.FEED_JWT_MAX_FUTURE_SKEW_SECONDS;
   return iat <= maxAllowedIat;
+}
+
+function expectedAudience(): string {
+  return config.FEED_JWT_AUDIENCE.length > 0 ? config.FEED_JWT_AUDIENCE : config.FEEDGEN_SERVICE_DID;
+}
+
+function hasExpectedAudience(payload: Record<string, unknown>): boolean {
+  return payload.aud === expectedAudience();
+}
+
+function hasExpectedLexiconMethod(payload: Record<string, unknown>): boolean {
+  return payload.lxm === FEED_REQUESTER_JWT_LXM;
+}
+
+function hasUsableExpiry(payload: Record<string, unknown>): boolean {
+  const exp = payload.exp;
+  return typeof exp === 'number' && Number.isFinite(exp) && exp > Math.floor(Date.now() / 1000);
+}
+
+function preflightPayload(payload: Record<string, unknown> | null): payload is Record<string, unknown> & { iss: string } {
+  return (
+    payload !== null &&
+    isDid(payload.iss) &&
+    isAllowedIssuerDid(payload.iss) &&
+    hasExpectedAudience(payload) &&
+    hasExpectedLexiconMethod(payload) &&
+    hasUsableExpiry(payload) &&
+    validateIat(payload)
+  );
 }
 
 async function resolveIssuerSigningKey(issuerDid: string, forceRefresh: boolean): Promise<string> {
@@ -92,20 +121,20 @@ export async function verifyFeedRequesterDid(authHeader: string | undefined): Pr
     return null;
   }
 
+  const payload = decodeJwtPayload(token);
+  if (!preflightPayload(payload)) {
+    return null;
+  }
+
   try {
     const verified = await verifyJwt(
       token,
-      config.FEED_JWT_AUDIENCE.length > 0 ? config.FEED_JWT_AUDIENCE : config.FEEDGEN_SERVICE_DID,
+      expectedAudience(),
       FEED_REQUESTER_JWT_LXM,
       resolveIssuerSigningKey
     );
 
     if (!isDid(verified.iss) || !isAllowedIssuerDid(verified.iss)) {
-      return null;
-    }
-
-    const payload = decodeJwtPayload(token);
-    if (!payload || !validateIat(payload)) {
       return null;
     }
 

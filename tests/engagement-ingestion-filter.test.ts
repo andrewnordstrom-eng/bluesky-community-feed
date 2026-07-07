@@ -37,15 +37,15 @@ describe('like handler post-existence filter', () => {
   });
 
   it('inserts like and increments engagement when post exists', async () => {
-    // First call: INSERT INTO likes (post exists, rowCount=1)
+    // First call: INSERT INTO likes (post exists, inserted=true)
     // Second call: UPDATE post_engagement (engagement counter)
     // Third call: UPDATE engagement_attributions (fire-and-forget)
     dbQueryMock
-      .mockResolvedValueOnce({ rows: [{ uri: 'at://did:plc:xyz/app.bsky.feed.like/1' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ inserted: true, subjectExists: true }], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [], rowCount: 0 });
 
-    await handleLike(
+    const outcome = await handleLike(
       'at://did:plc:xyz/app.bsky.feed.like/1',
       'did:plc:xyz',
       {
@@ -53,12 +53,14 @@ describe('like handler post-existence filter', () => {
         createdAt: '2025-01-01T00:00:00.000Z',
       }
     );
+    expect(outcome).toBe('like-inserted');
 
-    // Verify INSERT INTO likes was called with WHERE EXISTS
+    // Verify INSERT INTO likes is gated by post existence in the same SQL statement.
     const insertCall = dbQueryMock.mock.calls[0];
     expect(insertCall[0]).toContain('INSERT INTO likes');
-    expect(insertCall[0]).toContain('WHERE EXISTS');
-    expect(insertCall[0]).toContain('SELECT 1 FROM posts WHERE uri = $3');
+    expect(insertCall[0]).toContain('WITH subject AS');
+    expect(insertCall[0]).toContain('FROM subject');
+    expect(insertCall[0]).toContain('SELECT 1 FROM posts WHERE uri = $3 AND deleted = FALSE');
 
     // Verify engagement counter was incremented
     const engagementCall = dbQueryMock.mock.calls[1];
@@ -67,8 +69,7 @@ describe('like handler post-existence filter', () => {
   });
 
   it('skips engagement update when post does not exist', async () => {
-    // INSERT returns rowCount=0 (WHERE EXISTS failed — post not in system)
-    dbQueryMock.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    dbQueryMock.mockResolvedValueOnce({ rows: [{ inserted: false, subjectExists: false }], rowCount: 1 });
 
     await handleLike(
       'at://did:plc:xyz/app.bsky.feed.like/2',
@@ -83,7 +84,7 @@ describe('like handler post-existence filter', () => {
     expect(dbQueryMock).toHaveBeenCalledTimes(1);
     expect(dbQueryMock.mock.calls[0][0]).toContain('INSERT INTO likes');
 
-    // No engagement update — rowCount was 0
+    // No engagement update — subject was not tracked
     const engagementCalls = dbQueryMock.mock.calls.filter(
       (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('UPDATE post_engagement')
     );
@@ -91,8 +92,7 @@ describe('like handler post-existence filter', () => {
   });
 
   it('handles duplicate like gracefully (ON CONFLICT DO NOTHING)', async () => {
-    // ON CONFLICT DO NOTHING returns rowCount=0
-    dbQueryMock.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    dbQueryMock.mockResolvedValueOnce({ rows: [{ inserted: false, subjectExists: true }], rowCount: 1 });
 
     await handleLike(
       'at://did:plc:xyz/app.bsky.feed.like/1',
@@ -105,6 +105,23 @@ describe('like handler post-existence filter', () => {
 
     // Only the INSERT was called, no engagement update
     expect(dbQueryMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats soft-deleted posts as untracked like subjects', async () => {
+    dbQueryMock.mockResolvedValueOnce({ rows: [{ inserted: false, subjectExists: false }], rowCount: 1 });
+
+    const outcome = await handleLike(
+      'at://did:plc:xyz/app.bsky.feed.like/deleted',
+      'did:plc:xyz',
+      {
+        subject: { uri: 'at://did:plc:abc/app.bsky.feed.post/deleted', cid: 'ciddeleted' },
+        createdAt: '2025-01-01T00:00:00.000Z',
+      }
+    );
+
+    expect(outcome).toBe('like-untracked-ignored');
+    expect(dbQueryMock).toHaveBeenCalledTimes(1);
+    expect(dbQueryMock.mock.calls[0][0]).toContain('deleted = FALSE');
   });
 
   it('skips likes missing subject URI', async () => {
@@ -131,7 +148,7 @@ describe('like handler post-existence filter', () => {
           createdAt: '2025-01-01T00:00:00.000Z',
         }
       )
-    ).resolves.toBeUndefined();
+    ).resolves.toBe('like-handler-error');
   });
 });
 
@@ -142,11 +159,11 @@ describe('repost handler post-existence filter', () => {
 
   it('inserts repost and increments engagement when post exists', async () => {
     dbQueryMock
-      .mockResolvedValueOnce({ rows: [{ uri: 'at://did:plc:xyz/app.bsky.feed.repost/1' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ inserted: true, subjectExists: true }], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [], rowCount: 0 });
 
-    await handleRepost(
+    const outcome = await handleRepost(
       'at://did:plc:xyz/app.bsky.feed.repost/1',
       'did:plc:xyz',
       {
@@ -154,12 +171,14 @@ describe('repost handler post-existence filter', () => {
         createdAt: '2025-01-01T00:00:00.000Z',
       }
     );
+    expect(outcome).toBe('repost-inserted');
 
-    // Verify INSERT INTO reposts was called with WHERE EXISTS
+    // Verify INSERT INTO reposts is gated by post existence in the same SQL statement.
     const insertCall = dbQueryMock.mock.calls[0];
     expect(insertCall[0]).toContain('INSERT INTO reposts');
-    expect(insertCall[0]).toContain('WHERE EXISTS');
-    expect(insertCall[0]).toContain('SELECT 1 FROM posts WHERE uri = $3');
+    expect(insertCall[0]).toContain('WITH subject AS');
+    expect(insertCall[0]).toContain('FROM subject');
+    expect(insertCall[0]).toContain('SELECT 1 FROM posts WHERE uri = $3 AND deleted = FALSE');
 
     // Verify engagement counter was incremented
     const engagementCall = dbQueryMock.mock.calls[1];
@@ -168,7 +187,7 @@ describe('repost handler post-existence filter', () => {
   });
 
   it('skips engagement update when post does not exist', async () => {
-    dbQueryMock.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    dbQueryMock.mockResolvedValueOnce({ rows: [{ inserted: false, subjectExists: false }], rowCount: 1 });
 
     await handleRepost(
       'at://did:plc:xyz/app.bsky.feed.repost/2',
@@ -191,7 +210,7 @@ describe('repost handler post-existence filter', () => {
   });
 
   it('handles duplicate repost gracefully', async () => {
-    dbQueryMock.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    dbQueryMock.mockResolvedValueOnce({ rows: [{ inserted: false, subjectExists: true }], rowCount: 1 });
 
     await handleRepost(
       'at://did:plc:xyz/app.bsky.feed.repost/1',
@@ -203,6 +222,23 @@ describe('repost handler post-existence filter', () => {
     );
 
     expect(dbQueryMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats soft-deleted posts as untracked repost subjects', async () => {
+    dbQueryMock.mockResolvedValueOnce({ rows: [{ inserted: false, subjectExists: false }], rowCount: 1 });
+
+    const outcome = await handleRepost(
+      'at://did:plc:xyz/app.bsky.feed.repost/deleted',
+      'did:plc:xyz',
+      {
+        subject: { uri: 'at://did:plc:abc/app.bsky.feed.post/deleted', cid: 'ciddeleted' },
+        createdAt: '2025-01-01T00:00:00.000Z',
+      }
+    );
+
+    expect(outcome).toBe('repost-untracked-ignored');
+    expect(dbQueryMock).toHaveBeenCalledTimes(1);
+    expect(dbQueryMock.mock.calls[0][0]).toContain('deleted = FALSE');
   });
 
   it('skips reposts missing subject URI', async () => {
@@ -227,6 +263,6 @@ describe('repost handler post-existence filter', () => {
           createdAt: '2025-01-01T00:00:00.000Z',
         }
       )
-    ).resolves.toBeUndefined();
+    ).resolves.toBe('repost-handler-error');
   });
 });

@@ -7,6 +7,7 @@ export interface HttpLoadRequest {
   path: string;
   headers: Record<string, string>;
   body: string | null;
+  expectedStatuses?: readonly number[];
 }
 
 export interface HttpLoadOptions {
@@ -53,7 +54,9 @@ export interface HttpLoadResult {
   errors: number;
   timeouts: number;
   non2xx: number;
+  unexpectedStatuses: number;
   statusBuckets: StatusBuckets;
+  statusCodes: Record<string, number>;
 }
 
 interface MutableCounters {
@@ -62,10 +65,12 @@ interface MutableCounters {
   errors: number;
   timeouts: number;
   non2xx: number;
+  unexpectedStatuses: number;
   latenciesMs: number[];
   completionOffsetsMs: number[];
   completionBytes: number[];
   statusBuckets: StatusBuckets;
+  statusCodes: Record<string, number>;
 }
 
 interface RequestIndexAllocator {
@@ -131,6 +136,20 @@ function assertLoadOptions(options: HttpLoadOptions): void {
         `request.path must resolve to http: or https: protocol; received ${requestUrl.protocol} for path ${request.path} at index ${index}`
       );
     }
+
+    if (request.expectedStatuses !== undefined) {
+      if (request.expectedStatuses.length === 0) {
+        throw new RangeError(`request.expectedStatuses must not be empty when provided at index ${index}`);
+      }
+
+      for (const status of request.expectedStatuses) {
+        if (!Number.isInteger(status) || status < 100 || status > 599) {
+          throw new RangeError(
+            `request.expectedStatuses must contain HTTP status codes; received ${status} at index ${index}`
+          );
+        }
+      }
+    }
   }
 
   if (options.amount === null && options.durationMs === null) {
@@ -193,6 +212,11 @@ function addStatus(statusBuckets: StatusBuckets, status: number): void {
   }
 
   statusBuckets.other += 1;
+}
+
+function addStatusCode(statusCodes: Record<string, number>, status: number): void {
+  const key = String(status);
+  statusCodes[key] = (statusCodes[key] ?? 0) + 1;
 }
 
 function percentile(sortedValues: readonly number[], percentileValue: number): number {
@@ -305,9 +329,21 @@ async function executeRequest(
     responseBytes = body.byteLength;
     counters.bytes += responseBytes;
     addStatus(counters.statusBuckets, response.status);
+    addStatusCode(counters.statusCodes, response.status);
 
-    if (response.status < 200 || response.status >= 300) {
+    const expectedStatus =
+      request.expectedStatuses === undefined
+        ? response.status >= 200 && response.status < 300
+        : request.expectedStatuses.includes(response.status);
+
+    // non2xx tracks generic unexpected non-2xx responses; unexpectedStatuses
+    // tracks explicit expectedStatuses misses, including unexpected 2xx values.
+    if ((response.status < 200 || response.status >= 300) && !expectedStatus) {
       counters.non2xx += 1;
+    }
+
+    if (request.expectedStatuses !== undefined && !expectedStatus) {
+      counters.unexpectedStatuses += 1;
     }
   } catch (error: unknown) {
     if (isAbortError(error)) {
@@ -352,10 +388,12 @@ export async function runHttpLoad(options: HttpLoadOptions): Promise<HttpLoadRes
     errors: 0,
     timeouts: 0,
     non2xx: 0,
+    unexpectedStatuses: 0,
     latenciesMs: [],
     completionOffsetsMs: [],
     completionBytes: [],
     statusBuckets: emptyStatusBuckets(),
+    statusCodes: {},
   };
   const deadlineMs = options.durationMs === null ? null : startedAtMs + options.durationMs;
   const requestIndexes = createRequestIndexAllocator(options.amount, deadlineMs);
@@ -374,7 +412,9 @@ export async function runHttpLoad(options: HttpLoadOptions): Promise<HttpLoadRes
     errors: counters.errors,
     timeouts: counters.timeouts,
     non2xx: counters.non2xx,
+    unexpectedStatuses: counters.unexpectedStatuses,
     statusBuckets: counters.statusBuckets,
+    statusCodes: counters.statusCodes,
   };
 }
 

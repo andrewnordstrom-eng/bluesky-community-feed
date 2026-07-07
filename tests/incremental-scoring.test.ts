@@ -7,10 +7,12 @@ const {
   pipelineZaddMock,
   pipelineSetMock,
   pipelineExecMock,
+  redisEvalMock,
   getCurrentContentRulesMock,
   hasActiveContentRulesMock,
   filterPostsMock,
   updateScoringStatusMock,
+  loggerWarnMock,
 } = vi.hoisted(() => ({
   dbQueryMock: vi.fn(),
   redisPipelineFactoryMock: vi.fn(),
@@ -18,10 +20,12 @@ const {
   pipelineZaddMock: vi.fn(),
   pipelineSetMock: vi.fn(),
   pipelineExecMock: vi.fn(),
+  redisEvalMock: vi.fn(),
   getCurrentContentRulesMock: vi.fn(),
   hasActiveContentRulesMock: vi.fn(),
   filterPostsMock: vi.fn(),
   updateScoringStatusMock: vi.fn(),
+  loggerWarnMock: vi.fn(),
 }));
 
 vi.mock('../src/db/client.js', () => ({
@@ -33,6 +37,9 @@ vi.mock('../src/db/client.js', () => ({
 vi.mock('../src/db/redis.js', () => ({
   redis: {
     pipeline: redisPipelineFactoryMock,
+    incr: vi.fn().mockResolvedValue(1),
+    del: vi.fn().mockResolvedValue(1),
+    eval: redisEvalMock,
   },
 }));
 
@@ -44,6 +51,15 @@ vi.mock('../src/governance/content-filter.js', () => ({
 
 vi.mock('../src/admin/status-tracker.js', () => ({
   updateScoringStatus: updateScoringStatusMock,
+}));
+
+vi.mock('../src/lib/logger.js', () => ({
+  logger: {
+    debug: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    warn: loggerWarnMock,
+  },
 }));
 
 
@@ -66,6 +82,7 @@ function setupDefaultMocks() {
     exec: pipelineExecMock.mockResolvedValue([]),
   };
   redisPipelineFactoryMock.mockReturnValue(pipeline);
+  redisEvalMock.mockResolvedValue(1);
 
   getCurrentContentRulesMock.mockResolvedValue({
     includeKeywords: [],
@@ -97,6 +114,63 @@ describe('incremental scoring pipeline', () => {
     const postsQuery = String(dbQueryMock.mock.calls[1][0]);
     expect(postsQuery).not.toContain('UNION ALL');
     expect(postsQuery).toContain('FROM posts p');
+  });
+
+  it('keeps the scoring run successful when snapshot invalidation fails after Redis write', async () => {
+    redisEvalMock.mockRejectedValueOnce(new Error('redis eval unavailable'));
+    dbQueryMock
+      .mockResolvedValueOnce({ rows: [makeEpochRow()] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await runScoringPipeline();
+
+    expect(pipelineExecMock).toHaveBeenCalledTimes(1);
+    expect(updateScoringStatusMock).toHaveBeenCalledTimes(1);
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        epochId: 2,
+        err: expect.any(Error),
+        runId: expect.any(String),
+      }),
+      'Failed to invalidate current feed snapshot cache after feed write'
+    );
+  });
+
+  it('skips overlapping triggers until a timed-out scoring run actually settles', async () => {
+    vi.useFakeTimers();
+    try {
+      let resolveEpoch: ((value: { rows: ReturnType<typeof makeEpochRow>[] }) => void) | null = null;
+      const pendingEpoch = new Promise<{ rows: ReturnType<typeof makeEpochRow>[] }>((resolve) => {
+        resolveEpoch = resolve;
+      });
+      dbQueryMock.mockImplementationOnce(() => pendingEpoch);
+      dbQueryMock.mockResolvedValue({ rows: [] });
+
+      const timedOutRun = runScoringPipeline();
+      const timedOutResult = timedOutRun.catch((error: unknown) => error);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(dbQueryMock).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(240_000);
+      expect(await timedOutResult).toEqual(expect.objectContaining({ message: 'Scoring pipeline timed out' }));
+
+      await runScoringPipeline();
+      expect(loggerWarnMock).toHaveBeenCalledWith('Scoring pipeline already running; skipping overlapping trigger');
+      expect(dbQueryMock).toHaveBeenCalledTimes(1);
+
+      resolveEpoch?.({ rows: [makeEpochRow()] });
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const callCountBeforeFreshRun = dbQueryMock.mock.calls.length;
+      await runScoringPipeline();
+      expect(dbQueryMock.mock.calls.length).toBeGreaterThan(callCountBeforeFreshRun);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('switches to incremental mode on subsequent runs with same epoch', async () => {

@@ -157,11 +157,11 @@ export function registerVoteRoute(app: FastifyInstance): void {
       body: {
         type: 'object',
         properties: {
-          recency: { type: 'number', minimum: 0, maximum: 1, description: 'Weight for recency component' },
-          engagement: { type: 'number', minimum: 0, maximum: 1, description: 'Weight for engagement component' },
-          bridging: { type: 'number', minimum: 0, maximum: 1, description: 'Weight for bridging component' },
-          source_diversity: { type: 'number', minimum: 0, maximum: 1, description: 'Weight for source diversity component' },
-          relevance: { type: 'number', minimum: 0, maximum: 1, description: 'Weight for relevance component' },
+          recency_weight: { type: 'number', minimum: 0, maximum: 1, description: 'Weight for recency component' },
+          engagement_weight: { type: 'number', minimum: 0, maximum: 1, description: 'Weight for engagement component' },
+          bridging_weight: { type: 'number', minimum: 0, maximum: 1, description: 'Weight for bridging component' },
+          source_diversity_weight: { type: 'number', minimum: 0, maximum: 1, description: 'Weight for source diversity component' },
+          relevance_weight: { type: 'number', minimum: 0, maximum: 1, description: 'Weight for relevance component' },
           include_keywords: { type: 'array', items: { type: 'string', maxLength: 50 }, maxItems: 20, description: 'Keywords to boost in feed' },
           exclude_keywords: { type: 'array', items: { type: 'string', maxLength: 50 }, maxItems: 20, description: 'Keywords to filter from feed' },
           topic_weights: { type: 'object', additionalProperties: { type: 'number', minimum: 0, maximum: 1 }, description: 'Topic slug → weight mapping' },

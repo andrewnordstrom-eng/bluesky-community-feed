@@ -54,7 +54,7 @@ vi.mock('../src/db/client.js', () => ({
 }));
 
 vi.mock('../src/db/redis.js', () => ({
-  redis: { pipeline: redisPipelineFactoryMock },
+  redis: { pipeline: redisPipelineFactoryMock, incr: vi.fn().mockResolvedValue(1), del: vi.fn().mockResolvedValue(1), eval: vi.fn().mockResolvedValue(1) },
 }));
 
 vi.mock('../src/governance/content-filter.js', () => ({

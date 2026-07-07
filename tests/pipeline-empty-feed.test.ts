@@ -33,6 +33,9 @@ vi.mock('../src/db/client.js', () => ({
 vi.mock('../src/db/redis.js', () => ({
   redis: {
     pipeline: redisPipelineFactoryMock,
+    incr: vi.fn().mockResolvedValue(1),
+    del: vi.fn().mockResolvedValue(1),
+    eval: vi.fn().mockResolvedValue(1),
   },
 }));
 
@@ -190,4 +193,3 @@ describe('scoring pipeline empty-feed Redis updates', () => {
     expect(queryParams.at(-1)).toBe(5000);
   });
 });
-

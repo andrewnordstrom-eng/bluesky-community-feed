@@ -4,6 +4,7 @@ import { logger } from '../lib/logger.js';
 
 export const redis = new Redis(config.REDIS_URL, {
   maxRetriesPerRequest: 3,
+  commandTimeout: config.REDIS_COMMAND_TIMEOUT_MS,
   retryStrategy(times: number) {
     const delay = Math.min(times * 50, 2000);
     return delay;
