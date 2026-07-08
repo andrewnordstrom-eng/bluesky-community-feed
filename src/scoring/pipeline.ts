@@ -40,22 +40,6 @@ import { updateScoringStatus } from '../admin/status-tracker.js';
 // Maximum time allowed for a single scoring run.
 const SCORING_TIMEOUT_MS = config.SCORING_TIMEOUT_MS;
 const SCORING_CANDIDATE_LIMIT = config.SCORING_CANDIDATE_LIMIT;
-// Per-statement timeout for the incremental candidate query specifically: it
-// scans the full 72h firehose window and legitimately runs ~20-30s at current
-// volume, above the pool default (DB_STATEMENT_TIMEOUT, 30s). Applied via
-// SET LOCAL inside a read-only transaction so it does not weaken the global cap
-// for any other query. Still well under SCORING_TIMEOUT_MS (the pipeline bound).
-const INCREMENTAL_SCORING_STATEMENT_TIMEOUT = '120s';
-// Defense-in-depth: this constant is interpolated into `SET LOCAL
-// statement_timeout` (which cannot use a bind parameter). It is an internal
-// literal today, but assert it is a plain duration literal at module load so it
-// can never become a SQL-injection vector if a future change sources it from
-// config/env.
-if (!/^\d+\s*(ms|s|min|h)?$/.test(INCREMENTAL_SCORING_STATEMENT_TIMEOUT)) {
-  throw new Error(
-    `INCREMENTAL_SCORING_STATEMENT_TIMEOUT must be a plain duration literal, got: ${INCREMENTAL_SCORING_STATEMENT_TIMEOUT}`
-  );
-}
 const SQL_BOUNDARY_KEYWORD_PATTERN = /^[a-z0-9][a-z0-9\s-]*$/;
 
 // Track last successful run for health checks
@@ -534,28 +518,14 @@ async function getPostsForIncrementalScoring(
     )`;
 
   // This UNION scans the whole 72h firehose window (hundreds of thousands of
-  // posts/scores) and legitimately runs ~20-30s at current volume — above the
-  // pool's 30s statement_timeout default (src/db/client.ts). Run it in a short
-  // read-only transaction with a raised SET LOCAL statement_timeout so it is not
-  // cancelled mid-flight; SET LOCAL reverts on COMMIT, so nothing leaks back to
-  // the pooled connection. The overall pipeline is still bounded by
-  // SCORING_TIMEOUT_MS.
-  const client = await db.connect();
-  try {
-    // READ ONLY makes the read-only intent an enforced guarantee (the block
-    // only ever runs this SELECT), not just a comment; SET LOCAL is still
-    // permitted inside a read-only transaction.
-    await client.query('BEGIN READ ONLY');
-    await client.query(`SET LOCAL statement_timeout = '${INCREMENTAL_SCORING_STATEMENT_TIMEOUT}'`);
-    const result = await client.query(sql, params);
-    await client.query('COMMIT');
-    return result.rows.map(toPostForScoring);
-  } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
-    throw err;
-  } finally {
-    client.release();
-  }
+  // posts/scores) and legitimately runs ~20-30s at current volume. That is
+  // within the pool's statement_timeout (DB_STATEMENT_TIMEOUT, 60s) — sized for
+  // exactly this query, the heaviest in the system — and well under the
+  // pipeline-level SCORING_TIMEOUT_MS. The explicit ps.created_at > $1 on each
+  // half (see the SQL above) is what keeps it in that range: it prunes
+  // post_scores to the 72h daily partitions instead of scanning all ~36.
+  const result = await db.query(sql, params);
+  return result.rows.map(toPostForScoring);
 }
 
 /**

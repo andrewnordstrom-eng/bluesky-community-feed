@@ -157,8 +157,15 @@ export const ConfigSchema = z.object({
   // Database pool tuning
   /** Max connections in the PostgreSQL connection pool. */
   DB_POOL_MAX: z.coerce.number().min(5).default(50),
-  /** Statement timeout in milliseconds (prevents runaway queries). */
-  DB_STATEMENT_TIMEOUT: z.coerce.number().min(1000).default(30_000),
+  /**
+   * Statement timeout in milliseconds (prevents runaway queries). 60s, not 30s:
+   * the heaviest legitimate query in the system — the incremental scoring
+   * candidate UNION (src/scoring/pipeline.ts) — scans the full 72h firehose
+   * window and runs ~20-30s at current volume even after partition pruning. The
+   * dedicated health-check pool keeps its own tight 5s timeout (src/db/client.ts),
+   * so readiness is unaffected by this higher app-query cap.
+   */
+  DB_STATEMENT_TIMEOUT: z.coerce.number().min(1000).default(60_000),
 
   // Feed output: minimum relevance score to appear in feed
   FEED_MIN_RELEVANCE: z.coerce.number().min(0).max(1).default(0.15),
