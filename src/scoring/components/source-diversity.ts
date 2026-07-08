@@ -87,15 +87,21 @@ export const sourceDiversityComponent: ScoringComponent = {
   key: 'sourceDiversity',
   name: 'Source Diversity',
   async score(post, context) {
-    // Prefer the value precomputed in posts-array order before the concurrent
-    // scoring loop (PROJ-917): this is what keeps scores deterministic and
-    // identical to the old sequential loop regardless of completion order.
-    const precomputed = context.sourceDiversityByPost?.get(post);
-    if (precomputed !== undefined) {
-      return precomputed;
+    if (context.sourceDiversityByPost) {
+      // Pipeline path (PROJ-917): the pre-pass precomputed a penalty for every
+      // post in posts-array order, which is what keeps scores deterministic and
+      // identical to the old sequential loop regardless of completion order.
+      // A miss would mean a future refactor broke post-object identity — fall
+      // back to a NON-mutating peek, never the stateful scoreSourceDiversity:
+      // the pre-pass already incremented authorCounts for every author, so
+      // mutating it again here would double-count and skew the penalty.
+      return (
+        context.sourceDiversityByPost.get(post) ??
+        peekSourceDiversity(post.authorDid, context.authorCounts)
+      );
     }
-    // Fallback for non-pipeline callers (unit tests / SDK harnesses) that do
-    // not precompute — preserves the original stateful, order-dependent behavior.
+    // Non-pipeline callers (unit tests / SDK harnesses) that do not precompute:
+    // preserve the original stateful, order-dependent behavior.
     return scoreSourceDiversity(post.authorDid, context.authorCounts);
   },
 };

@@ -145,6 +145,26 @@ describe('source-diversity determinism under concurrency (PROJ-917)', () => {
     expect(byUri.get(URI_C)).toBe(0.5);
   });
 
+  it('handles an empty candidate set without error (worker pool degenerates to a no-op)', async () => {
+    dbQueryMock.mockImplementation(async (sql: unknown) => {
+      const text = String(sql);
+      if (text.includes('FROM governance_epochs') || text.includes('WHERE status')) {
+        return { rows: [buildEpochRow({ id: 1 })] };
+      }
+      if (text.includes('FROM posts p') && text.includes('LEFT JOIN post_engagement')) {
+        return { rows: [] }; // no candidate posts
+      }
+      return { rows: [] };
+    });
+
+    await expect(runScoringPipeline()).resolves.toBeUndefined();
+
+    const wideInserts = (dbQueryMock.mock.calls as unknown[][]).filter((c) =>
+      String(c[0]).includes('INSERT INTO post_scores')
+    );
+    expect(wideInserts.length).toBe(0);
+  });
+
   it('produces the identical mapping at concurrency=1 (sequential)', async () => {
     configMock.SCORING_CONCURRENCY = 1;
     await runScoringPipeline();
