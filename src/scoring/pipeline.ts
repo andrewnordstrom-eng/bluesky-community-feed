@@ -46,6 +46,16 @@ const SCORING_CANDIDATE_LIMIT = config.SCORING_CANDIDATE_LIMIT;
 // SET LOCAL inside a read-only transaction so it does not weaken the global cap
 // for any other query. Still well under SCORING_TIMEOUT_MS (the pipeline bound).
 const INCREMENTAL_SCORING_STATEMENT_TIMEOUT = '120s';
+// Defense-in-depth: this constant is interpolated into `SET LOCAL
+// statement_timeout` (which cannot use a bind parameter). It is an internal
+// literal today, but assert it is a plain duration literal at module load so it
+// can never become a SQL-injection vector if a future change sources it from
+// config/env.
+if (!/^\d+\s*(ms|s|min|h)?$/.test(INCREMENTAL_SCORING_STATEMENT_TIMEOUT)) {
+  throw new Error(
+    `INCREMENTAL_SCORING_STATEMENT_TIMEOUT must be a plain duration literal, got: ${INCREMENTAL_SCORING_STATEMENT_TIMEOUT}`
+  );
+}
 const SQL_BOUNDARY_KEYWORD_PATTERN = /^[a-z0-9][a-z0-9\s-]*$/;
 
 // Track last successful run for health checks
