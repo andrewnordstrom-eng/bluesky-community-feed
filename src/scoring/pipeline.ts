@@ -40,6 +40,22 @@ import { updateScoringStatus } from '../admin/status-tracker.js';
 // Maximum time allowed for a single scoring run.
 const SCORING_TIMEOUT_MS = config.SCORING_TIMEOUT_MS;
 const SCORING_CANDIDATE_LIMIT = config.SCORING_CANDIDATE_LIMIT;
+// Per-statement timeout for the incremental candidate query specifically: it
+// scans the full 72h firehose window and legitimately runs ~20-30s at current
+// volume, above the pool default (DB_STATEMENT_TIMEOUT, 30s). Applied via
+// SET LOCAL inside a read-only transaction so it does not weaken the global cap
+// for any other query. Still well under SCORING_TIMEOUT_MS (the pipeline bound).
+const INCREMENTAL_SCORING_STATEMENT_TIMEOUT = '120s';
+// Defense-in-depth: this constant is interpolated into `SET LOCAL
+// statement_timeout` (which cannot use a bind parameter). It is an internal
+// literal today, but assert it is a plain duration literal at module load so it
+// can never become a SQL-injection vector if a future change sources it from
+// config/env.
+if (!/^\d+\s*(ms|s|min|h)?$/.test(INCREMENTAL_SCORING_STATEMENT_TIMEOUT)) {
+  throw new Error(
+    `INCREMENTAL_SCORING_STATEMENT_TIMEOUT must be a plain duration literal, got: ${INCREMENTAL_SCORING_STATEMENT_TIMEOUT}`
+  );
+}
 const SQL_BOUNDARY_KEYWORD_PATTERN = /^[a-z0-9][a-z0-9\s-]*$/;
 
 // Track last successful run for health checks
@@ -468,8 +484,7 @@ async function getPostsForIncrementalScoring(
 
   const params: unknown[] = [cutoff.toISOString(), epochId, SCORING_CANDIDATE_LIMIT, ...sharedParams];
 
-  const result = await db.query(
-    `(
+  const sql = `(
       SELECT p.uri, p.cid, p.author_did, p.text, p.reply_root, p.reply_parent,
              p.langs, p.has_media, p.created_at, p.topic_vector,
              p.classification_method,
@@ -478,13 +493,15 @@ async function getPostsForIncrementalScoring(
              COALESCE(pe.reply_count, 0) as reply_count
       FROM posts p
       LEFT JOIN post_engagement pe ON p.uri = pe.post_uri
-      -- ps.created_at = p.created_at is the partition key: post_scores is
-      -- RANGE-partitioned by created_at (a denormalized, immutable 1:1 copy of
-      -- posts.created_at), so this predicate lets the planner runtime-prune the
-      -- post_scores lookup to the one matching daily partition instead of
-      -- probing all ~36. Without it the anti-join scans every partition per
-      -- candidate post and the whole pipeline times out (PROJ-917).
-      LEFT JOIN post_scores ps ON p.uri = ps.post_uri AND ps.epoch_id = $2 AND ps.created_at = p.created_at
+      -- Two partition-pruning predicates on the RANGE-by-created_at post_scores
+      -- table (created_at is the immutable 1:1 denormalized copy of
+      -- posts.created_at): (a) ps.created_at = p.created_at runtime-prunes the
+      -- per-row probe when the planner nested-loops this anti-join; (b) the
+      -- explicit ps.created_at > $1 prunes post_scores to the same 72h daily
+      -- partitions when the planner instead picks a hash join (the equality
+      -- alone can't prune a hash scan). Without both, post_scores is scanned in
+      -- full (~36 partitions) and the pipeline times out (PROJ-917).
+      LEFT JOIN post_scores ps ON p.uri = ps.post_uri AND ps.epoch_id = $2 AND ps.created_at = p.created_at AND ps.created_at > $1
       WHERE p.deleted = FALSE
         AND p.created_at > $1
         AND p.created_at <= NOW()
@@ -503,9 +520,10 @@ async function getPostsForIncrementalScoring(
              COALESCE(pe.reply_count, 0) as reply_count
       FROM posts p
       INNER JOIN post_engagement pe ON p.uri = pe.post_uri
-      -- Partition-key predicate (ps.created_at = p.created_at) — see the first
-      -- UNION half above; enables runtime partition pruning of post_scores.
-      INNER JOIN post_scores ps ON p.uri = ps.post_uri AND ps.epoch_id = $2 AND ps.created_at = p.created_at
+      -- Same two partition-pruning predicates as the first half. This
+      -- engagement-changed half plans as a hash join, so the explicit
+      -- ps.created_at > $1 (not just the equality) is what prunes post_scores.
+      INNER JOIN post_scores ps ON p.uri = ps.post_uri AND ps.epoch_id = $2 AND ps.created_at = p.created_at AND ps.created_at > $1
       WHERE p.deleted = FALSE
         AND p.created_at > $1
         AND p.created_at <= NOW()
@@ -513,11 +531,31 @@ async function getPostsForIncrementalScoring(
         ${offsetContentFilterSql}
       ORDER BY p.created_at DESC
       LIMIT $3
-    )`,
-    params
-  );
+    )`;
 
-  return result.rows.map(toPostForScoring);
+  // This UNION scans the whole 72h firehose window (hundreds of thousands of
+  // posts/scores) and legitimately runs ~20-30s at current volume — above the
+  // pool's 30s statement_timeout default (src/db/client.ts). Run it in a short
+  // read-only transaction with a raised SET LOCAL statement_timeout so it is not
+  // cancelled mid-flight; SET LOCAL reverts on COMMIT, so nothing leaks back to
+  // the pooled connection. The overall pipeline is still bounded by
+  // SCORING_TIMEOUT_MS.
+  const client = await db.connect();
+  try {
+    // READ ONLY makes the read-only intent an enforced guarantee (the block
+    // only ever runs this SELECT), not just a comment; SET LOCAL is still
+    // permitted inside a read-only transaction.
+    await client.query('BEGIN READ ONLY');
+    await client.query(`SET LOCAL statement_timeout = '${INCREMENTAL_SCORING_STATEMENT_TIMEOUT}'`);
+    const result = await client.query(sql, params);
+    await client.query('COMMIT');
+    return result.rows.map(toPostForScoring);
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 /**
