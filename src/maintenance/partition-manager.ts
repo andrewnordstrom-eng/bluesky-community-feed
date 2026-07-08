@@ -463,6 +463,11 @@ async function detachAndDropPartition(parentTable: string, partitionTable: strin
   let lastErr: unknown;
   for (let attempt = 1; attempt <= DETACH_RETRY_ATTEMPTS; attempt++) {
     const client = await db.connect();
+    // If ROLLBACK itself fails, the connection's transaction state is unknown;
+    // pass that error to release() so pg-pool DESTROYS the connection instead of
+    // returning a possibly-broken one to the pool. A clean rollback leaves this
+    // undefined and the connection is reused normally.
+    let releaseError: Error | undefined;
     try {
       await client.query('BEGIN');
       await client.query("SET LOCAL lock_timeout = '5s'");
@@ -471,8 +476,10 @@ async function detachAndDropPartition(parentTable: string, partitionTable: strin
       await client.query('COMMIT');
       return;
     } catch (err) {
-      await client.query('ROLLBACK').catch(() => {});
       lastErr = err;
+      await client.query('ROLLBACK').catch((rollbackErr) => {
+        releaseError = rollbackErr instanceof Error ? rollbackErr : new Error(String(rollbackErr));
+      });
       if (attempt < DETACH_RETRY_ATTEMPTS) {
         logger.warn(
           { parentTable, partitionTable, attempt, err },
@@ -481,7 +488,7 @@ async function detachAndDropPartition(parentTable: string, partitionTable: strin
         await sleep(DETACH_RETRY_BACKOFF_MS);
       }
     } finally {
-      client.release();
+      client.release(releaseError);
     }
   }
   throw lastErr;
