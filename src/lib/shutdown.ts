@@ -2,12 +2,12 @@
  * Graceful Shutdown Module
  *
  * Handles clean shutdown of all system components with a timeout.
- * Order: Watchdog → HTTP server → Scoring → Jetstream → Epoch Scheduler → Maintenance Worker Supervisor → Cleanup → Interaction Logger → Interaction Aggregator → Database → Redis
+ * Order: Watchdog → HTTP server → Scoring → Jetstream → Epoch Scheduler → Maintenance Worker Supervisor → Cleanup → Interaction Logger → Interaction Aggregator → Database (main + health-check pools) → Redis
  */
 
 import type { FastifyInstance } from 'fastify';
 import { logger } from './logger.js';
-import { db } from '../db/client.js';
+import { db, healthDb } from '../db/client.js';
 import { redis } from '../db/redis.js';
 
 // Maximum time to wait for graceful shutdown before forcing exit
@@ -101,10 +101,14 @@ export async function gracefulShutdown(deps: ShutdownDependencies): Promise<void
       }
     }
 
-    // 4. Close database pool
+    // 4. Close database pools (main + the dedicated health-check pool)
     logger.info('Closing PostgreSQL connection pool...');
     await db.end();
     logger.info('PostgreSQL closed');
+
+    logger.info('Closing health-check PostgreSQL pool...');
+    await healthDb.end();
+    logger.info('Health-check PostgreSQL pool closed');
 
     // 5. Close Redis connection
     logger.info('Closing Redis connection...');

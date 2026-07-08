@@ -26,11 +26,24 @@ log_err()   { logger -t "$TAG" -p user.err "$1"; }
 DISK_PCT=$(df / --output=pcent | tail -1 | tr -d ' %')
 
 if [ "$DISK_PCT" -ge "$DISK_CRIT_PCT" ]; then
-  log_err "Disk at ${DISK_PCT}% — running emergency cleanup"
+  log_err "Disk at ${DISK_PCT}% — running local free-space actions"
   journalctl --vacuum-size=500M 2>/dev/null || true
   docker exec bluesky-feed-postgres psql -U feed -d bluesky_feed -c "CHECKPOINT" 2>/dev/null || true
-  # Trigger aggressive cleanup if Node process is running
-  curl -sf -X POST --max-time 10 http://localhost:3001/api/admin/trigger-cleanup 2>/dev/null || true
+  # PROJ-917: this used to also `curl -X POST .../api/admin/trigger-cleanup`
+  # here. That route did not exist (a 404 silently hidden by `|| true`), and
+  # even now that it does (src/admin/routes/cleanup.ts), calling it from
+  # here would just trade a silent 404 for a silent 401: every /api/admin/*
+  # route requires the same session-cookie/Bearer admin auth as the rest of
+  # the dashboard (src/auth/admin.ts's requireAdmin — a Bluesky-login-backed
+  # Redis session), and this script has no way to hold or refresh one.
+  # Triggering cleanup over HTTP was also redundant with what already
+  # happens in-process: src/maintenance/disk-monitor.ts polls disk usage
+  # every 5 minutes and calls triggerManualCleanup() directly (no HTTP/auth
+  # round-trip needed) at the critical (90%) and emergency (95%) tiers, plus
+  # an immediate partition-manager drop pass and a plain VACUUM at the
+  # emergency tier. This script's job is just the two local, no-auth-needed
+  # actions above (journald + CHECKPOINT) as a belt-and-suspenders backstop
+  # for when the Node process itself is wedged or slow to notice.
 elif [ "$DISK_PCT" -ge "$DISK_WARN_PCT" ]; then
   log_warn "Disk at ${DISK_PCT}% — approaching critical"
 fi

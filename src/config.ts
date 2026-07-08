@@ -184,6 +184,17 @@ export const ConfigSchema = z.object({
   DISK_CRITICAL_PERCENT: z.coerce.number().min(50).max(100).default(90),
   DISK_EMERGENCY_PERCENT: z.coerce.number().min(50).max(100).default(95),
 
+  // Partition retention (PROJ-917): src/maintenance/partition-manager.ts drops
+  // whole daily partitions once their upper bound falls this many days behind
+  // CURRENT_DATE. Must stay in sync with the window baked into migrations
+  // 026-029 (created_at index/partition rebuild) — those migrations create
+  // the initial partitions spanning [today - (retention + 2d), today + 2d];
+  // changing these values does not retroactively resize existing partitions.
+  /** Retention window (days) for raw event tables: likes, reposts, follows. */
+  RAW_EVENT_RETENTION_DAYS: z.coerce.number().int().min(1).default(14),
+  /** Retention window (days) for content+score tables: posts, post_scores, post_score_components. */
+  SCORED_DATA_RETENTION_DAYS: z.coerce.number().int().min(1).default(30),
+
   // Research export
   EXPORT_ANONYMIZATION_SALT: z.string().min(16).default(INSECURE_EXPORT_SALT_DEFAULT),
 }).superRefine((cfg, ctx) => {

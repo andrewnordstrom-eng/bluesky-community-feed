@@ -657,9 +657,11 @@ export class Simulation {
     );
 
     await insertBatched(db, population.posts, (batch, offset) => ({
+      // PROJ-917: posts' PK widened to (uri, created_at) — partitioned
+      // tables require the partition key in every unique constraint.
       text: `INSERT INTO posts (uri, cid, author_did, text, created_at, has_media, embed_url, topic_vector)
              VALUES ${valuesClause(batch.length, 8, offset)}
-             ON CONFLICT (uri) DO NOTHING`,
+             ON CONFLICT (uri, created_at) DO NOTHING`,
       params: batch.flatMap((post) => [
         post.uri,
         post.cid,

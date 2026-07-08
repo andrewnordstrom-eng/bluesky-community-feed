@@ -8,6 +8,7 @@
 import { db } from '../../db/client.js';
 import { logger } from '../../lib/logger.js';
 import type { IngestionEventOutcome } from '../outcomes.js';
+import { normalizeCreatedAt } from '../normalize-timestamp.js';
 
 interface LikeRecord {
   subject?: {
@@ -35,7 +36,7 @@ export async function handleLike(
     return 'like-missing-subject';
   }
 
-  const createdAt = likeRecord.createdAt ?? new Date().toISOString();
+  const createdAt = normalizeCreatedAt(likeRecord.createdAt, uri);
 
   try {
     // Insert like only if the referenced post exists in our system.
@@ -48,7 +49,9 @@ export async function handleLike(
          INSERT INTO likes (uri, author_did, subject_uri, created_at)
          SELECT $1, $2, $3, $4
          FROM subject
-         ON CONFLICT (uri) DO NOTHING
+         -- PROJ-917: likes' PK widened to (uri, created_at) — partitioned
+         -- tables require the partition key in every unique constraint.
+         ON CONFLICT (uri, created_at) DO NOTHING
          RETURNING uri
        )
        SELECT

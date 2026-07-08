@@ -10,7 +10,7 @@
  * Returns structured health status for monitoring and k8s probes.
  */
 
-import { db } from '../db/client.js';
+import { db, healthDb } from '../db/client.js';
 import { redis } from '../db/redis.js';
 import { logger } from './logger.js';
 import type { DiskStatus } from '../maintenance/disk-monitor.js';
@@ -98,6 +98,12 @@ export function registerDiskHealth(fn: () => DiskStatus | null): void {
 
 /**
  * Check PostgreSQL health with timeout.
+ *
+ * Uses the dedicated `healthDb` pool (PROJ-917), not the main `db` pool —
+ * see src/db/client.ts's healthDb comment for the 2026-07-06 incident this
+ * fixes (main-pool exhaustion starved this check, which then failed
+ * readiness and got the service SIGABRT-killed by the systemd watchdog
+ * that gates its heartbeat on isReady() -> this function).
  */
 async function checkDatabase(): Promise<ComponentHealth> {
   const start = Date.now();
@@ -107,7 +113,7 @@ async function checkDatabase(): Promise<ComponentHealth> {
       setTimeout(() => reject(new Error('Database health check timed out')), HEALTH_CHECK_TIMEOUT);
     });
 
-    const queryPromise = db.query('SELECT 1');
+    const queryPromise = healthDb.query('SELECT 1');
     await Promise.race([queryPromise, timeoutPromise]);
 
     return {

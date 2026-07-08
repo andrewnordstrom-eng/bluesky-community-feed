@@ -69,7 +69,7 @@ export function registerVitalsRoutes(app: FastifyInstance): void {
       redis.info('memory').catch(() => ''),
       safeQuery<{ key: string; value: Record<string, unknown>; updated_at: string }>(
         `SELECT key, value, updated_at::text FROM system_status
-         WHERE key IN ('current_scoring_run', 'last_cleanup_run', 'disk_status', 'last_emergency_vacuum', 'engagement_alert')`
+         WHERE key IN ('current_scoring_run', 'last_cleanup_run', 'disk_status', 'disk_emergency_alert', 'engagement_alert')`
       ),
       safeQuery<{ total: string; active_24h: string; active_7d: string }>(
         `SELECT
@@ -109,7 +109,7 @@ export function registerVitalsRoutes(app: FastifyInstance): void {
 
     const scoringRun = statusMap.get('current_scoring_run');
     const cleanupRun = statusMap.get('last_cleanup_run');
-    const emergencyVacuum = statusMap.get('last_emergency_vacuum');
+    const diskEmergencyAlert = statusMap.get('disk_emergency_alert');
     const engagementAlert = statusMap.get('engagement_alert');
 
     // Disk
@@ -143,7 +143,7 @@ export function registerVitalsRoutes(app: FastifyInstance): void {
             total_gb: diskStatus.total_gb,
             level: diskStatus.level,
             last_checked_at: diskStatus.last_checked_at,
-            last_emergency_vacuum: emergencyVacuum?.value ?? null,
+            emergency_alert: diskEmergencyAlert?.value ?? null,
           }
         : null,
 

@@ -15,6 +15,11 @@ import {
   stopDiskMonitor,
   isDiskMonitorRunning,
 } from './disk-monitor.js';
+import {
+  startPartitionManager,
+  stopPartitionManager,
+  isPartitionManagerRunning,
+} from './partition-manager.js';
 
 const START_RETRY_ATTEMPTS = 3;
 const START_RETRY_DELAY_MS = 5_000;
@@ -69,6 +74,12 @@ const defaultWorkers: ManagedWorker[] = [
     start: startDiskMonitor,
     stop: stopDiskMonitor,
     isRunning: isDiskMonitorRunning,
+  },
+  {
+    name: 'partition-manager',
+    start: startPartitionManager,
+    stop: stopPartitionManager,
+    isRunning: isPartitionManagerRunning,
   },
 ];
 

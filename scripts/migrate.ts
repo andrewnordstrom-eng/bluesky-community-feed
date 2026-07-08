@@ -16,9 +16,22 @@ const NON_TRANSACTIONAL_MIGRATION_MARKER_PATTERN = new RegExp(
   `^\\s*${escapeRegExp(NON_TRANSACTIONAL_MIGRATION_MARKER)}\\s*$`,
   'm'
 );
-const POST_SCORES_RUN_SCOPE_INDEX_MIGRATION = '024_post_scores_run_scope_index.sql';
-const POST_SCORES_RUN_SCOPE_INDEX_NAME = 'idx_scores_epoch_run_total';
-const POST_SCORES_RUN_SCOPE_INDEX_REGCLASS = `public.${POST_SCORES_RUN_SCOPE_INDEX_NAME}`;
+// Migrations that build CREATE INDEX CONCURRENTLY indexes must be verified
+// post-hoc: a canceled/failed concurrent build leaves an INVALID index
+// behind (pg_index.indisvalid = false) rather than rolling back, since
+// CONCURRENTLY doesn't run inside a transaction. Maps migration filename ->
+// the index name(s) (schema `public`) that migration must leave valid.
+const MIGRATION_REQUIRED_INDEXES: Record<string, readonly string[]> = {
+  '024_post_scores_run_scope_index.sql': ['idx_scores_epoch_run_total'],
+  // PROJ-917 thread 8: same statement_timeout-cancellation risk applies to
+  // this migration's three CONCURRENTLY builds (see that migration's own
+  // SET statement_timeout = 0 fix).
+  '025_raw_event_created_at_indexes.sql': [
+    'idx_follows_created',
+    'idx_reposts_created',
+    'idx_likes_created',
+  ],
+};
 const LEGACY_MIGRATION_SENTINEL_TABLES = ['posts', 'governance_epochs', 'post_scores'] as const;
 
 const LEGACY_MIGRATION_PROBES: Record<string, string> = {
@@ -149,36 +162,207 @@ export async function verifyRequiredMigrationSideEffects(
   client: pg.Client,
   filename: string
 ): Promise<void> {
-  if (filename !== POST_SCORES_RUN_SCOPE_INDEX_MIGRATION) {
+  const requiredIndexes = MIGRATION_REQUIRED_INDEXES[filename];
+  if (!requiredIndexes) {
     return;
   }
 
-  const result = await client.query<{ index_exists: boolean; index_is_valid: boolean }>(
-    `
-      SELECT
-        to_regclass($1) IS NOT NULL AS index_exists,
-        COALESCE((
-          SELECT pg_index.indisvalid
-          FROM pg_class index_class
-          JOIN pg_index ON pg_index.indexrelid = index_class.oid
-          JOIN pg_namespace namespace ON namespace.oid = index_class.relnamespace
-          WHERE namespace.nspname = $2
-            AND index_class.relname = $3
-        ), false) AS index_is_valid
-    `,
-    [POST_SCORES_RUN_SCOPE_INDEX_REGCLASS, 'public', POST_SCORES_RUN_SCOPE_INDEX_NAME]
-  );
-  const verification = result.rows[0];
+  const failures: string[] = [];
 
-  if (verification?.index_exists === true && verification.index_is_valid === true) {
+  for (const indexName of requiredIndexes) {
+    const regclass = `public.${indexName}`;
+    const result = await client.query<{ index_exists: boolean; index_is_valid: boolean }>(
+      `
+        SELECT
+          to_regclass($1) IS NOT NULL AS index_exists,
+          COALESCE((
+            SELECT pg_index.indisvalid
+            FROM pg_class index_class
+            JOIN pg_index ON pg_index.indexrelid = index_class.oid
+            JOIN pg_namespace namespace ON namespace.oid = index_class.relnamespace
+            WHERE namespace.nspname = $2
+              AND index_class.relname = $3
+          ), false) AS index_is_valid
+      `,
+      [regclass, 'public', indexName]
+    );
+    const verification = result.rows[0];
+
+    if (verification?.index_exists === true && verification.index_is_valid === true) {
+      continue;
+    }
+
+    failures.push(
+      `${regclass}: index_exists=${String(verification?.index_exists ?? false)} ` +
+        `index_is_valid=${String(verification?.index_is_valid ?? false)}`
+    );
+  }
+
+  if (failures.length === 0) {
     return;
   }
 
   throw new MigrationVerificationError(
-    `Migration ${filename} did not leave a valid ${POST_SCORES_RUN_SCOPE_INDEX_REGCLASS} index: ` +
-      `index_exists=${String(verification?.index_exists ?? false)} ` +
-      `index_is_valid=${String(verification?.index_is_valid ?? false)}`
+    `Migration ${filename} did not leave valid required indexes: ${failures.join('; ')}`
   );
+}
+
+/**
+ * Split a SQL script into individually-executable statements.
+ *
+ * PROJ-917 discovered this the hard way: PostgreSQL's simple query protocol
+ * implicitly wraps multiple `;`-separated statements sent in a *single*
+ * message into one transaction block — and `CREATE INDEX CONCURRENTLY`
+ * refuses to run inside ANY transaction block, explicit or implicit
+ * ("CREATE INDEX CONCURRENTLY cannot run inside a transaction block").
+ * Migration 025 sends a `SET ...;` followed by three
+ * `CREATE INDEX CONCURRENTLY ...;` statements as one file — passing that
+ * whole string to a single `client.query(sql)` call (as this function used
+ * to) hits exactly that error. Migration 024 never hit it only because it
+ * happens to be a single statement. Executing one `client.query()` call per
+ * statement avoids the implicit wrapping entirely; a session-scoped `SET`
+ * still applies to the later statements because they all run on the same
+ * `client` (same underlying connection), regardless of being separate
+ * query() calls.
+ *
+ * Quote/dollar-quote/comment aware, so a `;` inside a string literal,
+ * quoted identifier, `$tag$...$tag$` block, `--` line comment, or a
+ * slash-star block comment is never mistaken for a statement separator —
+ * migration 025 has exactly this case (a `;` inside a `--` comment
+ * sentence).
+ * Deliberately simple — sufficient for the no-transaction migrations this
+ * repo has today (plain DDL, no nested statements); extend it if a future
+ * one needs more.
+ */
+export function splitSqlStatements(sql: string): string[] {
+  const statements: string[] = [];
+  let current = '';
+  let i = 0;
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+  let dollarTag: string | null = null;
+
+  while (i < sql.length) {
+    const ch = sql[i];
+
+    if (inLineComment) {
+      current += ch;
+      if (ch === '\n') {
+        inLineComment = false;
+      }
+      i++;
+      continue;
+    }
+
+    if (inBlockComment) {
+      current += ch;
+      if (ch === '*' && sql[i + 1] === '/') {
+        current += '/';
+        i += 2;
+        inBlockComment = false;
+      } else {
+        i++;
+      }
+      continue;
+    }
+
+    if (dollarTag !== null) {
+      if (sql.startsWith(dollarTag, i)) {
+        current += dollarTag;
+        i += dollarTag.length;
+        dollarTag = null;
+      } else {
+        current += ch;
+        i++;
+      }
+      continue;
+    }
+
+    if (inSingleQuote) {
+      current += ch;
+      if (ch === "'") {
+        inSingleQuote = false;
+      }
+      i++;
+      continue;
+    }
+
+    if (inDoubleQuote) {
+      current += ch;
+      if (ch === '"') {
+        inDoubleQuote = false;
+      }
+      i++;
+      continue;
+    }
+
+    if (ch === '-' && sql[i + 1] === '-') {
+      inLineComment = true;
+      current += '--';
+      i += 2;
+      continue;
+    }
+
+    if (ch === '/' && sql[i + 1] === '*') {
+      inBlockComment = true;
+      current += '/*';
+      i += 2;
+      continue;
+    }
+
+    if (ch === "'") {
+      inSingleQuote = true;
+      current += ch;
+      i++;
+      continue;
+    }
+
+    if (ch === '"') {
+      inDoubleQuote = true;
+      current += ch;
+      i++;
+      continue;
+    }
+
+    if (ch === '$') {
+      // Dollar-quote tag rules (PostgreSQL docs, "Dollar-Quoted String
+      // Constants"): a tag follows the rules for an unquoted identifier —
+      // must start with a letter or underscore, subsequent characters can
+      // be letters, digits, or underscores — except it additionally cannot
+      // contain a dollar sign. `[a-zA-Z_]*` (no digits at all) rejected
+      // legitimate tags like `$tag1$`, causing any `;` inside that block to
+      // be mis-split as a statement boundary.
+      const match = /^\$([A-Za-z_][A-Za-z0-9_]*)?\$/.exec(sql.slice(i));
+      if (match) {
+        dollarTag = match[0];
+        current += dollarTag;
+        i += dollarTag.length;
+        continue;
+      }
+    }
+
+    if (ch === ';') {
+      const trimmed = current.trim();
+      if (trimmed.length > 0) {
+        statements.push(trimmed);
+      }
+      current = '';
+      i++;
+      continue;
+    }
+
+    current += ch;
+    i++;
+  }
+
+  const trimmedTail = current.trim();
+  if (trimmedTail.length > 0) {
+    statements.push(trimmedTail);
+  }
+
+  return statements;
 }
 
 export async function applyNonTransactionalMigration(
@@ -186,7 +370,9 @@ export async function applyNonTransactionalMigration(
   filename: string,
   sql: string
 ): Promise<void> {
-  await client.query(sql);
+  for (const statement of splitSqlStatements(sql)) {
+    await client.query(statement);
+  }
   await verifyRequiredMigrationSideEffects(client, filename);
   await client.query(`INSERT INTO ${MIGRATIONS_TABLE} (filename) VALUES ($1)`, [filename]);
 }

@@ -1,14 +1,23 @@
 import Fastify from 'fastify';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { dbQueryMock, redisPingMock } = vi.hoisted(() => ({
-  dbQueryMock: vi.fn(),
+const { dbQueryMock, healthDbQueryMock, redisPingMock } = vi.hoisted(() => ({
+  dbQueryMock: vi.fn().mockResolvedValue({ rows: [] }),
+  healthDbQueryMock: vi.fn(),
   redisPingMock: vi.fn(),
 }));
 
+// PROJ-917: checkDatabase() in src/lib/health.ts now queries the dedicated
+// healthDb pool (src/db/client.ts), not the shared `db` pool — the "database
+// down/up" scenarios below drive healthDbQueryMock. `dbQueryMock` remains
+// wired to the main pool for the other query checkFeedFreshness makes
+// (current_scoring_run), which this suite doesn't otherwise exercise.
 vi.mock('../src/db/client.js', () => ({
   db: {
     query: dbQueryMock,
+  },
+  healthDb: {
+    query: healthDbQueryMock,
   },
 }));
 
@@ -50,7 +59,7 @@ describe('health response redaction', () => {
   });
 
   it('returns only redacted status for public health when database is down', async () => {
-    dbQueryMock.mockRejectedValue(new Error('db down'));
+    healthDbQueryMock.mockRejectedValue(new Error('db down'));
     redisPingMock.mockResolvedValue('PONG');
 
     const status = await getPublicHealthStatus();
@@ -61,7 +70,7 @@ describe('health response redaction', () => {
   });
 
   it('returns only redacted status for public health when jetstream provider throws', async () => {
-    dbQueryMock.mockResolvedValue({ rows: [{ '?column?': 1 }] });
+    healthDbQueryMock.mockResolvedValue({ rows: [{ '?column?': 1 }] });
     redisPingMock.mockResolvedValue('PONG');
     registerJetstreamHealth(() => {
       throw new Error('jetstream probe failed');
@@ -79,7 +88,7 @@ describe('health response redaction', () => {
   });
 
   it('returns detailed diagnostics for admin health', async () => {
-    dbQueryMock.mockRejectedValue(new Error('db down'));
+    healthDbQueryMock.mockRejectedValue(new Error('db down'));
     redisPingMock.mockResolvedValue('PONG');
 
     const app = Fastify();
@@ -109,7 +118,7 @@ describe('health response redaction', () => {
   });
 
   it('returns degraded admin health when only jetstream is unhealthy', async () => {
-    dbQueryMock.mockResolvedValue({ rows: [{ '?column?': 1 }] });
+    healthDbQueryMock.mockResolvedValue({ rows: [{ '?column?': 1 }] });
     redisPingMock.mockResolvedValue('PONG');
     registerJetstreamHealth(() => ({
       status: 'unhealthy',
@@ -143,7 +152,7 @@ describe('health response redaction', () => {
   });
 
   it('returns unhealthy admin health when database and jetstream are both unhealthy', async () => {
-    dbQueryMock.mockRejectedValue(new Error('db down'));
+    healthDbQueryMock.mockRejectedValue(new Error('db down'));
     redisPingMock.mockResolvedValue('PONG');
     registerJetstreamHealth(() => ({
       status: 'unhealthy',
@@ -182,7 +191,7 @@ describe('health response redaction', () => {
   });
 
   it('returns degraded admin health when jetstream provider throws and critical components are healthy', async () => {
-    dbQueryMock.mockResolvedValue({ rows: [{ '?column?': 1 }] });
+    healthDbQueryMock.mockResolvedValue({ rows: [{ '?column?': 1 }] });
     redisPingMock.mockResolvedValue('PONG');
     registerJetstreamHealth(() => {
       throw new Error('jetstream probe failed');
@@ -225,7 +234,7 @@ describe('health response redaction', () => {
     const { registerScoringHealth: registerScoringHealthFresh } = await import('../src/lib/health.js');
     const { registerAdminHealthRoutes: registerAdminHealthRoutesFresh } = await import('../src/admin/routes/health.js');
 
-    dbQueryMock.mockResolvedValue({ rows: [{ '?column?': 1 }] });
+    healthDbQueryMock.mockResolvedValue({ rows: [{ '?column?': 1 }] });
     redisPingMock.mockResolvedValue('PONG');
     registerScoringHealthFresh(() => ({
       status: 'healthy',
@@ -264,7 +273,7 @@ describe('health response redaction', () => {
       registerScoringHealth: registerScoringHealthFresh,
     } = await import('../src/lib/health.js');
 
-    dbQueryMock.mockResolvedValue({ rows: [{ '?column?': 1 }] });
+    healthDbQueryMock.mockResolvedValue({ rows: [{ '?column?': 1 }] });
     redisPingMock.mockResolvedValue('PONG');
     registerScoringHealthFresh(() => ({
       status: 'healthy',
