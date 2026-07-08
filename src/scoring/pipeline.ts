@@ -532,7 +532,10 @@ async function getPostsForIncrementalScoring(
   // SCORING_TIMEOUT_MS.
   const client = await db.connect();
   try {
-    await client.query('BEGIN');
+    // READ ONLY makes the read-only intent an enforced guarantee (the block
+    // only ever runs this SELECT), not just a comment; SET LOCAL is still
+    // permitted inside a read-only transaction.
+    await client.query('BEGIN READ ONLY');
     await client.query(`SET LOCAL statement_timeout = '${INCREMENTAL_SCORING_STATEMENT_TIMEOUT}'`);
     const result = await client.query(sql, params);
     await client.query('COMMIT');
