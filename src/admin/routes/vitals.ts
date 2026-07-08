@@ -84,14 +84,18 @@ export function registerVitalsRoutes(app: FastifyInstance): void {
       ),
       safeQuery<{ dead_count: string; total_scored: string }>(
         `SELECT
-           COUNT(*) FILTER (WHERE ps.final_score IS NOT NULL AND NOT EXISTS (
+           COUNT(*) FILTER (WHERE ps.total_score IS NOT NULL AND NOT EXISTS (
              SELECT 1 FROM likes l WHERE l.subject_uri = p.uri
            ) AND NOT EXISTS (
              SELECT 1 FROM reposts r WHERE r.subject_uri = p.uri
            )) as dead_count,
            COUNT(*) as total_scored
          FROM posts p
-         JOIN post_scores ps ON ps.uri = p.uri
+         -- Join column is ps.post_uri (post_scores has no plain uri column), plus
+         -- the created_at partition-key predicate: post_scores is RANGE-partitioned
+         -- by created_at (denormalized 1:1 from posts.created_at), so this prunes
+         -- the probe to one partition per post instead of all ~36 (PROJ-917).
+         JOIN post_scores ps ON ps.post_uri = p.uri AND ps.created_at = p.created_at
          WHERE p.indexed_at > NOW() - INTERVAL '24 hours' AND p.deleted = FALSE`
       ),
     ]);

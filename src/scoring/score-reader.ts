@@ -189,7 +189,10 @@ async function readPostScoreFromLongTable({
   }>(
     `SELECT psc.component_key, psc.raw, psc.weight, psc.weighted
      FROM post_score_components psc
-     JOIN post_scores ps ON ps.post_uri = psc.post_uri AND ps.epoch_id = psc.epoch_id
+     -- ps.created_at = psc.created_at is the shared partition key (both tables
+     -- are RANGE-partitioned by the post's immutable created_at); it prunes the
+     -- post_scores probe to one partition instead of all ~36 (PROJ-917).
+     JOIN post_scores ps ON ps.post_uri = psc.post_uri AND ps.epoch_id = psc.epoch_id AND ps.created_at = psc.created_at
      WHERE psc.post_uri = $1 AND psc.epoch_id = $2 ${runClause}`,
     params
   );
@@ -270,7 +273,9 @@ export async function readPostScoresForEpoch(options: {
          jsonb_object_agg(psc.component_key, psc.weighted) FILTER (WHERE psc.component_key IS NOT NULL) AS components_weighted
        FROM post_scores ps
        LEFT JOIN post_score_components psc
-         ON psc.post_uri = ps.post_uri AND psc.epoch_id = ps.epoch_id
+         -- psc.created_at = ps.created_at: shared partition key, prunes the
+         -- component probe to one partition per score row (PROJ-917).
+         ON psc.post_uri = ps.post_uri AND psc.epoch_id = ps.epoch_id AND psc.created_at = ps.created_at
        WHERE ps.epoch_id = $1 ${runClause}
        GROUP BY ps.post_uri, ps.total_score
        ORDER BY ps.total_score DESC
@@ -374,7 +379,9 @@ export async function readEpochComponentStats(options: {
            COUNT(*)::text as count
          FROM post_scores ps
          JOIN post_score_components psc
-           ON psc.post_uri = ps.post_uri AND psc.epoch_id = ps.epoch_id
+           -- psc.created_at = ps.created_at: shared partition key, runtime-prunes
+           -- the component probe to one partition per score row (PROJ-917).
+           ON psc.post_uri = ps.post_uri AND psc.epoch_id = ps.epoch_id AND psc.created_at = ps.created_at
          WHERE ps.epoch_id = $1
            AND psc.component_key = $2
            AND ps.component_details->>'run_id' = $${params.length}`,
@@ -482,7 +489,9 @@ export async function countPostsWithComponentAbove(options: {
     const result = await db.query<{ count: string }>(
       `SELECT COUNT(*)::text AS count
        FROM post_score_components psc
-       JOIN post_scores ps ON ps.post_uri = psc.post_uri AND ps.epoch_id = psc.epoch_id
+       -- ps.created_at = psc.created_at: shared partition key, prunes the
+       -- post_scores probe to one partition per component row (PROJ-917).
+       JOIN post_scores ps ON ps.post_uri = psc.post_uri AND ps.epoch_id = psc.epoch_id AND ps.created_at = psc.created_at
        WHERE psc.epoch_id = $1
          AND psc.component_key = $2
          AND psc.raw > $3

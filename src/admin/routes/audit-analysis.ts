@@ -461,9 +461,12 @@ export function registerAuditAnalysisRoutes(app: FastifyInstance): void {
            MAX(psc.raw) FILTER (WHERE psc.component_key = 'sourceDiversity') AS source_diversity_score,
            MAX(psc.raw) FILTER (WHERE psc.component_key = 'relevance') AS relevance_score
          FROM post_scores ps
-         LEFT JOIN posts p ON p.uri = ps.post_uri
+         -- created_at equality is the shared partition key (posts / post_scores
+         -- / post_score_components are all RANGE-partitioned by the post's
+         -- immutable created_at) — prunes each probe to one partition (PROJ-917).
+         LEFT JOIN posts p ON p.uri = ps.post_uri AND p.created_at = ps.created_at
          LEFT JOIN post_score_components psc
-           ON psc.post_uri = ps.post_uri AND psc.epoch_id = ps.epoch_id
+           ON psc.post_uri = ps.post_uri AND psc.epoch_id = ps.epoch_id AND psc.created_at = ps.created_at
          WHERE ps.epoch_id = $1
            AND ps.post_uri = ANY($2::text[])
            ${runScopeClause}
@@ -478,7 +481,9 @@ export function registerAuditAnalysisRoutes(app: FastifyInstance): void {
            ps.source_diversity_score,
            ps.relevance_score
          FROM post_scores ps
-         LEFT JOIN posts p ON p.uri = ps.post_uri
+         -- p.created_at = ps.created_at: shared partition key, prunes the posts
+         -- probe to one partition per score row (PROJ-917).
+         LEFT JOIN posts p ON p.uri = ps.post_uri AND p.created_at = ps.created_at
          WHERE ps.epoch_id = $1
            AND ps.post_uri = ANY($2::text[])
            ${runScopeClause}`;

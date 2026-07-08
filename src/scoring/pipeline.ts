@@ -478,7 +478,13 @@ async function getPostsForIncrementalScoring(
              COALESCE(pe.reply_count, 0) as reply_count
       FROM posts p
       LEFT JOIN post_engagement pe ON p.uri = pe.post_uri
-      LEFT JOIN post_scores ps ON p.uri = ps.post_uri AND ps.epoch_id = $2
+      -- ps.created_at = p.created_at is the partition key: post_scores is
+      -- RANGE-partitioned by created_at (a denormalized, immutable 1:1 copy of
+      -- posts.created_at), so this predicate lets the planner runtime-prune the
+      -- post_scores lookup to the one matching daily partition instead of
+      -- probing all ~36. Without it the anti-join scans every partition per
+      -- candidate post and the whole pipeline times out (PROJ-917).
+      LEFT JOIN post_scores ps ON p.uri = ps.post_uri AND ps.epoch_id = $2 AND ps.created_at = p.created_at
       WHERE p.deleted = FALSE
         AND p.created_at > $1
         AND p.created_at <= NOW()
@@ -497,7 +503,9 @@ async function getPostsForIncrementalScoring(
              COALESCE(pe.reply_count, 0) as reply_count
       FROM posts p
       INNER JOIN post_engagement pe ON p.uri = pe.post_uri
-      INNER JOIN post_scores ps ON p.uri = ps.post_uri AND ps.epoch_id = $2
+      -- Partition-key predicate (ps.created_at = p.created_at) — see the first
+      -- UNION half above; enables runtime partition pruning of post_scores.
+      INNER JOIN post_scores ps ON p.uri = ps.post_uri AND ps.epoch_id = $2 AND ps.created_at = p.created_at
       WHERE p.deleted = FALSE
         AND p.created_at > $1
         AND p.created_at <= NOW()
@@ -772,11 +780,21 @@ async function writeToRedisFromDb(epochId: number, runId: string): Promise<void>
     `SELECT ps.post_uri, ps.total_score, p.embed_url,
             COALESCE(LENGTH(p.text), 0) as text_length
      FROM post_scores ps
-     INNER JOIN posts p ON p.uri = ps.post_uri
+     -- p.created_at = ps.created_at is the partition key (posts is
+     -- RANGE-partitioned by created_at); pairing it with the p.created_at
+     -- window below lets both posts and post_scores prune to the same handful
+     -- of daily partitions instead of scanning all ~36 (PROJ-917).
+     INNER JOIN posts p ON p.uri = ps.post_uri AND p.created_at = ps.created_at
      WHERE ps.epoch_id = $1
        AND p.deleted = FALSE
        AND p.created_at > $3
        AND p.created_at <= NOW()
+       -- Explicit cutoff on post_scores.created_at as well (identical to
+       -- p.created_at via the join equality). This epoch-driven query plans as a
+       -- hash join, which — unlike the nested-loop incremental query — does NOT
+       -- runtime-prune post_scores from the join alone; the explicit predicate
+       -- prunes the post_scores scan to the 72h partitions (18.7s -> 2.6s).
+       AND ps.created_at > $3
        AND ps.relevance_score >= $4
      ORDER BY ps.total_score DESC
      LIMIT $2`,
