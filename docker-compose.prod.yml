@@ -1,13 +1,62 @@
 services:
   postgres:
-    image: postgres:16
+    # Digest-pinned to the postgres:16 multi-arch index (resolved 2026-07-08 via
+    # `docker buildx imagetools inspect postgres:16 --format '{{.Manifest.Digest}}'`;
+    # verified it carries a linux/amd64 variant for the droplet). Re-resolve on a
+    # deliberate minor bump.
+    image: postgres:16@sha256:f8e2cc2a36ddb8700e639570f0bc70d0c1495951ba61df903a015dc87db07d02
     container_name: bluesky-feed-postgres
     shm_size: 256m
+    # PROJ-917 tuning pass — prior values were the postgres:16 image
+    # defaults (shared_buffers=128MB, effective_cache_size=4GB, work_mem=4MB,
+    # maintenance_work_mem=64MB), sized for a toy instance, not the box this
+    # actually runs on. Values below are doc-cited, not guessed:
+    #   - shared_buffers / effective_cache_size / work_mem /
+    #     maintenance_work_mem: https://www.postgresql.org/docs/16/runtime-config-resource.html
+    #     (shared_buffers "a setting of 25% of RAM is normally reasonable" for
+    #     dedicated DB hosts; effective_cache_size is a planner hint only —
+    #     "a value ... 50% to 75% of the machine's total RAM"; per-table
+    #     autovacuum_* apply separately, see migration 030)
+    #   - max_wal_size / checkpoint_completion_target / wal_level /
+    #     archive_mode / archive_command:
+    #     https://www.postgresql.org/docs/16/runtime-config-wal.html and
+    #     https://www.postgresql.org/docs/16/continuous-archiving.html
+    #     ("To enable WAL archiving, set wal_level to replica or higher,
+    #     archive_mode to on, and specify archive_command")
+    #   - autovacuum_vacuum_cost_limit:
+    #     https://www.postgresql.org/docs/16/runtime-config-autovacuum.html
+    #
+    # NOTE: changing shared_buffers, wal_level, or archive_mode requires a
+    # full postgres restart (not just a reload) — see docs/PARTITION_REBUILD.md
+    # for the maintenance-window note. Verify the droplet actually has
+    # comfortable headroom above shared_buffers(4GB) + effective_cache_size's
+    # planner assumption(8GB) before applying — these are NOT safe to apply
+    # blind against an undersized host; this needs a human check of the real
+    # droplet's total RAM first.
+    #
+    # archive_command is intentionally a no-op placeholder (`/bin/true`) for
+    # now: turning on archive_mode/wal_level here pays the one-time restart
+    # cost, but wiring the REAL pgBackRest push command happens during
+    # pgBackRest setup (ops/pgbackrest/README.md) and is reload-only
+    # (`SELECT pg_reload_conf();` or `docker kill -s HUP`), no second
+    # restart needed. Do not point this at a real pgbackrest command until
+    # the stanza in ops/pgbackrest/pgbackrest.conf has actually been
+    # initialized — an archive_command that fails forever (pointing at a
+    # stanza that doesn't exist yet) makes PostgreSQL retain WAL segments
+    # indefinitely, which is its own disk-filling incident.
     command: >
       postgres
-      -c max_wal_size=1GB
+      -c shared_buffers=4GB
+      -c effective_cache_size=8GB
+      -c work_mem=32MB
+      -c maintenance_work_mem=512MB
+      -c max_wal_size=4GB
       -c checkpoint_completion_target=0.9
+      -c autovacuum_vacuum_cost_limit=1000
       -c log_min_duration_statement=1000
+      -c wal_level=replica
+      -c archive_mode=on
+      -c archive_command=/bin/true
     environment:
       POSTGRES_USER: feed
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -24,7 +73,9 @@ services:
       retries: 5
 
   redis:
-    image: redis:7-alpine
+    # Digest-pinned to the redis:7-alpine multi-arch index (resolved 2026-07-08,
+    # same method as postgres above; verified linux/amd64 variant present).
+    image: redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
     container_name: bluesky-feed-redis
     command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru --save 60 1000
     ports:

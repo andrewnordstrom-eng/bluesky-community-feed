@@ -15,6 +15,7 @@ import { checkGovernanceGate, isGovernanceGateReady } from '../governance-gate.j
 import { classifyPostByEmbedding } from '../embedding-gate.js';
 import { isEmbedderReady } from '../../scoring/topics/embedder.js';
 import type { IngestionEventOutcome } from '../outcomes.js';
+import { normalizeCreatedAt } from '../normalize-timestamp.js';
 
 /** AT Protocol content labels that indicate NSFW content. */
 const NSFW_LABELS = new Set(['porn', 'sexual', 'graphic-media', 'nudity']);
@@ -64,7 +65,7 @@ export async function handlePost(
 
   const text = postRecord.text ?? null;
   const langs = postRecord.langs ?? [];
-  const createdAt = postRecord.createdAt ?? new Date().toISOString();
+  const createdAt = normalizeCreatedAt(postRecord.createdAt, uri);
 
   // Extract reply info
   const replyRoot = postRecord.reply?.root?.uri ?? null;
@@ -192,7 +193,9 @@ export async function handlePost(
     const postResult = await db.query(
       `INSERT INTO posts (uri, cid, author_did, text, reply_root, reply_parent, langs, has_media, created_at, topic_vector, embed_url, classification_method)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-       ON CONFLICT (uri) DO NOTHING
+       -- PROJ-917: posts' PK widened to (uri, created_at) — partitioned
+       -- tables require the partition key in every unique constraint.
+       ON CONFLICT (uri, created_at) DO NOTHING
        RETURNING uri`,
       [uri, cid, authorDid, text, replyRoot, replyParent, langs, hasMedia, createdAt, JSON.stringify(topicVector), embedUrl, classificationMethod]
     );

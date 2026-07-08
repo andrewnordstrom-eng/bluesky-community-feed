@@ -39,6 +39,10 @@ export interface WeightedScore {
 export interface ScoredPost {
   uri: string;
   authorDid: string;
+  /** The scored post's own posts.created_at — carried through so score writes
+   *  bind the partition key directly instead of re-looking it up by uri
+   *  (which is no longer unique on its own after the PROJ-917 rebuild). */
+  createdAt: Date;
   score: WeightedScore;
 }
 

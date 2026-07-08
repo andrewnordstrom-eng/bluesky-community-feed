@@ -600,6 +600,7 @@ async function scorePost(
   return {
     uri: post.uri,
     authorDid: post.authorDid,
+    createdAt: post.createdAt,
     score: { raw, weights, weighted, total },
   };
 }
@@ -630,9 +631,21 @@ async function storeScore(
   runId: string,
   classificationMethod: 'keyword' | 'embedding' = 'keyword'
 ): Promise<void> {
-  const { uri } = scoredPost;
+  const { uri, createdAt } = scoredPost;
   const { raw, weights, weighted, total } = scoredPost.score;
 
+  // PROJ-917: post_scores is RANGE-partitioned by a denormalized, immutable
+  // copy of the scored post's own posts.created_at (NOT scored_at, which
+  // changes on every rescore and would move the row across partitions). It's
+  // bound directly from the scored post ($21) — the post row was already read
+  // to compute this score, so its created_at is in hand. (A prior version
+  // re-looked it up with `(SELECT created_at FROM posts WHERE uri = $1)`, but
+  // uri is no longer unique on its own after the PK widened to
+  // (uri, created_at), so that scalar subquery could match multiple rows /
+  // error, and its NOW() fallback could route a rescore to a different
+  // partition than the original write.) unique_post_epoch widened to
+  // (post_uri, epoch_id, created_at); created_at is immutable once written, so
+  // it is never part of the DO UPDATE SET list.
   await db.query(
     `INSERT INTO post_scores (
       post_uri, epoch_id,
@@ -642,9 +655,9 @@ async function storeScore(
       source_diversity_weight, relevance_weight,
       recency_weighted, engagement_weighted, bridging_weighted,
       source_diversity_weighted, relevance_weighted,
-      total_score, component_details, classification_method
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
-    ON CONFLICT (post_uri, epoch_id) DO UPDATE SET
+      total_score, component_details, classification_method, created_at
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+    ON CONFLICT (post_uri, epoch_id, created_at) DO UPDATE SET
       recency_score = $3, engagement_score = $4, bridging_score = $5,
       source_diversity_score = $6, relevance_score = $7,
       recency_weight = $8, engagement_weight = $9, bridging_weight = $10,
@@ -674,11 +687,12 @@ async function storeScore(
       total,
       JSON.stringify({ run_id: runId, classification_method: classificationMethod }),
       classificationMethod,
+      createdAt,
     ]
   );
 
   if (config.SCORE_LONGTABLE_DUALWRITE_ENABLED) {
-    await storeScoreComponents(uri, epoch.id, raw, weights, weighted);
+    await storeScoreComponents(uri, epoch.id, createdAt, raw, weights, weighted);
   }
 }
 
@@ -692,6 +706,7 @@ async function storeScore(
 async function storeScoreComponents(
   postUri: string,
   epochId: number,
+  createdAt: Date,
   raw: ScoreComponents,
   weights: ScoreComponents,
   weighted: ScoreComponents
@@ -708,17 +723,24 @@ async function storeScoreComponents(
   const placeholders: string[] = [];
   for (const key of keys) {
     const offset = params.length;
-    params.push(postUri, epochId, key, raw[key], weights[key], weighted[key]);
+    params.push(postUri, epochId, key, raw[key], weights[key], weighted[key], createdAt);
+    // PROJ-917: post_score_components is RANGE-partitioned by created_at
+    // (migration 029), denormalized from posts.created_at exactly like
+    // post_scores. Bound directly from the scored post ($offset+7), same as
+    // storeScore() — see its comment for why the old
+    // `(SELECT created_at FROM posts WHERE uri = ...)` lookup was unsafe once
+    // uri stopped being unique on its own. PRIMARY KEY widened to
+    // (post_uri, epoch_id, component_key, created_at) in the same migration.
     placeholders.push(
-      `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6})`
+      `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7})`
     );
   }
 
   await db.query(
     `INSERT INTO post_score_components
-       (post_uri, epoch_id, component_key, raw, weight, weighted)
+       (post_uri, epoch_id, component_key, raw, weight, weighted, created_at)
      VALUES ${placeholders.join(', ')}
-     ON CONFLICT (post_uri, epoch_id, component_key) DO UPDATE SET
+     ON CONFLICT (post_uri, epoch_id, component_key, created_at) DO UPDATE SET
        raw = EXCLUDED.raw,
        weight = EXCLUDED.weight,
        weighted = EXCLUDED.weighted,

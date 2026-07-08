@@ -14,10 +14,38 @@
 import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { projectWideRows } from '../scripts/backfill-score-components.ts';
 
 const SCRIPT = path.resolve('scripts', 'backfill-score-components.ts');
 const TSX_LOADER = path.resolve('node_modules', 'tsx', 'dist', 'loader.mjs');
 const SENTINEL = 'postgresql://sentinel-user:sentinel-pass@sentinel-host:6543/sentinel-db';
+
+/** Minimal well-formed WideRow fixture (the shape of a post_scores row this
+ * script selects), overridable per-field for individual test cases. */
+function buildWideScoreRow(overrides: Partial<Parameters<typeof projectWideRows>[0][number]> = {}) {
+  return {
+    post_uri: 'at://did:plc:test/app.bsky.feed.post/backfill-1',
+    epoch_id: 1,
+    recency_score: 0.5,
+    engagement_score: 0.5,
+    bridging_score: 0.5,
+    source_diversity_score: 0.5,
+    relevance_score: 0.5,
+    recency_weight: 0.2,
+    engagement_weight: 0.2,
+    bridging_weight: 0.2,
+    source_diversity_weight: 0.2,
+    relevance_weight: 0.2,
+    recency_weighted: 0.1,
+    engagement_weighted: 0.1,
+    bridging_weighted: 0.1,
+    source_diversity_weighted: 0.1,
+    relevance_weighted: 0.1,
+    scored_at: '2026-07-01T00:00:00.000Z',
+    created_at: '2026-06-01T00:00:00.000Z',
+    ...overrides,
+  };
+}
 const UNSAFE_INTEGER = '9007199254740993';
 
 /**
@@ -149,5 +177,61 @@ describe('backfill-score-components CLI: argument validation', () => {
     assertSpawnCompleted(result);
     expect(result.status).toBe(2);
     expect(result.stderr).toMatch(/Unknown argument/);
+  });
+});
+
+describe('backfill-score-components: projectWideRows (PROJ-917 created_at sourcing)', () => {
+  it('projects a single wide row into one component row per registered component', () => {
+    const row = buildWideScoreRow();
+    const projected = projectWideRows([row]);
+
+    expect(projected).toHaveLength(5);
+    expect(new Set(projected.map((p) => p.component_key))).toEqual(
+      new Set(['recency', 'engagement', 'bridging', 'sourceDiversity', 'relevance'])
+    );
+    for (const component of projected) {
+      expect(component.post_uri).toBe(row.post_uri);
+      expect(component.created_at).toBe(row.created_at);
+    }
+  });
+
+  it('keeps each row created_at independent for duplicate post_uri across different created_at (dry-run backfill case)', () => {
+    // This is the scenario the posts-JOIN + COALESCE approach could mis-key:
+    // two post_scores rows sharing a post_uri (e.g. the same URI replayed
+    // into two partitions with different created_at, per the migration
+    // 026/027 uniqueness review threads) must each keep their OWN
+    // created_at on every projected component — never collapsed onto one
+    // value or cross-attributed to the other row.
+    const older = buildWideScoreRow({
+      post_uri: 'at://did:plc:test/app.bsky.feed.post/dup-uri',
+      created_at: '2026-05-01T00:00:00.000Z',
+      recency_score: 0.1,
+    });
+    const newer = buildWideScoreRow({
+      post_uri: 'at://did:plc:test/app.bsky.feed.post/dup-uri',
+      created_at: '2026-06-15T00:00:00.000Z',
+      recency_score: 0.9,
+    });
+
+    const projected = projectWideRows([older, newer]);
+
+    // No fan-out / no dropped rows: 2 wide rows × 5 components = 10.
+    expect(projected).toHaveLength(10);
+
+    const olderComponents = projected.filter((p) => p.created_at === older.created_at);
+    const newerComponents = projected.filter((p) => p.created_at === newer.created_at);
+    expect(olderComponents).toHaveLength(5);
+    expect(newerComponents).toHaveLength(5);
+
+    // Each group's raw values must trace back to its own source row, not the
+    // other row's — this is exactly what a mis-keyed JOIN could scramble.
+    const olderRecency = olderComponents.find((p) => p.component_key === 'recency');
+    const newerRecency = newerComponents.find((p) => p.component_key === 'recency');
+    expect(olderRecency?.raw).toBe(0.1);
+    expect(newerRecency?.raw).toBe(0.9);
+  });
+
+  it('returns an empty array for an empty input batch', () => {
+    expect(projectWideRows([])).toEqual([]);
   });
 });

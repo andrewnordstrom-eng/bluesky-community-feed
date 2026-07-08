@@ -8,6 +8,7 @@
 import { db } from '../../db/client.js';
 import { logger } from '../../lib/logger.js';
 import type { IngestionEventOutcome } from '../outcomes.js';
+import { normalizeCreatedAt } from '../normalize-timestamp.js';
 
 interface FollowRecord {
   subject?: string; // The DID being followed
@@ -27,14 +28,16 @@ export async function handleFollow(
     return 'follow-missing-subject';
   }
 
-  const createdAt = followRecord.createdAt ?? new Date().toISOString();
+  const createdAt = normalizeCreatedAt(followRecord.createdAt, uri);
 
   try {
     // UPSERT follow relationship
     const result = await db.query(
       `INSERT INTO follows (uri, author_did, subject_did, created_at)
        VALUES ($1, $2, $3, $4)
-       ON CONFLICT (uri) DO NOTHING
+       -- PROJ-917: follows' PK widened to (uri, created_at) — partitioned
+       -- tables require the partition key in every unique constraint.
+       ON CONFLICT (uri, created_at) DO NOTHING
        RETURNING uri`,
       [uri, authorDid, subjectDid, createdAt]
     );

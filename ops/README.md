@@ -42,6 +42,7 @@ Create the sockets directory: `mkdir -p ~/.ssh/sockets`
 | `ops/status` | `ops/status` | Full system health overview |
 | `ops/feed-check` | `ops/feed-check 30` | Audit top N posts in the feed |
 | `ops/deploy` | `ops/deploy` | Pull, build, migrate, restart |
+| `ops/restore-drill.sh` | `ops/restore-drill.sh` | Restore the newest pgBackRest backup into a throwaway container and verify integrity (see `ops/pgbackrest/README.md`) |
 | `scripts/generate-report.py` | `python3 scripts/generate-report.py` | Generate feed quality analysis report |
 
 ## Report Generation

@@ -17,6 +17,8 @@
 
 import { Pool } from 'pg';
 import dotenv from 'dotenv';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 dotenv.config();
 
@@ -117,6 +119,52 @@ interface WideRow {
   source_diversity_weighted: number;
   relevance_weighted: number;
   scored_at: string;
+  // PROJ-917: post_scores gained its own `created_at` in migration 028 (a
+  // denormalized, immutable copy of the scored post's posts.created_at —
+  // see that migration for why). Source it straight from this row instead
+  // of re-deriving it via a JOIN against posts: a post_uri is not
+  // guaranteed globally unique across partitions (see the migration
+  // 026/027 review threads), so joining posts ON uri can fan a single
+  // post_scores row out into multiple joined rows and misattribute which
+  // created_at backs which component set. Reading it directly off this row
+  // is 1:1 by construction, no fan-out possible.
+  created_at: string;
+}
+
+interface ProjectedComponent {
+  post_uri: string;
+  epoch_id: number;
+  component_key: string;
+  raw: number;
+  weight: number;
+  weighted: number;
+  scored_at: string;
+  created_at: string;
+}
+
+/** Project each wide `post_scores` row into one row per registered scoring
+ * component. Pure and DB-free so it's directly unit-testable — in particular
+ * for the case that motivated this refactor: two rows sharing the same
+ * `post_uri` but differing `created_at` must each keep their own
+ * `created_at` on every projected component, never collapsed or
+ * cross-attributed to the other row's value. */
+export function projectWideRows(rows: WideRow[]): ProjectedComponent[] {
+  const projected: ProjectedComponent[] = [];
+  for (const row of rows) {
+    for (const { key, col } of COMPONENT_PROJECTION) {
+      projected.push({
+        post_uri: row.post_uri,
+        epoch_id: row.epoch_id,
+        component_key: key,
+        raw: row[`${col}_score` as keyof WideRow] as number,
+        weight: row[`${col}_weight` as keyof WideRow] as number,
+        weighted: row[`${col}_weighted` as keyof WideRow] as number,
+        scored_at: row.scored_at,
+        created_at: row.created_at,
+      });
+    }
+  }
+  return projected;
 }
 
 async function main(): Promise<void> {
@@ -140,7 +188,7 @@ async function main(): Promise<void> {
 
   let totalRowsScanned = 0;
   let totalRowsInserted = 0;
-  let lastSeen: { post_uri: string; epoch_id: number } | null = null;
+  let lastSeen: { post_uri: string; epoch_id: number; created_at: string } | null = null;
   let batchNumber = 0;
 
   try {
@@ -153,7 +201,12 @@ async function main(): Promise<void> {
       const remaining = limit !== null ? limit - totalRowsScanned : batchSize;
       const currentBatchSize = Math.min(batchSize, remaining);
 
-      // Keyset-paginate by (post_uri, epoch_id) so we don't OFFSET-scan a growing table.
+      // Keyset-paginate by (post_uri, epoch_id, created_at) — the same
+      // triple post_scores' own unique_post_epoch constraint covers
+      // (migration 028) — so we don't OFFSET-scan a growing table, and so
+      // two rows that happen to share a post_uri but differ by created_at
+      // are still ordered and paginated deterministically instead of
+      // colliding on a 2-column key.
       const params: unknown[] = [];
       const where: string[] = [];
 
@@ -162,9 +215,9 @@ async function main(): Promise<void> {
         where.push(`epoch_id = $${params.length}`);
       }
       if (lastSeen !== null) {
-        params.push(lastSeen.post_uri, lastSeen.epoch_id);
+        params.push(lastSeen.post_uri, lastSeen.epoch_id, lastSeen.created_at);
         where.push(
-          `(post_uri, epoch_id) > ($${params.length - 1}, $${params.length})`
+          `(post_uri, epoch_id, created_at) > ($${params.length - 2}, $${params.length - 1}, $${params.length}::timestamptz)`
         );
       }
       params.push(currentBatchSize);
@@ -179,10 +232,10 @@ async function main(): Promise<void> {
                 source_diversity_weight, relevance_weight,
                 recency_weighted, engagement_weighted, bridging_weighted,
                 source_diversity_weighted, relevance_weighted,
-                scored_at
+                scored_at, created_at
          FROM post_scores
          ${whereSql}
-         ORDER BY post_uri, epoch_id
+         ORDER BY post_uri, epoch_id, created_at
          LIMIT $${params.length}`,
         params
       );
@@ -196,46 +249,41 @@ async function main(): Promise<void> {
       totalRowsScanned += result.rows.length;
 
       // Project each wide row into N component rows.
-      const projected: Array<{
-        post_uri: string;
-        epoch_id: number;
-        component_key: string;
-        raw: number;
-        weight: number;
-        weighted: number;
-        scored_at: string;
-      }> = [];
-
-      for (const row of result.rows) {
-        for (const { key, col } of COMPONENT_PROJECTION) {
-          projected.push({
-            post_uri: row.post_uri,
-            epoch_id: row.epoch_id,
-            component_key: key,
-            raw: row[`${col}_score` as keyof WideRow] as number,
-            weight: row[`${col}_weight` as keyof WideRow] as number,
-            weighted: row[`${col}_weighted` as keyof WideRow] as number,
-            scored_at: row.scored_at,
-          });
-        }
-        lastSeen = { post_uri: row.post_uri, epoch_id: row.epoch_id };
-      }
+      const projected = projectWideRows(result.rows);
+      const last = result.rows[result.rows.length - 1];
+      lastSeen = { post_uri: last.post_uri, epoch_id: last.epoch_id, created_at: last.created_at };
 
       if (!dryRun && projected.length > 0) {
         // Batch insert via unnest(...) for one round-trip per batch.
+        //
+        // PROJ-917: post_score_components is now RANGE-partitioned by
+        // created_at (migration 029) — a denormalized copy of the scored
+        // post's own posts.created_at (immutable). Sourced directly from
+        // the post_scores row itself (post_scores gained its own
+        // created_at in migration 028), NOT re-derived via a JOIN against
+        // posts: post_uri is not guaranteed globally unique across
+        // partitions, so a posts JOIN can fan a single post_scores row out
+        // into multiple rows and attach the wrong created_at to a
+        // component set. Threading created_at straight through the
+        // UNNEST from the already-selected post_scores.created_at avoids
+        // that entirely — no join, no fan-out, no COALESCE fallback.
+        // PRIMARY KEY — and this ON CONFLICT target — widened to include
+        // created_at in the same migration.
         const insertResult = await pool.query<{ count: string }>(
           `WITH inserted AS (
-             INSERT INTO post_score_components (post_uri, epoch_id, component_key, raw, weight, weighted, scored_at)
-             SELECT * FROM UNNEST(
+             INSERT INTO post_score_components (post_uri, epoch_id, component_key, raw, weight, weighted, scored_at, created_at)
+             SELECT u.post_uri, u.epoch_id, u.component_key, u.raw, u.weight, u.weighted, u.scored_at, u.created_at
+             FROM UNNEST(
                $1::text[],
                $2::int[],
                $3::text[],
                $4::float[],
                $5::float[],
                $6::float[],
-               $7::timestamptz[]
-             )
-             ON CONFLICT (post_uri, epoch_id, component_key) DO NOTHING
+               $7::timestamptz[],
+               $8::timestamptz[]
+             ) AS u(post_uri, epoch_id, component_key, raw, weight, weighted, scored_at, created_at)
+             ON CONFLICT (post_uri, epoch_id, component_key, created_at) DO NOTHING
              RETURNING 1
            )
            SELECT COUNT(*)::text AS count FROM inserted`,
@@ -247,6 +295,7 @@ async function main(): Promise<void> {
             projected.map((p) => p.weight),
             projected.map((p) => p.weighted),
             projected.map((p) => p.scored_at),
+            projected.map((p) => p.created_at),
           ]
         );
         const insertedCount = parseInt(insertResult.rows[0]?.count ?? '0', 10);
@@ -273,7 +322,18 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err) => {
-  console.error('Backfill failed:', err);
-  process.exit(1);
-});
+function isMainModule(): boolean {
+  if (!process.argv[1]) {
+    return false;
+  }
+  return path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+}
+
+// Guarded so tests can import projectWideRows() without also kicking off the
+// live CLI (which would call process.exit() against a test's DATABASE_URL).
+if (isMainModule()) {
+  main().catch((err) => {
+    console.error('Backfill failed:', err);
+    process.exit(1);
+  });
+}

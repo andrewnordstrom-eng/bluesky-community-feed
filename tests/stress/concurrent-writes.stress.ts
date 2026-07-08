@@ -24,9 +24,11 @@ export async function runConcurrentWritesStress(): Promise<ScenarioResult> {
     await db.query('TRUNCATE TABLE likes, post_engagement, posts, engagement_attributions RESTART IDENTITY CASCADE');
 
     await db.query(
+      // PROJ-917: posts' PK widened to (uri, created_at) — partitioned
+      // tables require the partition key in every unique constraint.
       `INSERT INTO posts (uri, cid, author_did, text, created_at, indexed_at, deleted)
        VALUES ($1, $2, $3, $4, NOW(), NOW(), FALSE)
-       ON CONFLICT (uri) DO NOTHING`,
+       ON CONFLICT (uri, created_at) DO NOTHING`,
       [postUri, 'cid-concurrent', 'did:plc:concurrent-author', 'concurrent write stress target']
     );
 
