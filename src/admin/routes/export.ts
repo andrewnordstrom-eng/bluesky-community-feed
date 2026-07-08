@@ -86,7 +86,10 @@ const SCORE_EXPORT_SQL_WIDE_BASE = `
          ps.source_diversity_weighted, ps.relevance_weighted,
          ps.total_score, p.topic_vector, ps.classification_method, ps.scored_at
   FROM post_scores ps
-  LEFT JOIN posts p ON ps.post_uri = p.uri
+  -- p.created_at = ps.created_at is the shared partition key (both RANGE-
+  -- partitioned by the post's immutable created_at); prunes the posts probe to
+  -- one partition per score row instead of all ~36 (PROJ-917).
+  LEFT JOIN posts p ON ps.post_uri = p.uri AND p.created_at = ps.created_at
   WHERE ps.epoch_id = $1
   ORDER BY ps.total_score DESC
 `;
@@ -110,9 +113,11 @@ const SCORE_EXPORT_SQL_LONG_BASE = `
          MAX(psc.weighted) FILTER (WHERE psc.component_key = 'relevance') AS relevance_weighted,
          ps.total_score, p.topic_vector, ps.classification_method, ps.scored_at
   FROM post_scores ps
-  LEFT JOIN posts p ON ps.post_uri = p.uri
+  -- created_at equality on both JOINs is the shared partition key (PROJ-917) —
+  -- prunes each probe to one partition per score row instead of all ~36.
+  LEFT JOIN posts p ON ps.post_uri = p.uri AND p.created_at = ps.created_at
   LEFT JOIN post_score_components psc
-    ON psc.post_uri = ps.post_uri AND psc.epoch_id = ps.epoch_id
+    ON psc.post_uri = ps.post_uri AND psc.epoch_id = ps.epoch_id AND psc.created_at = ps.created_at
   WHERE ps.epoch_id = $1
   GROUP BY ps.post_uri, ps.epoch_id, ps.total_score, p.topic_vector, ps.classification_method, ps.scored_at
   ORDER BY ps.total_score DESC

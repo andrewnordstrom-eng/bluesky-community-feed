@@ -50,7 +50,19 @@ export interface WorkerSupervisor {
   isRunning: () => boolean;
 }
 
+// Order matters: workers start SEQUENTIALLY (see start() below), each awaiting
+// an initial pass. partition-manager goes FIRST so retention (DETACH/DROP of
+// aged partitions) runs before the cleanup worker's deletes start contending
+// for ACCESS EXCLUSIVE on posts/post_scores — otherwise the startup DETACH
+// loses its lock window and posts/post_scores partitions don't drop (observed
+// 2026-07-08, PROJ-917).
 const defaultWorkers: ManagedWorker[] = [
+  {
+    name: 'partition-manager',
+    start: startPartitionManager,
+    stop: stopPartitionManager,
+    isRunning: isPartitionManagerRunning,
+  },
   {
     name: 'cleanup',
     start: startCleanup,
@@ -74,12 +86,6 @@ const defaultWorkers: ManagedWorker[] = [
     start: startDiskMonitor,
     stop: stopDiskMonitor,
     isRunning: isDiskMonitorRunning,
-  },
-  {
-    name: 'partition-manager',
-    start: startPartitionManager,
-    stop: stopPartitionManager,
-    isRunning: isPartitionManagerRunning,
   },
 ];
 

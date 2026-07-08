@@ -58,8 +58,19 @@ const BATCH_SIZE = 5000;
 const DROP_LOOKBACK_BUFFER_DAYS = 90;
 /** How many days ahead of today to guarantee a partition exists. */
 const CREATE_AHEAD_DAYS = 2;
+/** DETACH PARTITION needs a brief ACCESS EXCLUSIVE lock the constantly-written
+ *  posts/post_scores tables rarely grant on the first try; retry a few times
+ *  within the run (each attempt keeps the short 5s lock_timeout) to catch a
+ *  quieter moment before deferring the partition to the next daily run. */
+const DETACH_RETRY_ATTEMPTS = 3;
+const DETACH_RETRY_BACKOFF_MS = 3000;
 
 const IDENTIFIER_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+
+/** Resolve after `ms` milliseconds. */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 interface PartitionedTableSpec {
   /** Live table name (also used as the partition-name prefix). */
@@ -441,19 +452,39 @@ async function detachAndDropPartition(parentTable: string, partitionTable: strin
   // retried on the next run (the drop-lookback buffer drains any backlog).
   // DETACH + DROP run in one transaction so the drop can't leave a detached
   // orphan table behind.
-  const client = await db.connect();
-  try {
-    await client.query('BEGIN');
-    await client.query("SET LOCAL lock_timeout = '5s'");
-    await client.query(`ALTER TABLE ${quoteIdent(parentTable)} DETACH PARTITION ${quoteIdent(partitionTable)}`);
-    await client.query(`DROP TABLE ${quoteIdent(partitionTable)}`);
-    await client.query('COMMIT');
-  } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
-    throw err;
-  } finally {
-    client.release();
+  //
+  // Retry a few times within the run: the constantly-written high-volume tables
+  // (posts, post_scores) rarely have a clear 5s window on the first try, so a
+  // single attempt loses the drop for the whole day (observed 2026-07-08:
+  // likes/reposts/follows dropped but posts/post_scores hit "lock timeout").
+  // Each attempt keeps the SHORT 5s lock_timeout so a waiting ACCESS EXCLUSIVE
+  // never queues long enough to stall writers — we back off and try again for a
+  // quieter moment rather than holding the lock request open.
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= DETACH_RETRY_ATTEMPTS; attempt++) {
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query("SET LOCAL lock_timeout = '5s'");
+      await client.query(`ALTER TABLE ${quoteIdent(parentTable)} DETACH PARTITION ${quoteIdent(partitionTable)}`);
+      await client.query(`DROP TABLE ${quoteIdent(partitionTable)}`);
+      await client.query('COMMIT');
+      return;
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      lastErr = err;
+      if (attempt < DETACH_RETRY_ATTEMPTS) {
+        logger.warn(
+          { parentTable, partitionTable, attempt, err },
+          'DETACH PARTITION lock attempt failed; retrying after backoff'
+        );
+        await sleep(DETACH_RETRY_BACKOFF_MS);
+      }
+    } finally {
+      client.release();
+    }
   }
+  throw lastErr;
 }
 
 /**

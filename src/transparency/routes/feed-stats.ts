@@ -148,7 +148,10 @@ export function registerFeedStatsRoute(app: FastifyInstance): void {
            COUNT(DISTINCT p.author_did)::text as unique_authors,
            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ps.total_score)::text as median_total
          FROM post_scores ps
-         JOIN posts p ON ps.post_uri = p.uri
+         -- p.created_at = ps.created_at is the shared partition key (posts is
+         -- RANGE-partitioned by created_at); prunes the posts probe to one
+         -- partition per score row instead of all ~36 (PROJ-917).
+         JOIN posts p ON ps.post_uri = p.uri AND p.created_at = ps.created_at
          WHERE ps.epoch_id = $1
            ${runScopeClause}`,
         baseStatsParams
