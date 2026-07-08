@@ -50,6 +50,22 @@ describe('ConfigSchema', () => {
     ).toThrow();
   });
 
+  it('defaults SCORING_CONCURRENCY to 8 when omitted', () => {
+    expect(ConfigSchema.parse(baseEnv).SCORING_CONCURRENCY).toBe(8);
+  });
+
+  it.each(['1', '32'])('accepts SCORING_CONCURRENCY=%s', (value) => {
+    expect(
+      ConfigSchema.parse({ ...baseEnv, SCORING_CONCURRENCY: value }).SCORING_CONCURRENCY
+    ).toBe(Number(value));
+  });
+
+  it.each(['0', '-1', '1.5', '33', 'abc'])('rejects invalid SCORING_CONCURRENCY=%s', (value) => {
+    expect(() =>
+      ConfigSchema.parse({ ...baseEnv, SCORING_CONCURRENCY: value })
+    ).toThrow();
+  });
+
   it.each(['99', '1.5', 'abc', ''])('rejects invalid REDIS_COMMAND_TIMEOUT_MS=%s', (timeoutMs) => {
     expect(() =>
       ConfigSchema.parse({

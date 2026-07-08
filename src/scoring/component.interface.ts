@@ -23,6 +23,14 @@ export interface ScoringContext {
   readonly scoringWindowHours: number;
   /** Mutable map shared across components in a single run. */
   readonly authorCounts: Map<string, number>;
+  /**
+   * Per-post source-diversity scores precomputed in `posts`-array order BEFORE
+   * the concurrent scoring loop, so parallelism cannot change them (PROJ-917).
+   * Keyed by `PostForScoring` object identity (robust even if two candidate
+   * rows share a uri, possible now the posts PK is `(uri, created_at)`).
+   * Absent for non-pipeline callers, which fall back to `authorCounts`.
+   */
+  readonly sourceDiversityByPost?: ReadonlyMap<PostForScoring, number>;
 }
 
 /**

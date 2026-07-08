@@ -57,6 +57,15 @@ export const ConfigSchema = z.object({
   SCORING_FULL_RESCORE_INTERVAL: z.coerce.number().int().min(1).default(6),
   SCORING_CANDIDATE_LIMIT: z.coerce.number().min(100).default(5_000),
   SCORING_TIMEOUT_MS: z.coerce.number().min(30_000).default(240_000),
+  /**
+   * Max posts scored concurrently in the pipeline loop (PROJ-917). Each in-flight
+   * post holds at most ONE DB connection at a time (components run sequentially
+   * per post, bridging's engager+follow queries are sequential, and the two
+   * writes are sequential), so peak scoring connections ≈ this value. Keep
+   * SCORING_CONCURRENCY + JETSTREAM_MAX_CONCURRENT well under DB_POOL_MAX
+   * (default 8 + 20 = 28 < 50) so ingestion and HTTP serving keep pool headroom.
+   */
+  SCORING_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(8),
   FEED_MAX_POSTS: z.coerce.number().int().min(1).default(1000),
   /**
    * Dual-write post score decomposition into the long-table post_score_components
