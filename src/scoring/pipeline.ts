@@ -18,7 +18,7 @@ import { invalidateCurrentFeedSnapshot } from '../feed/snapshot-cache.js';
 import { logger } from '../lib/logger.js';
 import { getActiveEpoch } from '../db/queries/epochs.js';
 import { randomUUID } from 'crypto';
-import { createAuthorCountMap } from './components/source-diversity.js';
+import { createAuthorCountMap, scoreSourceDiversity } from './components/source-diversity.js';
 import {
   GovernanceEpoch,
   PostForScoring,
@@ -541,33 +541,72 @@ async function scoreAllPosts(
   epoch: GovernanceEpoch,
   runId: string
 ): Promise<ScoredPost[]> {
-  const scored: ScoredPost[] = [];
+  // Deterministic pre-pass (PROJ-917): replay the sequential source-diversity
+  // ranking in `posts`-array order BEFORE any parallelism. This calls the same
+  // scoreSourceDiversity in the same order as the old sequential loop, so every
+  // post receives an identical penalty — the concurrent loop below then only
+  // reads these values, so completion order cannot change any score.
   const authorCounts = createAuthorCountMap();
+  const sourceDiversityByPost = new Map<PostForScoring, number>();
+  for (const post of posts) {
+    sourceDiversityByPost.set(post, scoreSourceDiversity(post.authorDid, authorCounts));
+  }
 
   const context: ScoringContext = {
     epoch,
     scoringWindowHours: config.SCORING_WINDOW_HOURS,
     authorCounts,
+    sourceDiversityByPost,
   };
 
-  for (const post of posts) {
-    try {
-      // Classification method is determined at ingestion time and stored on
-      // the posts row. The pipeline reads it as-is — no runtime override.
-      const classificationMethod = post.classificationMethod === 'embedding' ? 'embedding' : 'keyword';
+  // Score posts through a bounded rolling worker-pool. Each in-flight post holds
+  // at most ONE DB connection at a time (sequential components + sequential
+  // bridging queries + sequential writes), so peak scoring connections ≈
+  // SCORING_CONCURRENCY. A rolling pool (shared cursor) keeps exactly N posts in
+  // flight — unlike chunked Promise.all it never stalls on a chunk's slowest post
+  // (per-post bridging cost varies from 1 to 21 DB reads).
+  const results: (ScoredPost | undefined)[] = new Array(posts.length);
+  let next = 0;
 
-      const scoredPost = await scorePost(post, epoch, context);
-      scored.push(scoredPost);
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      // Read-then-increment is atomic in single-threaded JS (no await between).
+      const i = next++;
+      if (i >= posts.length) return;
+      const post = posts[i];
+      try {
+        // Classification method is determined at ingestion time and stored on
+        // the posts row. The pipeline reads it as-is — no runtime override.
+        const classificationMethod = post.classificationMethod === 'embedding' ? 'embedding' : 'keyword';
 
-      // Store to database (GOLDEN RULE: all components, weights, and weighted values)
-      await storeScore(scoredPost, epoch, runId, classificationMethod);
-    } catch (err) {
-      // Log and continue - don't fail entire pipeline for one post
-      logger.error({ err, uri: post.uri }, 'Failed to score post');
+        const scoredPost = await scorePost(post, epoch, context);
+        results[i] = scoredPost;
+
+        // Store to database (GOLDEN RULE: all components, weights, and weighted values)
+        await storeScore(scoredPost, epoch, runId, classificationMethod);
+      } catch (err) {
+        // Log and continue - one bad post never fails the whole run.
+        logger.error({ err, uri: post.uri }, 'Failed to score post');
+      }
     }
-  }
+  };
 
-  return scored;
+  const workerCount = Math.max(1, Math.min(resolveScoringConcurrency(), posts.length));
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+  // results[] is index-keyed above, so the returned array stays in input order
+  // (posts that threw leave an undefined slot, filtered out here).
+  return results.filter((r): r is ScoredPost => r !== undefined);
+}
+
+/**
+ * Resolve SCORING_CONCURRENCY defensively: fall back to 1 (sequential) if the
+ * value is missing or non-numeric — e.g. a partially-mocked `config` in tests —
+ * so the score loop can never crash on a bad concurrency value.
+ */
+function resolveScoringConcurrency(): number {
+  const n = config.SCORING_CONCURRENCY;
+  return typeof n === 'number' && Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1;
 }
 
 /**

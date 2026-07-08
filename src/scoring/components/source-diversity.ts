@@ -87,6 +87,15 @@ export const sourceDiversityComponent: ScoringComponent = {
   key: 'sourceDiversity',
   name: 'Source Diversity',
   async score(post, context) {
+    // Prefer the value precomputed in posts-array order before the concurrent
+    // scoring loop (PROJ-917): this is what keeps scores deterministic and
+    // identical to the old sequential loop regardless of completion order.
+    const precomputed = context.sourceDiversityByPost?.get(post);
+    if (precomputed !== undefined) {
+      return precomputed;
+    }
+    // Fallback for non-pipeline callers (unit tests / SDK harnesses) that do
+    // not precompute — preserves the original stateful, order-dependent behavior.
     return scoreSourceDiversity(post.authorDid, context.authorCounts);
   },
 };
