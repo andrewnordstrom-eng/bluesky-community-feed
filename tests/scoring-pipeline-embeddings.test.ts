@@ -35,6 +35,7 @@ const {
     SCORING_WINDOW_HOURS: 48,
     FEED_MAX_POSTS: 300,
     SCORING_FULL_RESCORE_INTERVAL: 6,
+    SCORING_CONCURRENCY: 4,
     TOPIC_EMBEDDING_ENABLED: false,
     TOPIC_EMBEDDING_MIN_SIMILARITY: 0.35,
   },
@@ -45,7 +46,7 @@ vi.mock('../src/db/client.js', () => ({
 }));
 
 vi.mock('../src/db/redis.js', () => ({
-  redis: { pipeline: redisPipelineFactoryMock },
+  redis: { pipeline: redisPipelineFactoryMock, incr: vi.fn().mockResolvedValue(1), del: vi.fn().mockResolvedValue(1), eval: vi.fn().mockResolvedValue(1) },
 }));
 
 vi.mock('../src/governance/content-filter.js', () => ({

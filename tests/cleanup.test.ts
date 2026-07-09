@@ -157,9 +157,123 @@ describe('cleanup job', () => {
     expect(result!.postsDeleted).toBe(50);
     expect(result!.orphanedLikesDeleted).toBe(12);
     expect(result!.orphanedRepostsDeleted).toBe(5);
+    expect(result!.orphanedEngagementDeleted).toBe(0);
     expect(result!.staleLikesDeleted).toBe(0);
     expect(result!.staleRepostsDeleted).toBe(0);
     expect(result!.oldFollowsDeleted).toBe(0);
+  });
+
+  // PROJ-917: post_engagement.post_uri lost its ON DELETE CASCADE FK to posts
+  // when posts was partitioned (a partitioned table's unique constraints must
+  // include the full partition key, so posts(uri) alone can no longer back
+  // an FK — see migration 027 and this file's header comment). This sweep
+  // mirrors the existing orphaned-likes/orphaned-reposts pattern above.
+  it('cleans orphaned post_engagement rows (no more FK CASCADE from posts)', async () => {
+    let orphanEngagementBatch = 0;
+
+    clientQueryMock.mockImplementation(async (sql: string) => {
+      if (typeof sql === 'string' && sql.includes('SET statement_timeout')) {
+        return { rows: [], rowCount: 0 };
+      }
+      if (typeof sql === 'string' && sql.includes('DELETE FROM posts')) {
+        return { rowCount: 0, rows: [] };
+      }
+      if (typeof sql === 'string' && sql.includes('DELETE FROM likes')) {
+        return { rowCount: 0, rows: [] };
+      }
+      if (typeof sql === 'string' && sql.includes('DELETE FROM reposts')) {
+        return { rowCount: 0, rows: [] };
+      }
+      if (typeof sql === 'string' && sql.includes('DELETE FROM follows')) {
+        return { rowCount: 0, rows: [] };
+      }
+      if (typeof sql === 'string' && sql.includes('DELETE FROM post_engagement')) {
+        orphanEngagementBatch++;
+        if (orphanEngagementBatch === 1) return { rowCount: 9, rows: Array(9).fill({}) };
+        return { rowCount: 0, rows: [] };
+      }
+      return { rowCount: 0, rows: [] };
+    });
+
+    const result = await triggerManualCleanup();
+
+    expect(result).not.toBeNull();
+    expect(result!.orphanedEngagementDeleted).toBe(9);
+
+    const engagementCall = clientQueryMock.mock.calls.find(
+      (call: unknown[]) =>
+        typeof call[0] === 'string' && (call[0] as string).includes('DELETE FROM post_engagement')
+    );
+    expect(engagementCall).toBeDefined();
+    expect(engagementCall![0]).toContain('NOT EXISTS');
+    expect(engagementCall![0]).toContain('FROM posts p');
+  });
+
+  // Thread 18: only the single-batch happy path was covered above. A batch
+  // returning exactly BATCH_SIZE (5000) rows must not be treated as "done" --
+  // the loop should keep going until a batch comes back smaller than
+  // BATCH_SIZE, and the total must sum correctly across iterations.
+  it('continues the orphaned post_engagement sweep across multiple batches', async () => {
+    let orphanEngagementBatch = 0;
+
+    clientQueryMock.mockImplementation(async (sql: string) => {
+      if (typeof sql === 'string' && sql.includes('SET statement_timeout')) {
+        return { rows: [], rowCount: 0 };
+      }
+      if (typeof sql === 'string' && sql.includes('DELETE FROM posts')) {
+        return { rowCount: 0, rows: [] };
+      }
+      if (typeof sql === 'string' && sql.includes('DELETE FROM likes')) {
+        return { rowCount: 0, rows: [] };
+      }
+      if (typeof sql === 'string' && sql.includes('DELETE FROM reposts')) {
+        return { rowCount: 0, rows: [] };
+      }
+      if (typeof sql === 'string' && sql.includes('DELETE FROM follows')) {
+        return { rowCount: 0, rows: [] };
+      }
+      if (typeof sql === 'string' && sql.includes('DELETE FROM post_engagement')) {
+        orphanEngagementBatch++;
+        // First batch is a full BATCH_SIZE (5000) page -- the loop must not
+        // stop here. Second batch is a smaller, final page.
+        if (orphanEngagementBatch === 1) return { rowCount: 5000, rows: Array(5000).fill({}) };
+        if (orphanEngagementBatch === 2) return { rowCount: 137, rows: Array(137).fill({}) };
+        return { rowCount: 0, rows: [] };
+      }
+      return { rowCount: 0, rows: [] };
+    });
+
+    const result = await triggerManualCleanup();
+
+    expect(result).not.toBeNull();
+    expect(result!.orphanedEngagementDeleted).toBe(5137);
+    // Full BATCH_SIZE batch, then a smaller batch that ends the loop
+    // (deleted < BATCH_SIZE) -- no third round-trip needed.
+    expect(orphanEngagementBatch).toBe(2);
+  });
+
+  // Thread 18: a failure specific to the post_engagement DELETE must not take
+  // down the rest of the cleanup run -- triggerManualCleanup's own try/catch
+  // around batchDeleteOrphanedEngagement() should leave
+  // orphanedEngagementDeleted at 0 and still return a result.
+  it('completes the cleanup run with orphanedEngagementDeleted: 0 when the post_engagement DELETE rejects', async () => {
+    clientQueryMock.mockImplementation(async (sql: string) => {
+      if (typeof sql === 'string' && sql.includes('SET statement_timeout')) {
+        return { rows: [], rowCount: 0 };
+      }
+      if (typeof sql === 'string' && sql.includes('DELETE FROM post_engagement')) {
+        throw new Error('simulated post_engagement DELETE failure');
+      }
+      return { rowCount: 0, rows: [] };
+    });
+
+    const result = await triggerManualCleanup();
+
+    expect(result).not.toBeNull();
+    expect(result!.orphanedEngagementDeleted).toBe(0);
+    // The rest of the job still ran and produced a well-formed result.
+    expect(result!.postsDeleted).toBe(0);
+    expect(result!.durationMs).toBeGreaterThanOrEqual(0);
   });
 
   it('runs VACUUM only when threshold exceeded', async () => {

@@ -3,16 +3,16 @@
  *
  * GET /api/transparency/stats
  *
- * Returns aggregate statistics for the current feed:
+ * Returns bounded aggregate statistics for the current feed:
  * - Current epoch weights and status
- * - Feed statistics (posts scored, unique authors, avg/median bridging)
+ * - Feed snapshot statistics materialized during scoring
  * - Governance info (vote count)
  * - Optional: Gini coefficient for author concentration
  */
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { config } from '../../config.js';
 import { db } from '../../db/client.js';
+import { redis } from '../../db/redis.js';
 import { logger } from '../../lib/logger.js';
 import { ErrorResponseSchema } from '../../lib/openapi.js';
 import type { FeedStats } from '../transparency.types.js';
@@ -20,9 +20,39 @@ import type { FeedStats } from '../transparency.types.js';
 interface CurrentScoringRunValue {
   run_id?: unknown;
   epoch_id?: unknown;
+  posts_scored?: unknown;
+  timestamp?: unknown;
 }
 
-async function getCurrentScoringRunScope(): Promise<{ runId: string; epochId: number } | null> {
+interface CurrentScoringRunScope {
+  runId: string;
+  epochId: number;
+  postsScored: number | null;
+  timestamp: string | null;
+}
+
+interface EpochMetricsRow {
+  run_id: string | null;
+  author_gini: number | string | null;
+  avg_bridging: number | string | null;
+  median_bridging: number | string | null;
+  avg_engagement: number | string | null;
+  median_total: number | string | null;
+  vs_chronological_overlap: number | string | null;
+  vs_engagement_overlap: number | string | null;
+  posts_scored: number | string | null;
+  unique_authors: number | string | null;
+  computed_at: string | Date;
+  metrics_source: 'current_feed' | 'legacy' | null;
+}
+
+interface FallbackFeedStats {
+  totalPostsScored: number;
+  runId: string | null;
+  computedAt: string | null;
+}
+
+async function getCurrentScoringRunScope(): Promise<CurrentScoringRunScope | null> {
   const result = await db.query<{ value: CurrentScoringRunValue }>(
     `SELECT value
      FROM system_status
@@ -41,7 +71,106 @@ async function getCurrentScoringRunScope(): Promise<{ runId: string; epochId: nu
   return {
     runId: value.run_id,
     epochId: value.epoch_id,
+    postsScored: typeof value.posts_scored === 'number' ? value.posts_scored : null,
+    timestamp: typeof value.timestamp === 'string' ? value.timestamp : null,
   };
+}
+
+function numericValue(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function nullableNumericValue(value: unknown): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function isoDateTimeOrNull(value: string | Date | null): string | null {
+  if (value === null) {
+    return null;
+  }
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+async function readRedisFeedCount(): Promise<number | null> {
+  try {
+    const value = await redis.get('feed:count');
+    return nullableNumericValue(value);
+  } catch (err) {
+    logger.warn({ err }, 'Failed to read Redis feed count for transparency stats fallback');
+    return null;
+  }
+}
+
+async function getCurrentScoringRunScopeOrNull(): Promise<CurrentScoringRunScope | null> {
+  try {
+    return await getCurrentScoringRunScope();
+  } catch (err) {
+    logger.warn({ err }, 'Failed to read current scoring run scope for transparency stats fallback');
+    return null;
+  }
+}
+
+async function buildFallbackFeedStats(epochId: number): Promise<FallbackFeedStats> {
+  const runScope = await getCurrentScoringRunScopeOrNull();
+  const scopeMatchesEpoch = runScope?.epochId === epochId;
+  const redisFeedCount = scopeMatchesEpoch ? await readRedisFeedCount() : null;
+  const scopedRunPosts = scopeMatchesEpoch ? runScope.postsScored : null;
+
+  return {
+    totalPostsScored: Math.max(scopedRunPosts ?? 0, redisFeedCount ?? 0),
+    runId: scopeMatchesEpoch ? runScope.runId : null,
+    computedAt: scopeMatchesEpoch ? runScope.timestamp : null,
+  };
+}
+
+async function readLatestEpochMetrics(epochId: number): Promise<EpochMetricsRow | null> {
+  try {
+    const result = await db.query<EpochMetricsRow>(
+      `SELECT
+         run_id,
+         author_gini,
+         avg_bridging,
+         median_bridging,
+         avg_engagement,
+         median_total,
+         vs_chronological_overlap,
+         vs_engagement_overlap,
+         posts_scored,
+         unique_authors,
+         computed_at,
+         metrics_source
+       FROM epoch_metrics
+       WHERE epoch_id = $1
+       ORDER BY computed_at DESC
+       LIMIT 1`,
+      [epochId]
+    );
+    return result.rows[0] ?? null;
+  } catch (err) {
+    logger.warn({ err, epochId }, 'Failed to read materialized transparency stats; using fallback');
+    return null;
+  }
+}
+
+async function readVoteCount(epochId: number): Promise<number> {
+  try {
+    const result = await db.query(
+      `SELECT COUNT(*) as count FROM governance_votes WHERE epoch_id = $1`,
+      [epochId]
+    );
+    return parseInt(String(result.rows[0]?.count ?? '0'), 10) || 0;
+  } catch (err) {
+    logger.warn({ err, epochId }, 'Failed to read governance vote count for transparency stats');
+    return 0;
+  }
 }
 
 export function registerFeedStatsRoute(app: FastifyInstance): void {
@@ -50,8 +179,8 @@ export function registerFeedStatsRoute(app: FastifyInstance): void {
       tags: ['Transparency'],
       summary: 'Feed statistics',
       description:
-        'Returns aggregate statistics for the current feed including epoch weights, scoring metrics ' +
-        '(posts scored, unique authors, avg/median bridging), governance info, and optional Gini coefficient.',
+        'Returns bounded aggregate statistics for the current feed including epoch weights, ' +
+        'materialized feed-snapshot metrics, governance info, provenance, and optional Gini coefficient.',
       response: {
         200: {
           type: 'object',
@@ -77,8 +206,11 @@ export function registerFeedStatsRoute(app: FastifyInstance): void {
             feed_stats: {
               type: 'object',
               properties: {
-                total_posts_scored: { type: 'integer' },
-                unique_authors: { type: 'integer' },
+                total_posts_scored: {
+                  type: 'integer',
+                  description: 'Rows in the current materialized feed snapshot.',
+                },
+                unique_authors: { type: 'integer', description: 'Unique authors in the materialized feed snapshot.' },
                 avg_bridging_score: { type: 'number' },
                 avg_engagement_score: { type: 'number' },
                 median_bridging_score: { type: 'number' },
@@ -101,8 +233,20 @@ export function registerFeedStatsRoute(app: FastifyInstance): void {
                 vs_engagement_overlap: { type: 'number', nullable: true },
               },
             },
+            stats_status: {
+              type: 'object',
+              description: 'Provenance for the bounded stats response.',
+              properties: {
+                source: { type: 'string', enum: ['scoring_run', 'fallback'] },
+                degraded: { type: 'boolean' },
+                computed_at: { type: 'string', format: 'date-time', nullable: true },
+                run_id: { type: 'string', nullable: true },
+                message: { type: 'string', nullable: true },
+              },
+              required: ['source', 'degraded'],
+            },
           },
-          required: ['epoch', 'feed_stats', 'governance'],
+          required: ['epoch', 'feed_stats', 'governance', 'stats_status'],
         },
         500: ErrorResponseSchema,
       },
@@ -123,67 +267,21 @@ export function registerFeedStatsRoute(app: FastifyInstance): void {
 
       const epoch = epochResult.rows[0];
       const epochId = epoch.id;
-      const runScope = await getCurrentScoringRunScope();
+      const [metrics, voteCount] = await Promise.all([
+        readLatestEpochMetrics(epochId),
+        readVoteCount(epochId),
+      ]);
 
-      // Aggregate metrics for current epoch. The wide-column path is the
-      // original single-query aggregation; the long-table path uses FILTER
-      // expressions over post_score_components for per-component aggregates
-      // while keeping total_score / author_did on post_scores. Both paths
-      // emit one query that returns the same six fields.
-      const statsParams: unknown[] = [epochId];
-      let runScopeClause = '';
-      if (runScope && runScope.epochId === epochId) {
-        statsParams.push(runScope.runId);
-        runScopeClause = `AND ps.component_details->>'run_id' = $${statsParams.length}`;
-      }
-
-      const statsSql = config.SCORE_LONGTABLE_READ_ENABLED
-        ? `
-          SELECT
-            COUNT(DISTINCT ps.post_uri) as total_posts,
-            COUNT(DISTINCT p.author_did) as unique_authors,
-            AVG(psc.raw) FILTER (WHERE psc.component_key = 'bridging') as avg_bridging,
-            AVG(psc.raw) FILTER (WHERE psc.component_key = 'engagement') as avg_engagement,
-            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY psc.raw)
-              FILTER (WHERE psc.component_key = 'bridging') as median_bridging,
-            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ps.total_score) as median_total
-          FROM post_scores ps
-          JOIN posts p ON ps.post_uri = p.uri
-          LEFT JOIN post_score_components psc
-            ON psc.post_uri = ps.post_uri AND psc.epoch_id = ps.epoch_id
-          WHERE ps.epoch_id = $1
-            ${runScopeClause}
-          `
-        : `
-          SELECT
-            COUNT(*) as total_posts,
-            COUNT(DISTINCT p.author_did) as unique_authors,
-            AVG(ps.bridging_score) as avg_bridging,
-            AVG(ps.engagement_score) as avg_engagement,
-            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ps.bridging_score) as median_bridging,
-            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ps.total_score) as median_total
-          FROM post_scores ps
-          JOIN posts p ON ps.post_uri = p.uri
-          WHERE ps.epoch_id = $1
-            ${runScopeClause}
-          `;
-
-      const statsResult = await db.query(statsSql, statsParams);
-
-      // Vote count for current epoch
-      const voteCountResult = await db.query(
-        `SELECT COUNT(*) as count FROM governance_votes WHERE epoch_id = $1`,
-        [epochId]
-      );
-
-      // Get latest epoch metrics if available
-      const metricsResult = await db.query(
-        `SELECT * FROM epoch_metrics WHERE epoch_id = $1 ORDER BY computed_at DESC LIMIT 1`,
-        [epochId]
-      );
-
-      const stats = statsResult.rows[0];
-      const metrics = metricsResult.rows[0];
+      const fallbackStats = metrics ? null : await buildFallbackFeedStats(epochId);
+      const metricsAreComplete = metrics !== null &&
+        metrics.metrics_source === 'current_feed' &&
+        metrics.avg_engagement !== null &&
+        metrics.median_total !== null;
+      const statsStatusMessage = metrics
+        ? metricsAreComplete
+          ? null
+          : 'Using legacy transparency metrics; some score-distribution fields may be incomplete until the next scoring run.'
+        : 'Using degraded stats fallback; score-distribution metrics will populate after the next scoring run.';
 
       const response: FeedStats = {
         epoch: {
@@ -199,28 +297,35 @@ export function registerFeedStatsRoute(app: FastifyInstance): void {
           created_at: epoch.created_at,
         },
         feed_stats: {
-          total_posts_scored: parseInt(stats.total_posts, 10) || 0,
-          unique_authors: parseInt(stats.unique_authors, 10) || 0,
-          avg_bridging_score: parseFloat(stats.avg_bridging) || 0,
-          avg_engagement_score: parseFloat(stats.avg_engagement) || 0,
-          median_bridging_score: parseFloat(stats.median_bridging) || 0,
-          median_total_score: parseFloat(stats.median_total) || 0,
+          total_posts_scored: metrics
+            ? numericValue(metrics.posts_scored)
+            : fallbackStats?.totalPostsScored ?? 0,
+          unique_authors: metrics ? numericValue(metrics.unique_authors) : 0,
+          avg_bridging_score: metrics ? numericValue(metrics.avg_bridging) : 0,
+          avg_engagement_score: metrics ? numericValue(metrics.avg_engagement) : 0,
+          median_bridging_score: metrics ? numericValue(metrics.median_bridging) : 0,
+          median_total_score: metrics ? numericValue(metrics.median_total) : 0,
         },
         governance: {
-          votes_this_epoch: parseInt(voteCountResult.rows[0].count, 10) || 0,
+          votes_this_epoch: voteCount,
+        },
+        stats_status: {
+          source: metrics ? 'scoring_run' : 'fallback',
+          degraded: !metricsAreComplete,
+          computed_at: metrics
+            ? isoDateTimeOrNull(metrics.computed_at)
+            : isoDateTimeOrNull(fallbackStats?.computedAt ?? null),
+          run_id: metrics ? metrics.run_id : fallbackStats?.runId ?? null,
+          message: statsStatusMessage,
         },
       };
 
       // Add metrics if available
       if (metrics) {
         response.metrics = {
-          author_gini: metrics.author_gini ? parseFloat(metrics.author_gini) : null,
-          vs_chronological_overlap: metrics.vs_chronological_overlap
-            ? parseFloat(metrics.vs_chronological_overlap)
-            : null,
-          vs_engagement_overlap: metrics.vs_engagement_overlap
-            ? parseFloat(metrics.vs_engagement_overlap)
-            : null,
+          author_gini: nullableNumericValue(metrics.author_gini),
+          vs_chronological_overlap: nullableNumericValue(metrics.vs_chronological_overlap),
+          vs_engagement_overlap: nullableNumericValue(metrics.vs_engagement_overlap),
         };
       }
 

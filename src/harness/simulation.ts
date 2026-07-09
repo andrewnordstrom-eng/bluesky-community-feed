@@ -23,7 +23,7 @@
  */
 
 import type { Rng, Clock } from './rng.js';
-import type { Scenario } from './scenario.js';
+import type { Scenario, PersonaMix } from './scenario.js';
 import {
   generatePopulation,
   generateVotes,
@@ -220,6 +220,17 @@ function topicSlugLabel(slug: string): string {
     .join(' ');
 }
 
+function interpolatePersonaMix(from: PersonaMix, to: PersonaMix, progress: number): PersonaMix {
+  return {
+    'engagement-maximizer':
+      from['engagement-maximizer'] + (to['engagement-maximizer'] - from['engagement-maximizer']) * progress,
+    'chronological-purist':
+      from['chronological-purist'] + (to['chronological-purist'] - from['chronological-purist']) * progress,
+    'bridge-builder': from['bridge-builder'] + (to['bridge-builder'] - from['bridge-builder']) * progress,
+    balanced: from.balanced + (to.balanced - from.balanced) * progress,
+  };
+}
+
 /**
  * Register `slugs` as active rows in `topic_catalog` (creating them if
  * missing, reactivating them if a prior run left one inactive). Idempotent
@@ -248,7 +259,7 @@ async function ensureActiveTopics(db: QueryableDb, slugs: readonly string[]): Pr
 /** Max rows per batched `INSERT ... VALUES (...),(...)` — keeps a single
  *  query's parameter count (`rows * columnsPerRow`) well under Postgres's
  *  65535 bound and query text to a sane size, even at this harness's max
- *  population sizes (2000 subscribers / 5000 posts). */
+ *  population sizes (10000 subscribers / 50000 posts). */
 const INSERT_BATCH_SIZE = 500;
 
 /** Max concurrent `writeVoteWeights` dual-writes in flight. Each is an
@@ -488,10 +499,10 @@ export class Simulation {
       dualWriteEnabled: config.GOVERNANCE_LONGTABLE_DUALWRITE_ENABLED,
     };
 
-    // Seed the fixed corpus ONCE. Round 1 reuses this population's own votes;
-    // later rounds re-draw from the continuing Rng (the regenerated corpus is
-    // byte-identical and discarded — only the votes differ and only votes are
-    // seeded, so members/posts/engagement stay fixed for the whole run).
+    // Seed the fixed corpus ONCE. Stable runs reuse this population's round-1
+    // votes; drifted runs re-draw round-1 votes from the interpolated starting
+    // mix. Later rounds always re-draw votes from the continuing Rng. Only votes
+    // are seeded, so members/posts/engagement stay fixed for the whole run.
     const population = generatePopulation(this.deps.rng, this.deps.clock, scenario.population);
     await this.seedCorpus(population);
     record('corpus_seeded', {
@@ -509,6 +520,7 @@ export class Simulation {
     const rounds: EpochRoundResult[] = [];
     let epochBeforeId = -1;
     let epochAfterId = -1;
+    let firstRoundVotes: VoteSeed[] | undefined;
 
     for (let round = 1; round <= scenario.rounds; round++) {
       epochBeforeId = await ensureActiveEpoch(this.deps.db);
@@ -525,10 +537,24 @@ export class Simulation {
       // consume post-generation RNG — otherwise postCount would perturb
       // later-round votes even though the corpus is fixed. Only votes are
       // seeded (the fixed corpus is already in place).
+      const roundPopulation =
+        scenario.personaDrift === undefined
+          ? scenario.population
+          : {
+              ...scenario.population,
+              personaMix: interpolatePersonaMix(
+                scenario.personaDrift.from,
+                scenario.personaDrift.to,
+                scenario.rounds === 1 ? 1 : (round - 1) / (scenario.rounds - 1)
+              ),
+            };
       const roundVotes =
-        round === 1
+        round === 1 && scenario.personaDrift === undefined
           ? population.votes
-          : generateVotes(this.deps.rng, population.subscribers, scenario.population);
+          : generateVotes(this.deps.rng, population.subscribers, roundPopulation);
+      if (round === 1) {
+        firstRoundVotes = roundVotes;
+      }
       record('votes_generated', { round, voteCount: roundVotes.length });
 
       await this.insertVotes(this.deps.db, { ...population, votes: roundVotes }, epochBeforeId, dualWrite);
@@ -606,9 +632,11 @@ export class Simulation {
     const auditLog = await this.fetchAuditLogSince(auditLogWatermarkId);
 
     const lastRound = rounds[rounds.length - 1];
+    const resultPopulation =
+      firstRoundVotes === undefined ? population : { ...population, votes: firstRoundVotes };
     return {
       scenario,
-      population,
+      population: resultPopulation,
       epochBeforeId,
       epochAfterId,
       aggregatedWeights: lastRound.weights,
@@ -657,9 +685,11 @@ export class Simulation {
     );
 
     await insertBatched(db, population.posts, (batch, offset) => ({
+      // PROJ-917: posts' PK widened to (uri, created_at) — partitioned
+      // tables require the partition key in every unique constraint.
       text: `INSERT INTO posts (uri, cid, author_did, text, created_at, has_media, embed_url, topic_vector)
              VALUES ${valuesClause(batch.length, 8, offset)}
-             ON CONFLICT (uri) DO NOTHING`,
+             ON CONFLICT (uri, created_at) DO NOTHING`,
       params: batch.flatMap((post) => [
         post.uri,
         post.cid,

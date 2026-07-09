@@ -7,13 +7,25 @@
  * What gets deleted:
  * - Posts with indexed_at > 72 hours ago that have no post_scores rows
  *   and are not in the Redis feed:current sorted set
- * - Orphaned likes/reposts whose subject_uri no longer exists in posts
- *   (these have no FK, so CASCADE doesn't help)
+ * - Orphaned likes/reposts/post_engagement rows whose post no longer
+ *   exists in posts (none of these have an FK to posts, so CASCADE never
+ *   helps — see below)
  * - Likes/reposts older than 7 days for posts that are not scored
  * - Follows older than 7 days
  *
- * post_engagement and post_scores have ON DELETE CASCADE from posts,
- * so they are cleaned up automatically.
+ * PROJ-917: posts/post_scores/post_score_components are now declaratively
+ * RANGE-partitioned by created_at (migrations 026-029), and bulk 30-day-old
+ * retention is handled by src/maintenance/partition-manager.ts via instant
+ * partition DROP, not by this hourly job. That rebuild also DROPPED
+ * post_engagement's `ON DELETE CASCADE` FK to posts — a partitioned table's
+ * unique constraints must include the full partition key (PG16), so
+ * `posts(uri)` alone can no longer back an FK once posts' PK becomes
+ * (uri, created_at). So post_engagement joins likes/reposts in never having
+ * CASCADE cleanup: batchDeleteOrphanedEngagement() below mirrors the
+ * existing orphaned-likes/orphaned-reposts pattern (partition-manager.ts
+ * separately cascades post_engagement for the bulk 30-day-partition-drop
+ * case; this function is the finer-grained sweep for the 72h-unscored-post
+ * path in batchDeleteOldPosts above).
  *
  * VACUUM runs after large deletes to reclaim disk space.
  */
@@ -26,6 +38,7 @@ export interface CleanupResult {
   postsDeleted: number;
   orphanedLikesDeleted: number;
   orphanedRepostsDeleted: number;
+  orphanedEngagementDeleted: number;
   staleLikesDeleted: number;
   staleRepostsDeleted: number;
   oldFollowsDeleted: number;
@@ -176,6 +189,15 @@ async function runCleanupInternal(): Promise<CleanupResult> {
     logger.error({ err }, 'Failed to delete orphaned reposts');
   }
 
+  // PROJ-917: post_engagement lost its ON DELETE CASCADE from posts (see
+  // this file's header comment) — sweep the same way as orphaned likes/reposts.
+  let orphanedEngagementDeleted = 0;
+  try {
+    orphanedEngagementDeleted = await batchDeleteOrphanedEngagement();
+  } catch (err) {
+    logger.error({ err }, 'Failed to delete orphaned post_engagement rows');
+  }
+
   // 4. Delete old likes/reposts not associated with scored posts, and old follows.
   let staleLikesDeleted = 0;
   try {
@@ -202,6 +224,7 @@ async function runCleanupInternal(): Promise<CleanupResult> {
     postsDeleted +
     orphanedLikesDeleted +
     orphanedRepostsDeleted +
+    orphanedEngagementDeleted +
     staleLikesDeleted +
     staleRepostsDeleted +
     oldFollowsDeleted;
@@ -216,6 +239,7 @@ async function runCleanupInternal(): Promise<CleanupResult> {
     postsDeleted,
     orphanedLikesDeleted,
     orphanedRepostsDeleted,
+    orphanedEngagementDeleted,
     staleLikesDeleted,
     staleRepostsDeleted,
     oldFollowsDeleted,
@@ -358,6 +382,55 @@ async function batchDeleteOrphanedReposts(): Promise<number> {
   return totalDeleted;
 }
 
+/**
+ * PROJ-917: post_engagement.post_uri lost its `ON DELETE CASCADE` FK to
+ * posts when posts was partitioned (migration 027 — a partitioned table's
+ * unique constraints must include the full partition key, so `posts(uri)`
+ * alone can no longer back an FK). This mirrors batchDeleteOrphanedLikes/
+ * batchDeleteOrphanedReposts above (which never had CASCADE either, for the
+ * same "no FK" reason) rather than an age filter: post_engagement has no
+ * created_at column of its own, and a row is only ever orphaned by its post
+ * being hard-deleted, not by aging — so "post no longer exists" is the
+ * complete condition.
+ */
+async function batchDeleteOrphanedEngagement(): Promise<number> {
+  let totalDeleted = 0;
+  const client = await db.connect();
+
+  try {
+    await client.query("SET statement_timeout = '120s'");
+
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      if (isShuttingDown) break;
+
+      const result = await client.query(
+        `DELETE FROM post_engagement
+         WHERE post_uri IN (
+           SELECT pe.post_uri FROM post_engagement pe
+           WHERE NOT EXISTS (SELECT 1 FROM posts p WHERE p.uri = pe.post_uri)
+           LIMIT $1
+         )`,
+        [BATCH_SIZE]
+      );
+
+      const deleted = result.rowCount ?? 0;
+      totalDeleted += deleted;
+
+      if (deleted > 0) {
+        logger.debug({ deleted, totalDeleted }, 'Cleanup batch: orphaned post_engagement deleted');
+      }
+
+      if (deleted < BATCH_SIZE) break;
+    }
+  } finally {
+    await client.query("SET statement_timeout = '10s'").catch(() => {});
+    client.release();
+  }
+
+  return totalDeleted;
+}
+
 async function batchDeleteStaleLikes(): Promise<number> {
   let totalDeleted = 0;
   const client = await db.connect();
@@ -480,11 +553,15 @@ async function runVacuum(): Promise<boolean> {
     client = await db.connect();
     await client.query("SET statement_timeout = '300s'");
 
-    logger.info('Running VACUUM ANALYZE on posts, likes, reposts, follows');
+    logger.info('Running VACUUM ANALYZE on posts, likes, reposts, follows, post_engagement');
     await client.query('VACUUM (ANALYZE) posts');
     await client.query('VACUUM (ANALYZE) likes');
     await client.query('VACUUM (ANALYZE) reposts');
     await client.query('VACUUM (ANALYZE) follows');
+    // PROJ-917: post_engagement now receives real deletes from
+    // batchDeleteOrphanedEngagement() above (no more FK CASCADE), so it
+    // needs the same VACUUM treatment as the other actively-pruned tables.
+    await client.query('VACUUM (ANALYZE) post_engagement');
 
     logger.info('VACUUM complete');
     return true;

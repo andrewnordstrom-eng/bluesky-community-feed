@@ -14,6 +14,8 @@ import { getTaxonomy } from '../../scoring/topics/taxonomy.js';
 import { checkGovernanceGate, isGovernanceGateReady } from '../governance-gate.js';
 import { classifyPostByEmbedding } from '../embedding-gate.js';
 import { isEmbedderReady } from '../../scoring/topics/embedder.js';
+import type { IngestionEventOutcome } from '../outcomes.js';
+import { normalizeCreatedAt } from '../normalize-timestamp.js';
 
 /** AT Protocol content labels that indicate NSFW content. */
 const NSFW_LABELS = new Set(['porn', 'sexual', 'graphic-media', 'nudity']);
@@ -58,12 +60,12 @@ export async function handlePost(
   authorDid: string,
   cid: string,
   record: Record<string, unknown>
-): Promise<void> {
+): Promise<IngestionEventOutcome> {
   const postRecord = record as PostRecord;
 
   const text = postRecord.text ?? null;
   const langs = postRecord.langs ?? [];
-  const createdAt = postRecord.createdAt ?? new Date().toISOString();
+  const createdAt = normalizeCreatedAt(postRecord.createdAt, uri);
 
   // Extract reply info
   const replyRoot = postRecord.reply?.root?.uri ?? null;
@@ -102,7 +104,7 @@ export async function handlePost(
     try {
       if (hasNsfwLabels(record)) {
         logger.debug({ uri, authorDid }, 'Post skipped by NSFW content label');
-        return;
+        return 'post-nsfw-skipped';
       }
     } catch (err) {
       logger.warn({ err, uri }, 'NSFW label check failed, continuing with post');
@@ -113,7 +115,7 @@ export async function handlePost(
   // Images/videos without meaningful text are usually not on-topic content.
   if (config.INGESTION_MIN_TEXT_FOR_MEDIA > 0 && hasMedia && (!text || text.trim().length < config.INGESTION_MIN_TEXT_FOR_MEDIA)) {
     logger.debug({ uri, authorDid }, 'Post skipped: media with insufficient text');
-    return;
+    return 'post-media-skipped';
   }
 
   // Pre-ingestion content filtering: skip posts that don't match include keywords.
@@ -127,7 +129,7 @@ export async function handlePost(
           { uri, reason: filterResult.reason, keyword: filterResult.matchedKeyword },
           'Post skipped by content filter'
         );
-        return;
+        return 'post-content-filter-skipped';
       }
     }
   } catch (err) {
@@ -158,7 +160,7 @@ export async function handlePost(
           { uri, relevance: gateResult.relevance, authorDid },
           'Post rejected by governance gate: below community relevance threshold'
         );
-        return;
+        return 'post-governance-gate-skipped';
       }
     } catch (err) {
       logger.warn({ err, uri }, 'Governance gate check failed, inserting post anyway');
@@ -188,16 +190,19 @@ export async function handlePost(
 
   try {
     // UPSERT post - ON CONFLICT DO NOTHING handles duplicates
-    await db.query(
+    const postResult = await db.query(
       `INSERT INTO posts (uri, cid, author_did, text, reply_root, reply_parent, langs, has_media, created_at, topic_vector, embed_url, classification_method)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-       ON CONFLICT (uri) DO NOTHING`,
+       -- PROJ-917: posts' PK widened to (uri, created_at) — partitioned
+       -- tables require the partition key in every unique constraint.
+       ON CONFLICT (uri, created_at) DO NOTHING
+       RETURNING uri`,
       [uri, cid, authorDid, text, replyRoot, replyParent, langs, hasMedia, createdAt, JSON.stringify(topicVector), embedUrl, classificationMethod]
     );
 
     // Initialize engagement counters - UPSERT pattern
     await db.query(
-      `INSERT INTO post_engagement (post_uri) VALUES ($1) ON CONFLICT DO NOTHING`,
+      `INSERT INTO post_engagement (post_uri) VALUES ($1) ON CONFLICT DO NOTHING RETURNING post_uri`,
       [uri]
     );
 
@@ -211,8 +216,10 @@ export async function handlePost(
     }
 
     logger.debug({ uri, authorDid }, 'Post indexed');
+    return postResult.rowCount ? 'post-inserted' : 'post-duplicate-noop';
   } catch (err) {
     logger.error({ err, uri }, 'Failed to insert post');
     // Don't rethrow - log and continue processing other events
+    return 'post-handler-error';
   }
 }

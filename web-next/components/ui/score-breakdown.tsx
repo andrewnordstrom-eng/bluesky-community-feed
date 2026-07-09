@@ -11,7 +11,7 @@ export interface ScoreComponent {
 }
 
 interface ScoreBreakdownProps {
-  components: ScoreComponent[]
+  components: readonly ScoreComponent[]
   total_score: number
   /** Context label shown in footer */
   epochLabel?: string

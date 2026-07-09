@@ -18,6 +18,7 @@ import {
   isJetstreamConnected,
   getJetstreamDisconnectedAt,
 } from '../../ingestion/jetstream.js';
+import { getSubscriberDigestUnavailableTotal } from '../../db/queries/subscribers.js';
 import { logger } from '../../lib/logger.js';
 import { adminSecurity } from '../../lib/openapi.js';
 
@@ -68,7 +69,7 @@ export function registerVitalsRoutes(app: FastifyInstance): void {
       redis.info('memory').catch(() => ''),
       safeQuery<{ key: string; value: Record<string, unknown>; updated_at: string }>(
         `SELECT key, value, updated_at::text FROM system_status
-         WHERE key IN ('current_scoring_run', 'last_cleanup_run', 'disk_status', 'last_emergency_vacuum', 'engagement_alert')`
+         WHERE key IN ('current_scoring_run', 'last_cleanup_run', 'disk_status', 'disk_emergency_alert', 'engagement_alert')`
       ),
       safeQuery<{ total: string; active_24h: string; active_7d: string }>(
         `SELECT
@@ -83,14 +84,18 @@ export function registerVitalsRoutes(app: FastifyInstance): void {
       ),
       safeQuery<{ dead_count: string; total_scored: string }>(
         `SELECT
-           COUNT(*) FILTER (WHERE ps.final_score IS NOT NULL AND NOT EXISTS (
+           COUNT(*) FILTER (WHERE ps.total_score IS NOT NULL AND NOT EXISTS (
              SELECT 1 FROM likes l WHERE l.subject_uri = p.uri
            ) AND NOT EXISTS (
              SELECT 1 FROM reposts r WHERE r.subject_uri = p.uri
            )) as dead_count,
            COUNT(*) as total_scored
          FROM posts p
-         JOIN post_scores ps ON ps.uri = p.uri
+         -- Join column is ps.post_uri (post_scores has no plain uri column), plus
+         -- the created_at partition-key predicate: post_scores is RANGE-partitioned
+         -- by created_at (denormalized 1:1 from posts.created_at), so this prunes
+         -- the probe to one partition per post instead of all ~36 (PROJ-917).
+         JOIN post_scores ps ON ps.post_uri = p.uri AND ps.created_at = p.created_at
          WHERE p.indexed_at > NOW() - INTERVAL '24 hours' AND p.deleted = FALSE`
       ),
     ]);
@@ -108,7 +113,7 @@ export function registerVitalsRoutes(app: FastifyInstance): void {
 
     const scoringRun = statusMap.get('current_scoring_run');
     const cleanupRun = statusMap.get('last_cleanup_run');
-    const emergencyVacuum = statusMap.get('last_emergency_vacuum');
+    const diskEmergencyAlert = statusMap.get('disk_emergency_alert');
     const engagementAlert = statusMap.get('engagement_alert');
 
     // Disk
@@ -142,7 +147,7 @@ export function registerVitalsRoutes(app: FastifyInstance): void {
             total_gb: diskStatus.total_gb,
             level: diskStatus.level,
             last_checked_at: diskStatus.last_checked_at,
-            last_emergency_vacuum: emergencyVacuum?.value ?? null,
+            emergency_alert: diskEmergencyAlert?.value ?? null,
           }
         : null,
 
@@ -219,6 +224,7 @@ export function registerVitalsRoutes(app: FastifyInstance): void {
             total: parseInt(subscriberStats[0]?.total ?? '0', 10),
             active_24h: parseInt(subscriberStats[0]?.active_24h ?? '0', 10),
             active_7d: parseInt(subscriberStats[0]?.active_7d ?? '0', 10),
+            digest_unavailable_total: getSubscriberDigestUnavailableTotal(),
           }
         : null,
     };

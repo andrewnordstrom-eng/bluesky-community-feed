@@ -22,6 +22,8 @@ Corgi is a production Bluesky custom feed where subscribers democratically vote 
 
 ![Governance dashboard screenshot](docs/screenshots/dashboard.png)
 
+**Live production snapshot:** on 2026-07-07 at 03:00 UTC, `GET /api/transparency/stats` reported epoch 2 active with 3,348 scored posts, 3,007 unique authors, and 0 votes in the current epoch. See [the dated anonymized metrics packet](docs/lab/2026-07-07-recsys-live-metrics-packet.md) for commands, caveats, and counterfactual receipts.
+
 ---
 
 ## Try It

@@ -40,6 +40,7 @@ const {
     SCORING_FULL_RESCORE_INTERVAL: 6,
     SCORING_CANDIDATE_LIMIT: 5000,
     SCORING_TIMEOUT_MS: 240000,
+    SCORING_CONCURRENCY: 8,
     TOPIC_EMBEDDING_ENABLED: false,
     TOPIC_EMBEDDING_MIN_SIMILARITY: 0.35,
     FEED_MIN_RELEVANCE: 0,
@@ -54,7 +55,7 @@ vi.mock('../src/db/client.js', () => ({
 }));
 
 vi.mock('../src/db/redis.js', () => ({
-  redis: { pipeline: redisPipelineFactoryMock },
+  redis: { pipeline: redisPipelineFactoryMock, incr: vi.fn().mockResolvedValue(1), del: vi.fn().mockResolvedValue(1), eval: vi.fn().mockResolvedValue(1) },
 }));
 
 vi.mock('../src/governance/content-filter.js', () => ({
@@ -153,13 +154,14 @@ describe('scoring pipeline long-table dual-write (PROJ-814)', () => {
     const longCall = findCall('INSERT INTO post_score_components');
     expect(longCall).toBeDefined();
 
-    // Params layout: 6 columns × N components. Default registry → 5 components → 30 params.
+    // Params layout: 7 columns × N components (PROJ-917 added created_at, the
+    // partition key, bound per row). Default registry → 5 components → 35 params.
     const params = longCall![1] as unknown[];
-    expect(params.length).toBe(5 * 6);
+    expect(params.length).toBe(5 * 7);
 
-    // Verify the component_key column is the 3rd of each 6-tuple and matches the
+    // Verify the component_key column is the 3rd of each 7-tuple and matches the
     // registry order in DEFAULT_COMPONENTS.
-    const componentKeys = [params[2], params[8], params[14], params[20], params[26]];
+    const componentKeys = [params[2], params[9], params[16], params[23], params[30]];
     expect(componentKeys).toEqual([
       'recency',
       'engagement',
@@ -167,6 +169,15 @@ describe('scoring pipeline long-table dual-write (PROJ-814)', () => {
       'sourceDiversity',
       'relevance',
     ]);
+
+    // created_at (7th of each tuple) is bound directly from the scored post, not
+    // re-looked-up via `(SELECT created_at FROM posts WHERE uri = ...)` — that
+    // subquery is unsafe once uri stops being unique on its own.
+    const sql = String(longCall![0]);
+    expect(sql).not.toMatch(/SELECT created_at FROM posts/);
+    for (const idx of [6, 13, 20, 27, 34]) {
+      expect(params[idx]).toBeInstanceOf(Date);
+    }
   });
 
   it('skips the long-table write when flag is off', async () => {
@@ -205,8 +216,10 @@ describe('scoring pipeline long-table dual-write (PROJ-814)', () => {
     expect(longCall).toBeDefined();
 
     const sql = String(longCall![0]);
+    // PROJ-917: post_score_components' PK widened to include created_at
+    // (the partition key) — see migration 029.
     expect(sql).toMatch(
-      /ON CONFLICT \(post_uri, epoch_id, component_key\) DO UPDATE SET/
+      /ON CONFLICT \(post_uri, epoch_id, component_key, created_at\) DO UPDATE SET/
     );
     // Update clause must refresh all three numeric columns plus scored_at.
     expect(sql).toMatch(/raw = EXCLUDED\.raw/);

@@ -263,6 +263,7 @@ See `docs/OPERABILITY.md`, `docs/runbooks/operator-quickstart.md`, and
 | Document | Path |
 |----------|------|
 | Architecture | `docs/ARCHITECTURE.md` |
+| Log and journal index (local-only findings journal at `docs/eval-lab-journal.md`) | `docs/LOGS.md` |
 | Operability / release procedures | `docs/OPERABILITY.md` |
 | Operator quickstart | `docs/runbooks/operator-quickstart.md` |
 | Incident response | `docs/runbooks/incident-response.md` |

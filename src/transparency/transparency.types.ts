@@ -91,6 +91,13 @@ export interface FeedStats {
   governance: {
     votes_this_epoch: number;
   };
+  stats_status: {
+    source: 'scoring_run' | 'fallback';
+    degraded: boolean;
+    computed_at: string | null;
+    run_id: string | null;
+    message: string | null;
+  };
   metrics?: {
     author_gini: number | null;
     vs_chronological_overlap: number | null;
@@ -107,11 +114,15 @@ export interface EpochMetrics {
   author_gini: number | null;
   avg_bridging: number | null;
   median_bridging: number | null;
+  avg_engagement: number | null;
+  median_total: number | null;
   vs_chronological_overlap: number | null;
   vs_engagement_overlap: number | null;
   posts_scored: number;
   unique_authors: number;
   computed_at: Date;
+  run_id: string | null;
+  metrics_source: 'current_feed' | 'legacy';
 }
 
 /**

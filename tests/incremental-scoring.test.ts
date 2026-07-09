@@ -7,10 +7,12 @@ const {
   pipelineZaddMock,
   pipelineSetMock,
   pipelineExecMock,
+  redisEvalMock,
   getCurrentContentRulesMock,
   hasActiveContentRulesMock,
   filterPostsMock,
   updateScoringStatusMock,
+  loggerWarnMock,
 } = vi.hoisted(() => ({
   dbQueryMock: vi.fn(),
   redisPipelineFactoryMock: vi.fn(),
@@ -18,10 +20,12 @@ const {
   pipelineZaddMock: vi.fn(),
   pipelineSetMock: vi.fn(),
   pipelineExecMock: vi.fn(),
+  redisEvalMock: vi.fn(),
   getCurrentContentRulesMock: vi.fn(),
   hasActiveContentRulesMock: vi.fn(),
   filterPostsMock: vi.fn(),
   updateScoringStatusMock: vi.fn(),
+  loggerWarnMock: vi.fn(),
 }));
 
 vi.mock('../src/db/client.js', () => ({
@@ -33,6 +37,9 @@ vi.mock('../src/db/client.js', () => ({
 vi.mock('../src/db/redis.js', () => ({
   redis: {
     pipeline: redisPipelineFactoryMock,
+    incr: vi.fn().mockResolvedValue(1),
+    del: vi.fn().mockResolvedValue(1),
+    eval: redisEvalMock,
   },
 }));
 
@@ -44,6 +51,15 @@ vi.mock('../src/governance/content-filter.js', () => ({
 
 vi.mock('../src/admin/status-tracker.js', () => ({
   updateScoringStatus: updateScoringStatusMock,
+}));
+
+vi.mock('../src/lib/logger.js', () => ({
+  logger: {
+    debug: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    warn: loggerWarnMock,
+  },
 }));
 
 
@@ -66,6 +82,7 @@ function setupDefaultMocks() {
     exec: pipelineExecMock.mockResolvedValue([]),
   };
   redisPipelineFactoryMock.mockReturnValue(pipeline);
+  redisEvalMock.mockResolvedValue(1);
 
   getCurrentContentRulesMock.mockResolvedValue({
     includeKeywords: [],
@@ -73,6 +90,18 @@ function setupDefaultMocks() {
   });
   hasActiveContentRulesMock.mockReturnValue(false);
   updateScoringStatusMock.mockResolvedValue(undefined);
+}
+
+function findEpochMetricsInsertParams(): unknown[] {
+  const metricsCall = dbQueryMock.mock.calls.find(
+    (call: unknown[]) => String(call[0]).includes('INSERT INTO epoch_metrics')
+  );
+  expect(metricsCall).toBeDefined();
+  return metricsCall?.[1] as unknown[];
+}
+
+function queryWasCalledWith(fragment: string): boolean {
+  return dbQueryMock.mock.calls.some((call: unknown[]) => String(call[0]).includes(fragment));
 }
 
 describe('incremental scoring pipeline', () => {
@@ -97,6 +126,63 @@ describe('incremental scoring pipeline', () => {
     const postsQuery = String(dbQueryMock.mock.calls[1][0]);
     expect(postsQuery).not.toContain('UNION ALL');
     expect(postsQuery).toContain('FROM posts p');
+  });
+
+  it('keeps the scoring run successful when snapshot invalidation fails after Redis write', async () => {
+    redisEvalMock.mockRejectedValueOnce(new Error('redis eval unavailable'));
+    dbQueryMock
+      .mockResolvedValueOnce({ rows: [makeEpochRow()] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await runScoringPipeline();
+
+    expect(pipelineExecMock).toHaveBeenCalledTimes(1);
+    expect(updateScoringStatusMock).toHaveBeenCalledTimes(1);
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        epochId: 2,
+        err: expect.any(Error),
+        runId: expect.any(String),
+      }),
+      'Failed to invalidate current feed snapshot cache after feed write'
+    );
+  });
+
+  it('skips overlapping triggers until a timed-out scoring run actually settles', async () => {
+    vi.useFakeTimers();
+    try {
+      let resolveEpoch: ((value: { rows: ReturnType<typeof makeEpochRow>[] }) => void) | null = null;
+      const pendingEpoch = new Promise<{ rows: ReturnType<typeof makeEpochRow>[] }>((resolve) => {
+        resolveEpoch = resolve;
+      });
+      dbQueryMock.mockImplementationOnce(() => pendingEpoch);
+      dbQueryMock.mockResolvedValue({ rows: [] });
+
+      const timedOutRun = runScoringPipeline();
+      const timedOutResult = timedOutRun.catch((error: unknown) => error);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(dbQueryMock).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(240_000);
+      expect(await timedOutResult).toEqual(expect.objectContaining({ message: 'Scoring pipeline timed out' }));
+
+      await runScoringPipeline();
+      expect(loggerWarnMock).toHaveBeenCalledWith('Scoring pipeline already running; skipping overlapping trigger');
+      expect(dbQueryMock).toHaveBeenCalledTimes(1);
+
+      resolveEpoch?.({ rows: [makeEpochRow()] });
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const callCountBeforeFreshRun = dbQueryMock.mock.calls.length;
+      await runScoringPipeline();
+      expect(dbQueryMock.mock.calls.length).toBeGreaterThan(callCountBeforeFreshRun);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('switches to incremental mode on subsequent runs with same epoch', async () => {
@@ -177,6 +263,218 @@ describe('incremental scoring pipeline', () => {
 
     // Redis should have the post from DB, not just from the in-memory scored array
     expect(pipelineZaddMock).toHaveBeenCalledWith('feed:current', 0.5, postRow.uri);
+  });
+
+  it('materializes current feed stats after writing Redis feed', async () => {
+    dbQueryMock
+      .mockResolvedValueOnce({ rows: [makeEpochRow()] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            post_uri: 'at://did:plc:test/post/1',
+            total_score: '0.9',
+            author_did: 'did:plc:author-a',
+            bridging_score: '0.8',
+            engagement_score: '0.4',
+            embed_url: null,
+            text_length: '120',
+          },
+          {
+            post_uri: 'at://did:plc:test/post/2',
+            total_score: '0.5',
+            author_did: 'did:plc:author-b',
+            bridging_score: '0.2',
+            engagement_score: '0.6',
+            embed_url: null,
+            text_length: '100',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await runScoringPipeline();
+
+    const [
+      epochId,
+      authorGini,
+      avgBridging,
+      medianBridging,
+      avgEngagement,
+      medianTotal,
+      totalPostsScored,
+      uniqueAuthors,
+      runId,
+    ] = findEpochMetricsInsertParams();
+    expect(epochId).toBe(2);
+    expect(authorGini).toBe(0);
+    expect(avgBridging).toBe(0.5);
+    expect(medianBridging).toBe(0.5);
+    expect(avgEngagement).toBe(0.5);
+    expect(medianTotal).toBe(0.7);
+    expect(totalPostsScored).toBe(2);
+    expect(uniqueAuthors).toBe(2);
+    expect(typeof runId).toBe('string');
+    expect(queryWasCalledWith('DELETE FROM epoch_metrics')).toBe(true);
+    expect(queryWasCalledWith("metrics_source = 'current_feed'")).toBe(true);
+  });
+
+  it('materializes non-zero author concentration for skewed current feed authors', async () => {
+    dbQueryMock
+      .mockResolvedValueOnce({ rows: [makeEpochRow()] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            post_uri: 'at://did:plc:test/post/1',
+            total_score: '0.9',
+            author_did: 'did:plc:author-a',
+            bridging_score: '0.8',
+            engagement_score: '0.4',
+            embed_url: null,
+            text_length: '120',
+          },
+          {
+            post_uri: 'at://did:plc:test/post/2',
+            total_score: '0.7',
+            author_did: 'did:plc:author-a',
+            bridging_score: '0.6',
+            engagement_score: '0.5',
+            embed_url: null,
+            text_length: '110',
+          },
+          {
+            post_uri: 'at://did:plc:test/post/3',
+            total_score: '0.5',
+            author_did: 'did:plc:author-b',
+            bridging_score: '0.2',
+            engagement_score: '0.6',
+            embed_url: null,
+            text_length: '100',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await runScoringPipeline();
+
+    const [
+      epochId,
+      authorGini,
+      avgBridging,
+      medianBridging,
+      avgEngagement,
+      medianTotal,
+      totalPostsScored,
+      uniqueAuthors,
+    ] = findEpochMetricsInsertParams();
+    expect(epochId).toBe(2);
+    expect(Number(authorGini)).toBeGreaterThan(0);
+    expect(avgBridging).toBeCloseTo(0.533333, 5);
+    expect(medianBridging).toBe(0.6);
+    expect(avgEngagement).toBe(0.5);
+    expect(medianTotal).toBe(0.7);
+    expect(totalPostsScored).toBe(3);
+    expect(uniqueAuthors).toBe(2);
+  });
+
+  it('materializes explicit zero stats for an empty current feed', async () => {
+    dbQueryMock
+      .mockResolvedValueOnce({ rows: [makeEpochRow()] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await runScoringPipeline();
+
+    const [
+      epochId,
+      authorGini,
+      avgBridging,
+      medianBridging,
+      avgEngagement,
+      medianTotal,
+      totalPostsScored,
+      uniqueAuthors,
+      runId,
+    ] = findEpochMetricsInsertParams();
+    expect(epochId).toBe(2);
+    expect(authorGini).toBe(0);
+    expect(avgBridging).toBe(0);
+    expect(medianBridging).toBe(0);
+    expect(avgEngagement).toBe(0);
+    expect(medianTotal).toBe(0);
+    expect(totalPostsScored).toBe(0);
+    expect(uniqueAuthors).toBe(0);
+    expect(typeof runId).toBe('string');
+  });
+
+  it('keeps scoring successful when current feed metrics materialization fails', async () => {
+    const metricsError = new Error('epoch_metrics insert failed');
+    dbQueryMock
+      .mockResolvedValueOnce({ rows: [makeEpochRow()] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockRejectedValueOnce(metricsError)
+      .mockResolvedValueOnce({ rows: [] });
+
+    await runScoringPipeline();
+
+    expect(updateScoringStatusMock).toHaveBeenCalledTimes(1);
+    expect(queryWasCalledWith('current_scoring_run')).toBe(true);
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        err: metricsError,
+        epochId: 2,
+        runId: expect.any(String),
+      }),
+      'Failed to update epoch transparency metrics'
+    );
+  });
+
+  it('falls back to zero when materializing malformed current feed numeric fields', async () => {
+    dbQueryMock
+      .mockResolvedValueOnce({ rows: [makeEpochRow()] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            post_uri: 'at://did:plc:test/post/malformed',
+            total_score: 'not-a-number',
+            author_did: 'did:plc:author-a',
+            bridging_score: 'also-not-a-number',
+            engagement_score: '0.6',
+            embed_url: null,
+            text_length: 'still-not-a-number',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await runScoringPipeline();
+
+    const [
+      epochId,
+      authorGini,
+      avgBridging,
+      medianBridging,
+      avgEngagement,
+      medianTotal,
+      totalPostsScored,
+      uniqueAuthors,
+    ] = findEpochMetricsInsertParams();
+    expect(epochId).toBe(2);
+    expect(authorGini).toBe(0);
+    expect(avgBridging).toBe(0);
+    expect(medianBridging).toBe(0);
+    expect(avgEngagement).toBe(0.6);
+    expect(medianTotal).toBe(0);
+    expect(totalPostsScored).toBe(1);
+    expect(uniqueAuthors).toBe(1);
   });
 
   it('incremental query passes epoch_id to filter scored posts', async () => {

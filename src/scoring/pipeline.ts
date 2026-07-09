@@ -14,10 +14,11 @@
 import { db } from '../db/client.js';
 import { redis } from '../db/redis.js';
 import { config } from '../config.js';
+import { invalidateCurrentFeedSnapshot } from '../feed/snapshot-cache.js';
 import { logger } from '../lib/logger.js';
 import { getActiveEpoch } from '../db/queries/epochs.js';
 import { randomUUID } from 'crypto';
-import { createAuthorCountMap } from './components/source-diversity.js';
+import { createAuthorCountMap, scoreSourceDiversity } from './components/source-diversity.js';
 import {
   GovernanceEpoch,
   PostForScoring,
@@ -35,11 +36,13 @@ import {
 } from '../governance/content-filter.js';
 import type { ContentRules } from '../governance/governance.types.js';
 import { updateScoringStatus } from '../admin/status-tracker.js';
+import { calculateAuthorConcentration } from '../transparency/metrics.js';
 
 // Maximum time allowed for a single scoring run.
 const SCORING_TIMEOUT_MS = config.SCORING_TIMEOUT_MS;
 const SCORING_CANDIDATE_LIMIT = config.SCORING_CANDIDATE_LIMIT;
 const SQL_BOUNDARY_KEYWORD_PATTERN = /^[a-z0-9][a-z0-9\s-]*$/;
+const EPOCH_METRICS_CURRENT_FEED_RETENTION_ROWS = 24;
 
 // Track last successful run for health checks
 let lastSuccessfulRunAt: Date | null = null;
@@ -52,6 +55,27 @@ let incrementalRunCount = 0;
 
 // Avoid repeated warnings when a rollout exposes a missing dynamic component weight.
 let missingWeightWarned = new Set<string>();
+let scoringRunInFlight: Promise<void> | null = null;
+
+interface CurrentFeedStatsSnapshot {
+  totalPostsScored: number;
+  uniqueAuthors: number;
+  avgBridging: number;
+  avgEngagement: number;
+  medianBridging: number;
+  medianTotal: number;
+  authorGini: number;
+}
+
+interface RedisFeedCandidate {
+  post_uri: string;
+  total_score: number;
+  author_did: string;
+  bridging_score: number;
+  engagement_score: number;
+  embed_url: string | null;
+  text_length: number;
+}
 
 /**
  * Get the timestamp of the last successful scoring run.
@@ -68,6 +92,7 @@ export function __resetPipelineState(): void {
   lastScoredEpochId = null;
   incrementalRunCount = 0;
   missingWeightWarned = new Set<string>();
+  scoringRunInFlight = null;
 }
 
 /**
@@ -75,17 +100,44 @@ export function __resetPipelineState(): void {
  * This is the main entry point called by the scheduler.
  */
 export async function runScoringPipeline(): Promise<void> {
+  if (scoringRunInFlight !== null) {
+    logger.warn('Scoring pipeline already running; skipping overlapping trigger');
+    return;
+  }
+
+  const scoringRun = runScoringPipelineInternal();
+  scoringRunInFlight = scoringRun;
+  void scoringRun.then(
+    () => {
+      if (scoringRunInFlight === scoringRun) {
+        scoringRunInFlight = null;
+      }
+    },
+    () => {
+      if (scoringRunInFlight === scoringRun) {
+        scoringRunInFlight = null;
+      }
+    }
+  );
+
+  let timeout: NodeJS.Timeout | null = null;
   const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(
+    timeout = setTimeout(
       () => reject(new Error('Scoring pipeline timed out')),
       SCORING_TIMEOUT_MS
     );
   });
 
-  await Promise.race([
-    runScoringPipelineInternal(),
-    timeoutPromise,
-  ]);
+  try {
+    await Promise.race([
+      scoringRun,
+      timeoutPromise,
+    ]);
+  } finally {
+    if (timeout !== null) {
+      clearTimeout(timeout);
+    }
+  }
 }
 
 /**
@@ -189,7 +241,7 @@ async function runScoringPipelineInternal(): Promise<void> {
     // In incremental mode, only new/changed posts were scored above, but
     // previous scores remain in post_scores. Reading from DB gives the
     // complete, correctly-ranked feed.
-    await writeToRedisFromDb(epoch.id, runId);
+    const feedStatsSnapshot = await writeToRedisFromDb(epoch.id, runId);
 
     const elapsed = Date.now() - startTime;
     logger.info(
@@ -215,6 +267,11 @@ async function runScoringPipelineInternal(): Promise<void> {
       posts_scored: posts.length,
       posts_filtered: allPosts.length - posts.length,
     });
+    try {
+      await updateEpochMetrics(epoch.id, runId, feedStatsSnapshot);
+    } catch (err) {
+      logger.warn({ err, epochId: epoch.id, runId }, 'Failed to update epoch transparency metrics');
+    }
     await updateCurrentRunScope(runId, epoch.id, elapsed, posts.length, allPosts.length - posts.length);
   } catch (err) {
     logger.error({ err }, 'Scoring pipeline failed');
@@ -244,6 +301,106 @@ async function updateCurrentRunScope(
       }),
     ]
   );
+}
+
+async function updateEpochMetrics(
+  epochId: number,
+  runId: string,
+  snapshot: CurrentFeedStatsSnapshot
+): Promise<void> {
+  await db.query(
+    `INSERT INTO epoch_metrics (
+       epoch_id,
+       author_gini,
+       avg_bridging,
+       median_bridging,
+       avg_engagement,
+       median_total,
+       vs_chronological_overlap,
+       vs_engagement_overlap,
+       posts_scored,
+       unique_authors,
+       run_id,
+       metrics_source
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, NULL, NULL, $7, $8, $9, 'current_feed')`,
+    [
+      epochId,
+      snapshot.authorGini,
+      snapshot.avgBridging,
+      snapshot.medianBridging,
+      snapshot.avgEngagement,
+      snapshot.medianTotal,
+      snapshot.totalPostsScored,
+      snapshot.uniqueAuthors,
+      runId,
+    ]
+  );
+  await db.query(
+    `DELETE FROM epoch_metrics
+     WHERE epoch_id = $1
+       AND metrics_source = 'current_feed'
+       AND id NOT IN (
+         SELECT id
+         FROM epoch_metrics
+         WHERE epoch_id = $1
+           AND metrics_source = 'current_feed'
+         ORDER BY computed_at DESC, id DESC
+         LIMIT $2
+       )`,
+    [epochId, EPOCH_METRICS_CURRENT_FEED_RETENTION_ROWS]
+  );
+}
+
+function numericValue(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function average(values: number[]): number {
+  if (values.length === 0) {
+    return 0;
+  }
+
+  return values.reduce((total, value) => total + value, 0) / values.length;
+}
+
+function median(values: number[]): number {
+  if (values.length === 0) {
+    return 0;
+  }
+
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 1) {
+    return sorted[middle];
+  }
+
+  const lower = sorted[middle - 1];
+  const upper = sorted[middle];
+  return (lower + upper) / 2;
+}
+
+function buildCurrentFeedStatsSnapshot(posts: RedisFeedCandidate[]): CurrentFeedStatsSnapshot {
+  const authorCounts = new Map<string, number>();
+  for (const post of posts) {
+    authorCounts.set(post.author_did, (authorCounts.get(post.author_did) ?? 0) + 1);
+  }
+
+  const authorConcentration = calculateAuthorConcentration(authorCounts);
+  const bridgingScores = posts.map((post) => post.bridging_score);
+  const engagementScores = posts.map((post) => post.engagement_score);
+  const totalScores = posts.map((post) => post.total_score);
+
+  return {
+    totalPostsScored: posts.length,
+    uniqueAuthors: authorCounts.size,
+    avgBridging: average(bridgingScores),
+    avgEngagement: average(engagementScores),
+    medianBridging: median(bridgingScores),
+    medianTotal: median(totalScores),
+    authorGini: authorConcentration.gini,
+  };
 }
 
 /**
@@ -304,7 +461,7 @@ async function getPostsForScoring(contentRules: ContentRules): Promise<PostForSc
   const cutoffMs = config.SCORING_WINDOW_HOURS * 60 * 60 * 1000;
   const cutoff = new Date(Date.now() - cutoffMs);
 
-  const clauses: string[] = ['p.deleted = FALSE', 'p.created_at > $1'];
+  const clauses: string[] = ['p.deleted = FALSE', 'p.created_at > $1', 'p.created_at <= NOW()'];
   const params: unknown[] = [cutoff.toISOString()];
 
   if (contentRules.includeKeywords.length > 0) {
@@ -438,8 +595,24 @@ async function getPostsForIncrementalScoring(
 
   const params: unknown[] = [cutoff.toISOString(), epochId, SCORING_CANDIDATE_LIMIT, ...sharedParams];
 
-  const result = await db.query(
-    `(
+  // The engagement-changed half (second UNION arm) re-scores posts whose
+  // engagement moved since they were last scored (pe.updated_at > ps.scored_at).
+  // Any in-window post has scored_at >= created_at > $1, so that predicate
+  // already implies pe.updated_at > $1 — this MATERIALIZED CTE therefore drops
+  // ZERO result rows (verified on prod: symdiff=0 vs the un-CTE'd form). Its sole
+  // purpose is to pin the plan: without it the planner nested-loops a
+  // post_engagement primary-key probe for every scored in-window post (~575k
+  // probes, ~21s at current volume); MATERIALIZED forces a single hash join over
+  // the in-window engagement set instead (~2x faster, ~11s), which keeps the
+  // fetch well clear of the 60s statement_timeout under background contention.
+  // Half 1 keeps its own LEFT JOIN post_engagement — it must include posts with
+  // no engagement row at all, which this filtered set would exclude.
+  const sql = `WITH changed_engagement AS MATERIALIZED (
+      SELECT post_uri, updated_at, like_count, repost_count, reply_count
+      FROM post_engagement
+      WHERE updated_at > $1
+    )
+    (
       SELECT p.uri, p.cid, p.author_did, p.text, p.reply_root, p.reply_parent,
              p.langs, p.has_media, p.created_at, p.topic_vector,
              p.classification_method,
@@ -448,9 +621,18 @@ async function getPostsForIncrementalScoring(
              COALESCE(pe.reply_count, 0) as reply_count
       FROM posts p
       LEFT JOIN post_engagement pe ON p.uri = pe.post_uri
-      LEFT JOIN post_scores ps ON p.uri = ps.post_uri AND ps.epoch_id = $2
+      -- Two partition-pruning predicates on the RANGE-by-created_at post_scores
+      -- table (created_at is the immutable 1:1 denormalized copy of
+      -- posts.created_at): (a) ps.created_at = p.created_at runtime-prunes the
+      -- per-row probe when the planner nested-loops this anti-join; (b) the
+      -- explicit ps.created_at > $1 prunes post_scores to the same 72h daily
+      -- partitions when the planner instead picks a hash join (the equality
+      -- alone can't prune a hash scan). Without both, post_scores is scanned in
+      -- full (~36 partitions) and the pipeline times out (PROJ-917).
+      LEFT JOIN post_scores ps ON p.uri = ps.post_uri AND ps.epoch_id = $2 AND ps.created_at = p.created_at AND ps.created_at > $1
       WHERE p.deleted = FALSE
         AND p.created_at > $1
+        AND p.created_at <= NOW()
         AND ps.post_uri IS NULL
         ${offsetContentFilterSql}
       ORDER BY p.created_at DESC
@@ -465,18 +647,31 @@ async function getPostsForIncrementalScoring(
              COALESCE(pe.repost_count, 0) as repost_count,
              COALESCE(pe.reply_count, 0) as reply_count
       FROM posts p
-      INNER JOIN post_engagement pe ON p.uri = pe.post_uri
-      INNER JOIN post_scores ps ON p.uri = ps.post_uri AND ps.epoch_id = $2
+      -- pe is the MATERIALIZED changed_engagement CTE (top of query): the
+      -- in-window engagement set, hash-joined here instead of PK-probed per row.
+      INNER JOIN changed_engagement pe ON p.uri = pe.post_uri
+      -- Same two partition-pruning predicates as the first half. This
+      -- engagement-changed half plans as a hash join, so the explicit
+      -- ps.created_at > $1 (not just the equality) is what prunes post_scores.
+      INNER JOIN post_scores ps ON p.uri = ps.post_uri AND ps.epoch_id = $2 AND ps.created_at = p.created_at AND ps.created_at > $1
       WHERE p.deleted = FALSE
         AND p.created_at > $1
+        AND p.created_at <= NOW()
         AND pe.updated_at > ps.scored_at
         ${offsetContentFilterSql}
       ORDER BY p.created_at DESC
       LIMIT $3
-    )`,
-    params
-  );
+    )`;
 
+  // This UNION scans the whole 72h firehose window (hundreds of thousands of
+  // posts/scores) and runs ~15-25s at current volume — within the pool's
+  // statement_timeout (DB_STATEMENT_TIMEOUT, 60s) with comfortable headroom.
+  // Two things keep it there: (a) the explicit ps.created_at > $1 on each half
+  // prunes post_scores to the 72h daily partitions instead of scanning all ~36;
+  // (b) the changed_engagement MATERIALIZED CTE forces the engagement-changed
+  // half into a hash join rather than ~575k per-row PK probes (see the CTE
+  // comment above). This is still the heaviest query in the system.
+  const result = await db.query(sql, params);
   return result.rows.map(toPostForScoring);
 }
 
@@ -493,33 +688,72 @@ async function scoreAllPosts(
   epoch: GovernanceEpoch,
   runId: string
 ): Promise<ScoredPost[]> {
-  const scored: ScoredPost[] = [];
+  // Deterministic pre-pass (PROJ-917): replay the sequential source-diversity
+  // ranking in `posts`-array order BEFORE any parallelism. This calls the same
+  // scoreSourceDiversity in the same order as the old sequential loop, so every
+  // post receives an identical penalty — the concurrent loop below then only
+  // reads these values, so completion order cannot change any score.
   const authorCounts = createAuthorCountMap();
+  const sourceDiversityByPost = new Map<PostForScoring, number>();
+  for (const post of posts) {
+    sourceDiversityByPost.set(post, scoreSourceDiversity(post.authorDid, authorCounts));
+  }
 
   const context: ScoringContext = {
     epoch,
     scoringWindowHours: config.SCORING_WINDOW_HOURS,
     authorCounts,
+    sourceDiversityByPost,
   };
 
-  for (const post of posts) {
-    try {
-      // Classification method is determined at ingestion time and stored on
-      // the posts row. The pipeline reads it as-is — no runtime override.
-      const classificationMethod = post.classificationMethod === 'embedding' ? 'embedding' : 'keyword';
+  // Score posts through a bounded rolling worker-pool. Each in-flight post holds
+  // at most ONE DB connection at a time (sequential components + sequential
+  // bridging queries + sequential writes), so peak scoring connections ≈
+  // SCORING_CONCURRENCY. A rolling pool (shared cursor) keeps exactly N posts in
+  // flight — unlike chunked Promise.all it never stalls on a chunk's slowest post
+  // (per-post bridging cost varies from 1 to 21 DB reads).
+  const results: (ScoredPost | undefined)[] = new Array(posts.length);
+  let next = 0;
 
-      const scoredPost = await scorePost(post, epoch, context);
-      scored.push(scoredPost);
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      // Read-then-increment is atomic in single-threaded JS (no await between).
+      const i = next++;
+      if (i >= posts.length) return;
+      const post = posts[i];
+      try {
+        // Classification method is determined at ingestion time and stored on
+        // the posts row. The pipeline reads it as-is — no runtime override.
+        const classificationMethod = post.classificationMethod === 'embedding' ? 'embedding' : 'keyword';
 
-      // Store to database (GOLDEN RULE: all components, weights, and weighted values)
-      await storeScore(scoredPost, epoch, runId, classificationMethod);
-    } catch (err) {
-      // Log and continue - don't fail entire pipeline for one post
-      logger.error({ err, uri: post.uri }, 'Failed to score post');
+        const scoredPost = await scorePost(post, epoch, context);
+        results[i] = scoredPost;
+
+        // Store to database (GOLDEN RULE: all components, weights, and weighted values)
+        await storeScore(scoredPost, epoch, runId, classificationMethod);
+      } catch (err) {
+        // Log and continue - one bad post never fails the whole run.
+        logger.error({ err, uri: post.uri }, 'Failed to score post');
+      }
     }
-  }
+  };
 
-  return scored;
+  const workerCount = Math.max(1, Math.min(resolveScoringConcurrency(), posts.length));
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+  // results[] is index-keyed above, so the returned array stays in input order
+  // (posts that threw leave an undefined slot, filtered out here).
+  return results.filter((r): r is ScoredPost => r !== undefined);
+}
+
+/**
+ * Resolve SCORING_CONCURRENCY defensively: fall back to 1 (sequential) if the
+ * value is missing or non-numeric — e.g. a partially-mocked `config` in tests —
+ * so the score loop can never crash on a bad concurrency value.
+ */
+function resolveScoringConcurrency(): number {
+  const n = config.SCORING_CONCURRENCY;
+  return typeof n === 'number' && Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1;
 }
 
 /**
@@ -568,6 +802,7 @@ async function scorePost(
   return {
     uri: post.uri,
     authorDid: post.authorDid,
+    createdAt: post.createdAt,
     score: { raw, weights, weighted, total },
   };
 }
@@ -598,9 +833,21 @@ async function storeScore(
   runId: string,
   classificationMethod: 'keyword' | 'embedding' = 'keyword'
 ): Promise<void> {
-  const { uri } = scoredPost;
+  const { uri, createdAt } = scoredPost;
   const { raw, weights, weighted, total } = scoredPost.score;
 
+  // PROJ-917: post_scores is RANGE-partitioned by a denormalized, immutable
+  // copy of the scored post's own posts.created_at (NOT scored_at, which
+  // changes on every rescore and would move the row across partitions). It's
+  // bound directly from the scored post ($21) — the post row was already read
+  // to compute this score, so its created_at is in hand. (A prior version
+  // re-looked it up with `(SELECT created_at FROM posts WHERE uri = $1)`, but
+  // uri is no longer unique on its own after the PK widened to
+  // (uri, created_at), so that scalar subquery could match multiple rows /
+  // error, and its NOW() fallback could route a rescore to a different
+  // partition than the original write.) unique_post_epoch widened to
+  // (post_uri, epoch_id, created_at); created_at is immutable once written, so
+  // it is never part of the DO UPDATE SET list.
   await db.query(
     `INSERT INTO post_scores (
       post_uri, epoch_id,
@@ -610,9 +857,9 @@ async function storeScore(
       source_diversity_weight, relevance_weight,
       recency_weighted, engagement_weighted, bridging_weighted,
       source_diversity_weighted, relevance_weighted,
-      total_score, component_details, classification_method
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
-    ON CONFLICT (post_uri, epoch_id) DO UPDATE SET
+      total_score, component_details, classification_method, created_at
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+    ON CONFLICT (post_uri, epoch_id, created_at) DO UPDATE SET
       recency_score = $3, engagement_score = $4, bridging_score = $5,
       source_diversity_score = $6, relevance_score = $7,
       recency_weight = $8, engagement_weight = $9, bridging_weight = $10,
@@ -642,11 +889,12 @@ async function storeScore(
       total,
       JSON.stringify({ run_id: runId, classification_method: classificationMethod }),
       classificationMethod,
+      createdAt,
     ]
   );
 
   if (config.SCORE_LONGTABLE_DUALWRITE_ENABLED) {
-    await storeScoreComponents(uri, epoch.id, raw, weights, weighted);
+    await storeScoreComponents(uri, epoch.id, createdAt, raw, weights, weighted);
   }
 }
 
@@ -660,6 +908,7 @@ async function storeScore(
 async function storeScoreComponents(
   postUri: string,
   epochId: number,
+  createdAt: Date,
   raw: ScoreComponents,
   weights: ScoreComponents,
   weighted: ScoreComponents
@@ -676,17 +925,24 @@ async function storeScoreComponents(
   const placeholders: string[] = [];
   for (const key of keys) {
     const offset = params.length;
-    params.push(postUri, epochId, key, raw[key], weights[key], weighted[key]);
+    params.push(postUri, epochId, key, raw[key], weights[key], weighted[key], createdAt);
+    // PROJ-917: post_score_components is RANGE-partitioned by created_at
+    // (migration 029), denormalized from posts.created_at exactly like
+    // post_scores. Bound directly from the scored post ($offset+7), same as
+    // storeScore() — see its comment for why the old
+    // `(SELECT created_at FROM posts WHERE uri = ...)` lookup was unsafe once
+    // uri stopped being unique on its own. PRIMARY KEY widened to
+    // (post_uri, epoch_id, component_key, created_at) in the same migration.
     placeholders.push(
-      `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6})`
+      `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7})`
     );
   }
 
   await db.query(
     `INSERT INTO post_score_components
-       (post_uri, epoch_id, component_key, raw, weight, weighted)
+       (post_uri, epoch_id, component_key, raw, weight, weighted, created_at)
      VALUES ${placeholders.join(', ')}
-     ON CONFLICT (post_uri, epoch_id, component_key) DO UPDATE SET
+     ON CONFLICT (post_uri, epoch_id, component_key, created_at) DO UPDATE SET
        raw = EXCLUDED.raw,
        weight = EXCLUDED.weight,
        weighted = EXCLUDED.weighted,
@@ -705,42 +961,67 @@ async function storeScoreComponents(
  * Applies the scoring window cutoff so posts older than SCORING_WINDOW_HOURS
  * are excluded even if they have stale scores in post_scores.
  */
-async function writeToRedisFromDb(epochId: number, runId: string): Promise<void> {
+async function writeToRedisFromDb(epochId: number, runId: string): Promise<CurrentFeedStatsSnapshot> {
   const cutoffMs = config.SCORING_WINDOW_HOURS * 60 * 60 * 1000;
   const cutoff = new Date(Date.now() - cutoffMs);
 
   const result = await db.query<{
     post_uri: string;
-    total_score: number;
+    total_score: number | string;
+    author_did: string;
+    bridging_score: number | string;
+    engagement_score: number | string;
     embed_url: string | null;
-    text_length: number;
+    text_length: number | string;
   }>(
-    `SELECT ps.post_uri, ps.total_score, p.embed_url,
+    `SELECT ps.post_uri, ps.total_score, p.author_did,
+            ps.bridging_score, ps.engagement_score, p.embed_url,
             COALESCE(LENGTH(p.text), 0) as text_length
      FROM post_scores ps
-     INNER JOIN posts p ON p.uri = ps.post_uri
+     -- p.created_at = ps.created_at is the partition key (posts is
+     -- RANGE-partitioned by created_at); pairing it with the p.created_at
+     -- window below lets both posts and post_scores prune to the same handful
+     -- of daily partitions instead of scanning all ~36 (PROJ-917).
+     INNER JOIN posts p ON p.uri = ps.post_uri AND p.created_at = ps.created_at
      WHERE ps.epoch_id = $1
        AND p.deleted = FALSE
        AND p.created_at > $3
+       AND p.created_at <= NOW()
+       -- Explicit cutoff on post_scores.created_at as well (identical to
+       -- p.created_at via the join equality). This epoch-driven query plans as a
+       -- hash join, which — unlike the nested-loop incremental query — does NOT
+       -- runtime-prune post_scores from the join alone; the explicit predicate
+       -- prunes the post_scores scan to the 72h partitions (18.7s -> 2.6s).
+       AND ps.created_at > $3
        AND ps.relevance_score >= $4
      ORDER BY ps.total_score DESC
      LIMIT $2`,
     [epochId, config.FEED_MAX_POSTS, cutoff.toISOString(), config.FEED_MIN_RELEVANCE]
   );
 
+  const feedCandidates: RedisFeedCandidate[] = result.rows.map((post) => ({
+    post_uri: post.post_uri,
+    total_score: numericValue(post.total_score),
+    author_did: post.author_did,
+    bridging_score: numericValue(post.bridging_score),
+    engagement_score: numericValue(post.engagement_score),
+    embed_url: post.embed_url,
+    text_length: numericValue(post.text_length),
+  }));
+
   // URL deduplication: penalize reshares of the same external link.
   // Posts are already sorted by total_score DESC, so the highest-scored post
   // sharing a URL gets full score and later duplicates get decayed.
-  let topPosts: Array<{ post_uri: string; total_score: number }>;
+  let topPosts: RedisFeedCandidate[];
 
   if (config.FEED_DEDUP_ENABLED) {
     const DEDUP_DECAY = [1.0, 0.7, 0.5, 0.3];
     const urlCounts = new Map<string, number>();
 
-    const dedupedPosts = result.rows.map(post => {
+    const dedupedPosts = feedCandidates.map(post => {
       // No URL or substantial original text → no penalty
       if (!post.embed_url || post.text_length >= config.FEED_DEDUP_MIN_TEXT) {
-        return { post_uri: post.post_uri, total_score: post.total_score };
+        return post;
       }
 
       const count = urlCounts.get(post.embed_url) ?? 0;
@@ -749,7 +1030,7 @@ async function writeToRedisFromDb(epochId: number, runId: string): Promise<void>
       const decayIndex = Math.min(count, DEDUP_DECAY.length - 1);
       const adjustedScore = post.total_score * DEDUP_DECAY[decayIndex];
 
-      return { post_uri: post.post_uri, total_score: adjustedScore };
+      return { ...post, total_score: adjustedScore };
     });
 
     // Re-sort after dedup adjustment (order may have changed)
@@ -762,16 +1043,13 @@ async function writeToRedisFromDb(epochId: number, runId: string): Promise<void>
 
     topPosts = dedupedPosts;
   } else {
-    topPosts = result.rows.map(post => ({
-      post_uri: post.post_uri,
-      total_score: post.total_score,
-    }));
+    topPosts = feedCandidates;
   }
 
   // Use Redis pipeline for atomic batch write
   const pipeline = redis.pipeline();
 
-  // Delete old feed
+  // Delete old feed; invalidate the shared pagination snapshot only after the write is durable.
   pipeline.del('feed:current');
 
   // Add all posts to sorted set (score = total_score)
@@ -786,11 +1064,18 @@ async function writeToRedisFromDb(epochId: number, runId: string): Promise<void>
   pipeline.set('feed:count', topPosts.length.toString());
 
   await pipeline.exec();
+  try {
+    await invalidateCurrentFeedSnapshot();
+  } catch (err) {
+    logger.warn({ err, epochId, runId }, 'Failed to invalidate current feed snapshot cache after feed write');
+  }
 
+  const feedStatsSnapshot = buildCurrentFeedStatsSnapshot(topPosts);
   if (topPosts.length === 0) {
     logger.info({ epochId }, 'Feed cleared in Redis due to empty scoring result');
-    return;
+    return feedStatsSnapshot;
   }
 
   logger.info({ postCount: topPosts.length, epochId }, 'Feed written to Redis');
+  return feedStatsSnapshot;
 }

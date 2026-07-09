@@ -23,7 +23,7 @@ function zodEnvBool(defaultValue: boolean) {
   );
 }
 
-const ConfigSchema = z.object({
+export const ConfigSchema = z.object({
   // Identity
   FEEDGEN_SERVICE_DID: z.string().startsWith('did:'),
   FEEDGEN_PUBLISHER_DID: z.string().startsWith('did:'),
@@ -43,6 +43,7 @@ const ConfigSchema = z.object({
 
   // Redis
   REDIS_URL: z.string().startsWith('redis://'),
+  REDIS_COMMAND_TIMEOUT_MS: z.coerce.number().int().min(100).default(5_000),
 
   // Feed requester JWT verification
   FEED_JWT_AUDIENCE: z.string().default(''),
@@ -56,7 +57,16 @@ const ConfigSchema = z.object({
   SCORING_FULL_RESCORE_INTERVAL: z.coerce.number().int().min(1).default(6),
   SCORING_CANDIDATE_LIMIT: z.coerce.number().min(100).default(5_000),
   SCORING_TIMEOUT_MS: z.coerce.number().min(30_000).default(240_000),
-  FEED_MAX_POSTS: z.coerce.number().default(1000),
+  /**
+   * Max posts scored concurrently in the pipeline loop (PROJ-917). Each in-flight
+   * post holds at most ONE DB connection at a time (components run sequentially
+   * per post, bridging's engager+follow queries are sequential, and the two
+   * writes are sequential), so peak scoring connections ≈ this value. Keep
+   * SCORING_CONCURRENCY + JETSTREAM_MAX_CONCURRENT well under DB_POOL_MAX
+   * (default 8 + 20 = 28 < 50) so ingestion and HTTP serving keep pool headroom.
+   */
+  SCORING_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(8),
+  FEED_MAX_POSTS: z.coerce.number().int().min(1).default(1000),
   /**
    * Dual-write post score decomposition into the long-table post_score_components
    * (migration 021) in addition to the wide columns in post_scores. Default on once
@@ -156,8 +166,15 @@ const ConfigSchema = z.object({
   // Database pool tuning
   /** Max connections in the PostgreSQL connection pool. */
   DB_POOL_MAX: z.coerce.number().min(5).default(50),
-  /** Statement timeout in milliseconds (prevents runaway queries). */
-  DB_STATEMENT_TIMEOUT: z.coerce.number().min(1000).default(30_000),
+  /**
+   * Statement timeout in milliseconds (prevents runaway queries). 60s, not 30s:
+   * the heaviest legitimate query in the system — the incremental scoring
+   * candidate UNION (src/scoring/pipeline.ts) — scans the full 72h firehose
+   * window and runs ~20-30s at current volume even after partition pruning. The
+   * dedicated health-check pool keeps its own tight 5s timeout (src/db/client.ts),
+   * so readiness is unaffected by this higher app-query cap.
+   */
+  DB_STATEMENT_TIMEOUT: z.coerce.number().min(1000).default(60_000),
 
   // Feed output: minimum relevance score to appear in feed
   FEED_MIN_RELEVANCE: z.coerce.number().min(0).max(1).default(0.15),
@@ -182,6 +199,17 @@ const ConfigSchema = z.object({
   DISK_WARNING_PERCENT: z.coerce.number().min(50).max(100).default(80),
   DISK_CRITICAL_PERCENT: z.coerce.number().min(50).max(100).default(90),
   DISK_EMERGENCY_PERCENT: z.coerce.number().min(50).max(100).default(95),
+
+  // Partition retention (PROJ-917): src/maintenance/partition-manager.ts drops
+  // whole daily partitions once their upper bound falls this many days behind
+  // CURRENT_DATE. Must stay in sync with the window baked into migrations
+  // 026-029 (created_at index/partition rebuild) — those migrations create
+  // the initial partitions spanning [today - (retention + 2d), today + 2d];
+  // changing these values does not retroactively resize existing partitions.
+  /** Retention window (days) for raw event tables: likes, reposts, follows. */
+  RAW_EVENT_RETENTION_DAYS: z.coerce.number().int().min(1).default(14),
+  /** Retention window (days) for content+score tables: posts, post_scores, post_score_components. */
+  SCORED_DATA_RETENTION_DAYS: z.coerce.number().int().min(1).default(30),
 
   // Research export
   EXPORT_ANONYMIZATION_SALT: z.string().min(16).default(INSECURE_EXPORT_SALT_DEFAULT),

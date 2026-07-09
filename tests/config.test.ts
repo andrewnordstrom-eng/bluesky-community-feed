@@ -1,0 +1,86 @@
+import { describe, expect, it } from 'vitest';
+import { ConfigSchema } from '../src/config.js';
+
+const baseEnv: Record<string, string> = {
+  FEEDGEN_SERVICE_DID: 'did:plc:corgisimharness00000000000',
+  FEEDGEN_PUBLISHER_DID: 'did:plc:corgisimharnesspublisher0',
+  FEEDGEN_HOSTNAME: 'sim-harness.local.test',
+  JETSTREAM_URL: 'wss://sim-harness.local.test/subscribe',
+  JETSTREAM_FALLBACK_URL: 'wss://sim-harness.local.test/subscribe-fallback',
+  JETSTREAM_COLLECTIONS: 'app.bsky.feed.post',
+  DATABASE_URL: 'postgresql://postgres:postgres@127.0.0.1:5432/corgi_dummy_test',
+  REDIS_URL: 'redis://127.0.0.1:6379',
+  BSKY_IDENTIFIER: 'sim-harness.test',
+  BSKY_APP_PASSWORD: 'sim-harness-not-a-real-password',
+  NODE_ENV: 'test',
+};
+
+describe('ConfigSchema', () => {
+  it('accepts a positive integer FEED_MAX_POSTS value', () => {
+    const parsed = ConfigSchema.parse({
+      ...baseEnv,
+      FEED_MAX_POSTS: '1',
+    });
+
+    expect(parsed.FEED_MAX_POSTS).toBe(1);
+  });
+
+  it.each(['0', '-1', '1.5'])('rejects invalid FEED_MAX_POSTS=%s', (feedMaxPosts) => {
+    expect(() =>
+      ConfigSchema.parse({
+        ...baseEnv,
+        FEED_MAX_POSTS: feedMaxPosts,
+      })
+    ).toThrow();
+  });
+
+  it('defaults FEED_MAX_POSTS and REDIS_COMMAND_TIMEOUT_MS when omitted', () => {
+    const parsed = ConfigSchema.parse(baseEnv);
+
+    expect(parsed.FEED_MAX_POSTS).toBe(1000);
+    expect(parsed.REDIS_COMMAND_TIMEOUT_MS).toBe(5000);
+  });
+
+  it.each(['abc', ''])('rejects non-numeric FEED_MAX_POSTS=%s', (feedMaxPosts) => {
+    expect(() =>
+      ConfigSchema.parse({
+        ...baseEnv,
+        FEED_MAX_POSTS: feedMaxPosts,
+      })
+    ).toThrow();
+  });
+
+  it('defaults SCORING_CONCURRENCY to 8 when omitted', () => {
+    expect(ConfigSchema.parse(baseEnv).SCORING_CONCURRENCY).toBe(8);
+  });
+
+  it.each(['1', '32'])('accepts SCORING_CONCURRENCY=%s', (value) => {
+    expect(
+      ConfigSchema.parse({ ...baseEnv, SCORING_CONCURRENCY: value }).SCORING_CONCURRENCY
+    ).toBe(Number(value));
+  });
+
+  it.each(['0', '-1', '1.5', '33', 'abc'])('rejects invalid SCORING_CONCURRENCY=%s', (value) => {
+    expect(() =>
+      ConfigSchema.parse({ ...baseEnv, SCORING_CONCURRENCY: value })
+    ).toThrow();
+  });
+
+  it.each(['99', '1.5', 'abc', ''])('rejects invalid REDIS_COMMAND_TIMEOUT_MS=%s', (timeoutMs) => {
+    expect(() =>
+      ConfigSchema.parse({
+        ...baseEnv,
+        REDIS_COMMAND_TIMEOUT_MS: timeoutMs,
+      })
+    ).toThrow();
+  });
+
+  it('accepts REDIS_COMMAND_TIMEOUT_MS at the minimum boundary', () => {
+    const parsed = ConfigSchema.parse({
+      ...baseEnv,
+      REDIS_COMMAND_TIMEOUT_MS: '100',
+    });
+
+    expect(parsed.REDIS_COMMAND_TIMEOUT_MS).toBe(100);
+  });
+});

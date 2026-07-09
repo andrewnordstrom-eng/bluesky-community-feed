@@ -62,52 +62,14 @@
  * violates sequencing fails loudly (no active epoch / wrong epoch picked up)
  * instead of silently blending two regimes' data.
  *
- * Results (measured against one fixed corpus — 60 subscribers, 200 posts, a
- * 4-persona-equal-mix electorate, seed 90210 — real `runScoringPipeline`,
- * top-K = 50; see `tests/harness/baseline-comparison.sim.ts`):
- *
- * | regime              | recency | engagement | bridging | sourceDiv | relevance | authorHHI | authorGini |
- * |---------------------|---------|------------|----------|-----------|-----------|-----------|------------|
- * | no-governance       | 0.200   | 0.200      | 0.200    | 0.200     | 0.200     | 0.0216    | 0.038      |
- * | engagement-only     | 0       | 1.000      | 0        | 0         | 0         | 0.0352    | 0.201      |
- * | community-governed  | 0.313   | 0.120      | 0.314    | 0.117     | 0.136     | 0.0248    | 0.104      |
- *
- * Pairwise rank churn (normalized rank displacement / Kendall-tau distance,
- * over each pair's shared post set):
- *
- * | pair                              | displacement | kendall-tau | shared/50 |
- * |------------------------------------|--------------|-------------|-----------|
- * | no-governance vs engagement-only   | 0.302        | 0.311       | 10        |
- * | no-governance vs community-governed| 0.079        | 0.109       | 45        |
- * | engagement-only vs community-governed | 0.367     | 0.389       | 9         |
- *
- * `distortionRatio(communityGoverned, engagementOnly, engagementOnly.scoreByUri)`
- * = **0.882**: scored by the engagement-only regime's OWN yardstick, the
- * governed feed's post set still captures about 88% of the engagement
- * regime's own best-case quality mass.
- *
- * Reading (bounded to this corpus/seed): the real aggregated community
- * outcome puts substantial weight on `bridging`/`recency` and comparatively
- * little on `engagement` (0.12) — the electorate's mixed persona preferences
- * pull the outcome well away from the engagement-only corner (rank
- * displacement 0.367 between those two, the largest of the three pairs, and
- * only 9 of 50 posts even overlap). That divergence buys a real reduction in
- * author concentration relative to engagement-only (HHI 0.0248 vs 0.0352,
- * Gini 0.104 vs 0.201 — governance is NOT the most concentrated of the
- * three regimes here), at a moderate, partial cost in the engagement
- * regime's own terms (distortion ratio 0.882, not 1.0 and not near-0).
- * `minorityTopicExposure` is 0 for every regime at a 0.15 tail threshold on
- * this corpus specifically because its topic distribution (science 40,
- * politics 30, music 26, software-development 26, sports 25 — see
- * `corpusTopicSupport`) has no topic below that threshold; this is an honest
- * reading of a corpus without a genuine tail topic, not evidence the metric
- * is broken (see feed-metrics.test.ts for cases where it is non-zero).
- *
- * Bounded claim only: every number above (and everything `feed-metrics.ts`
- * computes from this module's output) is measured against THIS fixed
- * synthetic corpus, THIS seed, and THESE three regimes. It is not a claim
- * about governance vs. engagement optimization in general, about a
- * different corpus/population, or about real Bluesky content.
+ * Measurement notes: generated campaign artifacts, not this source comment,
+ * are the source of truth for feed-impact numbers. The fixed comparison
+ * corpus is intentionally synthetic and bounded to one seed; its output is
+ * useful for reproducible rank-churn/concentration receipts, not for broad
+ * claims about governance quality, engagement optimization, real Bluesky
+ * content, or other populations. `minorityTopicExposure` can be zero when
+ * the fixed corpus has no genuine tail topic at the selected threshold; see
+ * `feed-metrics.test.ts` for non-zero metric behavior.
  */
 
 import type { QueryableDb } from './simulation.js';
@@ -118,13 +80,21 @@ import { validateVote, type VoteValidationContext } from './vote-validation.js';
 import { createDefaultGovernanceWeightRecord } from '../config/votable-params.js';
 import { weightsToVotePayload, normalizeWeights } from '../governance/governance.types.js';
 import type { GovernanceWeights } from '../shared/api-types.js';
-import { buildCorpusTopicSupport, type FeedEntry, type FeedPostInfo } from './feed-metrics.js';
+import {
+  authorGini,
+  authorHHI,
+  buildCorpusTopicSupport,
+  kendallTauDistance,
+  minorityTopicExposure,
+  normalizedRankDisplacement,
+  type FeedEntry,
+  type FeedPostInfo,
+} from './feed-metrics.js';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-export type RegimeName = 'no-governance' | 'engagement-only' | 'community-governed';
-
-export const REGIME_NAMES: readonly RegimeName[] = ['no-governance', 'engagement-only', 'community-governed'];
+export const REGIME_NAMES = ['no-governance', 'engagement-only', 'community-governed'] as const;
+export type RegimeName = (typeof REGIME_NAMES)[number];
 
 export interface BaselineComparisonDeps {
   db: QueryableDb;
@@ -230,9 +200,11 @@ async function seedCorpus(db: QueryableDb, population: Population): Promise<void
   }));
 
   await insertBatched(db, population.posts, (batch) => ({
+    // PROJ-917: posts' PK widened to (uri, created_at) — partitioned tables
+    // require the partition key in every unique constraint.
     text: `INSERT INTO posts (uri, cid, author_did, text, created_at, has_media, embed_url, topic_vector)
            VALUES ${valuesClause(batch.length, 8)}
-           ON CONFLICT (uri) DO NOTHING`,
+           ON CONFLICT (uri, created_at) DO NOTHING`,
     params: batch.flatMap((post) => [
       post.uri,
       post.cid,
@@ -714,8 +686,8 @@ export async function runBaselineComparison(
 export interface BaselineComparisonCsvRow {
   regimeA: RegimeName;
   regimeB: RegimeName;
-  rankDisplacement: number;
-  kendallTau: number;
+  rankDisplacement: number | null;
+  kendallTau: number | null;
   sharedCount: number;
 }
 
@@ -723,13 +695,78 @@ export interface RegimeSummaryCsvRow {
   regime: RegimeName;
   epochId: number;
   weights: GovernanceWeights;
-  authorHHI: number;
-  authorGini: number;
+  authorHHI: number | null;
+  authorGini: number | null;
   minorityTopicExposure: number;
+}
+
+export interface BaselineComparisonArtifactRows {
+  summaryRows: RegimeSummaryCsvRow[];
+  pairwiseRows: BaselineComparisonCsvRow[];
+}
+
+function requirePostInfo(postInfoByUri: ReadonlyMap<string, FeedPostInfo>, uri: string): FeedPostInfo {
+  const info = postInfoByUri.get(uri);
+  if (!info) {
+    throw new Error(
+      `buildBaselineComparisonArtifactRows: uri "${uri}" is missing from corpusPostInfo — seeded corpus and scored feed have diverged`
+    );
+  }
+  return info;
+}
+
+function sharedFeedCount(feedA: readonly FeedEntry[], feedB: readonly FeedEntry[]): number {
+  const feedBUris = new Set(feedB.map((entry) => entry.uri));
+  return feedA.reduce((count, entry) => count + (feedBUris.has(entry.uri) ? 1 : 0), 0);
+}
+
+export function buildBaselineComparisonArtifactRows(
+  result: BaselineComparisonResult,
+  tailThreshold: number
+): BaselineComparisonArtifactRows {
+  const postInfoByUri = new Map(result.corpusPostInfo.map((post) => [post.uri, post]));
+  const summaryRows: RegimeSummaryCsvRow[] = REGIME_NAMES.map((name) => {
+    const regime = result.regimes[name];
+    const feedPosts = regime.feed.map((entry) => requirePostInfo(postInfoByUri, entry.uri));
+    const { exposure } = minorityTopicExposure(feedPosts, result.corpusTopicSupport, tailThreshold);
+    return {
+      regime: name,
+      epochId: regime.epochId,
+      weights: regime.weights,
+      authorHHI: feedPosts.length === 0 ? null : authorHHI(feedPosts),
+      authorGini: feedPosts.length === 0 ? null : authorGini(feedPosts),
+      minorityTopicExposure: exposure,
+    };
+  });
+
+  const pairwiseRows: BaselineComparisonCsvRow[] = [];
+  for (let i = 0; i < REGIME_NAMES.length; i += 1) {
+    for (let j = i + 1; j < REGIME_NAMES.length; j += 1) {
+      const regimeA = REGIME_NAMES[i];
+      const regimeB = REGIME_NAMES[j];
+      const a = result.regimes[regimeA].feed;
+      const b = result.regimes[regimeB].feed;
+      const sharedCount = sharedFeedCount(a, b);
+      const displacement = sharedCount === 0 ? null : normalizedRankDisplacement(a, b).displacement;
+      pairwiseRows.push({
+        regimeA,
+        regimeB,
+        rankDisplacement: displacement,
+        kendallTau: sharedCount < 2 ? null : kendallTauDistance(a, b),
+        sharedCount,
+      });
+    }
+  }
+
+  return { summaryRows, pairwiseRows };
 }
 
 function csvNumber(value: number, digits = 6): string {
   return value.toFixed(digits);
+}
+
+function csvNullableNumber(value: number | null, digits: number): string {
+  return value === null ? 'NA' : csvNumber(value, digits);
 }
 
 const PAIRWISE_CSV_HEADER = ['regimeA', 'regimeB', 'rankDisplacement', 'kendallTau', 'sharedCount'] as const;
@@ -748,7 +785,13 @@ const SUMMARY_CSV_HEADER = [
 
 function toPairwiseCsv(rows: readonly BaselineComparisonCsvRow[]): string {
   const lines = rows.map((row) =>
-    [row.regimeA, row.regimeB, csvNumber(row.rankDisplacement), csvNumber(row.kendallTau), row.sharedCount].join(',')
+    [
+      row.regimeA,
+      row.regimeB,
+      row.rankDisplacement === null ? 'NA' : csvNumber(row.rankDisplacement),
+      row.kendallTau === null ? 'NA' : csvNumber(row.kendallTau),
+      row.sharedCount,
+    ].join(',')
   );
   return `${PAIRWISE_CSV_HEADER.join(',')}\n${lines.join('\n')}\n`;
 }
@@ -763,8 +806,8 @@ function toSummaryCsv(rows: readonly RegimeSummaryCsvRow[]): string {
       csvNumber(row.weights.bridging),
       csvNumber(row.weights.sourceDiversity),
       csvNumber(row.weights.relevance),
-      csvNumber(row.authorHHI),
-      csvNumber(row.authorGini),
+      csvNullableNumber(row.authorHHI, 6),
+      csvNullableNumber(row.authorGini, 6),
       csvNumber(row.minorityTopicExposure),
     ].join(',')
   );
