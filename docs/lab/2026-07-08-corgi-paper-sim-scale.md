@@ -1,9 +1,9 @@
 # Corgi Paper Simulation And Scale Receipt
 
-Date: 2026-07-08 snapshot; 2026-07-09 current-main and final-head confirmations
+Date: 2026-07-08 snapshot; 2026-07-09 current-main, final-head, final clean merge-head, and final code-head confirmations
 Linear: PROJ-1551
 Branch: dev/PROJ-1551-corgi-paper-sim-scale
-Current-main base: `13d99eb21a925b24d62d36382f85356dbd3254a0`
+Current-main base: `07f945d5c99b6dcaf83a452562cb27bd34cd9ee2`
 
 ## Boundary
 
@@ -105,13 +105,97 @@ The July 9 current-main roots below are also provenance receipts rather than fin
 - `artifacts/lab/PROJ-1551/2026-07-09-current-main-confirmation/capacity-S5/`
 - `artifacts/lab/PROJ-1551/2026-07-09-current-main-confirmation/post-review-s0-smoke/`
 
-Final-head paper evidence must come from a clean committed head with `dirtyFiles: []` in each cited manifest. The final-head receipt root for that pass is:
+The earlier July 9 final-head root was clean when generated, but it is now provenance rather than final paper evidence because the branch later merged `origin/main` commit `07f945d5c99b6dcaf83a452562cb27bd34cd9ee2` (`perf(scoring): halve incremental fetch via MATERIALIZED engagement CTE (#324)`), landed review followups in `5b18e92955d00482a2b2e4ade27a8c2fda5f52e0`, and then landed code/test followups in `6505c853f9f7fe99a4aae3c05fa258056537e132`.
 
 - `artifacts/lab/PROJ-1551/2026-07-09-final-head-confirmation/`
 
-## Final-Head Confirmation
+An intermediate merge-head root also passed, but its manifests recorded dirty files and it must not be cited as final paper evidence:
 
-Evidence status: paper-ready local synthetic evidence root. The full campaign and capacity receipts were generated from clean committed harness/doc-framing head `0d8b1f67f2a232209df2aabc28b74ae174382328`, with each cited manifest recording `dirtyFiles: []`.
+- `artifacts/lab/PROJ-1551/2026-07-09-final-merge-head-confirmation/`
+
+The final clean merge-head root was also clean when generated, but it is now provenance rather than final paper evidence because `6505c853f9f7fe99a4aae3c05fa258056537e132` added the fail-closed scenario-selection path and git-base error coverage after that run.
+
+- `artifacts/lab/PROJ-1551/2026-07-09-final-clean-merge-head-confirmation/`
+
+Final paper evidence must come from a clean committed head with `dirtyFiles: []` in each cited manifest. The current paper-ready evidence root is:
+
+- `artifacts/lab/PROJ-1551/2026-07-09-final-code-head-confirmation/`
+
+## Final Code-Head Confirmation
+
+Evidence status: paper-ready local synthetic evidence root. The full campaign and capacity receipts were generated from clean committed PR code head `6505c853f9f7fe99a4aae3c05fa258056537e132`, based on `07f945d5c99b6dcaf83a452562cb27bd34cd9ee2`, with each cited manifest recording `dirtyFiles: []` and `diffSha256` `6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d`.
+
+Commands:
+
+```bash
+npm run build
+npm run docs:verify
+npm run sim:preflight
+npm run sim:core
+npm run sim:campaign -- --dry-run --max-stage S3
+npm run sim:campaign -- --ephemeral --max-stage S3 --artifacts-dir artifacts/lab/PROJ-1551/2026-07-09-final-code-head-confirmation/sim-campaign
+npm run sim:campaign -- --ephemeral --stage S4 --family baseline --artifacts-dir artifacts/lab/PROJ-1551/2026-07-09-final-code-head-confirmation/capacity-S4
+npm run sim:campaign -- --ephemeral --stage S5 --family baseline --artifacts-dir artifacts/lab/PROJ-1551/2026-07-09-final-code-head-confirmation/capacity-S5
+npm run sim:campaign -- --ephemeral --stage S0 --family baseline --artifacts-dir artifacts/lab/PROJ-1551/2026-07-09-final-code-head-confirmation/final-code-head-s0-smoke
+```
+
+Verification results:
+
+- `npm run build`: pass.
+- `npm run docs:verify`: pass, 14 tracked docs and 32 markdown files scanned.
+- `npm run sim:preflight`: pass, including Docker 29.4.3 and migrations 001-030.
+- `npm run sim:core`: pass, 19 files and 221 tests.
+- `npm run sim:campaign -- --dry-run --max-stage S3`: pass, 99 planned runs.
+- All four final code-head `checksums.sha256` files verified with `shasum -a 256 -c checksums.sha256`.
+- All four cited manifests recorded `git.head` `6505c853f9f7fe99a4aae3c05fa258056537e132`, `git.base` `07f945d5c99b6dcaf83a452562cb27bd34cd9ee2`, and `dirtyFiles: []`.
+
+Final code-head campaign result:
+
+- S0-S3 campaign passed, 99/99 runs, 197801 ms. Manifest: `artifacts/lab/PROJ-1551/2026-07-09-final-code-head-confirmation/sim-campaign/manifest.json`.
+- S4 capacity passed, 2/2 runs, 5000 subscribers, 20000 posts, 4000 votes per run, 10000 score rows per run, Redis feed count 1000, 13758 ms total. Per-run durations: 5409 ms for seed 42 and 5045 ms for seed 1337.
+- S5 capacity passed, 2/2 runs, 10000 subscribers, 50000 posts, 8000 votes per run, 10000 score rows per run, Redis feed count 1000, 16384 ms total. Per-run durations: 6750 ms for seed 42 and 6164 ms for seed 1337.
+- Final code-head S0 smoke passed, 1/1 run, 3017 ms total, 30 subscribers, 50 posts, 24 votes, 13 score rows, Redis feed count 12.
+
+Primary final code-head artifacts:
+
+- `artifacts/lab/PROJ-1551/2026-07-09-final-code-head-confirmation/sim-campaign/manifest.json`
+- `artifacts/lab/PROJ-1551/2026-07-09-final-code-head-confirmation/sim-campaign/checksums.sha256`
+- `artifacts/lab/PROJ-1551/2026-07-09-final-code-head-confirmation/sim-campaign/campaign-summary.json`
+- `artifacts/lab/PROJ-1551/2026-07-09-final-code-head-confirmation/sim-campaign/campaign-results.csv`
+- `artifacts/lab/PROJ-1551/2026-07-09-final-code-head-confirmation/sim-campaign/campaign-aggregates.csv`
+- `artifacts/lab/PROJ-1551/2026-07-09-final-code-head-confirmation/sim-campaign/paper-safe-claims.md`
+- `artifacts/lab/PROJ-1551/2026-07-09-final-code-head-confirmation/sim-campaign/baseline-comparison/regime-summary.csv`
+- `artifacts/lab/PROJ-1551/2026-07-09-final-code-head-confirmation/sim-campaign/baseline-comparison/pairwise-churn.csv`
+- `artifacts/lab/PROJ-1551/2026-07-09-final-code-head-confirmation/capacity-S4/manifest.json`
+- `artifacts/lab/PROJ-1551/2026-07-09-final-code-head-confirmation/capacity-S4/checksums.sha256`
+- `artifacts/lab/PROJ-1551/2026-07-09-final-code-head-confirmation/capacity-S5/manifest.json`
+- `artifacts/lab/PROJ-1551/2026-07-09-final-code-head-confirmation/capacity-S5/checksums.sha256`
+- `artifacts/lab/PROJ-1551/2026-07-09-final-code-head-confirmation/final-code-head-s0-smoke/manifest.json`
+- `artifacts/lab/PROJ-1551/2026-07-09-final-code-head-confirmation/final-code-head-s0-smoke/checksums.sha256`
+
+Final code-head feed-impact comparison on the fixed synthetic corpus:
+
+- no-governance vs engagement-only: overlap 3/50, normalized displacement 0.246667, Kendall tau 0.
+- no-governance vs community-governed: overlap 40/50, normalized displacement 0.245, Kendall tau 0.305128.
+- engagement-only vs community-governed: overlap 1/50, normalized displacement 0.02, Kendall tau undefined because fewer than two posts overlapped.
+- Regime concentration stayed low in this fixed corpus: no-governance HHI 0.02 / Gini 0, engagement-only HHI 0.0208 / Gini 0.019592, community-governed HHI 0.02 / Gini 0.
+- Minority-topic exposure is 0 in the fixed corpus for all three regimes; do not claim positive minority-tail exposure from this corpus.
+
+Final code-head high-signal findings:
+
+- Baseline S0-S3 remains green across the planned seeds, with S0 on seed 42 only.
+- Low exact-voter regimes remain the noisiest family: S3 trim-threshold at 9, 10, and 11 exact weight voters had weight-variance means 0.0034834, 0.0026272, and 0.00934.
+- Persona-skew behaves as expected in the synthetic electorates: S3 engagement-dominant averaged engagement 0.5995, while S3 bridge-dominant averaged bridging 0.598.
+- Polarization scenarios produce interpretable blended weights: S3 50/50 engagement-vs-chronological averaged recency 0.369 and engagement 0.379; S3 60/40 shifted toward engagement at 0.4545.
+- Multi-epoch drift remains visible: the S2 drift run ended at bridging 0.597 after 20 epochs, while the stable S2 run ended near balanced weights with recency 0.257, engagement 0.228, bridging 0.235, source diversity 0.125, and relevance 0.155.
+- The adversarial sweep remains bounded only for this configured synthetic scenario, not generally strategyproof: S2 10 percent engagement-attacker left bridging at 0.694667, while 40 percent shifted engagement to 0.289333 and bridging to 0.457.
+- S4/S5 passed as local capacity receipts. The lower wall time observed here is a rerun observation only, not a controlled performance benchmark.
+
+This lab-doc update is docs-only relative to the clean harness-code evidence head above. After committing the lab receipt, run one additional S0 baseline smoke from the final PR head and record that final PR-head smoke in the PR/Linear closeout receipt.
+
+## Superseded Final-Head Confirmation
+
+Evidence status: superseded provenance root. The full campaign and capacity receipts were generated from clean committed harness/doc-framing head `0d8b1f67f2a232209df2aabc28b74ae174382328`, with each cited manifest recording `dirtyFiles: []`, but this root is superseded by the final code-head confirmation above after the branch merged `origin/main` scoring work.
 
 Commands:
 
@@ -240,7 +324,7 @@ Current-main dirty-diff feed-impact comparison on the fixed synthetic corpus:
 
 Current-main dirty-diff high-signal findings:
 
-- The branch refreshed cleanly onto current `origin/main` at `13d99eb` after the scoring/retention changes.
+- The branch refreshed cleanly onto the then-current `origin/main` at `13d99eb` after the scoring/retention changes known at that time. This root is now provenance because later scoring work landed in `07f945d`.
 - Baseline S0-S3 remains green across the planned seeds, with S0 on seed 42 only.
 - S4/S5 had lower observed wall time in this rerun than the July 8 snapshot, but this is not a controlled performance benchmark. They remain capacity receipts, not production saturation proof.
 - The synthetic democratic-process findings remain directionally stable: low exact-voter regimes are noisy, dominant personas move their target components, polarization produces interpretable blended weights, and adversarial displacement remains bounded only for this configured synthetic sweep.
@@ -259,7 +343,7 @@ Superseding manifested rerun:
 npm run sim:campaign -- --ephemeral --max-stage S3 --artifacts-dir artifacts/lab/PROJ-1551/2026-07-08-paper-sim-scale/sim-campaign-manifested
 ```
 
-Snapshot result: passed, 99/99 runs, 448024 ms. Superseded for paper claims by the final-head campaign above.
+Snapshot result: passed, 99/99 runs, 448024 ms. Superseded for paper claims by the final code-head campaign above.
 
 Primary artifacts:
 
@@ -322,7 +406,7 @@ Primary artifacts:
 - `artifacts/lab/PROJ-1551/2026-07-08-paper-sim-scale/capacity-S5-manifested/manifest.json`
 - `artifacts/lab/PROJ-1551/2026-07-08-paper-sim-scale/capacity-S5-manifested/checksums.sha256`
 
-These are superseded snapshot capacity receipts. The July 9 current-main S4/S5 roots above are later provenance receipts, and the final-head confirmation root is the required paper evidence. All generations are capacity evidence only, not production saturation proof.
+These are superseded snapshot capacity receipts. The July 9 current-main S4/S5 roots above are later provenance receipts, and the final code-head confirmation root is the required paper evidence. All generations are capacity evidence only, not production saturation proof.
 
 ## Load Gates
 
