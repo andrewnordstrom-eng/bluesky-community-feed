@@ -255,6 +255,12 @@ describe('simulated epoch campaign ladder', () => {
     );
   });
 
+  it('rejects an empty stage selection', () => {
+    expect(() => requireCampaignRunsForSelection([], { onlyFamilyId: null })).toThrow(
+      /Campaign selection produced zero runs for stages \[\]/
+    );
+  });
+
   it('keeps campaign run requirements aligned with family parsing', () => {
     const stages = selectCampaignStages({ onlyStageId: 'S2', maxStageId: null });
     const runs = requireCampaignRunsForSelection(stages, { onlyFamilyId: 'turnout' });
