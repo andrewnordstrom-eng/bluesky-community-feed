@@ -461,9 +461,9 @@ Results:
 - `/health/ready`: 200, `{"status":"ready"}`, 0.309684 s.
 - `/api/governance/weights`: 200, epoch 2 active, vote_count 0, weights `{recency:0.25, engagement:0.2, bridging:0.1, sourceDiversity:0.1, relevance:0.35}`, 0.296185 s.
 
-Partial / known failure:
+Blocked/unverified public smoke:
 
-- `/api/transparency/stats`: timed out after 20.009379 s with HTTP status 000 and no bytes. Do not use public transparency stats as live reviewer evidence until this endpoint is fixed or its latency/error budget is documented.
+- `/api/transparency/stats`: blocked/unverified (timeout). It timed out after 20.009379 s with HTTP status 000 and no bytes. Do not count this as confirmed evidence until a rerun returns 200 and the expected `epoch`, `feed_stats`, and `governance` fields.
 
 ## Post-Review Verification
 
