@@ -118,13 +118,21 @@ import { validateVote, type VoteValidationContext } from './vote-validation.js';
 import { createDefaultGovernanceWeightRecord } from '../config/votable-params.js';
 import { weightsToVotePayload, normalizeWeights } from '../governance/governance.types.js';
 import type { GovernanceWeights } from '../shared/api-types.js';
-import { buildCorpusTopicSupport, type FeedEntry, type FeedPostInfo } from './feed-metrics.js';
+import {
+  authorGini,
+  authorHHI,
+  buildCorpusTopicSupport,
+  kendallTauDistance,
+  minorityTopicExposure,
+  normalizedRankDisplacement,
+  type FeedEntry,
+  type FeedPostInfo,
+} from './feed-metrics.js';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-export type RegimeName = 'no-governance' | 'engagement-only' | 'community-governed';
-
-export const REGIME_NAMES: readonly RegimeName[] = ['no-governance', 'engagement-only', 'community-governed'];
+export const REGIME_NAMES = ['no-governance', 'engagement-only', 'community-governed'] as const;
+export type RegimeName = (typeof REGIME_NAMES)[number];
 
 export interface BaselineComparisonDeps {
   db: QueryableDb;
@@ -716,8 +724,8 @@ export async function runBaselineComparison(
 export interface BaselineComparisonCsvRow {
   regimeA: RegimeName;
   regimeB: RegimeName;
-  rankDisplacement: number;
-  kendallTau: number;
+  rankDisplacement: number | null;
+  kendallTau: number | null;
   sharedCount: number;
 }
 
@@ -728,6 +736,67 @@ export interface RegimeSummaryCsvRow {
   authorHHI: number;
   authorGini: number;
   minorityTopicExposure: number;
+}
+
+export interface BaselineComparisonArtifactRows {
+  summaryRows: RegimeSummaryCsvRow[];
+  pairwiseRows: BaselineComparisonCsvRow[];
+}
+
+function requirePostInfo(postInfoByUri: ReadonlyMap<string, FeedPostInfo>, uri: string): FeedPostInfo {
+  const info = postInfoByUri.get(uri);
+  if (!info) {
+    throw new Error(
+      `buildBaselineComparisonArtifactRows: uri "${uri}" is missing from corpusPostInfo — seeded corpus and scored feed have diverged`
+    );
+  }
+  return info;
+}
+
+function sharedFeedCount(feedA: readonly FeedEntry[], feedB: readonly FeedEntry[]): number {
+  const feedBUris = new Set(feedB.map((entry) => entry.uri));
+  return feedA.reduce((count, entry) => count + (feedBUris.has(entry.uri) ? 1 : 0), 0);
+}
+
+export function buildBaselineComparisonArtifactRows(
+  result: BaselineComparisonResult,
+  tailThreshold: number
+): BaselineComparisonArtifactRows {
+  const postInfoByUri = new Map(result.corpusPostInfo.map((post) => [post.uri, post]));
+  const summaryRows: RegimeSummaryCsvRow[] = REGIME_NAMES.map((name) => {
+    const regime = result.regimes[name];
+    const feedPosts = regime.feed.map((entry) => requirePostInfo(postInfoByUri, entry.uri));
+    const { exposure } = minorityTopicExposure(feedPosts, result.corpusTopicSupport, tailThreshold);
+    return {
+      regime: name,
+      epochId: regime.epochId,
+      weights: regime.weights,
+      authorHHI: authorHHI(feedPosts),
+      authorGini: authorGini(feedPosts),
+      minorityTopicExposure: exposure,
+    };
+  });
+
+  const pairwiseRows: BaselineComparisonCsvRow[] = [];
+  for (let i = 0; i < REGIME_NAMES.length; i += 1) {
+    for (let j = i + 1; j < REGIME_NAMES.length; j += 1) {
+      const regimeA = REGIME_NAMES[i];
+      const regimeB = REGIME_NAMES[j];
+      const a = result.regimes[regimeA].feed;
+      const b = result.regimes[regimeB].feed;
+      const sharedCount = sharedFeedCount(a, b);
+      const displacement = sharedCount === 0 ? null : normalizedRankDisplacement(a, b).displacement;
+      pairwiseRows.push({
+        regimeA,
+        regimeB,
+        rankDisplacement: displacement,
+        kendallTau: sharedCount < 2 ? null : kendallTauDistance(a, b),
+        sharedCount,
+      });
+    }
+  }
+
+  return { summaryRows, pairwiseRows };
 }
 
 function csvNumber(value: number, digits = 6): string {
@@ -750,7 +819,13 @@ const SUMMARY_CSV_HEADER = [
 
 function toPairwiseCsv(rows: readonly BaselineComparisonCsvRow[]): string {
   const lines = rows.map((row) =>
-    [row.regimeA, row.regimeB, csvNumber(row.rankDisplacement), csvNumber(row.kendallTau), row.sharedCount].join(',')
+    [
+      row.regimeA,
+      row.regimeB,
+      row.rankDisplacement === null ? 'NA' : csvNumber(row.rankDisplacement),
+      row.kendallTau === null ? 'NA' : csvNumber(row.kendallTau),
+      row.sharedCount,
+    ].join(',')
   );
   return `${PAIRWISE_CSV_HEADER.join(',')}\n${lines.join('\n')}\n`;
 }

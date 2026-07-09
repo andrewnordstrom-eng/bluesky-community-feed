@@ -228,6 +228,39 @@ describe('Simulation: multi-epoch-cycle integration', () => {
     expect(Math.abs(round1.l2Displacement - fromDefaultBaseline)).toBeGreaterThan(0.05);
   }, 60_000);
 
+  it('returns the drift-seeded round-1 votes when persona drift overrides the base mix', async () => {
+    const parsed = parseScenario({
+      kind: 'multi-epoch-cycle',
+      version: 1,
+      seed: 808,
+      rounds: 2,
+      population: {
+        subscriberCount: 40,
+        postCount: 5,
+        voteParticipationRate: 1,
+        contentVoteRate: 0,
+        castsWeightVoteRate: 1,
+        castsTopicVoteRate: 0,
+        personaMix: { ...DEFAULT_PERSONA_MIX },
+      },
+      personaDrift: {
+        from: { 'engagement-maximizer': 1, 'chronological-purist': 0, 'bridge-builder': 0, balanced: 0 },
+        to: { 'engagement-maximizer': 0, 'chronological-purist': 0, 'bridge-builder': 1, balanced: 0 },
+      },
+    });
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+
+    const result = await new Simulation(parsed.data, buildSimulationDeps(808)).run();
+    const returnedWeightVotes = result.population.votes.map((vote) => vote.weights);
+
+    expect(result.rounds).toHaveLength(2);
+    expect(result.rounds?.[0]?.voteCount).toBe(returnedWeightVotes.length);
+    expect(returnedWeightVotes.every((weights) => weights !== null && weights.engagement > 0.5)).toBe(true);
+    expect(result.rounds?.[0]?.weights.engagement).toBeGreaterThan(0.5);
+    expect(result.rounds?.[1]?.weights.bridging).toBeGreaterThan(0.5);
+  }, 60_000);
+
   it('same seed -> byte-identical per-epoch metrics across two independent runs', async () => {
     const ROUNDS = 6;
 

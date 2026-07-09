@@ -23,7 +23,7 @@
  */
 
 import type { Rng, Clock } from './rng.js';
-import type { Scenario } from './scenario.js';
+import type { Scenario, PersonaMix } from './scenario.js';
 import {
   generatePopulation,
   generateVotes,
@@ -218,6 +218,17 @@ function topicSlugLabel(slug: string): string {
     .split('-')
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
+}
+
+function interpolatePersonaMix(from: PersonaMix, to: PersonaMix, progress: number): PersonaMix {
+  return {
+    'engagement-maximizer':
+      from['engagement-maximizer'] + (to['engagement-maximizer'] - from['engagement-maximizer']) * progress,
+    'chronological-purist':
+      from['chronological-purist'] + (to['chronological-purist'] - from['chronological-purist']) * progress,
+    'bridge-builder': from['bridge-builder'] + (to['bridge-builder'] - from['bridge-builder']) * progress,
+    balanced: from.balanced + (to.balanced - from.balanced) * progress,
+  };
 }
 
 /**
@@ -509,6 +520,7 @@ export class Simulation {
     const rounds: EpochRoundResult[] = [];
     let epochBeforeId = -1;
     let epochAfterId = -1;
+    let firstRoundVotes: VoteSeed[] | undefined;
 
     for (let round = 1; round <= scenario.rounds; round++) {
       epochBeforeId = await ensureActiveEpoch(this.deps.db);
@@ -525,10 +537,24 @@ export class Simulation {
       // consume post-generation RNG — otherwise postCount would perturb
       // later-round votes even though the corpus is fixed. Only votes are
       // seeded (the fixed corpus is already in place).
+      const roundPopulation =
+        scenario.personaDrift === undefined
+          ? scenario.population
+          : {
+              ...scenario.population,
+              personaMix: interpolatePersonaMix(
+                scenario.personaDrift.from,
+                scenario.personaDrift.to,
+                scenario.rounds === 1 ? 1 : (round - 1) / (scenario.rounds - 1)
+              ),
+            };
       const roundVotes =
-        round === 1
+        round === 1 && scenario.personaDrift === undefined
           ? population.votes
-          : generateVotes(this.deps.rng, population.subscribers, scenario.population);
+          : generateVotes(this.deps.rng, population.subscribers, roundPopulation);
+      if (round === 1) {
+        firstRoundVotes = roundVotes;
+      }
       record('votes_generated', { round, voteCount: roundVotes.length });
 
       await this.insertVotes(this.deps.db, { ...population, votes: roundVotes }, epochBeforeId, dualWrite);
@@ -606,9 +632,11 @@ export class Simulation {
     const auditLog = await this.fetchAuditLogSince(auditLogWatermarkId);
 
     const lastRound = rounds[rounds.length - 1];
+    const resultPopulation =
+      firstRoundVotes === undefined ? population : { ...population, votes: firstRoundVotes };
     return {
       scenario,
-      population,
+      population: resultPopulation,
       epochBeforeId,
       epochAfterId,
       aggregatedWeights: lastRound.weights,
