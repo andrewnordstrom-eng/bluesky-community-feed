@@ -299,7 +299,9 @@ describe('lab artifact git metadata', () => {
       expect((errors[0] as Error).message).toContain('origin/HEAD');
       expect((errors[1] as Error).message).toContain('origin/main');
       expect((errors[2] as Error).message).toContain('HEAD');
-      expect(((errors[0] as Error) as Error & { cause?: unknown }).cause).toBeInstanceOf(Error);
+      for (const error of errors) {
+        expect((error as Error & { cause?: unknown }).cause).toBeInstanceOf(Error);
+      }
     } finally {
       await rm(nonGitDir, { recursive: true, force: true });
     }
