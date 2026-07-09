@@ -1,32 +1,34 @@
 import Link from "next/link"
+import { LIVE_METRICS_SNAPSHOT, LIVE_RANK_ONE_EXPLANATION } from "@/lib/live-metrics-snapshot"
 
 const entries = [
   {
-    date: "Jun 2025",
-    tag: "Feature",
-    text: "Epoch comparison view: diff any two epochs side by side to see how weights shifted.",
+    date: "Snapshot",
+    tag: "Live",
+    text: `${LIVE_METRICS_SNAPSHOT.scoredPosts.toLocaleString("en-US")} scored posts and ${LIVE_METRICS_SNAPSHOT.uniqueAuthors.toLocaleString("en-US")} authors are shown from the production snapshot collected ${LIVE_METRICS_SNAPSHOT.collectedAtLabel}.`,
   },
   {
-    date: "May 2025",
-    tag: "Improvement",
-    text: "Score breakdown is now available on every post in the feed, not just the top 50.",
+    date: "Receipt",
+    tag: "Proof",
+    text: `Rank #${LIVE_RANK_ONE_EXPLANATION.rank} keeps component weights, weighted scores, and counterfactual rank movement while raw identifiers stay redacted.`,
   },
   {
-    date: "Apr 2025",
-    tag: "Feature",
-    text: "Community feeds can now set a minimum epoch length to prevent vote-rushing.",
+    date: "Epoch",
+    tag: "Audit",
+    text: `Epoch ${LIVE_METRICS_SNAPSHOT.epochId} weights are visible on the homepage and tied to the same snapshot used by the reviewer demo.`,
   },
   {
-    date: "Mar 2025",
-    tag: "Fix",
-    text: "App-password revocation now propagates within 60 seconds instead of up to 10 minutes.",
+    date: "Export",
+    tag: "Static",
+    text: "The public homepage remains a static-export route, so reviewers see the polished page without adding a new backend dependency.",
   },
 ]
 
 const tagColors: Record<string, string> = {
-  Feature: "text-primary bg-primary/[0.08]",
-  Improvement: "text-foreground/60 bg-foreground/[0.06]",
-  Fix: "text-[#9B6A2F] bg-[#9B6A2F]/10",
+  Live: "text-primary bg-primary/[0.08]",
+  Proof: "text-foreground/60 bg-foreground/[0.06]",
+  Audit: "text-[#9B6A2F] bg-[#9B6A2F]/10",
+  Static: "text-foreground/55 bg-muted/70",
 }
 
 export function ChangelogSection() {
@@ -35,17 +37,17 @@ export function ChangelogSection() {
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between w-full max-w-3xl gap-3">
         <div className="flex flex-col gap-1">
           <h2 className="text-foreground font-display text-2xl md:text-3xl font-bold leading-tight tracking-tight">
-            What&apos;s new
+            Proof, not promises
           </h2>
           <p className="text-foreground/45 text-sm font-normal">
-            We ship often. Here&apos;s what&apos;s changed recently.
+            The homepage keeps its claims close to receipts reviewers can inspect.
           </p>
         </div>
         <Link
-          href="#"
+          href="/demo"
           className="text-primary text-sm font-medium hover:underline underline-offset-2 flex-shrink-0"
         >
-          Full changelog &rarr;
+          Open live demo &rarr;
         </Link>
       </div>
 

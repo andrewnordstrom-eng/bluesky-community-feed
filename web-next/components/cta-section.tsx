@@ -12,35 +12,35 @@ export function CTASection() {
       <div className="relative z-10 flex flex-col justify-start items-center gap-8 max-w-3xl mx-auto text-center">
         <div className="flex flex-col justify-start items-center gap-4">
           <h2 className="text-foreground font-display text-4xl md:text-5xl lg:text-[64px] font-bold leading-tight tracking-tight text-balance">
-            Take back your feed.
+            Inspect the feed before you trust it.
           </h2>
           <p className="text-foreground/50 text-base md:text-lg font-medium leading-relaxed max-w-xl">
-            Connect your Bluesky account, cast your first vote, and see exactly why every post is where it is.
+            Start with the read-only demo, inspect the live snapshot, then connect a Bluesky app password only when you are ready to participate.
           </p>
         </div>
 
         <div className="flex flex-col sm:flex-row items-center gap-3">
-          <Link href="#">
+          <Link href="/demo">
             <Button
               className="px-8 py-3 bg-primary text-primary-foreground text-base font-medium rounded-full shadow-[0_2px_8px_rgba(200,97,44,0.35),0_1px_2px_rgba(200,97,44,0.2)] hover:bg-primary-dark hover:shadow-[0_4px_16px_rgba(200,97,44,0.4)] transition-all duration-200"
               size="lg"
             >
-              Connect your Bluesky account
+              Explore the live demo
             </Button>
           </Link>
-          <Link href="#features-section">
+          <Link href="/sign-in">
             <Button
               variant="ghost"
               className="px-6 py-3 text-foreground/60 hover:text-foreground rounded-full text-base font-medium"
               size="lg"
             >
-              See how ranking works &rarr;
+              Sign in when ready
             </Button>
           </Link>
         </div>
 
         <p className="text-xs text-foreground/30 font-medium">
-          Free &middot; App-password secure &middot; Leave anytime
+          Snapshot-first &middot; App-password sign-in &middot; No hidden algorithm
         </p>
       </div>
     </section>

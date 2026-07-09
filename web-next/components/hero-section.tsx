@@ -6,20 +6,20 @@ import { LIVE_METRICS_SNAPSHOT } from "@/lib/live-metrics-snapshot"
 export function HeroSection() {
   return (
     <section
-      className="flex flex-col items-center text-center relative mx-auto rounded-2xl overflow-hidden my-4 md:my-6 pt-14 pb-32 md:pt-16 md:pb-44 lg:pt-20 lg:pb-52 px-4 md:px-6
-         w-full max-w-[1220px]"
+      className="flex flex-col items-center text-center relative mx-auto overflow-hidden pt-14 pb-32 md:pt-16 md:pb-44 lg:pt-20 lg:pb-52 px-4 md:px-6
+         w-full"
     >
       {/* SVG Background — warm cream grid */}
       <div className="absolute inset-0 z-0">
         <svg
           width="100%"
           height="100%"
-          viewBox="0 0 1220 810"
+          viewBox="0 0 1440 810"
           fill="none"
           xmlns="http://www.w3.org/2000/svg"
           preserveAspectRatio="xMidYMid slice"
         >
-          <rect width="1220" height="810" rx="16" fill="hsl(var(--background))" />
+          <rect width="1440" height="810" fill="hsl(var(--background))" />
           <g clipPath="url(#clip0_hero)">
             <mask
               id="mask0_hero"
@@ -86,11 +86,10 @@ export function HeroSection() {
           <rect
             x="0.5"
             y="0.5"
-            width="1219"
+            width="1439"
             height="809"
-            rx="15.5"
             stroke="hsl(var(--border))"
-            strokeOpacity="0.6"
+            strokeOpacity="0.3"
           />
 
           <defs>
@@ -116,7 +115,7 @@ export function HeroSection() {
               <stop offset="1" stopColor="hsl(var(--foreground))" stopOpacity="0.5" />
             </linearGradient>
             <clipPath id="clip0_hero">
-              <rect width="1220" height="810" rx="16" fill="white" />
+              <rect width="1440" height="810" fill="white" />
             </clipPath>
           </defs>
         </svg>
@@ -124,7 +123,7 @@ export function HeroSection() {
 
       {/* Eyebrow — GitHub star badge */}
       <a
-        href="https://github.com/corgi-feed/corgi"
+        href="https://github.com/andrewnordstrom-eng/bluesky-community-feed"
         target="_blank"
         rel="noopener noreferrer"
         className="relative z-10 mb-6 md:mb-7 inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-border bg-card/80 hover:bg-card transition-colors text-xs font-medium text-foreground/70 hover:text-foreground shadow-sm"
@@ -137,7 +136,7 @@ export function HeroSection() {
         <svg width="12" height="12" viewBox="0 0 16 16" fill="hsl(var(--primary))" aria-hidden="true">
           <path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.75.75 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25Z" />
         </svg>
-        <span className="font-mono text-foreground/60">Star us</span>
+        <span className="font-mono text-foreground/60">View code</span>
       </a>
 
       {/* Hero copy */}
@@ -153,9 +152,9 @@ export function HeroSection() {
 
       {/* CTAs */}
       <div className="relative z-10 flex flex-col sm:flex-row items-center gap-3">
-        <Link href="#">
+        <Link href="/demo">
           <Button className="bg-primary text-primary-foreground hover:bg-primary-dark px-7 py-3 rounded-full font-medium text-base shadow-[0_2px_8px_rgba(200,97,44,0.35),0_1px_2px_rgba(200,97,44,0.2)] hover:shadow-[0_4px_16px_rgba(200,97,44,0.4),0_1px_2px_rgba(200,97,44,0.2)] transition-all duration-200">
-            Connect your Bluesky account
+            Explore the live demo
           </Button>
         </Link>
         <Link href="#features-section">
@@ -166,7 +165,7 @@ export function HeroSection() {
       </div>
       {/* Trust line */}
       <p className="relative z-10 mt-3 text-xs text-foreground/40 font-medium">
-        Free &middot; App-password secure &middot; Leave anytime
+        Read-only demo first &middot; account connection stays optional
       </p>
       <p className="relative z-10 mt-2 text-xs text-foreground/40 font-medium">
         Live snapshot, {LIVE_METRICS_SNAPSHOT.collectedAtLabel}: {LIVE_METRICS_SNAPSHOT.scoredPosts.toLocaleString("en-US")} scored posts &middot; {LIVE_METRICS_SNAPSHOT.uniqueAuthors.toLocaleString("en-US")} authors &middot; epoch {LIVE_METRICS_SNAPSHOT.epochId} active

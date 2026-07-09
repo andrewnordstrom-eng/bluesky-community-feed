@@ -1,12 +1,21 @@
 // Score breakdown card — the "killer feature" UI shown below the hero
+import Link from "next/link"
 import { LIVE_METRICS_SNAPSHOT, LIVE_RANK_ONE_EXPLANATION } from "@/lib/live-metrics-snapshot"
+
+function clampScoreBarPercent(score: number): number {
+  if (!Number.isFinite(score)) {
+    return 0
+  }
+
+  return Math.min(100, Math.max(0, Math.round(Math.abs(score) * 100)))
+}
 
 export function DashboardPreview() {
   const signals = LIVE_RANK_ONE_EXPLANATION.components.map((component) => ({
     label: component.label,
     weight: component.weight,
     value: `${component.raw_score >= 0 ? "+" : "-"}${Math.abs(component.raw_score).toFixed(2)}`,
-    bar: Math.round(component.raw_score * 100),
+    bar: clampScoreBarPercent(component.raw_score),
     positive: component.weighted >= 0,
   }))
   const totalScorePrefix = LIVE_RANK_ONE_EXPLANATION.totalScore >= 0 ? "+" : "-"
@@ -76,9 +85,9 @@ export function DashboardPreview() {
           </div>
           <div className="mt-3 flex items-center justify-between">
             <span className="text-foreground/40 text-xs">Epoch #{LIVE_METRICS_SNAPSHOT.epochId} · refreshed {LIVE_METRICS_SNAPSHOT.collectedAtLabel}</span>
-            <button className="text-primary text-xs font-medium hover:underline">
+            <Link href="/history" className="text-primary text-xs font-medium hover:underline">
               View epoch history &rarr;
-            </button>
+            </Link>
           </div>
         </div>
       </div>

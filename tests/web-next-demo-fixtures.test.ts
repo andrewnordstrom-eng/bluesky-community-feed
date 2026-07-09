@@ -23,6 +23,8 @@ const LAB_METRICS_PACKET_FILE = path.join(
 
 const UI_FIXTURE_FILES = [
   path.join(REPO_ROOT, 'web-next', 'app', 'demo', 'page.tsx'),
+  path.join(REPO_ROOT, 'web-next', 'components', 'bento-section.tsx'),
+  path.join(REPO_ROOT, 'web-next', 'components', 'changelog-section.tsx'),
   path.join(REPO_ROOT, 'web-next', 'components', 'dashboard-preview.tsx'),
   path.join(REPO_ROOT, 'web-next', 'components', 'hero-section.tsx'),
   LIVE_METRICS_SNAPSHOT_FILE,

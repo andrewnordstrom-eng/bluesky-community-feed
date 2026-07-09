@@ -1,289 +1,279 @@
-// Corgi feature bento — six cards mapping to the three brand pillars
-import React from "react"
+import Link from "next/link"
+import { LIVE_FEED_POSTS, LIVE_METRICS_SNAPSHOT, LIVE_RANK_ONE_EXPLANATION } from "@/lib/live-metrics-snapshot"
 
-const BentoCard = ({
-  title,
-  description,
-  children,
-  accent = false,
-}: {
-  title: string
-  description: string
-  children: React.ReactNode
-  accent?: boolean
-}) => (
-  <div
-    className={`overflow-hidden rounded-2xl flex flex-col justify-start items-start relative border ${
-      accent
-        ? "bg-primary border-primary/30"
-        : "bg-card border-border"
-    } shadow-[0_2px_12px_rgba(46,38,32,0.07)]`}
-  >
-    <div className="self-stretch p-6 pb-4 flex flex-col justify-start items-start gap-1.5 relative z-10">
-      <p className={`self-stretch text-base font-semibold leading-6 ${accent ? "text-primary-foreground" : "text-foreground"}`}>
-        {title}
-      </p>
-      <p className={`self-stretch text-sm font-normal leading-5 ${accent ? "text-primary-foreground/75" : "text-foreground/60"}`}>
-        {description}
-      </p>
-    </div>
-    <div className="self-stretch flex-1 relative z-10 min-h-[220px]">
-      {children}
-    </div>
-  </div>
-)
+function unitIntervalToPercent(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0
+  }
 
-// Inline mini-illustrations for each bento card
-function VoteWeightsIllustration() {
-  const items = [
-    { label: "Recency", pct: 35 },
-    { label: "Replies", pct: 25 },
-    { label: "Follows", pct: 20 },
-    { label: "Quality", pct: 15 },
-    { label: "Novelty", pct: 5 },
+  return Math.min(100, Math.max(0, Math.round(value * 100)))
+}
+
+function formatPercent(value: number): string {
+  return `${Math.round(value * 100)}%`
+}
+
+function formatScore(value: number): string {
+  const sign = value >= 0 ? "+" : "-"
+  return `${sign}${Math.abs(value).toFixed(2)}`
+}
+
+function VoteWeightsUI() {
+  const weights = [
+    { label: "Recency", value: LIVE_METRICS_SNAPSHOT.weights.recency },
+    { label: "Engagement", value: LIVE_METRICS_SNAPSHOT.weights.engagement },
+    { label: "Bridging", value: LIVE_METRICS_SNAPSHOT.weights.bridging },
+    { label: "Source diversity", value: LIVE_METRICS_SNAPSHOT.weights.source_diversity },
+    { label: "Relevance", value: LIVE_METRICS_SNAPSHOT.weights.relevance },
   ]
-  return (
-    <div className="px-6 pb-6 flex flex-col gap-2.5 w-full">
-      {items.map((item) => (
-        <div key={item.label} className="flex items-center gap-3">
-          <span className="w-16 text-foreground/50 text-xs font-medium flex-shrink-0">{item.label}</span>
-          <div className="flex-1 h-1.5 bg-border rounded-full overflow-hidden">
-            <div
-              className="h-full rounded-full bg-primary transition-all duration-700"
-              style={{ width: `${item.pct * 2.5}%` }}
-            />
-          </div>
-          <span className="w-8 text-right text-foreground/40 text-xs font-mono">{item.pct}%</span>
-        </div>
-      ))}
-      <p className="text-foreground/30 text-xs mt-1.5 font-mono">epoch #47 · community vote</p>
-    </div>
-  )
-}
-
-function ScoreBreakdownIllustration() {
-  return (
-    <div className="px-6 pb-6 flex flex-col gap-2.5 w-full">
-      <div className="bg-background rounded-xl border border-border overflow-hidden">
-        {/* Total score header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border/60">
-          <span className="text-foreground/50 text-xs font-medium">Total score</span>
-          <span className="text-foreground font-mono font-bold text-base">2.12</span>
-        </div>
-        {/* Signals */}
-        {[
-          { l: "Recency", v: "+0.82", neg: false },
-          { l: "Reply depth", v: "+0.61", neg: false },
-          { l: "Following author", v: "+0.22", neg: false },
-          { l: "Spam risk", v: "−0.04", neg: true },
-        ].map((r) => (
-          <div key={r.l} className="flex items-center justify-between px-4 py-2 border-b border-border/40 last:border-0">
-            <span className="text-foreground/50 text-xs">{r.l}</span>
-            <span className={`text-xs font-mono font-medium ${r.neg ? "text-[#C0625C]" : "text-primary"}`}>{r.v}</span>
-          </div>
-        ))}
-      </div>
-      <p className="text-foreground/30 text-xs font-mono">every signal stored · open any post</p>
-    </div>
-  )
-}
-
-function EpochHistoryIllustration() {
-  const epochs = [44, 45, 46, 47]
-  return (
-    <div className="px-6 pb-6 flex flex-col gap-0 w-full">
-      <div className="bg-background rounded-xl border border-border overflow-hidden">
-        {epochs.map((ep, i) => (
-          <div
-            key={ep}
-            className={`flex items-center justify-between px-4 py-2.5 ${i < epochs.length - 1 ? "border-b border-border/40" : ""}`}
-          >
-            <div className="flex items-center gap-2">
-              <span className="text-foreground/70 text-xs font-mono">Epoch #{ep}</span>
-              {ep === 47 && (
-                <span className="text-[10px] font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full">
-                  current
-                </span>
-              )}
-            </div>
-            <span className="text-foreground/40 text-xs font-mono">{200 + ep * 3} voters</span>
-          </div>
-        ))}
-      </div>
-      <p className="text-foreground/30 text-xs mt-2.5 font-mono">auditable forever</p>
-    </div>
-  )
-}
-
-function CommunityVoteIllustration({ accent }: { accent?: boolean }) {
-  const options = [
-    { option: "Boost replies from followed accounts", votes: 78 },
-    { option: "Penalise repost-heavy posts", votes: 61 },
-    { option: "Increase recency weight", votes: 45 },
-  ]
-  const max = options[0].votes
-  const bg = accent ? "bg-primary-foreground/10 border-primary-foreground/20" : "bg-muted/60 border-border"
-  const textMain = accent ? "text-primary-foreground/90" : "text-foreground/70"
-  const textMuted = accent ? "text-primary-foreground/50" : "text-foreground/40"
-  const barBg = accent ? "bg-primary-foreground/15" : "bg-border"
-  const barFill = accent ? "bg-primary-foreground/60" : "bg-primary"
 
   return (
-    <div className="px-6 pb-6 flex flex-col gap-2.5 w-full">
-      {options.map((opt) => (
-        <div key={opt.option} className={`rounded-lg border px-3.5 py-3 flex flex-col gap-2 ${bg}`}>
-          <p className={`text-xs leading-tight font-medium ${textMain}`}>{opt.option}</p>
-          <div className="flex items-center gap-2">
-            <div className={`flex-1 h-1 rounded-full overflow-hidden ${barBg}`}>
-              <div
-                className={`h-full rounded-full ${barFill}`}
-                style={{ width: `${(opt.votes / max) * 100}%` }}
-              />
-            </div>
-            <span className={`text-[10px] font-mono font-semibold w-8 text-right flex-shrink-0 ${textMuted}`}>{opt.votes}</span>
-          </div>
-        </div>
-      ))}
-      <p className={`text-xs mt-0.5 font-mono ${accent ? "text-primary-foreground/30" : "text-foreground/30"}`}>
-        members vote · feed reranks each epoch
-      </p>
-    </div>
-  )
-}
-
-function AppPasswordIllustration() {
-  const items = [
-    {
-      label: "App-password only",
-      icon: (
-        <path d="M6 1a3 3 0 0 0-3 3v1H2a1 1 0 0 0-1 1v4a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1H9V4a3 3 0 0 0-3-3Zm0 1a2 2 0 0 1 2 2v1H4V4a2 2 0 0 1 2-2Z" fill="hsl(var(--primary))" />
-      ),
-    },
-    {
-      label: "Revoke anytime, one click",
-      icon: (
-        <>
-          <circle cx="6" cy="6" r="4" stroke="hsl(var(--primary))" strokeWidth="1.5" />
-          <path d="M4 6l1.5 1.5L8 4" stroke="hsl(var(--primary))" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-        </>
-      ),
-    },
-    {
-      label: "No main password, ever",
-      icon: (
-        <path d="M6 1L1 4v4l5 3 5-3V4L6 1Z" stroke="hsl(var(--primary))" strokeWidth="1.5" strokeLinejoin="round" />
-      ),
-    },
-  ]
-  return (
-    <div className="px-6 pb-6 flex flex-col gap-2 w-full">
-      <div className="bg-background rounded-xl border border-border overflow-hidden">
-        {items.map((item, i) => (
-          <div
-            key={item.label}
-            className={`flex items-center gap-3 px-4 py-3 ${i < items.length - 1 ? "border-b border-border/40" : ""}`}
-          >
-            <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">{item.icon}</svg>
-            </div>
-            <span className="text-foreground/70 text-xs font-medium">{item.label}</span>
-          </div>
-        ))}
-      </div>
-      <p className="text-foreground/30 text-xs mt-0.5 font-mono">trustworthy by construction</p>
-    </div>
-  )
-}
-
-function ExportIllustration() {
-  return (
-    <div className="px-6 pb-6 flex flex-col gap-2.5 w-full">
-      <div className="bg-background rounded-xl border border-border overflow-hidden">
-        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border/40 bg-muted/40">
+    <div className="w-full rounded-2xl border border-border bg-card overflow-hidden">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between px-5 sm:px-6 py-4 border-b border-border/60 bg-card">
+        <div className="flex items-center gap-2.5">
           <span className="w-2.5 h-2.5 rounded-full bg-[#FF6058]" />
           <span className="w-2.5 h-2.5 rounded-full bg-[#FFBD2E]" />
           <span className="w-2.5 h-2.5 rounded-full bg-[#28CA41]" />
-          <span className="text-foreground/40 text-[10px] font-mono ml-2">export.json</span>
+          <span className="ml-1 sm:ml-2 text-foreground/45 text-xs font-mono">Live governance weights</span>
         </div>
-        <div className="px-4 py-3 font-mono text-xs text-foreground/60 space-y-0.5">
-          <div><span className="text-primary/60">{"{"}</span></div>
-          <div className="pl-3"><span className="text-foreground/40">&quot;post_uri&quot;:</span> <span className="text-foreground/55">&quot;at://...&quot;</span>,</div>
-          <div className="pl-3"><span className="text-foreground/40">&quot;score&quot;:</span> <span className="text-primary font-semibold">2.12</span>,</div>
-          <div className="pl-3"><span className="text-foreground/40">&quot;epoch&quot;:</span> <span className="text-foreground/55">47</span>,</div>
-          <div className="pl-3"><span className="text-foreground/40">&quot;signals&quot;:</span> <span className="text-foreground/55">[...]</span></div>
-          <div><span className="text-primary/60">{"}"}</span></div>
-        </div>
+        <span className="w-fit text-[10px] font-mono text-primary bg-primary/10 px-2.5 py-1 rounded-full border border-primary/15">
+          epoch {LIVE_METRICS_SNAPSHOT.epochId} snapshot
+        </span>
       </div>
-      <p className="text-foreground/30 text-xs font-mono">research-grade · consent-aware · yours</p>
+      <div className="px-5 sm:px-6 py-6 flex flex-col gap-4">
+        {weights.map((item) => (
+          <div key={item.label} className="flex items-center gap-3 sm:gap-4">
+            <span className="w-28 sm:w-36 text-foreground/60 text-sm font-medium flex-shrink-0">{item.label}</span>
+            <div className="flex-1 h-2 bg-border/60 rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full bg-primary transition-all duration-700"
+                style={{ width: `${unitIntervalToPercent(item.value)}%` }}
+              />
+            </div>
+            <span className="w-10 text-right text-foreground/50 text-sm font-mono font-medium flex-shrink-0">
+              {formatPercent(item.value)}
+            </span>
+          </div>
+        ))}
+      </div>
+      <div className="px-5 sm:px-6 pb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-foreground/35 text-xs font-mono">
+          {LIVE_METRICS_SNAPSHOT.scoredPosts.toLocaleString("en-US")} scored posts use these weights
+        </p>
+        <Link
+          href="/vote"
+          className="w-fit text-xs font-medium text-primary border border-primary/25 bg-primary/10 px-3.5 py-1.5 rounded-full hover:bg-primary/15 transition-colors"
+        >
+          Review voting screen
+        </Link>
+      </div>
     </div>
   )
 }
 
-export function BentoSection() {
-  const cards = [
+function ScoreBreakdownUI() {
+  return (
+    <div className="w-full rounded-2xl border border-border bg-card overflow-hidden">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between px-5 sm:px-6 py-4 border-b border-border/60">
+        <span className="text-foreground/45 text-xs font-mono">Anonymized live receipt</span>
+        <span className="w-fit text-xs font-mono text-primary font-semibold bg-primary/10 px-2.5 py-1 rounded-full border border-primary/15">
+          rank #{LIVE_RANK_ONE_EXPLANATION.rank}
+        </span>
+      </div>
+      <div className="px-5 sm:px-6 py-5 flex flex-col gap-5">
+        <div className="flex items-start gap-3">
+          <div className="w-9 h-9 rounded-full bg-muted flex-shrink-0 overflow-hidden">
+            <svg viewBox="0 0 36 36" className="w-full h-full" aria-hidden="true">
+              <rect width="36" height="36" fill="hsl(var(--muted))" />
+              <circle cx="18" cy="14" r="6" fill="hsl(var(--border))" />
+              <ellipse cx="18" cy="32" rx="11" ry="8" fill="hsl(var(--border))" />
+            </svg>
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-foreground font-semibold text-sm">{LIVE_RANK_ONE_EXPLANATION.authorLabel}</p>
+            <p className="text-foreground/60 text-sm leading-relaxed mt-1">{LIVE_RANK_ONE_EXPLANATION.text}</p>
+          </div>
+        </div>
+        <div className="bg-background rounded-xl border border-border/70 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/50 bg-muted/30">
+            <span className="text-foreground/50 text-xs font-medium">Why this ranked first</span>
+            <span className="text-primary text-xs font-mono font-semibold">
+              {formatScore(LIVE_RANK_ONE_EXPLANATION.totalScore)}
+            </span>
+          </div>
+          {LIVE_RANK_ONE_EXPLANATION.components.map((component) => (
+            <div
+              key={component.key}
+              className="flex items-center justify-between gap-4 px-4 py-2.5 border-b border-border/30 last:border-0"
+            >
+              <span className="text-foreground/55 text-xs">{component.label}</span>
+              <span className="text-xs font-mono font-semibold text-primary">
+                {formatScore(component.weighted)}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function MixedFeedUI() {
+  return (
+    <div className="w-full rounded-2xl border border-border bg-card overflow-hidden">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between px-5 sm:px-6 py-4 border-b border-border/60">
+        <div className="flex items-center gap-2.5">
+          <span className="w-2 h-2 rounded-full bg-[#FF6058]" />
+          <span className="w-2 h-2 rounded-full bg-[#FFBD2E]" />
+          <span className="w-2 h-2 rounded-full bg-[#28CA41]" />
+          <span className="ml-1 sm:ml-2 text-foreground/45 text-xs font-mono">Snapshot mixed feed</span>
+        </div>
+        <span className="w-fit text-[10px] font-medium text-foreground/45 border border-border/50 px-2.5 py-1 rounded-full">
+          {LIVE_METRICS_SNAPSHOT.uniqueAuthors.toLocaleString("en-US")} anonymized authors
+        </span>
+      </div>
+      <div className="divide-y divide-border/40">
+        {LIVE_FEED_POSTS.map((post) => (
+          <div key={post.rank} className="px-5 py-4 flex items-start gap-3.5">
+            <div className="flex-shrink-0 w-6 text-center text-foreground/25 text-xs font-mono pt-0.5">
+              {post.rank}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap mb-1">
+                <span className="text-foreground font-semibold text-sm">{post.author}</span>
+                <span className="text-foreground/35 text-xs">snapshot receipt</span>
+              </div>
+              <p className="text-foreground/65 text-sm leading-relaxed">{post.text}</p>
+            </div>
+            <span className="flex-shrink-0 text-xs font-mono font-semibold text-primary pt-0.5">
+              {formatScore(post.score)}
+            </span>
+          </div>
+        ))}
+      </div>
+      <div className="px-5 sm:px-6 py-3.5 border-t border-border/40 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-foreground/35 text-xs font-mono">one governed ranking, multiple signal types</p>
+        <Link href="/demo" className="text-xs font-medium text-primary hover:underline underline-offset-2">
+          See the receipt demo &rarr;
+        </Link>
+      </div>
+    </div>
+  )
+}
+
+function CommunityVoteUI() {
+  const steps = [
     {
-      title: "Vote on the weights.",
-      description: "Your community decides what the feed cares about: recency, replies, who you follow, quality.",
-      Component: VoteWeightsIllustration,
+      label: "Proposal",
+      text: "A change to ranking weights or rules is made visible before it affects the feed.",
     },
     {
-      title: "Every post shows its work.",
-      description: "Tap any post to see its full score broken down signal by signal. Nothing is hidden.",
-      Component: ScoreBreakdownIllustration,
+      label: "Vote",
+      text: "Community votes are aggregated into the next set of governance weights.",
     },
     {
-      title: "A full history you can audit.",
-      description: "Every set of weights is saved per epoch. You can look back, compare, and propose changes.",
-      Component: EpochHistoryIllustration,
+      label: "Epoch transition",
+      text: "The feed applies the new weights at the boundary instead of changing silently midstream.",
     },
     {
-      title: "One community, one algorithm.",
-      description: "Members vote on the rules. The feed reranks. No back-room decisions.",
-      Component: CommunityVoteIllustration,
-      accent: true,
-    },
-    {
-      title: "Secure by default.",
-      description: "Corgi only ever uses an app-password. Your main Bluesky password stays yours. Revoke access whenever you like.",
-      Component: AppPasswordIllustration,
-    },
-    {
-      title: "Export your data.",
-      description: "Download your feed data in structured JSON, ready for analysis. Consent-aware and yours to keep.",
-      Component: ExportIllustration,
+      label: "Receipt",
+      text: "Weights and post-score explanations remain inspectable after the change.",
     },
   ]
 
   return (
-    <section id="features-section" className="w-full px-5 flex flex-col justify-center items-center overflow-visible bg-transparent">
-      <div className="w-full py-14 md:py-20 relative flex flex-col justify-start items-start gap-6">
-        {/* Subtle warm glow */}
-        <div className="w-[547px] h-[600px] absolute top-[400px] left-[80px] origin-top-left rotate-[-33deg] bg-primary/5 blur-[130px] z-0 pointer-events-none" />
+    <div className="w-full rounded-2xl border border-border bg-card overflow-hidden">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between px-5 sm:px-6 py-4 border-b border-border/60">
+        <span className="text-foreground/45 text-xs font-mono">Epoch and proposal flow</span>
+        <span className="w-fit text-[10px] font-medium text-primary bg-primary/10 border border-primary/15 px-2.5 py-1 rounded-full">
+          auditable sequence
+        </span>
+      </div>
+      <div className="px-5 sm:px-6 py-5 grid grid-cols-1 md:grid-cols-2 gap-3">
+        {steps.map((step, index) => (
+          <div key={step.label} className="rounded-xl border border-border/60 bg-background px-4 py-3 flex flex-col gap-2.5">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-foreground/75 text-sm font-semibold leading-snug">{step.label}</p>
+              <span className="text-[11px] font-mono text-foreground/35">{String(index + 1).padStart(2, "0")}</span>
+            </div>
+            <p className="text-foreground/55 text-sm leading-relaxed">{step.text}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
 
-        <div className="self-stretch pb-8 md:pb-12 flex flex-col justify-center items-center gap-2 z-10">
-          <div className="flex flex-col justify-start items-center gap-4">
-            <h2 className="w-full max-w-[480px] text-center text-foreground font-display text-4xl md:text-[2.75rem] font-bold leading-tight tracking-normal text-balance">
-              The feed your community actually chose.
-            </h2>
-            <p className="w-full max-w-[460px] text-center text-foreground/55 text-base font-normal leading-relaxed">
-              No hidden weights, no engagement traps. Your community votes, the feed reflects it — and everyone can see exactly why.
-            </p>
+const features = [
+  {
+    id: "weights",
+    headline: "Community weights are visible.",
+    description:
+      "Corgi exposes the ranking weights that drive the feed. The public homepage uses the same live snapshot source as the reviewer demo, so the numbers are receipts instead of marketing decoration.",
+    cta: "Review voting screen",
+    href: "/vote",
+    UI: VoteWeightsUI,
+  },
+  {
+    id: "receipt",
+    headline: "Every top post keeps an anonymized receipt.",
+    description:
+      "The public page can show why a post ranked without leaking raw handles, DIDs, or post URIs. Score components, weights, and totals stay inspectable while the sensitive production content stays redacted.",
+    cta: "Open the live receipt",
+    href: `/demo#snapshot-rank-${LIVE_RANK_ONE_EXPLANATION.rank}`,
+    UI: ScoreBreakdownUI,
+  },
+  {
+    id: "mixed-feed",
+    headline: "The feed is mixed, not topic-siloed.",
+    description:
+      "A governed recommender has to reconcile recency, engagement, bridging, source diversity, and relevance in one ranking. The demo feed shows anonymized production receipts at the same grain reviewers can inspect.",
+    cta: "Explore the demo feed",
+    href: "/demo",
+    UI: MixedFeedUI,
+  },
+  {
+    id: "epochs",
+    headline: "Epochs turn proposals into auditable changes.",
+    description:
+      "Corgi's governance loop is proposal, vote, epoch transition, and receipt. The product story stays grounded in that loop instead of promising private communities or made-up vote totals.",
+    cta: "See epoch history",
+    href: "/history",
+    UI: CommunityVoteUI,
+  },
+]
+
+export function BentoSection() {
+  return (
+    <section id="features-section" className="w-full">
+      {features.map((feature) => (
+        <div
+          key={feature.id}
+          className="border-t border-border/60 px-5 md:px-8 lg:px-12"
+        >
+          <div className="flex flex-col md:flex-row md:items-start gap-6 md:gap-16 py-10 md:py-14">
+            <div className="md:w-[40%] flex-shrink-0">
+              <h2 className="text-foreground font-display text-2xl md:text-3xl lg:text-[2rem] font-bold leading-tight tracking-tight text-balance">
+                {feature.headline}
+              </h2>
+            </div>
+            <div className="md:flex-1 flex flex-col gap-5 md:pt-1">
+              <p className="text-foreground/55 text-base leading-relaxed">
+                {feature.description}
+              </p>
+              <Link
+                href={feature.href}
+                className="w-fit text-sm font-medium text-primary hover:text-primary-dark transition-colors"
+              >
+                {feature.cta} &rarr;
+              </Link>
+            </div>
+          </div>
+          <div className="pb-10 md:pb-16">
+            <feature.UI />
           </div>
         </div>
-
-        <div className="self-stretch grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 z-10">
-          {cards.map((card) => (
-            <BentoCard
-              key={card.title}
-              title={card.title}
-              description={card.description}
-              accent={card.accent}
-            >
-              <card.Component accent={card.accent} />
-            </BentoCard>
-          ))}
-        </div>
-      </div>
+      ))}
     </section>
   )
 }

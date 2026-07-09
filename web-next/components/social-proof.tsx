@@ -10,10 +10,10 @@ const pillars = [
         <path d="M9 18c-4.51 2-5-2-7-2" />
       </svg>
     ),
-    heading: "MIT licensed",
-    body: "Read every line. Fork it. Self-host it. The code is yours.",
-    href: "https://github.com/corgi-feed/corgi",
-    linkLabel: "View on GitHub",
+    heading: "Open source",
+    body: "Read the implementation behind the feed, governance routes, and receipt surfaces.",
+    href: "https://github.com/andrewnordstrom-eng/bluesky-community-feed",
+    linkLabel: "View source",
   },
   {
     icon: (
@@ -22,10 +22,10 @@ const pillars = [
         <path d="M8 21h8M12 17v4" />
       </svg>
     ),
-    heading: "Self-hostable",
-    body: "Run Corgi on your own infrastructure. No dependency on our servers.",
-    href: "https://github.com/corgi-feed/corgi#self-hosting",
-    linkLabel: "Hosting docs",
+    heading: "Reviewer-safe",
+    body: "Inspect the public demo without connecting an account or exposing raw production identifiers.",
+    href: "/demo",
+    linkLabel: "Open demo",
   },
   {
     icon: (
@@ -35,10 +35,10 @@ const pillars = [
         <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
       </svg>
     ),
-    heading: "Community-built",
-    body: "PRs welcome. If something bothers you about the algorithm, you can fix it.",
-    href: "https://github.com/corgi-feed/corgi/contribute",
-    linkLabel: "Contribute",
+    heading: "Receipt-first",
+    body: "Public copy stays tied to anonymized score receipts, live snapshot totals, and auditable epochs.",
+    href: "#features-section",
+    linkLabel: "See receipts",
   },
 ]
 
@@ -62,8 +62,8 @@ export function SocialProof() {
             </div>
             <Link
               href={p.href}
-              target="_blank"
-              rel="noopener noreferrer"
+              target={p.href.startsWith("https://") ? "_blank" : undefined}
+              rel={p.href.startsWith("https://") ? "noopener noreferrer" : undefined}
               className="text-primary text-xs font-medium hover:underline underline-offset-2 w-fit"
             >
               {p.linkLabel} &rarr;
