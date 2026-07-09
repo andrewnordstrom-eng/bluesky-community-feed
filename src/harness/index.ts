@@ -19,6 +19,7 @@ export {
   campaignRunsForStages,
   parseCampaignScenarioFamilyId,
   parseCampaignStageId,
+  requireCampaignRunsForSelection,
   scenarioForCampaignRun,
   selectCampaignStages,
   totalCampaignRuns,

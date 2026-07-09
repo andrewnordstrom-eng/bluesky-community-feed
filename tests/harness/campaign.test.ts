@@ -8,6 +8,7 @@ import {
   campaignRunsForStages,
   parseCampaignScenarioFamilyId,
   parseCampaignStageId,
+  requireCampaignRunsForSelection,
   scenarioForCampaignRun,
   selectCampaignStages,
   totalCampaignRuns,
@@ -244,6 +245,26 @@ describe('simulated epoch campaign ladder', () => {
     expect(manifest.stages[1]?.scenarios).toEqual([]);
     expect(manifest.stages[2]?.scenarios.length).toBeGreaterThan(0);
     expect(manifest.stages[2]?.scenarios.every((scenario) => scenario.familyId === 'turnout')).toBe(true);
+  });
+
+  it('rejects valid campaign selections that match zero runs', () => {
+    const stages = selectCampaignStages({ onlyStageId: 'S4', maxStageId: null });
+
+    expect(() => requireCampaignRunsForSelection(stages, { onlyFamilyId: 'turnout' })).toThrow(
+      /Campaign selection produced zero runs/
+    );
+  });
+
+  it('keeps campaign run requirements aligned with family parsing', () => {
+    const stages = selectCampaignStages({ onlyStageId: 'S2', maxStageId: null });
+    const runs = requireCampaignRunsForSelection(stages, { onlyFamilyId: 'turnout' });
+    const manifest = campaignManifest(stages, manifestGeneratedAt, { onlyFamilyId: 'turnout' });
+
+    expect(runs.length).toBeGreaterThan(0);
+    expect(manifest.totalRuns).toBe(runs.length);
+    expect(() => requireCampaignRunsForSelection(stages, { onlyFamilyId: 'rank-choice' })).toThrow(
+      /Unknown campaign scenario family/
+    );
   });
 
   it('keeps the baseline helper as the equal-mix 80% participation scenario', () => {

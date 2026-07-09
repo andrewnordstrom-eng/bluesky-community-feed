@@ -276,6 +276,35 @@ describe('lab artifact git metadata', () => {
     expect(state.base).toBe(initialHead);
   });
 
+  it('reports every attempted default base ref when all base refs fail', async () => {
+    const nonGitDir = await mkdtemp(join(tmpdir(), 'corgi-lab-nongit-'));
+    try {
+      let caughtError: unknown;
+      try {
+        await collectGitStateWithDefaultBase(nonGitDir);
+      } catch (error: unknown) {
+        caughtError = error;
+      }
+
+      expect(caughtError).toBeInstanceOf(AggregateError);
+      if (!(caughtError instanceof AggregateError)) {
+        throw new TypeError('expected AggregateError from collectGitStateWithDefaultBase');
+      }
+      const errors = caughtError.errors as unknown[];
+
+      expect(errors).toHaveLength(3);
+      expect(errors[0]).toBeInstanceOf(Error);
+      expect(errors[1]).toBeInstanceOf(Error);
+      expect(errors[2]).toBeInstanceOf(Error);
+      expect((errors[0] as Error).message).toContain('origin/HEAD');
+      expect((errors[1] as Error).message).toContain('origin/main');
+      expect((errors[2] as Error).message).toContain('HEAD');
+      expect(((errors[0] as Error) as Error & { cause?: unknown }).cause).toBeInstanceOf(Error);
+    } finally {
+      await rm(nonGitDir, { recursive: true, force: true });
+    }
+  });
+
   it('collects dirty git metadata with deterministic hashes', async () => {
     const head = await git(repoDir, ['rev-parse', 'HEAD']);
     await writeFile(join(repoDir, 'README.md'), 'changed lab metadata fixture\n', 'utf8');
@@ -303,7 +332,9 @@ describe('lab artifact git metadata', () => {
     const nonGitDir = await mkdtemp(join(tmpdir(), 'corgi-lab-nongit-'));
     try {
       await expect(collectGitBranch(nonGitDir)).rejects.toThrow('failed to execute git branch --show-current');
-      await expect(collectGitState(nonGitDir, 'HEAD')).rejects.toThrow('failed to execute git rev-parse HEAD');
+      await expect(collectGitState(nonGitDir, 'HEAD')).rejects.toThrow(
+        'failed to execute git merge-base HEAD -- HEAD'
+      );
     } finally {
       await rm(nonGitDir, { recursive: true, force: true });
     }

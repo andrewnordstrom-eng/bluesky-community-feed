@@ -16,11 +16,11 @@ import { assertEphemeralTarget } from '../src/harness/prod-guard.js';
 import {
   SIMULATED_EPOCH_CAMPAIGN,
   campaignManifest,
-  campaignRunsForStages,
   collectArtifactDescriptor,
   collectGitBranch,
   collectGitStateWithDefaultBase,
   collectRuntimeState,
+  requireCampaignRunsForSelection,
   selectCampaignStages,
   scenarioForCampaignRun,
   sha256Text,
@@ -572,7 +572,7 @@ async function runCampaign(options: CliOptions): Promise<void> {
     maxStageId: options.maxStageId,
     onlyFamilyId: options.onlyFamilyId,
   });
-  const campaignRuns = campaignRunsForStages(stages, { onlyFamilyId: options.onlyFamilyId });
+  const campaignRuns = requireCampaignRunsForSelection(stages, { onlyFamilyId: options.onlyFamilyId });
 
   if (options.dryRun) {
     await writeStdout(

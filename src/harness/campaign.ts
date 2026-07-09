@@ -447,6 +447,21 @@ export function campaignRunsForStages(
   return runs.filter((run) => run.familyId === onlyFamilyId);
 }
 
+export function requireCampaignRunsForSelection(
+  stages: readonly CampaignStage[],
+  selection: Pick<CampaignSelection, 'onlyFamilyId'>
+): CampaignScenarioRun[] {
+  const runs = campaignRunsForStages(stages, selection);
+  if (runs.length === 0) {
+    const stageIds = stages.map((stage) => stage.id).join(', ');
+    const family = selection.onlyFamilyId === undefined || selection.onlyFamilyId === null
+      ? 'all families'
+      : selection.onlyFamilyId;
+    throw new RangeError(`Campaign selection produced zero runs for stages [${stageIds}] and family ${family}`);
+  }
+  return runs;
+}
+
 export function totalCampaignRuns(stages: readonly CampaignStage[]): number {
   return campaignRunsForStages(stages, { onlyFamilyId: null }).length;
 }
