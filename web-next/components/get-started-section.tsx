@@ -1,5 +1,4 @@
-import Link from "next/link"
-import { Button } from "@/components/ui/button"
+import { DemoCTA, SignInCTA } from "@/components/landing-ctas"
 
 const steps = [
   {
@@ -55,16 +54,8 @@ export function GetStartedSection() {
       </div>
 
       <div className="pb-14 md:pb-16 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
-        <Link href="/demo">
-          <Button className="bg-primary text-primary-foreground hover:bg-primary-dark px-7 py-3 rounded-full font-medium text-base shadow-[0_2px_8px_rgba(200,97,44,0.35),0_1px_2px_rgba(200,97,44,0.2)] hover:shadow-[0_4px_16px_rgba(200,97,44,0.4)] transition-all duration-200">
-            Explore the live demo
-          </Button>
-        </Link>
-        <Link href="/sign-in">
-          <Button variant="ghost" className="text-foreground/60 hover:text-foreground px-5 py-3 rounded-full font-medium text-base">
-            Sign in when ready
-          </Button>
-        </Link>
+        <DemoCTA />
+        <SignInCTA />
         <p className="text-foreground/35 text-sm">No account needed for the reviewer demo.</p>
       </div>
     </section>

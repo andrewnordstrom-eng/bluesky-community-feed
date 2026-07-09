@@ -1,7 +1,22 @@
 import Link from "next/link"
 import { LIVE_METRICS_SNAPSHOT, LIVE_RANK_ONE_EXPLANATION } from "@/lib/live-metrics-snapshot"
 
-const entries = [
+const tagColors = {
+  Live: "text-primary bg-primary/[0.08]",
+  Proof: "text-foreground/60 bg-foreground/[0.06]",
+  Audit: "text-[#9B6A2F] bg-[#9B6A2F]/10",
+  Static: "text-foreground/55 bg-muted/70",
+} as const
+
+type ChangelogTag = keyof typeof tagColors
+
+interface ChangelogEntry {
+  readonly date: string
+  readonly tag: ChangelogTag
+  readonly text: string
+}
+
+const entries: readonly ChangelogEntry[] = [
   {
     date: "Snapshot",
     tag: "Live",
@@ -23,13 +38,6 @@ const entries = [
     text: "The public homepage remains a static-export route, so reviewers see the polished page without adding a new backend dependency.",
   },
 ]
-
-const tagColors: Record<string, string> = {
-  Live: "text-primary bg-primary/[0.08]",
-  Proof: "text-foreground/60 bg-foreground/[0.06]",
-  Audit: "text-[#9B6A2F] bg-[#9B6A2F]/10",
-  Static: "text-foreground/55 bg-muted/70",
-}
 
 export function ChangelogSection() {
   return (
