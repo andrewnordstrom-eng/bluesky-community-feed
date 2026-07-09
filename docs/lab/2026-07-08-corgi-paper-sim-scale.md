@@ -9,6 +9,91 @@ Current-main base: `13d99eb21a925b24d62d36382f85356dbd3254a0`
 
 All write/load evidence in this pass used local ephemeral Postgres/Redis targets. Production was touched only through read-only public GET smokes.
 
+## Simulation Methodology
+
+This simulation packet is not a substitute for Corgi's real voting path. It is a scale lab for that path: the campaign drives the same local aggregation, epoch transition, scoring, Redis feed materialization, and counterfactual/feed-impact measurement code that Corgi uses outside the harness. The question is not "can simulated users prove adoption?" The question is "when the real voting mechanism is subjected to large, repeatable electorates and stress regimes, what happens to governance weights, ranked-feed outcomes, and attack sensitivity?"
+
+Primary research question:
+
+> When many users vote under different electorate structures and participation conditions, how does Corgi's governance-weighted recommender behave in weight space, feed space, and adversarial stress conditions?
+
+The paper-safe framing is:
+
+> Corgi supports real user voting today; simulations evaluate how the same mechanism behaves at scale under declared electorate, turnout, and adversarial assumptions.
+
+### Scenario Families
+
+The manifested S0-S3 paper-core campaign includes deterministic named families:
+
+| Family | Purpose | Paper interpretation |
+| --- | --- | --- |
+| `baseline` | Equal persona mix at staged user/post counts | Correctness and scale sanity for the synthetic harness |
+| `turnout` | Low-to-high participation rates | Sensitivity to inactive or partially active communities |
+| `trim-threshold` | Exact voter-count bands around the trimmed-mean cutoff | Behavior at `n = 9`, `n = 10`, and `n = 11`, where trimming turns on |
+| `persona-skew` | Electorates dominated by one voting archetype | Whether electorate composition visibly moves governance weights |
+| `polarization` | Two-bloc electorates with opposed preferences | Whether aggregation blends blocs or produces volatile outcomes |
+| `multi-epoch` | Repeated epochs under drift | Convergence and epoch-to-epoch displacement |
+| `adversarial` | Engagement-seeking attacker share sweeps | Bounded sensitivity evidence under configured attacks |
+
+S4 and S5 are intentionally narrower capacity receipts. They run the baseline family at 5,000 / 20,000 and 10,000 / 50,000 scale to show local harness execution headroom, not democratic legitimacy or production saturation.
+
+### Hypotheses
+
+The campaign evaluates these falsifiable hypotheses:
+
+- **H1 Scale stability:** aggregate weight variance decreases as voter count grows.
+- **H2 Trim-threshold discontinuity:** outcomes change measurably across the `n = 9`, `n = 10`, and `n = 11` voter band because component trimming activates at `n >= 10`.
+- **H3 Feed impact:** community-governed weights produce measurable top-k churn versus default and engagement-only rankings.
+- **H4 Persona composition:** dominant electorates move their target component enough to be visible in the aggregated weight vector and ranked feed.
+- **H5 Low-turnout fragility:** small exact-voter regimes are more sensitive to single-voter, small-bloc, and seed effects.
+- **H6 Bounded but not strategyproof:** trimmed mean dampens simple outliers in configured high-turnout regimes, but optimized or coordinated attacks can still move outcomes.
+- **H7 Multi-epoch convergence:** stable electorates should show decreasing L2 displacement over repeated epochs; drift should keep displacement visible.
+- **H8 Polarization tradeoff:** polarized electorates should produce interpretable blended weights or increased volatility, depending on bloc share and drift.
+
+### Quantitative Metrics
+
+Each run should be interpreted through three metric layers.
+
+Weight-space metrics:
+
+- aggregated weight vector and normalized weight sum
+- vote count, exact weight-voter count, and trim count
+- per-component displacement from the baseline or sincere comparison vector
+- cross-seed variance by family and variant
+- epoch-to-epoch L2 displacement for multi-epoch runs
+
+Feed-space metrics:
+
+- top-k overlap across no-governance, engagement-only, and community-governed regimes
+- normalized rank displacement and Kendall tau distance over shared posts
+- author concentration via HHI and Gini
+- minority-topic exposure when the fixed corpus contains tail-topic candidates
+- representative post receipts where rank movement can be explained from stored component scores
+
+Adversarial metrics:
+
+- attacker share versus target-component displacement
+- attacker share versus feed churn
+- whether near-threshold or high-share attacks move more than simple outlier ballots
+- whether keyword-only votes remain excluded from component-weight aggregation
+
+### Analysis Rules
+
+Use only rerun-successful artifacts for paper claims. Treat S0-S3 as paper-core simulation evidence, and S4/S5 as local capacity evidence. Report exact seeds, code version, user count, post count, vote count, and artifact root for every cited number. If a metric is undefined, report why; for example, Kendall tau is undefined when fewer than two posts overlap across compared feeds.
+
+Safe claims:
+
+- The harness exercises real local governance/scoring code against throwaway infrastructure.
+- Corgi's governance process produces quantifiable weight and feed changes under declared electorates.
+- Low-turnout, trim-threshold, persona-skew, polarization, multi-epoch, and adversarial regimes expose measurable sensitivity patterns.
+
+Not-proven claims:
+
+- real-user preference, satisfaction, adoption, or retention
+- production write capacity or production saturation headroom
+- general Sybil resistance, strategyproofness, or manipulation-proof governance
+- democratic legitimacy across all communities or all turnout regimes
+
 ## Evidence Status
 
 The July 8 artifact roots below are snapshot receipts from the original paper-sim pass. They remain useful for provenance, but they are superseded for paper claims because the branch was refreshed onto current `origin/main` after scoring and retention changes landed.
