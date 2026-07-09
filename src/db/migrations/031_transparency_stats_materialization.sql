@@ -5,6 +5,8 @@
 -- route on bounded rows by filling the missing feed-stat fields in
 -- epoch_metrics during scoring runs instead of recomputing percentiles during
 -- every HTTP request.
+-- The scoring write path prunes current_feed rows per epoch after each insert;
+-- this migration keeps the read path indexed for the latest retained row.
 
 ALTER TABLE epoch_metrics
   ADD COLUMN IF NOT EXISTS run_id TEXT,

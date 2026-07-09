@@ -316,6 +316,68 @@ describe('incremental scoring pipeline', () => {
     expect(totalPostsScored).toBe(2);
     expect(uniqueAuthors).toBe(2);
     expect(typeof runId).toBe('string');
+    expect(queryWasCalledWith('DELETE FROM epoch_metrics')).toBe(true);
+    expect(queryWasCalledWith("metrics_source = 'current_feed'")).toBe(true);
+  });
+
+  it('materializes non-zero author concentration for skewed current feed authors', async () => {
+    dbQueryMock
+      .mockResolvedValueOnce({ rows: [makeEpochRow()] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            post_uri: 'at://did:plc:test/post/1',
+            total_score: '0.9',
+            author_did: 'did:plc:author-a',
+            bridging_score: '0.8',
+            engagement_score: '0.4',
+            embed_url: null,
+            text_length: '120',
+          },
+          {
+            post_uri: 'at://did:plc:test/post/2',
+            total_score: '0.7',
+            author_did: 'did:plc:author-a',
+            bridging_score: '0.6',
+            engagement_score: '0.5',
+            embed_url: null,
+            text_length: '110',
+          },
+          {
+            post_uri: 'at://did:plc:test/post/3',
+            total_score: '0.5',
+            author_did: 'did:plc:author-b',
+            bridging_score: '0.2',
+            engagement_score: '0.6',
+            embed_url: null,
+            text_length: '100',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await runScoringPipeline();
+
+    const [
+      epochId,
+      authorGini,
+      avgBridging,
+      medianBridging,
+      avgEngagement,
+      medianTotal,
+      totalPostsScored,
+      uniqueAuthors,
+    ] = findEpochMetricsInsertParams();
+    expect(epochId).toBe(2);
+    expect(Number(authorGini)).toBeGreaterThan(0);
+    expect(avgBridging).toBeCloseTo(0.533333, 5);
+    expect(medianBridging).toBe(0.6);
+    expect(avgEngagement).toBe(0.5);
+    expect(medianTotal).toBe(0.7);
+    expect(totalPostsScored).toBe(3);
+    expect(uniqueAuthors).toBe(2);
   });
 
   it('materializes explicit zero stats for an empty current feed', async () => {

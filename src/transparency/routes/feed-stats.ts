@@ -131,6 +131,48 @@ async function buildFallbackFeedStats(epochId: number): Promise<FallbackFeedStat
   };
 }
 
+async function readLatestEpochMetrics(epochId: number): Promise<EpochMetricsRow | null> {
+  try {
+    const result = await db.query<EpochMetricsRow>(
+      `SELECT
+         run_id,
+         author_gini,
+         avg_bridging,
+         median_bridging,
+         avg_engagement,
+         median_total,
+         vs_chronological_overlap,
+         vs_engagement_overlap,
+         posts_scored,
+         unique_authors,
+         computed_at,
+         metrics_source
+       FROM epoch_metrics
+       WHERE epoch_id = $1
+       ORDER BY computed_at DESC
+       LIMIT 1`,
+      [epochId]
+    );
+    return result.rows[0] ?? null;
+  } catch (err) {
+    logger.warn({ err, epochId }, 'Failed to read materialized transparency stats; using fallback');
+    return null;
+  }
+}
+
+async function readVoteCount(epochId: number): Promise<number> {
+  try {
+    const result = await db.query(
+      `SELECT COUNT(*) as count FROM governance_votes WHERE epoch_id = $1`,
+      [epochId]
+    );
+    return parseInt(String(result.rows[0]?.count ?? '0'), 10) || 0;
+  } catch (err) {
+    logger.warn({ err, epochId }, 'Failed to read governance vote count for transparency stats');
+    return 0;
+  }
+}
+
 export function registerFeedStatsRoute(app: FastifyInstance): void {
   app.get('/api/transparency/stats', {
     schema: {
@@ -225,34 +267,11 @@ export function registerFeedStatsRoute(app: FastifyInstance): void {
 
       const epoch = epochResult.rows[0];
       const epochId = epoch.id;
-      const [metricsResult, voteCountResult] = await Promise.all([
-        db.query<EpochMetricsRow>(
-          `SELECT
-             run_id,
-             author_gini,
-             avg_bridging,
-             median_bridging,
-             avg_engagement,
-             median_total,
-             vs_chronological_overlap,
-             vs_engagement_overlap,
-             posts_scored,
-             unique_authors,
-             computed_at,
-             metrics_source
-           FROM epoch_metrics
-           WHERE epoch_id = $1
-           ORDER BY computed_at DESC
-           LIMIT 1`,
-          [epochId]
-        ),
-        db.query(
-          `SELECT COUNT(*) as count FROM governance_votes WHERE epoch_id = $1`,
-          [epochId]
-        ),
+      const [metrics, voteCount] = await Promise.all([
+        readLatestEpochMetrics(epochId),
+        readVoteCount(epochId),
       ]);
 
-      const metrics = metricsResult.rows[0] ?? null;
       const fallbackStats = metrics ? null : await buildFallbackFeedStats(epochId);
       const metricsAreComplete = metrics !== null &&
         metrics.metrics_source === 'current_feed' &&
@@ -288,7 +307,7 @@ export function registerFeedStatsRoute(app: FastifyInstance): void {
           median_total_score: metrics ? numericValue(metrics.median_total) : 0,
         },
         governance: {
-          votes_this_epoch: parseInt(voteCountResult.rows[0].count, 10) || 0,
+          votes_this_epoch: voteCount,
         },
         stats_status: {
           source: metrics ? 'scoring_run' : 'fallback',

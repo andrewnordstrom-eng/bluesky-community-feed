@@ -42,6 +42,7 @@ import { calculateAuthorConcentration } from '../transparency/metrics.js';
 const SCORING_TIMEOUT_MS = config.SCORING_TIMEOUT_MS;
 const SCORING_CANDIDATE_LIMIT = config.SCORING_CANDIDATE_LIMIT;
 const SQL_BOUNDARY_KEYWORD_PATTERN = /^[a-z0-9][a-z0-9\s-]*$/;
+const EPOCH_METRICS_CURRENT_FEED_RETENTION_ROWS = 24;
 
 // Track last successful run for health checks
 let lastSuccessfulRunAt: Date | null = null;
@@ -334,6 +335,20 @@ async function updateEpochMetrics(
       snapshot.uniqueAuthors,
       runId,
     ]
+  );
+  await db.query(
+    `DELETE FROM epoch_metrics
+     WHERE epoch_id = $1
+       AND metrics_source = 'current_feed'
+       AND id NOT IN (
+         SELECT id
+         FROM epoch_metrics
+         WHERE epoch_id = $1
+           AND metrics_source = 'current_feed'
+         ORDER BY computed_at DESC, id DESC
+         LIMIT $2
+       )`,
+    [epochId, EPOCH_METRICS_CURRENT_FEED_RETENTION_ROWS]
   );
 }
 
@@ -1055,11 +1070,12 @@ async function writeToRedisFromDb(epochId: number, runId: string): Promise<Curre
     logger.warn({ err, epochId, runId }, 'Failed to invalidate current feed snapshot cache after feed write');
   }
 
+  const feedStatsSnapshot = buildCurrentFeedStatsSnapshot(topPosts);
   if (topPosts.length === 0) {
     logger.info({ epochId }, 'Feed cleared in Redis due to empty scoring result');
-    return buildCurrentFeedStatsSnapshot(topPosts);
+    return feedStatsSnapshot;
   }
 
   logger.info({ postCount: topPosts.length, epochId }, 'Feed written to Redis');
-  return buildCurrentFeedStatsSnapshot(topPosts);
+  return feedStatsSnapshot;
 }

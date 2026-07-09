@@ -27,6 +27,8 @@ import { registerCounterfactualRoute } from '../src/transparency/routes/counterf
 interface FeedStatsDbMockOptions {
   metricsRows: Record<string, unknown>[];
   voteCount?: string;
+  metricsError?: Error;
+  voteCountError?: Error;
   currentScoringRunValue?: unknown;
   currentScoringRunError?: Error;
 }
@@ -53,10 +55,16 @@ function mockFeedStatsDbQueries(options: FeedStatsDbMockOptions): void {
     }
 
     if (sql.includes('FROM epoch_metrics')) {
+      if (options.metricsError) {
+        return Promise.reject(options.metricsError);
+      }
       return Promise.resolve({ rows: options.metricsRows });
     }
 
     if (sql.includes('COUNT(*) as count FROM governance_votes')) {
+      if (options.voteCountError) {
+        return Promise.reject(options.voteCountError);
+      }
       return Promise.resolve({ rows: [{ count: options.voteCount ?? '5' }] });
     }
 
@@ -235,6 +243,92 @@ describe('transparency routes current-run scoping', () => {
       source: 'fallback',
       degraded: true,
       run_id: 'run-2',
+    });
+
+    await app.close();
+  });
+
+  it('returns degraded fallback stats when materialized metrics query fails', async () => {
+    redisGetMock.mockResolvedValueOnce('19');
+    mockFeedStatsDbQueries({
+      metricsRows: [],
+      metricsError: new Error('epoch_metrics unavailable'),
+      currentScoringRunValue: {
+        run_id: 'run-metrics-failed',
+        epoch_id: 2,
+        posts_scored: 7,
+        timestamp: '2026-02-09T00:06:00.000Z',
+      },
+    });
+
+    const app = Fastify();
+    registerFeedStatsRoute(app);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/transparency/stats',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body) as {
+      feed_stats: { total_posts_scored: number; unique_authors: number };
+      governance: { votes_this_epoch: number };
+      stats_status: { source: string; degraded: boolean; run_id: string | null };
+    };
+    expect(body.feed_stats).toMatchObject({
+      total_posts_scored: 19,
+      unique_authors: 0,
+    });
+    expect(body.governance.votes_this_epoch).toBe(5);
+    expect(body.stats_status).toMatchObject({
+      source: 'fallback',
+      degraded: true,
+      run_id: 'run-metrics-failed',
+    });
+
+    await app.close();
+  });
+
+  it('defaults governance votes to zero when the vote-count query fails', async () => {
+    mockFeedStatsDbQueries({
+      metricsRows: [
+        {
+          run_id: 'run-votes-failed',
+          author_gini: '0.2',
+          avg_bridging: '0.3',
+          median_bridging: '0.25',
+          avg_engagement: '0.4',
+          median_total: '0.5',
+          vs_chronological_overlap: null,
+          vs_engagement_overlap: null,
+          posts_scored: '10',
+          unique_authors: '8',
+          computed_at: '2026-02-09T00:05:00.000Z',
+          metrics_source: 'current_feed',
+        },
+      ],
+      voteCountError: new Error('governance_votes unavailable'),
+    });
+
+    const app = Fastify();
+    registerFeedStatsRoute(app);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/transparency/stats',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body) as {
+      feed_stats: { total_posts_scored: number };
+      governance: { votes_this_epoch: number };
+      stats_status: { source: string; degraded: boolean };
+    };
+    expect(body.feed_stats.total_posts_scored).toBe(10);
+    expect(body.governance.votes_this_epoch).toBe(0);
+    expect(body.stats_status).toMatchObject({
+      source: 'scoring_run',
+      degraded: false,
     });
 
     await app.close();
