@@ -360,6 +360,13 @@ export interface FeedStatsResponse {
   governance: {
     votes_this_epoch: number;
   };
+  stats_status: {
+    source: 'scoring_run' | 'fallback';
+    degraded: boolean;
+    computed_at: string | null;
+    run_id: string | null;
+    message: string | null;
+  };
   metrics?: {
     author_gini: number | null;
     vs_chronological_overlap: number | null;

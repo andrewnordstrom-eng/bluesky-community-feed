@@ -36,11 +36,13 @@ import {
 } from '../governance/content-filter.js';
 import type { ContentRules } from '../governance/governance.types.js';
 import { updateScoringStatus } from '../admin/status-tracker.js';
+import { calculateAuthorConcentration } from '../transparency/metrics.js';
 
 // Maximum time allowed for a single scoring run.
 const SCORING_TIMEOUT_MS = config.SCORING_TIMEOUT_MS;
 const SCORING_CANDIDATE_LIMIT = config.SCORING_CANDIDATE_LIMIT;
 const SQL_BOUNDARY_KEYWORD_PATTERN = /^[a-z0-9][a-z0-9\s-]*$/;
+const EPOCH_METRICS_CURRENT_FEED_RETENTION_ROWS = 24;
 
 // Track last successful run for health checks
 let lastSuccessfulRunAt: Date | null = null;
@@ -54,6 +56,26 @@ let incrementalRunCount = 0;
 // Avoid repeated warnings when a rollout exposes a missing dynamic component weight.
 let missingWeightWarned = new Set<string>();
 let scoringRunInFlight: Promise<void> | null = null;
+
+interface CurrentFeedStatsSnapshot {
+  totalPostsScored: number;
+  uniqueAuthors: number;
+  avgBridging: number;
+  avgEngagement: number;
+  medianBridging: number;
+  medianTotal: number;
+  authorGini: number;
+}
+
+interface RedisFeedCandidate {
+  post_uri: string;
+  total_score: number;
+  author_did: string;
+  bridging_score: number;
+  engagement_score: number;
+  embed_url: string | null;
+  text_length: number;
+}
 
 /**
  * Get the timestamp of the last successful scoring run.
@@ -219,7 +241,7 @@ async function runScoringPipelineInternal(): Promise<void> {
     // In incremental mode, only new/changed posts were scored above, but
     // previous scores remain in post_scores. Reading from DB gives the
     // complete, correctly-ranked feed.
-    await writeToRedisFromDb(epoch.id, runId);
+    const feedStatsSnapshot = await writeToRedisFromDb(epoch.id, runId);
 
     const elapsed = Date.now() - startTime;
     logger.info(
@@ -245,6 +267,11 @@ async function runScoringPipelineInternal(): Promise<void> {
       posts_scored: posts.length,
       posts_filtered: allPosts.length - posts.length,
     });
+    try {
+      await updateEpochMetrics(epoch.id, runId, feedStatsSnapshot);
+    } catch (err) {
+      logger.warn({ err, epochId: epoch.id, runId }, 'Failed to update epoch transparency metrics');
+    }
     await updateCurrentRunScope(runId, epoch.id, elapsed, posts.length, allPosts.length - posts.length);
   } catch (err) {
     logger.error({ err }, 'Scoring pipeline failed');
@@ -274,6 +301,106 @@ async function updateCurrentRunScope(
       }),
     ]
   );
+}
+
+async function updateEpochMetrics(
+  epochId: number,
+  runId: string,
+  snapshot: CurrentFeedStatsSnapshot
+): Promise<void> {
+  await db.query(
+    `INSERT INTO epoch_metrics (
+       epoch_id,
+       author_gini,
+       avg_bridging,
+       median_bridging,
+       avg_engagement,
+       median_total,
+       vs_chronological_overlap,
+       vs_engagement_overlap,
+       posts_scored,
+       unique_authors,
+       run_id,
+       metrics_source
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, NULL, NULL, $7, $8, $9, 'current_feed')`,
+    [
+      epochId,
+      snapshot.authorGini,
+      snapshot.avgBridging,
+      snapshot.medianBridging,
+      snapshot.avgEngagement,
+      snapshot.medianTotal,
+      snapshot.totalPostsScored,
+      snapshot.uniqueAuthors,
+      runId,
+    ]
+  );
+  await db.query(
+    `DELETE FROM epoch_metrics
+     WHERE epoch_id = $1
+       AND metrics_source = 'current_feed'
+       AND id NOT IN (
+         SELECT id
+         FROM epoch_metrics
+         WHERE epoch_id = $1
+           AND metrics_source = 'current_feed'
+         ORDER BY computed_at DESC, id DESC
+         LIMIT $2
+       )`,
+    [epochId, EPOCH_METRICS_CURRENT_FEED_RETENTION_ROWS]
+  );
+}
+
+function numericValue(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function average(values: number[]): number {
+  if (values.length === 0) {
+    return 0;
+  }
+
+  return values.reduce((total, value) => total + value, 0) / values.length;
+}
+
+function median(values: number[]): number {
+  if (values.length === 0) {
+    return 0;
+  }
+
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 1) {
+    return sorted[middle];
+  }
+
+  const lower = sorted[middle - 1];
+  const upper = sorted[middle];
+  return (lower + upper) / 2;
+}
+
+function buildCurrentFeedStatsSnapshot(posts: RedisFeedCandidate[]): CurrentFeedStatsSnapshot {
+  const authorCounts = new Map<string, number>();
+  for (const post of posts) {
+    authorCounts.set(post.author_did, (authorCounts.get(post.author_did) ?? 0) + 1);
+  }
+
+  const authorConcentration = calculateAuthorConcentration(authorCounts);
+  const bridgingScores = posts.map((post) => post.bridging_score);
+  const engagementScores = posts.map((post) => post.engagement_score);
+  const totalScores = posts.map((post) => post.total_score);
+
+  return {
+    totalPostsScored: posts.length,
+    uniqueAuthors: authorCounts.size,
+    avgBridging: average(bridgingScores),
+    avgEngagement: average(engagementScores),
+    medianBridging: median(bridgingScores),
+    medianTotal: median(totalScores),
+    authorGini: authorConcentration.gini,
+  };
 }
 
 /**
@@ -834,17 +961,21 @@ async function storeScoreComponents(
  * Applies the scoring window cutoff so posts older than SCORING_WINDOW_HOURS
  * are excluded even if they have stale scores in post_scores.
  */
-async function writeToRedisFromDb(epochId: number, runId: string): Promise<void> {
+async function writeToRedisFromDb(epochId: number, runId: string): Promise<CurrentFeedStatsSnapshot> {
   const cutoffMs = config.SCORING_WINDOW_HOURS * 60 * 60 * 1000;
   const cutoff = new Date(Date.now() - cutoffMs);
 
   const result = await db.query<{
     post_uri: string;
-    total_score: number;
+    total_score: number | string;
+    author_did: string;
+    bridging_score: number | string;
+    engagement_score: number | string;
     embed_url: string | null;
-    text_length: number;
+    text_length: number | string;
   }>(
-    `SELECT ps.post_uri, ps.total_score, p.embed_url,
+    `SELECT ps.post_uri, ps.total_score, p.author_did,
+            ps.bridging_score, ps.engagement_score, p.embed_url,
             COALESCE(LENGTH(p.text), 0) as text_length
      FROM post_scores ps
      -- p.created_at = ps.created_at is the partition key (posts is
@@ -868,19 +999,29 @@ async function writeToRedisFromDb(epochId: number, runId: string): Promise<void>
     [epochId, config.FEED_MAX_POSTS, cutoff.toISOString(), config.FEED_MIN_RELEVANCE]
   );
 
+  const feedCandidates: RedisFeedCandidate[] = result.rows.map((post) => ({
+    post_uri: post.post_uri,
+    total_score: numericValue(post.total_score),
+    author_did: post.author_did,
+    bridging_score: numericValue(post.bridging_score),
+    engagement_score: numericValue(post.engagement_score),
+    embed_url: post.embed_url,
+    text_length: numericValue(post.text_length),
+  }));
+
   // URL deduplication: penalize reshares of the same external link.
   // Posts are already sorted by total_score DESC, so the highest-scored post
   // sharing a URL gets full score and later duplicates get decayed.
-  let topPosts: Array<{ post_uri: string; total_score: number }>;
+  let topPosts: RedisFeedCandidate[];
 
   if (config.FEED_DEDUP_ENABLED) {
     const DEDUP_DECAY = [1.0, 0.7, 0.5, 0.3];
     const urlCounts = new Map<string, number>();
 
-    const dedupedPosts = result.rows.map(post => {
+    const dedupedPosts = feedCandidates.map(post => {
       // No URL or substantial original text → no penalty
       if (!post.embed_url || post.text_length >= config.FEED_DEDUP_MIN_TEXT) {
-        return { post_uri: post.post_uri, total_score: post.total_score };
+        return post;
       }
 
       const count = urlCounts.get(post.embed_url) ?? 0;
@@ -889,7 +1030,7 @@ async function writeToRedisFromDb(epochId: number, runId: string): Promise<void>
       const decayIndex = Math.min(count, DEDUP_DECAY.length - 1);
       const adjustedScore = post.total_score * DEDUP_DECAY[decayIndex];
 
-      return { post_uri: post.post_uri, total_score: adjustedScore };
+      return { ...post, total_score: adjustedScore };
     });
 
     // Re-sort after dedup adjustment (order may have changed)
@@ -902,10 +1043,7 @@ async function writeToRedisFromDb(epochId: number, runId: string): Promise<void>
 
     topPosts = dedupedPosts;
   } else {
-    topPosts = result.rows.map(post => ({
-      post_uri: post.post_uri,
-      total_score: post.total_score,
-    }));
+    topPosts = feedCandidates;
   }
 
   // Use Redis pipeline for atomic batch write
@@ -932,10 +1070,12 @@ async function writeToRedisFromDb(epochId: number, runId: string): Promise<void>
     logger.warn({ err, epochId, runId }, 'Failed to invalidate current feed snapshot cache after feed write');
   }
 
+  const feedStatsSnapshot = buildCurrentFeedStatsSnapshot(topPosts);
   if (topPosts.length === 0) {
     logger.info({ epochId }, 'Feed cleared in Redis due to empty scoring result');
-    return;
+    return feedStatsSnapshot;
   }
 
   logger.info({ postCount: topPosts.length, epochId }, 'Feed written to Redis');
+  return feedStatsSnapshot;
 }
