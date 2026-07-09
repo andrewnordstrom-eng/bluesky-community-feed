@@ -499,10 +499,10 @@ export class Simulation {
       dualWriteEnabled: config.GOVERNANCE_LONGTABLE_DUALWRITE_ENABLED,
     };
 
-    // Seed the fixed corpus ONCE. Round 1 reuses this population's own votes;
-    // later rounds re-draw from the continuing Rng (the regenerated corpus is
-    // byte-identical and discarded — only the votes differ and only votes are
-    // seeded, so members/posts/engagement stay fixed for the whole run).
+    // Seed the fixed corpus ONCE. Stable runs reuse this population's round-1
+    // votes; drifted runs re-draw round-1 votes from the interpolated starting
+    // mix. Later rounds always re-draw votes from the continuing Rng. Only votes
+    // are seeded, so members/posts/engagement stay fixed for the whole run.
     const population = generatePopulation(this.deps.rng, this.deps.clock, scenario.population);
     await this.seedCorpus(population);
     record('corpus_seeded', {

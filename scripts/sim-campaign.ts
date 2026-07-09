@@ -384,6 +384,16 @@ function serializeCampaignError(error: unknown): string {
   return String(error);
 }
 
+function combineCampaignAndArtifactError(campaignError: unknown | undefined, artifactError: unknown): unknown {
+  if (campaignError === undefined) {
+    return artifactError;
+  }
+  return new AggregateError(
+    [campaignError, artifactError],
+    'Simulation campaign failed and artifact/manifest writing also failed'
+  );
+}
+
 function mediaTypeForArtifactPath(artifactPath: string): string {
   if (artifactPath.endsWith('.json')) {
     return 'application/json';
@@ -748,44 +758,48 @@ async function runCampaign(options: CliOptions): Promise<void> {
     runs,
   };
 
-  const artifactsDir = path.resolve(options.artifactsDir);
-  const summaryPath = await writeSummary(artifactsDir, summary);
-  const analysisPaths = await writeCampaignAnalysisArtifacts(artifactsDir, summary);
-  const artifacts = await collectCampaignArtifacts(artifactsDir, summaryPath, analysisPaths, summary);
-  const summaryDescriptor = artifacts.find((artifact) => artifact.path === 'campaign-summary.json');
-  if (summaryDescriptor === undefined) {
-    throw new Error(`Campaign summary descriptor was not collected for ${summaryPath}`);
+  try {
+    const artifactsDir = path.resolve(options.artifactsDir);
+    const summaryPath = await writeSummary(artifactsDir, summary);
+    const analysisPaths = await writeCampaignAnalysisArtifacts(artifactsDir, summary);
+    const artifacts = await collectCampaignArtifacts(artifactsDir, summaryPath, analysisPaths, summary);
+    const summaryDescriptor = artifacts.find((artifact) => artifact.path === 'campaign-summary.json');
+    if (summaryDescriptor === undefined) {
+      throw new Error(`Campaign summary descriptor was not collected for ${summaryPath}`);
+    }
+    const checksumsPath = await writeChecksums(artifactsDir, artifacts);
+    artifacts.push(
+      await collectArtifactDescriptor(artifactsDir, checksumsPath, 'text/plain', 'src/harness/lab-artifacts.ts')
+    );
+
+    const manifest: LabManifest = {
+      schemaVersion: '1.0.0',
+      issue: ISSUE_KEY,
+      branch: await collectGitBranch(process.cwd()),
+      git: await collectGitState(process.cwd(), 'origin/main'),
+      command: {
+        argv: process.argv,
+        cwd: process.cwd(),
+        exitCode: finalError === undefined ? 0 : 1,
+        stdoutPath: null,
+        stderrPath: null,
+      },
+      envAllowlist: envAllowlist(target),
+      runtime: await collectRuntimeState(process.cwd()),
+      startedAt: summary.startedAt,
+      endedAt: new Date().toISOString(),
+      artifacts,
+      thresholds: buildCampaignThresholds(options),
+      claims: buildCampaignClaims(summary, summaryDescriptor.path),
+    };
+    const manifestPath = await writeLabManifest(artifactsDir, manifest);
+
+    await writeStdout(
+      `${JSON.stringify({ ...summary, summaryPath, analysisPaths, checksumsPath, manifestPath }, null, 2)}\n`
+    );
+  } catch (artifactError: unknown) {
+    throw combineCampaignAndArtifactError(finalError, artifactError);
   }
-  const checksumsPath = await writeChecksums(artifactsDir, artifacts);
-  artifacts.push(
-    await collectArtifactDescriptor(artifactsDir, checksumsPath, 'text/plain', 'src/harness/lab-artifacts.ts')
-  );
-
-  const manifest: LabManifest = {
-    schemaVersion: '1.0.0',
-    issue: ISSUE_KEY,
-    branch: await collectGitBranch(process.cwd()),
-    git: await collectGitState(process.cwd(), 'origin/main'),
-    command: {
-      argv: process.argv,
-      cwd: process.cwd(),
-      exitCode: finalError === undefined ? 0 : 1,
-      stdoutPath: null,
-      stderrPath: null,
-    },
-    envAllowlist: envAllowlist(target),
-    runtime: await collectRuntimeState(process.cwd()),
-    startedAt: summary.startedAt,
-    endedAt: new Date().toISOString(),
-    artifacts,
-    thresholds: buildCampaignThresholds(options),
-    claims: buildCampaignClaims(summary, summaryDescriptor.path),
-  };
-  const manifestPath = await writeLabManifest(artifactsDir, manifest);
-
-  await writeStdout(
-    `${JSON.stringify({ ...summary, summaryPath, analysisPaths, checksumsPath, manifestPath }, null, 2)}\n`
-  );
 
   if (finalError !== undefined) {
     throw finalError;

@@ -77,8 +77,8 @@ export const FeedImpactReceiptSchema = z
           regime: regimeSchema(),
           epochId: z.number().int(),
           weights: GovernanceWeightsSummarySchema,
-          authorHHI: z.number(),
-          authorGini: z.number(),
+          authorHHI: z.number().nullable(),
+          authorGini: z.number().nullable(),
           minorityTopicExposure: z.number(),
         })
         .strict()

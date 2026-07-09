@@ -261,6 +261,37 @@ describe('Simulation: multi-epoch-cycle integration', () => {
     expect(result.rounds?.[1]?.weights.bridging).toBeGreaterThan(0.5);
   }, 60_000);
 
+  it('uses the drift target mix for single-round persona drift runs', async () => {
+    const parsed = parseScenario({
+      kind: 'multi-epoch-cycle',
+      version: 1,
+      seed: 809,
+      rounds: 1,
+      population: {
+        subscriberCount: 40,
+        postCount: 5,
+        voteParticipationRate: 1,
+        contentVoteRate: 0,
+        castsWeightVoteRate: 1,
+        castsTopicVoteRate: 0,
+        personaMix: { ...DEFAULT_PERSONA_MIX },
+      },
+      personaDrift: {
+        from: { 'engagement-maximizer': 1, 'chronological-purist': 0, 'bridge-builder': 0, balanced: 0 },
+        to: { 'engagement-maximizer': 0, 'chronological-purist': 0, 'bridge-builder': 1, balanced: 0 },
+      },
+    });
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+
+    const result = await new Simulation(parsed.data, buildSimulationDeps(809)).run();
+    const returnedWeightVotes = result.population.votes.map((vote) => vote.weights);
+
+    expect(result.rounds).toHaveLength(1);
+    expect(returnedWeightVotes.every((weights) => weights !== null && weights.bridging > 0.5)).toBe(true);
+    expect(result.rounds?.[0]?.weights.bridging).toBeGreaterThan(0.5);
+  }, 60_000);
+
   it('same seed -> byte-identical per-epoch metrics across two independent runs', async () => {
     const ROUNDS = 6;
 

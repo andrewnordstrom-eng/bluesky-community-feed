@@ -733,8 +733,8 @@ export interface RegimeSummaryCsvRow {
   regime: RegimeName;
   epochId: number;
   weights: GovernanceWeights;
-  authorHHI: number;
-  authorGini: number;
+  authorHHI: number | null;
+  authorGini: number | null;
   minorityTopicExposure: number;
 }
 
@@ -771,8 +771,8 @@ export function buildBaselineComparisonArtifactRows(
       regime: name,
       epochId: regime.epochId,
       weights: regime.weights,
-      authorHHI: authorHHI(feedPosts),
-      authorGini: authorGini(feedPosts),
+      authorHHI: feedPosts.length === 0 ? null : authorHHI(feedPosts),
+      authorGini: feedPosts.length === 0 ? null : authorGini(feedPosts),
       minorityTopicExposure: exposure,
     };
   });
@@ -801,6 +801,10 @@ export function buildBaselineComparisonArtifactRows(
 
 function csvNumber(value: number, digits = 6): string {
   return value.toFixed(digits);
+}
+
+function csvNullableNumber(value: number | null, digits: number): string {
+  return value === null ? 'NA' : csvNumber(value, digits);
 }
 
 const PAIRWISE_CSV_HEADER = ['regimeA', 'regimeB', 'rankDisplacement', 'kendallTau', 'sharedCount'] as const;
@@ -840,8 +844,8 @@ function toSummaryCsv(rows: readonly RegimeSummaryCsvRow[]): string {
       csvNumber(row.weights.bridging),
       csvNumber(row.weights.sourceDiversity),
       csvNumber(row.weights.relevance),
-      csvNumber(row.authorHHI),
-      csvNumber(row.authorGini),
+      csvNullableNumber(row.authorHHI, 6),
+      csvNullableNumber(row.authorGini, 6),
       csvNumber(row.minorityTopicExposure),
     ].join(',')
   );

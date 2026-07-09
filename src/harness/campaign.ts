@@ -242,22 +242,26 @@ function scenarioRun(
   };
 }
 
+function personaMixFromValues(valueForPersona: (personaId: PersonaId) => number): PersonaMix {
+  return Object.fromEntries(
+    PERSONA_IDS.map((personaId) => [personaId, valueForPersona(personaId)] as const)
+  ) as PersonaMix;
+}
+
 function personaMixWithDominantPersona(dominantPersonaId: PersonaId): PersonaMix {
-  return {
-    'engagement-maximizer': dominantPersonaId === 'engagement-maximizer' ? 70 : 10,
-    'chronological-purist': dominantPersonaId === 'chronological-purist' ? 70 : 10,
-    'bridge-builder': dominantPersonaId === 'bridge-builder' ? 70 : 10,
-    balanced: dominantPersonaId === 'balanced' ? 70 : 10,
-  };
+  return personaMixFromValues((personaId) => (personaId === dominantPersonaId ? 70 : 10));
 }
 
 function twoBlocMix(engagementShare: number): PersonaMix {
-  return {
-    'engagement-maximizer': engagementShare,
-    'chronological-purist': 1 - engagementShare,
-    'bridge-builder': 0,
-    balanced: 0,
-  };
+  return personaMixFromValues((personaId) => {
+    if (personaId === 'engagement-maximizer') {
+      return engagementShare;
+    }
+    if (personaId === 'chronological-purist') {
+      return 1 - engagementShare;
+    }
+    return 0;
+  });
 }
 
 function trimThresholdScenario(stage: CampaignStage, seed: number, voterCount: number): Scenario {
@@ -409,12 +413,15 @@ export function campaignRunsForStage(stage: CampaignStage): CampaignScenarioRun[
             `${Math.round(attackerFraction * 100)}% engagement-maximizer attacker bloc`,
             seed,
             epochScenario(stage, seed, {
-              personaMix: {
-                'engagement-maximizer': attackerFraction,
-                'chronological-purist': 0,
-                'bridge-builder': 1 - attackerFraction,
-                balanced: 0,
-              },
+              personaMix: personaMixFromValues((personaId) => {
+                if (personaId === 'engagement-maximizer') {
+                  return attackerFraction;
+                }
+                if (personaId === 'bridge-builder') {
+                  return 1 - attackerFraction;
+                }
+                return 0;
+              }),
             })
           )
         );

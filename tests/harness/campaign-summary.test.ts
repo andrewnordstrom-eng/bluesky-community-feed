@@ -94,6 +94,28 @@ describe('campaign summary artifacts', () => {
     expect(PublicFeedImpactReceiptSchema.parse(receipt)).toEqual(receipt);
   });
 
+  it('accepts nullable author concentration metrics for empty feed-impact regimes', () => {
+    const receipt = {
+      seed: 90210,
+      topK: 50,
+      summaryCsvPath: 'baseline-comparison/regime-summary.csv',
+      pairwiseCsvPath: 'baseline-comparison/pairwise-churn.csv',
+      summaryRows: [
+        {
+          regime: 'community-governed',
+          epochId: 4,
+          weights: runReceipt(42, 0.2).weights,
+          authorHHI: null,
+          authorGini: null,
+          minorityTopicExposure: 0,
+        },
+      ],
+      pairwiseRows: [],
+    };
+
+    expect(PublicFeedImpactReceiptSchema.parse(receipt)).toEqual(receipt);
+  });
+
   it('rejects malformed run receipts before writing paper artifacts', () => {
     const malformed = {
       ...runReceipt(42, 0.2),
@@ -128,6 +150,29 @@ describe('campaign summary artifacts', () => {
       'baseline',
       'turnout',
     ]);
+  });
+
+  it('averages nullable Redis feed counts only across present values', () => {
+    const baseline = runReceipt(42, 0.2);
+    const missingRedis = {
+      ...runReceipt(1337, 0.3),
+      redisFeedCount: null,
+      scenarioId: 'S2:baseline:equal-mix-80p:1337',
+    };
+    const allMissing = [
+      {
+        ...runReceipt(42, 0.2),
+        familyId: 'turnout' as const,
+        variantId: 'participation-5p',
+        scenarioId: 'S2:turnout:participation-5p:42',
+        redisFeedCount: null,
+      },
+    ];
+
+    const rows = aggregateCampaignRuns([baseline, missingRedis, ...allMissing]);
+
+    expect(rows.find((row) => row.familyId === 'baseline')?.avgRedisFeedCount).toBe(50);
+    expect(rows.find((row) => row.familyId === 'turnout')?.avgRedisFeedCount).toBeNull();
   });
 
   it('serializes run and aggregate CSVs with paper-facing fields', () => {

@@ -12,6 +12,7 @@ import {
   selectCampaignStages,
   totalCampaignRuns,
 } from '../../src/harness/campaign.js';
+import { PERSONA_IDS } from '../../src/harness/personas.js';
 import { parseScenario } from '../../src/harness/scenario.js';
 
 describe('simulated epoch campaign ladder', () => {
@@ -187,6 +188,46 @@ describe('simulated epoch campaign ladder', () => {
     expect(runsA.some((run) => run.familyId === 'trim-threshold' && run.variantId === 'weight-voters-9')).toBe(true);
     expect(runsA.some((run) => run.familyId === 'polarization' && run.variantId.includes('60-40'))).toBe(true);
     expect(runsA.some((run) => run.familyId === 'multi-epoch' && run.variantId === 'drift-engagement-to-bridge-20')).toBe(true);
+  });
+
+  it('uses the restricted S3 sweep matrix for follow-up democratic cases', () => {
+    const [stage] = selectCampaignStages({ onlyStageId: 'S3', maxStageId: null });
+    if (stage === undefined) {
+      throw new Error('expected S3 stage');
+    }
+
+    const runs = campaignRunsForStage(stage);
+    const trimVariants = runs
+      .filter((run) => run.familyId === 'trim-threshold')
+      .map((run) => run.variantId);
+    const personaVariants = runs
+      .filter((run) => run.familyId === 'persona-skew')
+      .map((run) => run.variantId);
+    const turnoutSeeds = runs
+      .filter((run) => run.familyId === 'turnout')
+      .map((run) => run.seed);
+
+    expect(new Set(trimVariants)).toEqual(
+      new Set(['weight-voters-9', 'weight-voters-10', 'weight-voters-11'])
+    );
+    expect(new Set(personaVariants)).toEqual(
+      new Set(['dominant-engagement-maximizer', 'dominant-bridge-builder'])
+    );
+    expect(new Set(turnoutSeeds)).toEqual(new Set([42, 1337]));
+  });
+
+  it('keeps generated persona mixes aligned with the configured persona IDs', () => {
+    const [stage] = selectCampaignStages({ onlyStageId: 'S2', maxStageId: null });
+    if (stage === undefined) {
+      throw new Error('expected S2 stage');
+    }
+
+    const personaRuns = campaignRunsForStage(stage).filter((run) =>
+      ['persona-skew', 'polarization', 'adversarial'].includes(run.familyId)
+    );
+    for (const run of personaRuns) {
+      expect(Object.keys(run.scenario.population.personaMix).sort()).toEqual([...PERSONA_IDS].sort());
+    }
   });
 
   it('filters manifests by scenario family without changing the stage selection', () => {

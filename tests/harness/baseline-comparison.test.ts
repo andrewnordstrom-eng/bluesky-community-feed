@@ -103,4 +103,49 @@ describe('buildBaselineComparisonArtifactRows', () => {
     );
     expect(rows.every((row) => row.rankDisplacement === null && row.kendallTau === null)).toBe(true);
   });
+
+  it('renders empty regime feeds with nullable author concentration metrics', () => {
+    const result: BaselineComparisonResult = {
+      population: {} as BaselineComparisonResult['population'],
+      corpusTopicSupport: {},
+      corpusPostInfo: [],
+      regimes: {
+        'no-governance': {
+          regime: 'no-governance',
+          epochId: 1,
+          weights: EQUAL_WEIGHTS,
+          feed: [],
+          scoreByUri: new Map(),
+        },
+        'engagement-only': {
+          regime: 'engagement-only',
+          epochId: 2,
+          weights: { ...EQUAL_WEIGHTS, engagement: 1, recency: 0, bridging: 0, sourceDiversity: 0, relevance: 0 },
+          feed: [],
+          scoreByUri: new Map(),
+        },
+        'community-governed': {
+          regime: 'community-governed',
+          epochId: 3,
+          weights: EQUAL_WEIGHTS,
+          feed: [],
+          scoreByUri: new Map(),
+        },
+      },
+    };
+
+    const { summaryRows, pairwiseRows } = buildBaselineComparisonArtifactRows(result, 0.15);
+
+    expect(summaryRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          regime: 'community-governed',
+          authorHHI: null,
+          authorGini: null,
+          minorityTopicExposure: 0,
+        }),
+      ])
+    );
+    expect(pairwiseRows.every((row) => row.sharedCount === 0 && row.rankDisplacement === null)).toBe(true);
+  });
 });
