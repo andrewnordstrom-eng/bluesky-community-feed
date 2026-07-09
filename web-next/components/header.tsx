@@ -55,8 +55,8 @@ export function Header() {
   const scrolled = useScroll(10)
 
   const navItems = [
-    { name: "How it works", href: "#features-section" },
-    { name: "FAQ", href: "#faq-section" },
+    { name: "How it works", href: "/how-it-works" },
+    { name: "FAQ", href: "/#faq-section" },
   ]
 
   // Close on scroll past threshold (feels natural)
@@ -70,11 +70,8 @@ export function Header() {
     return () => { document.body.style.overflow = "" }
   }, [mobileOpen])
 
-  const handleScroll = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
-    e.preventDefault()
+  const handleNavClick = () => {
     setMobileOpen(false)
-    const el = document.getElementById(href.substring(1))
-    el?.scrollIntoView({ behavior: "smooth" })
   }
 
   return (
@@ -103,14 +100,13 @@ export function Header() {
           {/* Desktop nav */}
           <nav className="hidden md:flex items-center gap-0.5" aria-label="Main navigation">
             {navItems.map((item) => (
-              <a
+              <Link
                 key={item.name}
                 href={item.href}
-                onClick={(e) => handleScroll(e, item.href)}
                 className="px-4 py-1.5 rounded-full text-sm font-medium text-foreground/60 hover:text-foreground hover:bg-accent/60 transition-colors"
               >
                 {item.name}
-              </a>
+              </Link>
             ))}
           </nav>
 
@@ -123,10 +119,10 @@ export function Header() {
               Sign in
             </button>
             <Button
-              onClick={() => setSignInOpen(true)}
+              asChild
               className="bg-primary text-primary-foreground hover:bg-primary-dark rounded-full px-5 text-sm shadow-[0_2px_8px_rgba(200,97,44,0.28)] hover:shadow-[0_4px_14px_rgba(200,97,44,0.38)] transition-all"
             >
-              Connect Bluesky
+              <Link href="/demo">Explore demo</Link>
             </Button>
           </div>
 
@@ -155,14 +151,14 @@ export function Header() {
           >
             <nav className="flex flex-col gap-1" aria-label="Mobile navigation">
               {navItems.map((item) => (
-                <a
+                <Link
                   key={item.name}
                   href={item.href}
-                  onClick={(e) => handleScroll(e, item.href)}
+                  onClick={handleNavClick}
                   className="px-4 py-3 rounded-xl text-base font-medium text-foreground/70 hover:text-foreground hover:bg-accent/60 transition-colors"
                 >
                   {item.name}
-                </a>
+                </Link>
               ))}
             </nav>
             <div className="flex flex-col gap-2 pb-2">
@@ -173,11 +169,17 @@ export function Header() {
                 Sign in
               </button>
               <Button
-                onClick={() => { setMobileOpen(false); setSignInOpen(true) }}
+                asChild
                 className="w-full bg-primary text-primary-foreground hover:bg-primary-dark rounded-full text-sm shadow-[0_2px_8px_rgba(200,97,44,0.28)] transition-all"
               >
-                Connect Bluesky account
+                <Link href="/demo" onClick={handleNavClick}>Explore demo</Link>
               </Button>
+              <button
+                onClick={() => { setMobileOpen(false); setSignInOpen(true) }}
+                className="w-full px-4 py-3 rounded-xl text-sm font-medium text-foreground/70 hover:text-foreground hover:bg-accent/60 transition-colors text-left"
+              >
+                Connect Bluesky when ready
+              </button>
             </div>
           </div>
         </div>,

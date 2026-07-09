@@ -211,7 +211,11 @@ function StepFeed({ liveData, liveError, loading }: StepProps) {
   return (
     <div className="flex flex-col gap-3">
       {posts.map((post) => (
-        <div key={post.uri} className="flex items-start gap-4 rounded-xl border border-border bg-card px-5 py-4">
+        <div
+          key={post.uri}
+          id={`snapshot-rank-${post.rank}`}
+          className="flex items-start gap-4 rounded-xl border border-border bg-card px-5 py-4"
+        >
           <span className="text-xl font-mono font-bold text-foreground/25 tabular-nums w-7 flex-shrink-0 pt-0.5">
             {post.rank}
           </span>
@@ -256,7 +260,7 @@ function StepFeed({ liveData, liveError, loading }: StepProps) {
           ? "Loading the current Corgi feed skeleton and Bluesky post content..."
           : showingLivePosts
             ? `Current Corgi feed skeleton hydrated through Bluesky AppView at ${formatTimestamp(liveData.fetchedAt)}.`
-            : `Snapshot fallback from the anonymized ${LIVE_METRICS_SNAPSHOT.collectedAtLabel} production receipt.`}
+            : `Snapshot fallback from the anonymized ${LIVE_METRICS_SNAPSHOT.collectedAtLabel} live receipt.`}
       </p>
       {(feedError !== null || hydrationError !== null || liveError !== null) && (
         <div className="rounded-xl border border-tongue/25 bg-tongue/10 px-4 py-3 text-xs text-foreground/60 leading-relaxed">

@@ -3,13 +3,13 @@ import { DemoCTA, SignInCTA } from "@/components/landing-ctas"
 const steps = [
   {
     number: "01",
-    heading: "Explore the reviewer demo",
-    body: "Start with the read-only demo: live snapshot totals, anonymized receipt rows, and the ranking explanation without signing in.",
+    heading: "Explore the live demo",
+    body: "Start with the read-only demo: ranked feed order, anonymized receipt rows, and the ranking explanation without signing in.",
   },
   {
     number: "02",
     heading: "Inspect how ranking works",
-    body: "Follow the weight, score, epoch, and receipt views before trusting the feed. The public path is built for review first.",
+    body: "Follow the weight, score, epoch, and receipt views before trusting the feed. The public path is built for curiosity first.",
   },
   {
     number: "03",
@@ -29,7 +29,7 @@ export function GetStartedSection() {
         </div>
         <div className="md:flex-1 md:pt-1">
           <p className="text-foreground/55 text-base leading-relaxed">
-            Inspect the live snapshot and receipt trail first. Account connection stays available for participation, but the reviewer path does not depend on it.
+            Inspect the ranked feed and receipt trail first. Account connection stays available for participation, but trying the product does not depend on it.
           </p>
         </div>
       </div>
@@ -56,7 +56,7 @@ export function GetStartedSection() {
       <div className="pb-14 md:pb-16 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
         <DemoCTA />
         <SignInCTA />
-        <p className="text-foreground/35 text-sm">No account needed for the reviewer demo.</p>
+        <p className="text-foreground/35 text-sm">No account needed for the live demo.</p>
       </div>
     </section>
   )

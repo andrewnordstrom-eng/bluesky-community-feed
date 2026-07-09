@@ -26,7 +26,7 @@ const UI_FIXTURE_FILES = [
   path.join(REPO_ROOT, 'web-next', 'components', 'bento-section.tsx'),
   path.join(REPO_ROOT, 'web-next', 'components', 'changelog-section.tsx'),
   path.join(REPO_ROOT, 'web-next', 'components', 'dashboard-preview.tsx'),
-  path.join(REPO_ROOT, 'web-next', 'components', 'hero-section.tsx'),
+  path.join(REPO_ROOT, 'web-next', 'components', 'modality-preview.tsx'),
   LIVE_METRICS_SNAPSHOT_FILE,
 ];
 
@@ -415,7 +415,7 @@ describe('web-next demo receipt fixtures', () => {
     ];
 
     for (const authorLabel of authorLabels) {
-      expect(authorLabel).toMatch(/^Production receipt \d{3}$/);
+      expect(authorLabel).toMatch(/^Anonymized receipt \d{3}$/);
       expect(authorLabel).not.toMatch(DOMAIN_HANDLE_PATTERN);
     }
   });

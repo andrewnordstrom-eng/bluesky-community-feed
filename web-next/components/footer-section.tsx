@@ -10,7 +10,7 @@ export function FooterSection() {
         <div className="flex flex-col justify-start items-start gap-5">
           <span className="text-foreground text-xl font-bold tracking-tight font-display">Corgi</span>
           <p className="text-foreground/50 text-sm font-normal leading-relaxed max-w-[200px]">
-            Your community runs the feed. No hidden algorithm.
+            Your community runs the feed. Inspectable ranking.
           </p>
           <div className="flex justify-start items-center gap-3">
             <a
@@ -40,9 +40,9 @@ export function FooterSection() {
           <div className="flex flex-col gap-3">
             <h3 className="text-foreground/40 text-xs font-semibold tracking-wide uppercase">Product</h3>
             <div className="flex flex-col gap-2">
-              <a href="#features-section" className="text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors">
+              <Link href="/how-it-works" className="text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors">
                 How it works
-              </a>
+              </Link>
               <Link href="/demo" className="text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors">
                 Live demo
               </Link>
@@ -68,9 +68,9 @@ export function FooterSection() {
           <div className="flex flex-col gap-3">
             <h3 className="text-foreground/40 text-xs font-semibold tracking-wide uppercase">Resources</h3>
             <div className="flex flex-col gap-2">
-              <a href="#faq-section" className="text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors">
+              <Link href="/#faq-section" className="text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors">
                 FAQ
-              </a>
+              </Link>
               <a
                 href="https://github.com/andrewnordstrom-eng/bluesky-community-feed/tree/main/docs"
                 className="text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors"
@@ -96,7 +96,7 @@ export function FooterSection() {
           &copy; 2026 Corgi. Built on Bluesky.
         </p>
         <p className="text-foreground/20 text-xs font-normal">
-          Open source &middot; No black box
+          Open source &middot; Inspectable ranking
         </p>
       </div>
       </div>

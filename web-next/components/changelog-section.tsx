@@ -20,7 +20,7 @@ const entries: readonly ChangelogEntry[] = [
   {
     date: "Snapshot",
     tag: "Live",
-    text: `${LIVE_METRICS_SNAPSHOT.scoredPosts.toLocaleString("en-US")} scored posts and ${LIVE_METRICS_SNAPSHOT.uniqueAuthors.toLocaleString("en-US")} authors are shown from the production snapshot collected ${LIVE_METRICS_SNAPSHOT.collectedAtLabel}.`,
+    text: `The read-only demo keeps current snapshot metadata, timestamp, active epoch, and anonymized receipt rows together in one inspectable view.`,
   },
   {
     date: "Receipt",
@@ -30,12 +30,12 @@ const entries: readonly ChangelogEntry[] = [
   {
     date: "Epoch",
     tag: "Audit",
-    text: `Epoch ${LIVE_METRICS_SNAPSHOT.epochId} weights are visible on the homepage and tied to the same snapshot used by the reviewer demo.`,
+    text: `Active governance weights are visible on the homepage and tied to the same receipt model used by the live demo.`,
   },
   {
     date: "Export",
     tag: "Static",
-    text: "The public homepage remains a static-export route, so reviewers see the polished page without adding a new backend dependency.",
+    text: "The public homepage remains a static-export route, so the product page stays fast without adding a new backend dependency.",
   },
 ]
 
@@ -45,10 +45,10 @@ export function ChangelogSection() {
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between w-full max-w-3xl gap-3">
         <div className="flex flex-col gap-1">
           <h2 className="text-foreground font-display text-2xl md:text-3xl font-bold leading-tight tracking-tight">
-            Proof, not promises
+            Trust lives in the product
           </h2>
           <p className="text-foreground/45 text-sm font-normal">
-            The homepage keeps its claims close to receipts reviewers can inspect.
+            The landing stays product-first, with receipt details one click away.
           </p>
         </div>
         <Link

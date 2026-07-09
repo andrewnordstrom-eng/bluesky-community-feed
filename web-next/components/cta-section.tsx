@@ -14,7 +14,7 @@ export function CTASection() {
             Inspect the feed before you trust it.
           </h2>
           <p className="text-foreground/50 text-base md:text-lg font-medium leading-relaxed max-w-xl">
-            Start with the read-only demo, inspect the live snapshot, then connect a Bluesky app password only when you are ready to participate.
+            Start with the read-only demo, inspect why Corgi ranked the feed, then connect a Bluesky app password only when you are ready to participate.
           </p>
         </div>
 
@@ -24,7 +24,7 @@ export function CTASection() {
         </div>
 
         <p className="text-xs text-foreground/30 font-medium">
-          Snapshot-first &middot; App-password sign-in &middot; No hidden algorithm
+          Snapshot-first &middot; App-password sign-in &middot; Inspectable ranking
         </p>
       </div>
     </section>

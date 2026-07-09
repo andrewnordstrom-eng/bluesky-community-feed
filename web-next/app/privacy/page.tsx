@@ -51,7 +51,7 @@ const SECTIONS = [
         <UL>
           <LI>The aggregated weights applied each round (not individual votes).</LI>
           <LI>The operator audit log (operator DID, action type, timestamp — not vote data).</LI>
-          <LI>Per-post score breakdowns (the math behind why any post ranked as it did).</LI>
+          <LI>Per-post score breakdowns (the math behind why any Corgi-scored post ranked as it did).</LI>
         </UL>
         <P><Strong>Your individual vote is never public.</Strong> Aggregate statistics (e.g. total vote count, participation rate) may be surfaced on the dashboard, but cannot be traced back to you.</P>
       </>

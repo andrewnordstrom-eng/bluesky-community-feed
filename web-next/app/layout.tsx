@@ -20,7 +20,7 @@ const _ibmPlexMono = IBM_Plex_Mono({
 export const metadata: Metadata = {
   title: "Corgi — Your community runs the feed.",
   description:
-    "Corgi is a Bluesky feed with no hidden algorithm. Your community votes on how posts rank, and anyone can see exactly why a post showed up.",
+    "Corgi is a community-governed Bluesky feed with inspectable ranking. Bluesky shows the ordered posts and Corgi shows the receipt.",
 }
 
 export default function RootLayout({

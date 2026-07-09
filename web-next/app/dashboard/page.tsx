@@ -327,7 +327,7 @@ export default function DashboardPage() {
           <SectionHeader label="Explain a ranking" />
           <div className="rounded-xl border border-border bg-card p-6 flex flex-col gap-4">
             <p className="text-sm text-foreground/60 leading-relaxed">
-              Paste an AT-URI or Bluesky post URL to see exactly how it was scored — which signals lifted it and which held it back.
+              Paste an AT-URI or Bluesky post URL to see how it was scored when Corgi has a receipt for it — which signals lifted it and which held it back.
             </p>
             <div className="flex flex-col sm:flex-row gap-3">
               <input

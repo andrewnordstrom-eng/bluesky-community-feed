@@ -2,7 +2,8 @@
 
 import { Header } from "@/components/header"
 import { HeroSection } from "@/components/hero-section"
-import { DashboardPreview } from "@/components/dashboard-preview"
+import { BlueskyProductShowcase, ModalityComparisonSection } from "@/components/modality-preview"
+import { CommunityExamplesSection } from "@/components/community-examples-section"
 import { SocialProof } from "@/components/social-proof"
 import { BentoSection } from "@/components/bento-section"
 import { GetStartedSection } from "@/components/get-started-section"
@@ -22,18 +23,28 @@ export default function LandingPage() {
         {/* Hero - full bleed */}
         <HeroSection />
 
-        {/* Dashboard preview sits below the hero and overhangs into the next section. */}
+        {/* Lead with one dominant product surface before explaining the receipt layer. */}
         <AnimatedSection
-          className="relative z-20 max-w-[1320px] mx-auto px-4 md:px-6 lg:px-8 -mt-24 md:-mt-32 lg:-mt-40 pb-0 flex justify-center"
+          className="relative z-20 max-w-[1320px] mx-auto px-4 md:px-6 lg:px-8 -mt-14 md:-mt-24 lg:-mt-28 pb-0 flex justify-center"
           delay={0.15}
         >
-          <DashboardPreview />
+          <BlueskyProductShowcase />
         </AnimatedSection>
 
         <div className="max-w-[1320px] mx-auto">
           {/* Open source strip */}
-          <AnimatedSection className="px-4 md:px-6 lg:px-8 mt-12 md:mt-20" delay={0.1}>
+          <AnimatedSection className="px-4 md:px-6 lg:px-8 mt-10 md:mt-14" delay={0.1}>
             <SocialProof />
+          </AnimatedSection>
+
+          {/* Community examples */}
+          <AnimatedSection delay={0.15}>
+            <CommunityExamplesSection />
+          </AnimatedSection>
+
+          {/* Explain modality after users have seen the product promise. */}
+          <AnimatedSection delay={0.15}>
+            <ModalityComparisonSection />
           </AnimatedSection>
 
           {/* Feature rows */}

@@ -9,17 +9,22 @@ const faqData = [
   {
     question: "What is Corgi and who is it for?",
     answer:
-      "Corgi is a Bluesky feed where your community decides how posts get ranked. Members vote on the weights and those votes become the live algorithm for the next epoch. It's for Bluesky communities who are tired of feeds that do whatever they want without explaining why.",
+      "Corgi is a Bluesky feed where a community can decide how posts get ranked. The current demo is read-only, but the product loop is simple: set ranking weights, apply them to the feed, and inspect why the order changed. It's for Bluesky communities that want more local context and less generic viral drift.",
   },
   {
-    question: "What does 'no black box' actually mean?",
+    question: "What does inspectable ranking actually mean?",
     answer:
-      "It means every ranking decision is stored and fully broken down. You can open any post and see exactly which signals pushed it up or held it back, using the weights your community voted for. Nothing is hidden behind a proprietary model.",
+      "It means each ranked post has a score breakdown on Corgi. Bluesky shows the feed in Corgi-ranked order; Corgi's site shows which ranking factors pushed a post up or held it back, using the active community policy.",
+  },
+  {
+    question: "Does Bluesky show the rank explanation inline?",
+    answer:
+      "Not in the standard Bluesky UI. Corgi sends Bluesky an ordered feed, so posts appear in that ranked order. The rank labels, scores, receipts, and why-ranked explanations live on Corgi's site.",
   },
   {
     question: "How does voting on the weights work?",
     answer:
-      "At the start of each epoch, members vote on how much each signal matters: things like recency, reply depth, whether you follow the author, or a post's quality score. When the epoch ends, those votes set the new weights and the feed reranks accordingly. The full history is always in the audit log.",
+      "When a voting round is active, members choose how much each ranking factor should matter: things like recency, reply depth, whether you follow the author, or a post's quality score. When the round ends, the aggregate weights become the next feed policy and the feed reranks accordingly. The full history stays inspectable.",
   },
   {
     question: "Is Corgi secure? Does it need my Bluesky password?",
@@ -29,12 +34,12 @@ const faqData = [
   {
     question: "What is an epoch?",
     answer:
-      "An epoch is one voting cycle. Your community sets how long it lasts. During that time, votes are collected, and when it ends the new weights go live. Every epoch's weights are saved so you can always see how the algorithm has changed.",
+      "An epoch is one saved feed policy from a voting round. Your community sets how long rounds last. When a round closes, the new weights go live, and every epoch's weights are saved so you can always see how the ranking policy changed.",
   },
   {
     question: "Can researchers use Corgi's data?",
     answer:
-      "Yes. You can export your feed data as structured JSON that includes the full score breakdown, epoch weights, and vote records. It's designed to drop straight into analysis tools without extra cleanup.",
+      "Yes, with the right consent and access controls. Admins and researchers can export anonymized, consented data that includes score breakdowns, epoch weights, and aggregate vote records.",
   },
 ]
 
@@ -105,7 +110,7 @@ export function FAQSection() {
     setOpenItems(newOpenItems)
   }
   return (
-    <section id="faq-section" className="w-full py-14 md:py-20 px-5 relative flex flex-col justify-center items-center">
+    <section id="faq-section" className="w-full scroll-mt-24 py-14 md:scroll-mt-28 md:py-20 px-5 relative flex flex-col justify-center items-center">
       <div className="w-[300px] h-[400px] absolute top-[100px] left-1/2 -translate-x-1/2 origin-top-left rotate-[-33deg] bg-primary/[0.08] blur-[100px] z-0 pointer-events-none" />
       <div className="self-stretch pb-8 md:pb-12 flex flex-col justify-center items-center gap-4 relative z-10">
         <div className="flex flex-col justify-start items-center gap-3">
@@ -113,7 +118,7 @@ export function FAQSection() {
             Frequently asked questions
           </h2>
           <p className="text-center text-foreground/50 text-sm font-normal leading-relaxed max-w-sm">
-            Everything you need to know about how Corgi works and why there&apos;s no black box.
+            Everything you need to know about how Corgi ranks the feed and shows its work.
           </p>
         </div>
       </div>
