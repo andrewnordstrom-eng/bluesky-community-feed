@@ -1,7 +1,22 @@
 import Link from "next/link"
 import { LIVE_FEED_POSTS, LIVE_METRICS_SNAPSHOT, LIVE_RANK_ONE_EXPLANATION } from "@/lib/live-metrics-snapshot"
-import { formatUnitIntervalPercent, unitIntervalToPercentValue } from "@/lib/percent"
-import { formatSignedScore } from "@/lib/score"
+
+function unitIntervalToPercent(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0
+  }
+
+  return Math.min(100, Math.max(0, Math.round(value * 100)))
+}
+
+function formatPercent(value: number): string {
+  return `${Math.round(value * 100)}%`
+}
+
+function formatScore(value: number): string {
+  const sign = value >= 0 ? "+" : "-"
+  return `${sign}${Math.abs(value).toFixed(2)}`
+}
 
 function VoteWeightsUI() {
   const weights = [
@@ -32,11 +47,11 @@ function VoteWeightsUI() {
             <div className="flex-1 h-2 bg-border/60 rounded-full overflow-hidden">
               <div
                 className="h-full rounded-full bg-primary transition-all duration-700"
-                style={{ width: `${unitIntervalToPercentValue(item.value)}%` }}
+                style={{ width: `${unitIntervalToPercent(item.value)}%` }}
               />
             </div>
             <span className="w-10 text-right text-foreground/50 text-sm font-mono font-medium flex-shrink-0">
-              {formatUnitIntervalPercent(item.value)}
+              {formatPercent(item.value)}
             </span>
           </div>
         ))}
@@ -83,7 +98,7 @@ function ScoreBreakdownUI() {
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/50 bg-muted/30">
             <span className="text-foreground/50 text-xs font-medium">Why this ranked first</span>
             <span className="text-primary text-xs font-mono font-semibold">
-              {formatSignedScore(LIVE_RANK_ONE_EXPLANATION.totalScore)}
+              {formatScore(LIVE_RANK_ONE_EXPLANATION.totalScore)}
             </span>
           </div>
           {LIVE_RANK_ONE_EXPLANATION.components.map((component) => (
@@ -93,7 +108,7 @@ function ScoreBreakdownUI() {
             >
               <span className="text-foreground/55 text-xs">{component.label}</span>
               <span className="text-xs font-mono font-semibold text-primary">
-                {formatSignedScore(component.weighted)}
+                {formatScore(component.weighted)}
               </span>
             </div>
           ))}
@@ -131,7 +146,7 @@ function MixedFeedUI() {
               <p className="text-foreground/65 text-sm leading-relaxed">{post.text}</p>
             </div>
             <span className="flex-shrink-0 text-xs font-mono font-semibold text-primary pt-0.5">
-              {formatSignedScore(post.score)}
+              {formatScore(post.score)}
             </span>
           </div>
         ))}

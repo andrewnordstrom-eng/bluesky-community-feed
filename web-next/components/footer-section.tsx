@@ -57,7 +57,7 @@ export function FooterSection() {
               <Link href="/vote" className="text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors">
                 Voting guide
               </Link>
-              <Link href="/history" className="text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors">
+              <Link href="/dashboard" className="text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors">
                 Audit log
               </Link>
               <Link href="/sign-in" className="text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors">

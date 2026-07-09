@@ -1,17 +1,24 @@
 // Score breakdown card — the "killer feature" UI shown below the hero
 import Link from "next/link"
 import { LIVE_METRICS_SNAPSHOT, LIVE_RANK_ONE_EXPLANATION } from "@/lib/live-metrics-snapshot"
-import { absoluteUnitScoreToPercentValue } from "@/lib/percent"
-import { formatSignedScore, isNonNegativeScore } from "@/lib/score"
+
+function clampScoreBarPercent(score: number): number {
+  if (!Number.isFinite(score)) {
+    return 0
+  }
+
+  return Math.min(100, Math.max(0, Math.round(Math.abs(score) * 100)))
+}
 
 export function DashboardPreview() {
   const signals = LIVE_RANK_ONE_EXPLANATION.components.map((component) => ({
     label: component.label,
     weight: component.weight,
-    value: formatSignedScore(component.raw_score),
-    bar: absoluteUnitScoreToPercentValue(component.raw_score),
-    positive: isNonNegativeScore(component.weighted),
+    value: `${component.raw_score >= 0 ? "+" : "-"}${Math.abs(component.raw_score).toFixed(2)}`,
+    bar: clampScoreBarPercent(component.raw_score),
+    positive: component.weighted >= 0,
   }))
+  const totalScorePrefix = LIVE_RANK_ONE_EXPLANATION.totalScore >= 0 ? "+" : "-"
 
   return (
     <div className="w-full max-w-[900px]">
@@ -30,7 +37,7 @@ export function DashboardPreview() {
               <span className="text-foreground font-semibold text-sm">{LIVE_RANK_ONE_EXPLANATION.authorLabel}</span>
               <span className="text-foreground/40 text-xs">· anonymized live receipt</span>
               <span className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs font-semibold font-mono">
-                score: {formatSignedScore(LIVE_RANK_ONE_EXPLANATION.totalScore)}
+                score: {LIVE_RANK_ONE_EXPLANATION.totalScore.toFixed(2)}
               </span>
             </div>
             <p className="text-foreground/80 text-sm leading-relaxed">
@@ -73,7 +80,7 @@ export function DashboardPreview() {
           <div className="mt-4 pt-3 border-t border-border flex items-center justify-between">
             <span className="text-foreground text-sm font-semibold">Total score</span>
             <span className="text-primary text-lg font-bold font-mono">
-              {formatSignedScore(LIVE_RANK_ONE_EXPLANATION.totalScore)}
+              {totalScorePrefix}{Math.abs(LIVE_RANK_ONE_EXPLANATION.totalScore).toFixed(2)}
             </span>
           </div>
           <div className="mt-3 flex items-center justify-between">

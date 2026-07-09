@@ -52,7 +52,7 @@ export default function LandingPage() {
           </AnimatedSection>
 
           {/* FAQ */}
-          <AnimatedSection className="px-5 md:px-8 lg:px-12" delay={0.2}>
+          <AnimatedSection id="faq-section" className="px-5 md:px-8 lg:px-12" delay={0.2}>
             <FAQSection />
           </AnimatedSection>
 

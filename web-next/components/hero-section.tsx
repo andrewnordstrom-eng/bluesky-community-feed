@@ -2,7 +2,6 @@ import React from "react"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { LIVE_METRICS_SNAPSHOT } from "@/lib/live-metrics-snapshot"
-import { DemoCTA } from "@/components/landing-ctas"
 
 export function HeroSection() {
   return (
@@ -26,15 +25,15 @@ export function HeroSection() {
               id="mask0_hero"
               style={{ maskType: "alpha" }}
               maskUnits="userSpaceOnUse"
-              x="0"
+              x="10"
               y="-1"
-              width="1440"
+              width="1200"
               height="812"
             >
-              <rect x="0" y="-0.84668" width="1440" height="811.693" fill="url(#paint0_linear_hero)" />
+              <rect x="10" y="-0.84668" width="1200" height="811.693" fill="url(#paint0_linear_hero)" />
             </mask>
             <g mask="url(#mask0_hero)">
-              {[...Array(42)].map((_, i) => (
+              {[...Array(35)].map((_, i) => (
                 <React.Fragment key={`row1-${i}`}>
                   {[9, 45, 81, 117, 153, 189, 225, 261, 297, 333, 369, 405, 441, 477, 513, 549, 585, 621, 657, 693, 729, 765].map((y) => (
                     <rect
@@ -108,7 +107,7 @@ export function HeroSection() {
               id="paint0_linear_hero"
               x1="35"
               y1="23"
-              x2="1390"
+              x2="903"
               y2="632"
               gradientUnits="userSpaceOnUse"
             >
@@ -153,7 +152,11 @@ export function HeroSection() {
 
       {/* CTAs */}
       <div className="relative z-10 flex flex-col sm:flex-row items-center gap-3">
-        <DemoCTA />
+        <Link href="/demo">
+          <Button className="bg-primary text-primary-foreground hover:bg-primary-dark px-7 py-3 rounded-full font-medium text-base shadow-[0_2px_8px_rgba(200,97,44,0.35),0_1px_2px_rgba(200,97,44,0.2)] hover:shadow-[0_4px_16px_rgba(200,97,44,0.4),0_1px_2px_rgba(200,97,44,0.2)] transition-all duration-200">
+            Explore the live demo
+          </Button>
+        </Link>
         <Link href="#features-section">
           <Button variant="ghost" className="text-foreground/70 hover:text-foreground px-5 py-3 rounded-full font-medium text-base">
             See how ranking works &rarr;

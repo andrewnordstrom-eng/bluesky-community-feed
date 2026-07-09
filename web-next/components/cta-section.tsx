@@ -1,4 +1,5 @@
-import { DemoCTA, SignInCTA } from "@/components/landing-ctas"
+import { Button } from "@/components/ui/button"
+import Link from "next/link"
 
 export function CTASection() {
   return (
@@ -19,8 +20,23 @@ export function CTASection() {
         </div>
 
         <div className="flex flex-col sm:flex-row items-center gap-3">
-          <DemoCTA className="px-8" />
-          <SignInCTA className="px-6" />
+          <Link href="/demo">
+            <Button
+              className="px-8 py-3 bg-primary text-primary-foreground text-base font-medium rounded-full shadow-[0_2px_8px_rgba(200,97,44,0.35),0_1px_2px_rgba(200,97,44,0.2)] hover:bg-primary-dark hover:shadow-[0_4px_16px_rgba(200,97,44,0.4)] transition-all duration-200"
+              size="lg"
+            >
+              Explore the live demo
+            </Button>
+          </Link>
+          <Link href="/sign-in">
+            <Button
+              variant="ghost"
+              className="px-6 py-3 text-foreground/60 hover:text-foreground rounded-full text-base font-medium"
+              size="lg"
+            >
+              Sign in when ready
+            </Button>
+          </Link>
         </div>
 
         <p className="text-xs text-foreground/30 font-medium">
