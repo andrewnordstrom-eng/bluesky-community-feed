@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react"
 import Image from "next/image"
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import Link from "next/link"
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -76,9 +77,9 @@ export function SignInDialog({ open, onOpenChange }: SignInDialogProps) {
             <DialogTitle className="text-foreground font-display text-2xl font-bold tracking-tight leading-tight">
               Sign in to vote
             </DialogTitle>
-            <p className="text-foreground/55 text-sm leading-relaxed max-w-[300px]">
+            <DialogDescription className="text-foreground/55 text-sm leading-relaxed max-w-[300px]">
               Connect your Bluesky account to participate in feed governance. You&apos;ll need an app password from your Bluesky settings.
-            </p>
+            </DialogDescription>
           </div>
         </div>
 
@@ -154,13 +155,13 @@ export function SignInDialog({ open, onOpenChange }: SignInDialogProps) {
 
           <p className="text-center text-foreground/40 text-xs leading-relaxed">
             By signing in, you agree to our{" "}
-            <a href="#" className="text-foreground/60 underline underline-offset-2 hover:text-foreground transition-colors">
+            <Link href="/tos" className="text-foreground/60 underline underline-offset-2 hover:text-foreground transition-colors">
               Terms of Service
-            </a>{" "}
+            </Link>{" "}
             and{" "}
-            <a href="#" className="text-foreground/60 underline underline-offset-2 hover:text-foreground transition-colors">
+            <Link href="/privacy" className="text-foreground/60 underline underline-offset-2 hover:text-foreground transition-colors">
               Privacy Policy
-            </a>
+            </Link>
             .
           </p>
         </form>
