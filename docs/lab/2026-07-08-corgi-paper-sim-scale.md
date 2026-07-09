@@ -98,14 +98,18 @@ Not-proven claims:
 
 The July 8 artifact roots below are snapshot receipts from the original paper-sim pass. They remain useful for provenance, but they are superseded for paper claims because the branch was refreshed onto current `origin/main` after scoring and retention changes landed.
 
-Use the July 9 current-main roots as the paper-ready evidence:
+The July 9 current-main roots below are also provenance receipts rather than final-head paper evidence. They were generated after the `origin/main` refresh, but the manifests record a dirty working tree before the PR's final review-fix commit. Use them to audit the current-main refresh, not as the final cited artifact root.
 
 - `artifacts/lab/PROJ-1551/2026-07-09-current-main-confirmation/sim-campaign/`
 - `artifacts/lab/PROJ-1551/2026-07-09-current-main-confirmation/capacity-S4/`
 - `artifacts/lab/PROJ-1551/2026-07-09-current-main-confirmation/capacity-S5/`
 - `artifacts/lab/PROJ-1551/2026-07-09-current-main-confirmation/post-review-s0-smoke/`
 
-## Current-Main Confirmation
+Final-head paper evidence must come from a clean committed head with `dirtyFiles: []` in each cited manifest. The final-head receipt root for that pass is:
+
+- `artifacts/lab/PROJ-1551/2026-07-09-final-head-confirmation/`
+
+## Current-Main Dirty-Diff Confirmation
 
 Commands:
 
@@ -133,14 +137,14 @@ Verification results:
 - `npm run sim:campaign -- --dry-run --max-stage S3`: pass, 99 planned runs.
 - All four new `checksums.sha256` files verified with `shasum -a 256 -c checksums.sha256`.
 
-Current-main campaign result:
+Current-main dirty-diff campaign result:
 
 - S0-S3 campaign passed, 99/99 runs, 217781 ms.
 - S4 capacity passed, 2/2 runs, 5000 subscribers, 20000 posts, 4000 votes per run, 10000 score rows per run, Redis feed count 1000, 15211 ms total.
 - S5 capacity passed, 2/2 runs, 10000 subscribers, 50000 posts, 8000 votes per run, 10000 score rows per run, Redis feed count 1000, 16288 ms total.
 - Post-review S0 smoke passed, 1/1 run, 3341 ms total.
 
-Primary current-main artifacts:
+Primary current-main dirty-diff artifacts:
 
 - `artifacts/lab/PROJ-1551/2026-07-09-current-main-confirmation/sim-campaign/manifest.json`
 - `artifacts/lab/PROJ-1551/2026-07-09-current-main-confirmation/sim-campaign/checksums.sha256`
@@ -157,7 +161,7 @@ Primary current-main artifacts:
 - `artifacts/lab/PROJ-1551/2026-07-09-current-main-confirmation/post-review-s0-smoke/manifest.json`
 - `artifacts/lab/PROJ-1551/2026-07-09-current-main-confirmation/post-review-s0-smoke/checksums.sha256`
 
-Current-main feed-impact comparison on the fixed synthetic corpus:
+Current-main dirty-diff feed-impact comparison on the fixed synthetic corpus:
 
 - no-governance vs engagement-only: overlap 3/50, normalized displacement 0.246667, Kendall tau 0.
 - no-governance vs community-governed: overlap 40/50, normalized displacement 0.245, Kendall tau 0.3051282051.
@@ -165,11 +169,11 @@ Current-main feed-impact comparison on the fixed synthetic corpus:
 - Regime concentration stayed low in this fixed corpus: no-governance HHI 0.02 / Gini 0, engagement-only HHI 0.0208 / Gini 0.0195918367, community-governed HHI 0.02 / Gini 0.
 - Minority-topic exposure is 0 in the fixed corpus for all three regimes; do not claim positive minority-tail exposure from this corpus.
 
-Current-main high-signal findings:
+Current-main dirty-diff high-signal findings:
 
 - The branch refreshed cleanly onto current `origin/main` at `13d99eb` after the scoring/retention changes.
 - Baseline S0-S3 remains green across the planned seeds, with S0 on seed 42 only.
-- S4/S5 are faster than the July 8 snapshot after the current-main scoring/retention changes, but they are still capacity receipts, not production saturation proof.
+- S4/S5 had lower observed wall time in this rerun than the July 8 snapshot, but this is not a controlled performance benchmark. They remain capacity receipts, not production saturation proof.
 - The synthetic democratic-process findings remain directionally stable: low exact-voter regimes are noisy, dominant personas move their target components, polarization produces interpretable blended weights, and adversarial displacement remains bounded only for this configured synthetic sweep.
 
 ## July 8 Snapshot Campaign
@@ -249,7 +253,7 @@ Primary artifacts:
 - `artifacts/lab/PROJ-1551/2026-07-08-paper-sim-scale/capacity-S5-manifested/manifest.json`
 - `artifacts/lab/PROJ-1551/2026-07-08-paper-sim-scale/capacity-S5-manifested/checksums.sha256`
 
-These are superseded snapshot capacity receipts. The July 9 current-main S4/S5 roots above are the paper-ready capacity receipts. Both generations are capacity evidence only, not production saturation proof.
+These are superseded snapshot capacity receipts. The July 9 current-main S4/S5 roots above are later provenance receipts, but the final-head confirmation root is the required paper evidence once generated. All generations are capacity evidence only, not production saturation proof.
 
 ## Load Gates
 
