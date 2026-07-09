@@ -130,6 +130,7 @@ export function Dashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [hasInitialLoad, setHasInitialLoad] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [statsStatusMessage, setStatsStatusMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -144,7 +145,7 @@ export function Dashboard() {
           setIsLoading(true);
         }
 
-        const [statsData, auditData, historyData] = await Promise.all([
+        const [statsResult, auditResult, historyResult] = await Promise.allSettled([
           transparencyApi.getStats(),
           transparencyApi.getAuditLog({ limit: 8 }),
           transparencyApi.getEpochHistory(2),
@@ -152,10 +153,43 @@ export function Dashboard() {
 
         if (!isMounted) return;
 
-        setStats(statsData);
-        setAuditLog(auditData.entries);
-        setEpochHistory(historyData.epochs);
-        setError(null);
+        let nextError: string | null = null;
+
+        if (statsResult.status === 'fulfilled') {
+          setStats(statsResult.value);
+          const statsStatus = statsResult.value.stats_status;
+          setStatsStatusMessage(
+            statsStatus?.degraded
+              ? statsStatus.message ?? 'Live score-distribution metrics are temporarily degraded.'
+              : null
+          );
+        } else {
+          const clearingStats = !silent || !initialLoadComplete;
+          if (clearingStats) {
+            setStats(null);
+          }
+          setStatsStatusMessage(
+            clearingStats
+              ? getErrorMessage(statsResult.reason, 'Live feed statistics are temporarily unavailable.')
+              : 'Showing last known statistics; live refresh failed.'
+          );
+        }
+
+        if (auditResult.status === 'fulfilled') {
+          setAuditLog(auditResult.value.entries);
+        } else {
+          nextError = getErrorMessage(auditResult.reason, 'Failed to load recent governance activity');
+        }
+
+        if (historyResult.status === 'fulfilled') {
+          setEpochHistory(historyResult.value.epochs);
+        } else {
+          nextError = nextError ?? getErrorMessage(historyResult.reason, 'Failed to load governance history');
+        }
+
+        if (!silent || !initialLoadComplete || nextError === null) {
+          setError(nextError);
+        }
 
         // Load topic catalog (public endpoint, no auth)
         try {
@@ -243,7 +277,7 @@ export function Dashboard() {
     );
   }
 
-  if (error && !stats) {
+  if (error && !stats && epochHistory.length === 0 && auditLog.length === 0) {
     return (
       <div className="dashboard-page">
         <div className="error-container">
@@ -281,79 +315,80 @@ export function Dashboard() {
       </header>
 
       <main className="dashboard-main page-content">
-        {stats && (
-          <>
-            {latestRoundUpdate ? (
-              <section className="latest-update-section">
-                <div className="section-header">
-                  <h2>Latest governance update</h2>
-                  <span className="update-time">{formatDate(latestRoundUpdate.appliedAt)}</span>
-                </div>
-                <p className="latest-update-title">
-                  Round {latestRoundUpdate.currentRoundId} is now live.
-                </p>
-                <p className="latest-update-meta">
-                  Applied from Round {latestRoundUpdate.previousRoundId} with {latestRoundUpdate.participantCount} voter(s).
-                </p>
-                {latestRoundUpdate.weightChanges.length > 0 ? (
-                  <div className="latest-update-list">
-                    {latestRoundUpdate.weightChanges.map((change) => (
-                      <div key={change.key} className="latest-update-item">
-                        <span>{WEIGHT_LABELS[change.key]}</span>
-                        <strong>
-                          {(change.previous * 100).toFixed(1)}% → {(change.current * 100).toFixed(1)}%
-                          {' '}
-                          ({change.delta >= 0 ? '+' : ''}{(change.delta * 100).toFixed(1)}%)
-                        </strong>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="latest-update-empty">No weight changes from the prior round.</p>
-                )}
-                {(latestRoundUpdate.keywordChanges.includeAdded.length > 0 ||
-                  latestRoundUpdate.keywordChanges.excludeAdded.length > 0 ||
-                  latestRoundUpdate.keywordChanges.includeRemoved.length > 0 ||
-                  latestRoundUpdate.keywordChanges.excludeRemoved.length > 0) && (
-                  <div className="latest-keyword-grid">
-                    {latestRoundUpdate.keywordChanges.includeAdded.length > 0 && (
-                      <div>
-                        <span className="keyword-change-label">Include added</span>
-                        <p className="keyword-change-values">
-                          {latestRoundUpdate.keywordChanges.includeAdded.join(', ')}
-                        </p>
-                      </div>
-                    )}
-                    {latestRoundUpdate.keywordChanges.excludeAdded.length > 0 && (
-                      <div>
-                        <span className="keyword-change-label">Exclude added</span>
-                        <p className="keyword-change-values">
-                          {latestRoundUpdate.keywordChanges.excludeAdded.join(', ')}
-                        </p>
-                      </div>
-                    )}
-                    {latestRoundUpdate.keywordChanges.includeRemoved.length > 0 && (
-                      <div>
-                        <span className="keyword-change-label">Include removed</span>
-                        <p className="keyword-change-values">
-                          {latestRoundUpdate.keywordChanges.includeRemoved.join(', ')}
-                        </p>
-                      </div>
-                    )}
-                    {latestRoundUpdate.keywordChanges.excludeRemoved.length > 0 && (
-                      <div>
-                        <span className="keyword-change-label">Exclude removed</span>
-                        <p className="keyword-change-values">
-                          {latestRoundUpdate.keywordChanges.excludeRemoved.join(', ')}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                )}
-                <p className="refresh-hint">This page refreshes automatically every minute.</p>
-              </section>
-            ) : null}
+        {error && <p className="dashboard-warning">{error}</p>}
 
+        {latestRoundUpdate ? (
+          <section className="latest-update-section">
+            <div className="section-header">
+              <h2>Latest governance update</h2>
+              <span className="update-time">{formatDate(latestRoundUpdate.appliedAt)}</span>
+            </div>
+            <p className="latest-update-title">
+              Round {latestRoundUpdate.currentRoundId} is now live.
+            </p>
+            <p className="latest-update-meta">
+              Applied from Round {latestRoundUpdate.previousRoundId} with {latestRoundUpdate.participantCount} voter(s).
+            </p>
+            {latestRoundUpdate.weightChanges.length > 0 ? (
+              <div className="latest-update-list">
+                {latestRoundUpdate.weightChanges.map((change) => (
+                  <div key={change.key} className="latest-update-item">
+                    <span>{WEIGHT_LABELS[change.key]}</span>
+                    <strong>
+                      {(change.previous * 100).toFixed(1)}% → {(change.current * 100).toFixed(1)}%
+                      {' '}
+                      ({change.delta >= 0 ? '+' : ''}{(change.delta * 100).toFixed(1)}%)
+                    </strong>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="latest-update-empty">No weight changes from the prior round.</p>
+            )}
+            {(latestRoundUpdate.keywordChanges.includeAdded.length > 0 ||
+              latestRoundUpdate.keywordChanges.excludeAdded.length > 0 ||
+              latestRoundUpdate.keywordChanges.includeRemoved.length > 0 ||
+              latestRoundUpdate.keywordChanges.excludeRemoved.length > 0) && (
+              <div className="latest-keyword-grid">
+                {latestRoundUpdate.keywordChanges.includeAdded.length > 0 && (
+                  <div>
+                    <span className="keyword-change-label">Include added</span>
+                    <p className="keyword-change-values">
+                      {latestRoundUpdate.keywordChanges.includeAdded.join(', ')}
+                    </p>
+                  </div>
+                )}
+                {latestRoundUpdate.keywordChanges.excludeAdded.length > 0 && (
+                  <div>
+                    <span className="keyword-change-label">Exclude added</span>
+                    <p className="keyword-change-values">
+                      {latestRoundUpdate.keywordChanges.excludeAdded.join(', ')}
+                    </p>
+                  </div>
+                )}
+                {latestRoundUpdate.keywordChanges.includeRemoved.length > 0 && (
+                  <div>
+                    <span className="keyword-change-label">Include removed</span>
+                    <p className="keyword-change-values">
+                      {latestRoundUpdate.keywordChanges.includeRemoved.join(', ')}
+                    </p>
+                  </div>
+                )}
+                {latestRoundUpdate.keywordChanges.excludeRemoved.length > 0 && (
+                  <div>
+                    <span className="keyword-change-label">Exclude removed</span>
+                    <p className="keyword-change-values">
+                      {latestRoundUpdate.keywordChanges.excludeRemoved.join(', ')}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+            <p className="refresh-hint">This page refreshes automatically every minute.</p>
+          </section>
+        ) : null}
+
+        {stats ? (
             <section className="weights-section">
               <div className="section-header">
                 <h2>Current algorithm weights</h2>
@@ -391,32 +426,41 @@ export function Dashboard() {
                 </div>
               </div>
             </section>
+        ) : (
+          <section className="dashboard-degraded-section">
+            <h2>Current algorithm weights</h2>
+            <p>{statsStatusMessage ?? 'Live algorithm statistics are temporarily unavailable.'}</p>
+          </section>
+        )}
 
-            {topicData && topicData.topics.length > 0 && (
-              <section className="topics-section">
-                <div className="section-header">
-                  <h2>Community topic preferences</h2>
-                  <span className="topic-voter-badge">
-                    {topicData.voteCount} topic voter{topicData.voteCount !== 1 ? 's' : ''}
-                  </span>
-                </div>
-                <TopicWeightChart
-                  topics={topicData.topics.map((t) => ({
-                    slug: t.slug,
-                    name: t.name,
-                    weight: t.currentWeight,
-                  }))}
-                  voterCount={topicData.voteCount}
-                />
-              </section>
-            )}
+        {topicData && topicData.topics.length > 0 && (
+          <section className="topics-section">
+            <div className="section-header">
+              <h2>Community topic preferences</h2>
+              <span className="topic-voter-badge">
+                {topicData.voteCount} topic voter{topicData.voteCount !== 1 ? 's' : ''}
+              </span>
+            </div>
+            <TopicWeightChart
+              topics={topicData.topics.map((t) => ({
+                slug: t.slug,
+                name: t.name,
+                weight: t.currentWeight,
+              }))}
+              voterCount={topicData.voteCount}
+            />
+          </section>
+        )}
 
-            <section className="stats-section">
-              <h2>Feed statistics</h2>
+        <section className="stats-section">
+          <h2>Feed statistics</h2>
+          {stats ? (
+            <>
+              {statsStatusMessage && <p className="stats-warning">{statsStatusMessage}</p>}
               <div className="stats-grid">
                 <div className="stat-card">
                   <span className="stat-value">{stats.feed_stats.total_posts_scored.toLocaleString()}</span>
-                  <span className="stat-label">Posts scored</span>
+                  <span className="stat-label">Feed rows</span>
                 </div>
                 <div className="stat-card">
                   <span className="stat-value">{stats.feed_stats.unique_authors.toLocaleString()}</span>
@@ -437,33 +481,35 @@ export function Dashboard() {
                   </div>
                 )}
               </div>
-            </section>
+            </>
+          ) : (
+            <p className="stats-empty">{statsStatusMessage ?? 'Live feed statistics are temporarily unavailable.'}</p>
+          )}
+        </section>
 
-            <section className="audit-section">
-              <div className="section-header">
-                <h2>Recent governance activity</h2>
-                <Link to="/history" className="view-all-link">View all</Link>
-              </div>
-              <div className="audit-list">
-                {auditLog.length === 0 ? (
-                  <p className="no-activity">No governance activity yet</p>
-                ) : (
-                  auditLog.map((entry) => (
-                    <div key={entry.id} className="audit-item">
-                      <div className="audit-action">{formatAction(entry.action)}</div>
-                      <div className="audit-meta">
-                        <span className="audit-time">{formatDate(entry.created_at)}</span>
-                        {entry.epoch_id && (
-                          <span className="audit-epoch">Epoch {entry.epoch_id}</span>
-                        )}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </section>
-          </>
-        )}
+        <section className="audit-section">
+          <div className="section-header">
+            <h2>Recent governance activity</h2>
+            <Link to="/history" className="view-all-link">View all</Link>
+          </div>
+          <div className="audit-list">
+            {auditLog.length === 0 ? (
+              <p className="no-activity">No governance activity yet</p>
+            ) : (
+              auditLog.map((entry) => (
+                <div key={entry.id} className="audit-item">
+                  <div className="audit-action">{formatAction(entry.action)}</div>
+                  <div className="audit-meta">
+                    <span className="audit-time">{formatDate(entry.created_at)}</span>
+                    {entry.epoch_id && (
+                      <span className="audit-epoch">Epoch {entry.epoch_id}</span>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
       </main>
 
       <style>{styles}</style>
@@ -787,6 +833,31 @@ const styles = `
 
   .stats-section h2 {
     margin-bottom: var(--space-5);
+  }
+
+  .dashboard-degraded-section p,
+  .dashboard-warning,
+  .stats-warning,
+  .stats-empty {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: var(--text-sm);
+    line-height: var(--leading-relaxed);
+  }
+
+  .dashboard-warning {
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    background: var(--bg-elevated);
+  }
+
+  .dashboard-degraded-section h2 {
+    margin-bottom: var(--space-3);
+  }
+
+  .stats-warning {
+    margin-bottom: var(--space-4);
   }
 
   .stats-grid {

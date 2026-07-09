@@ -2905,7 +2905,7 @@
         "tags": [
           "Transparency"
         ],
-        "description": "Returns aggregate statistics for the current feed including epoch weights, scoring metrics (posts scored, unique authors, avg/median bridging), governance info, and optional Gini coefficient.",
+        "description": "Returns bounded aggregate statistics for the current feed including epoch weights, materialized feed-snapshot metrics, governance info, provenance, and optional Gini coefficient.",
         "responses": {
           "200": {
             "description": "Default Response",
@@ -2953,10 +2953,12 @@
                       "type": "object",
                       "properties": {
                         "total_posts_scored": {
-                          "type": "integer"
+                          "type": "integer",
+                          "description": "Rows in the current materialized feed snapshot."
                         },
                         "unique_authors": {
-                          "type": "integer"
+                          "type": "integer",
+                          "description": "Unique authors in the materialized feed snapshot."
                         },
                         "avg_bridging_score": {
                           "type": "number"
@@ -2999,12 +3001,46 @@
                           "nullable": true
                         }
                       }
+                    },
+                    "stats_status": {
+                      "type": "object",
+                      "description": "Provenance for the bounded stats response.",
+                      "properties": {
+                        "source": {
+                          "type": "string",
+                          "enum": [
+                            "scoring_run",
+                            "fallback"
+                          ]
+                        },
+                        "degraded": {
+                          "type": "boolean"
+                        },
+                        "computed_at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "nullable": true
+                        },
+                        "run_id": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "message": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "required": [
+                        "source",
+                        "degraded"
+                      ]
                     }
                   },
                   "required": [
                     "epoch",
                     "feed_stats",
-                    "governance"
+                    "governance",
+                    "stats_status"
                   ]
                 }
               }

@@ -4,6 +4,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const { dbQueryMock } = vi.hoisted(() => ({
   dbQueryMock: vi.fn(),
 }));
+const { redisGetMock } = vi.hoisted(() => ({
+  redisGetMock: vi.fn(),
+}));
 
 vi.mock('../src/db/client.js', () => ({
   db: {
@@ -11,34 +14,91 @@ vi.mock('../src/db/client.js', () => ({
   },
 }));
 
+vi.mock('../src/db/redis.js', () => ({
+  redis: {
+    get: redisGetMock,
+  },
+}));
+
 import { registerPostExplainRoute } from '../src/transparency/routes/post-explain.js';
 import { registerFeedStatsRoute } from '../src/transparency/routes/feed-stats.js';
 import { registerCounterfactualRoute } from '../src/transparency/routes/counterfactual.js';
 
+interface FeedStatsDbMockOptions {
+  metricsRows: Record<string, unknown>[];
+  voteCount?: string;
+  currentScoringRunValue?: unknown;
+  currentScoringRunError?: Error;
+}
+
+function buildActiveEpochRow(): Record<string, unknown> {
+  return {
+    id: 2,
+    status: 'active',
+    recency_weight: 0.2,
+    engagement_weight: 0.2,
+    bridging_weight: 0.2,
+    source_diversity_weight: 0.2,
+    relevance_weight: 0.2,
+    created_at: '2026-02-09T00:00:00.000Z',
+  };
+}
+
+function mockFeedStatsDbQueries(options: FeedStatsDbMockOptions): void {
+  dbQueryMock.mockImplementation((query: unknown) => {
+    const sql = String(query);
+
+    if (sql.includes('FROM governance_epochs')) {
+      return Promise.resolve({ rows: [buildActiveEpochRow()] });
+    }
+
+    if (sql.includes('FROM epoch_metrics')) {
+      return Promise.resolve({ rows: options.metricsRows });
+    }
+
+    if (sql.includes('COUNT(*) as count FROM governance_votes')) {
+      return Promise.resolve({ rows: [{ count: options.voteCount ?? '5' }] });
+    }
+
+    if (sql.includes("WHERE key = 'current_scoring_run'")) {
+      if (options.currentScoringRunError) {
+        return Promise.reject(options.currentScoringRunError);
+      }
+      const rows = options.currentScoringRunValue === undefined
+        ? []
+        : [{ value: options.currentScoringRunValue }];
+      return Promise.resolve({ rows });
+    }
+
+    return Promise.reject(new Error(`Unhandled feed stats test query: ${sql}`));
+  });
+}
+
 describe('transparency routes current-run scoping', () => {
   beforeEach(() => {
     dbQueryMock.mockReset();
+    redisGetMock.mockReset();
   });
 
-  it('scopes feed stats to current scoring run when run metadata exists', async () => {
-    dbQueryMock
-      .mockResolvedValueOnce({
-        rows: [{ id: 2, status: 'active', recency_weight: 0.2, engagement_weight: 0.2, bridging_weight: 0.2, source_diversity_weight: 0.2, relevance_weight: 0.2, created_at: '2026-02-09T00:00:00.000Z' }],
-      })
-      .mockResolvedValueOnce({
-        rows: [{ value: { run_id: 'run-1', epoch_id: 2 } }],
-      })
-      .mockResolvedValueOnce({
-        rows: [{ total_posts: '10', unique_authors: '8', median_total: '0.5' }],
-      })
-      .mockResolvedValueOnce({
-        rows: [{ avg: '0.3', median: '0.25', count: '10' }],
-      })
-      .mockResolvedValueOnce({
-        rows: [{ avg: '0.4', median: '0.35', count: '10' }],
-      })
-      .mockResolvedValueOnce({ rows: [{ count: '5' }] })
-      .mockResolvedValueOnce({ rows: [] });
+  it('serves feed stats from materialized epoch metrics without request-time score scans', async () => {
+    mockFeedStatsDbQueries({
+      metricsRows: [
+        {
+          run_id: 'run-1',
+          author_gini: '0.2',
+          avg_bridging: '0.3',
+          median_bridging: '0.25',
+          avg_engagement: '0.4',
+          median_total: '0.5',
+          vs_chronological_overlap: '0',
+          vs_engagement_overlap: 0,
+          posts_scored: '10',
+          unique_authors: '8',
+          computed_at: '2026-02-09T00:05:00.000Z',
+          metrics_source: 'current_feed',
+        },
+      ],
+    });
 
     const app = Fastify();
     registerFeedStatsRoute(app);
@@ -49,16 +109,280 @@ describe('transparency routes current-run scoping', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(String(dbQueryMock.mock.calls[2]?.[0])).toContain("component_details->>'run_id'");
+    const body = JSON.parse(response.body) as {
+      feed_stats: {
+        total_posts_scored: number;
+        unique_authors: number;
+        avg_bridging_score: number;
+        avg_engagement_score: number;
+        median_total_score: number;
+      };
+      metrics: {
+        vs_chronological_overlap: number | null;
+        vs_engagement_overlap: number | null;
+      };
+      stats_status: { source: string; degraded: boolean; run_id: string | null };
+    };
+    expect(body.feed_stats).toMatchObject({
+      total_posts_scored: 10,
+      unique_authors: 8,
+      avg_bridging_score: 0.3,
+      avg_engagement_score: 0.4,
+      median_total_score: 0.5,
+    });
+    expect(body.stats_status).toMatchObject({
+      source: 'scoring_run',
+      degraded: false,
+      run_id: 'run-1',
+    });
+    expect(body.metrics).toMatchObject({
+      vs_chronological_overlap: 0,
+      vs_engagement_overlap: 0,
+    });
 
-    const scopedPostScoreCalls = dbQueryMock.mock.calls
+    const postScoreScanCalls = dbQueryMock.mock.calls
       .map((call) => String(call[0]))
       .filter((query) => query.includes('FROM post_scores ps'));
 
-    expect(scopedPostScoreCalls.length).toBeGreaterThanOrEqual(3);
-    for (const query of scopedPostScoreCalls) {
-      expect(query).toContain("ps.component_details->>'run_id'");
-    }
+    expect(postScoreScanCalls).toEqual([]);
+    expect(redisGetMock).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it('marks legacy materialized feed stats as degraded without request-time score scans', async () => {
+    mockFeedStatsDbQueries({
+      metricsRows: [
+        {
+          run_id: 'legacy-run',
+          author_gini: '0.2',
+          avg_bridging: '0.3',
+          median_bridging: '0.25',
+          avg_engagement: null,
+          median_total: null,
+          vs_chronological_overlap: null,
+          vs_engagement_overlap: null,
+          posts_scored: '10',
+          unique_authors: '8',
+          computed_at: '2026-02-09T00:05:00.000Z',
+          metrics_source: 'legacy',
+        },
+      ],
+    });
+
+    const app = Fastify();
+    registerFeedStatsRoute(app);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/transparency/stats',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body) as {
+      feed_stats: {
+        avg_engagement_score: number;
+        median_total_score: number;
+      };
+      stats_status: { source: string; degraded: boolean; message: string | null };
+    };
+    expect(body.feed_stats.avg_engagement_score).toBe(0);
+    expect(body.feed_stats.median_total_score).toBe(0);
+    expect(body.stats_status).toMatchObject({
+      source: 'scoring_run',
+      degraded: true,
+    });
+    expect(body.stats_status.message).toContain('legacy transparency metrics');
+
+    const postScoreScanCalls = dbQueryMock.mock.calls
+      .map((call) => String(call[0]))
+      .filter((query) => query.includes('FROM post_scores ps'));
+
+    expect(postScoreScanCalls).toEqual([]);
+    expect(redisGetMock).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it('returns a degraded stats shape when materialized metrics are not available', async () => {
+    redisGetMock.mockResolvedValueOnce('25');
+    mockFeedStatsDbQueries({
+      metricsRows: [],
+      currentScoringRunValue: {
+        run_id: 'run-2',
+        epoch_id: 2,
+        posts_scored: 12,
+        timestamp: '2026-02-09T00:06:00.000Z',
+      },
+    });
+
+    const app = Fastify();
+    registerFeedStatsRoute(app);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/transparency/stats',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body) as {
+      feed_stats: { total_posts_scored: number; unique_authors: number };
+      stats_status: { source: string; degraded: boolean; run_id: string | null };
+    };
+    expect(body.feed_stats.total_posts_scored).toBe(25);
+    expect(body.feed_stats.unique_authors).toBe(0);
+    expect(body.stats_status).toMatchObject({
+      source: 'fallback',
+      degraded: true,
+      run_id: 'run-2',
+    });
+
+    await app.close();
+  });
+
+  it('does not use Redis feed count when fallback scoring scope is from another epoch', async () => {
+    redisGetMock.mockResolvedValueOnce('25');
+    mockFeedStatsDbQueries({
+      metricsRows: [],
+      currentScoringRunValue: {
+        run_id: 'run-other-epoch',
+        epoch_id: 99,
+        posts_scored: 12,
+        timestamp: '2026-02-09T00:06:00.000Z',
+      },
+    });
+
+    const app = Fastify();
+    registerFeedStatsRoute(app);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/transparency/stats',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body) as {
+      feed_stats: { total_posts_scored: number };
+      stats_status: { source: string; degraded: boolean; computed_at: string | null; run_id: string | null };
+    };
+    expect(body.feed_stats.total_posts_scored).toBe(0);
+    expect(body.stats_status).toMatchObject({
+      source: 'fallback',
+      degraded: true,
+      computed_at: null,
+      run_id: null,
+    });
+    expect(redisGetMock).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it('keeps degraded fallback scoped when Redis feed count fails', async () => {
+    redisGetMock.mockRejectedValueOnce(new Error('redis feed count failed'));
+    mockFeedStatsDbQueries({
+      metricsRows: [],
+      currentScoringRunValue: {
+        run_id: 'run-redis-failed',
+        epoch_id: 2,
+        posts_scored: 12,
+        timestamp: '2026-02-09T00:06:00.000Z',
+      },
+    });
+
+    const app = Fastify();
+    registerFeedStatsRoute(app);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/transparency/stats',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body) as {
+      feed_stats: { total_posts_scored: number };
+      stats_status: { source: string; degraded: boolean; run_id: string | null };
+    };
+    expect(body.feed_stats.total_posts_scored).toBe(12);
+    expect(body.stats_status).toMatchObject({
+      source: 'fallback',
+      degraded: true,
+      run_id: 'run-redis-failed',
+    });
+
+    await app.close();
+  });
+
+  it('returns degraded zeros when fallback run-scope lookup fails', async () => {
+    mockFeedStatsDbQueries({
+      metricsRows: [],
+      currentScoringRunError: new Error('current scoring run lookup failed'),
+    });
+
+    const app = Fastify();
+    registerFeedStatsRoute(app);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/transparency/stats',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body) as {
+      feed_stats: { total_posts_scored: number };
+      stats_status: { source: string; degraded: boolean; run_id: string | null };
+    };
+    expect(body.feed_stats.total_posts_scored).toBe(0);
+    expect(body.stats_status).toMatchObject({
+      source: 'fallback',
+      degraded: true,
+      run_id: null,
+    });
+    expect(redisGetMock).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it('preserves null overlap metrics from materialized stats', async () => {
+    mockFeedStatsDbQueries({
+      metricsRows: [
+        {
+          run_id: 'run-null-overlap',
+          author_gini: null,
+          avg_bridging: '0.3',
+          median_bridging: '0.25',
+          avg_engagement: '0.4',
+          median_total: '0.5',
+          vs_chronological_overlap: null,
+          vs_engagement_overlap: null,
+          posts_scored: '10',
+          unique_authors: '8',
+          computed_at: '2026-02-09T00:05:00.000Z',
+          metrics_source: 'current_feed',
+        },
+      ],
+    });
+
+    const app = Fastify();
+    registerFeedStatsRoute(app);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/transparency/stats',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body) as {
+      metrics: {
+        author_gini: number | null;
+        vs_chronological_overlap: number | null;
+        vs_engagement_overlap: number | null;
+      };
+    };
+    expect(body.metrics).toMatchObject({
+      author_gini: null,
+      vs_chronological_overlap: null,
+      vs_engagement_overlap: null,
+    });
 
     await app.close();
   });
