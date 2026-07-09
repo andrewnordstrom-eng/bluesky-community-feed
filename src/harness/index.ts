@@ -56,6 +56,7 @@ export {
   collectArtifactDescriptor,
   collectGitBranch,
   collectGitState,
+  collectGitStateWithDefaultBase,
   collectRuntimeState,
   createLabRunId,
   ensureDirectory,

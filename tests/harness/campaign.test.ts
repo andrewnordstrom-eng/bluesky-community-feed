@@ -197,6 +197,7 @@ describe('simulated epoch campaign ladder', () => {
     }
 
     const runs = campaignRunsForStage(stage);
+    const familyIds = new Set(runs.map((run) => run.familyId));
     const trimVariants = runs
       .filter((run) => run.familyId === 'trim-threshold')
       .map((run) => run.variantId);
@@ -214,6 +215,8 @@ describe('simulated epoch campaign ladder', () => {
       new Set(['dominant-engagement-maximizer', 'dominant-bridge-builder'])
     );
     expect(new Set(turnoutSeeds)).toEqual(new Set([42, 1337]));
+    expect(familyIds.has('multi-epoch')).toBe(false);
+    expect(familyIds.has('adversarial')).toBe(false);
   });
 
   it('keeps generated persona mixes aligned with the configured persona IDs', () => {

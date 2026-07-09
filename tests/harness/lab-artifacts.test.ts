@@ -8,6 +8,7 @@ import {
   collectArtifactDescriptor,
   collectGitBranch,
   collectGitState,
+  collectGitStateWithDefaultBase,
   resolveLabRunDirectory,
   sha256Text,
   writeChecksums,
@@ -252,6 +253,27 @@ describe('lab artifact git metadata', () => {
 
     expect(state.dirtyFiles).toEqual([]);
     expect(state.diffSha256).toBe(sha256Text('\0'));
+  });
+
+  it('falls back to HEAD when remote default branch refs are unavailable', async () => {
+    const head = await git(repoDir, ['rev-parse', 'HEAD']);
+
+    const state = await collectGitStateWithDefaultBase(repoDir);
+
+    expect(state.base).toBe(head);
+  });
+
+  it('uses origin HEAD when the remote default branch is not main', async () => {
+    const initialHead = await git(repoDir, ['rev-parse', 'HEAD']);
+    await writeFile(join(repoDir, 'README.md'), 'lab metadata fixture with second commit\n', 'utf8');
+    await git(repoDir, ['add', 'README.md']);
+    await git(repoDir, ['commit', '-m', 'second']);
+    await git(repoDir, ['update-ref', 'refs/remotes/origin/trunk', initialHead]);
+    await git(repoDir, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/trunk']);
+
+    const state = await collectGitStateWithDefaultBase(repoDir);
+
+    expect(state.base).toBe(initialHead);
   });
 
   it('collects dirty git metadata with deterministic hashes', async () => {

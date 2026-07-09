@@ -9,6 +9,7 @@ import { Ajv2020, type ErrorObject, type ValidateFunction } from 'ajv/dist/2020.
 const execFileAsync = promisify(execFile);
 const EXEC_TIMEOUT_MS = 30_000;
 const MANIFEST_SCHEMA_PATH = path.resolve(process.cwd(), 'artifacts/lab/manifest.schema.json');
+const DEFAULT_GIT_BASE_REFS = ['origin/HEAD', 'origin/main', 'HEAD'] as const;
 
 export interface LabArtifactDescriptor {
   path: string;
@@ -270,6 +271,26 @@ export async function collectGitState(cwd: string, baseRef: string): Promise<Lab
       .filter((line) => line.length > 0),
     diffSha256: sha256Text(`${diff}\0${untrackedHashInput}`),
   };
+}
+
+export async function collectGitStateWithDefaultBase(cwd: string): Promise<LabGitState> {
+  const errors: Error[] = [];
+  for (const baseRef of DEFAULT_GIT_BASE_REFS) {
+    try {
+      return await collectGitState(cwd, baseRef);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        errors.push(new Error(`failed with base ref ${baseRef}: ${error.message}`));
+      } else {
+        errors.push(new Error(`failed with base ref ${baseRef}: non-Error thrown`));
+      }
+    }
+  }
+
+  throw new AggregateError(
+    errors,
+    `failed to collect git state in ${cwd} using base refs ${DEFAULT_GIT_BASE_REFS.join(', ')}`
+  );
 }
 
 export async function collectGitBranch(cwd: string): Promise<string> {

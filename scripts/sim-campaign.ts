@@ -19,7 +19,7 @@ import {
   campaignRunsForStages,
   collectArtifactDescriptor,
   collectGitBranch,
-  collectGitState,
+  collectGitStateWithDefaultBase,
   collectRuntimeState,
   selectCampaignStages,
   scenarioForCampaignRun,
@@ -776,7 +776,7 @@ async function runCampaign(options: CliOptions): Promise<void> {
       schemaVersion: '1.0.0',
       issue: ISSUE_KEY,
       branch: await collectGitBranch(process.cwd()),
-      git: await collectGitState(process.cwd(), 'origin/main'),
+      git: await collectGitStateWithDefaultBase(process.cwd()),
       command: {
         argv: process.argv,
         cwd: process.cwd(),
