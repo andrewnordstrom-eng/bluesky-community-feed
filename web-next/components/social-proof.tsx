@@ -60,14 +60,23 @@ export function SocialProof() {
               <p className="text-foreground font-semibold text-sm leading-snug">{p.heading}</p>
               <p className="text-foreground/50 text-sm font-normal leading-relaxed">{p.body}</p>
             </div>
-            <Link
-              href={p.href}
-              target={p.href.startsWith("https://") ? "_blank" : undefined}
-              rel={p.href.startsWith("https://") ? "noopener noreferrer" : undefined}
-              className="text-primary text-xs font-medium hover:underline underline-offset-2 w-fit"
-            >
-              {p.linkLabel} &rarr;
-            </Link>
+            {p.href.startsWith("https://") ? (
+              <a
+                href={p.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary text-xs font-medium hover:underline underline-offset-2 w-fit"
+              >
+                {p.linkLabel} &rarr;
+              </a>
+            ) : (
+              <Link
+                href={p.href}
+                className="text-primary text-xs font-medium hover:underline underline-offset-2 w-fit"
+              >
+                {p.linkLabel} &rarr;
+              </Link>
+            )}
           </div>
         ))}
       </div>
