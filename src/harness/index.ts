@@ -11,26 +11,53 @@ export { ScenarioV1Schema, PopulationConfigSchema, PersonaMixSchema, parseScenar
 export type { Scenario, ScenarioV1, PopulationConfig, PersonaMix, ParseScenarioResult } from './scenario.js';
 
 export {
+  CAMPAIGN_SCENARIO_FAMILY_IDS,
   CAMPAIGN_STAGE_IDS,
   SIMULATED_EPOCH_CAMPAIGN,
   campaignManifest,
+  campaignRunsForStage,
+  campaignRunsForStages,
+  parseCampaignScenarioFamilyId,
   parseCampaignStageId,
+  requireCampaignRunsForSelection,
   scenarioForCampaignRun,
   selectCampaignStages,
   totalCampaignRuns,
 } from './campaign.js';
 export type {
   CampaignManifest,
+  CampaignManifestScenario,
   CampaignManifestStage,
   CampaignSelection,
+  CampaignScenarioFamilyId,
+  CampaignScenarioRun,
   CampaignStage,
   CampaignStageId,
 } from './campaign.js';
 
 export {
+  CampaignRunReceiptSchema,
+  FeedImpactReceiptSchema,
+  CampaignSummarySchema,
+  aggregateCampaignRuns,
+  campaignAggregatesToCsv,
+  campaignRunsToCsv,
+  feedImpactReceipt,
+  writeCampaignAnalysisArtifacts,
+} from './campaign-summary.js';
+export type {
+  CampaignAggregateRow,
+  CampaignFeedImpactReceipt,
+  CampaignRunReceipt,
+  CampaignSummary,
+  WrittenCampaignAnalysisPaths,
+} from './campaign-summary.js';
+
+export {
   collectArtifactDescriptor,
   collectGitBranch,
   collectGitState,
+  collectGitStateWithDefaultBase,
   collectRuntimeState,
   createLabRunId,
   ensureDirectory,
@@ -98,13 +125,19 @@ export type {
 export { createRng, SeededClock } from './rng.js';
 export type { Rng, Clock } from './rng.js';
 
-export { runBaselineComparison, writeBaselineComparisonArtifacts, REGIME_NAMES } from './baseline-comparison.js';
+export {
+  buildBaselineComparisonArtifactRows,
+  runBaselineComparison,
+  writeBaselineComparisonArtifacts,
+  REGIME_NAMES,
+} from './baseline-comparison.js';
 export type {
   RegimeName,
   BaselineComparisonDeps,
   RegimeResult,
   BaselineComparisonResult,
   RunBaselineComparisonOptions,
+  BaselineComparisonArtifactRows,
   BaselineComparisonCsvRow,
   RegimeSummaryCsvRow,
   WrittenBaselineComparisonPaths,

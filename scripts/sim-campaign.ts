@@ -14,11 +14,27 @@ import type { StartedRedisContainer } from '@testcontainers/redis';
 import { runMigrations } from './migrate.js';
 import { assertEphemeralTarget } from '../src/harness/prod-guard.js';
 import {
+  SIMULATED_EPOCH_CAMPAIGN,
   campaignManifest,
-  scenarioForCampaignRun,
+  collectArtifactDescriptor,
+  collectGitBranch,
+  collectGitStateWithDefaultBase,
+  collectRuntimeState,
+  requireCampaignRunsForSelection,
   selectCampaignStages,
-  totalCampaignRuns,
+  scenarioForCampaignRun,
+  sha256Text,
+  writeChecksums,
+  writeCampaignAnalysisArtifacts,
+  writeLabManifest,
+  type CampaignFeedImpactReceipt,
+  type CampaignRunReceipt,
+  type CampaignSummary,
   type CampaignStageId,
+  type LabArtifactDescriptor,
+  type LabClaim,
+  type LabManifest,
+  type WrittenCampaignAnalysisPaths,
 } from '../src/harness/index.js';
 
 interface CliOptions {
@@ -26,6 +42,7 @@ interface CliOptions {
   ephemeral: boolean;
   onlyStageId: string | null;
   maxStageId: string | null;
+  onlyFamilyId: string | null;
   artifactsDir: string;
   clockMs: number | null;
 }
@@ -48,36 +65,14 @@ interface CampaignRedis {
   disconnect(): void;
 }
 
-interface CampaignRunReceipt {
-  stageId: CampaignStageId;
-  label: string;
-  seed: number;
-  subscriberCount: number;
-  postCount: number;
-  expectation: 'gate' | 'capacity';
-  durationMs: number;
-  scoreRowCount: number;
-  redisFeedCount: number | null;
-  topPostsFetched: number;
-  voteCount: number;
-  artifactJsonPath: string | null;
-  artifactCsvPath: string | null;
-}
-
-interface CampaignSummary {
-  startedAt: string;
-  endedAt: string;
-  durationMs: number;
-  status: 'passed' | 'failed';
-  error: string | null;
-  totalRuns: number;
-  runs: CampaignRunReceipt[];
-}
-
 const DEFAULT_ARTIFACTS_DIR = 'artifacts/sim-campaign';
+const ISSUE_KEY = 'PROJ-1551';
 const PIPELINE_STEP_TIMEOUT_MS = 240_000;
+const FEED_IMPACT_SEED = 90210;
+const FEED_IMPACT_TOP_K = 50;
+const FEED_IMPACT_TAIL_THRESHOLD = 0.15;
 const BOOLEAN_FLAGS = new Set(['--dry-run', '--ephemeral']);
-const VALUE_FLAGS = new Set(['--stage', '--max-stage', '--artifacts-dir', '--clock-ms']);
+const VALUE_FLAGS = new Set(['--stage', '--max-stage', '--family', '--artifacts-dir', '--clock-ms']);
 
 const HARNESS_TABLES = [
   'post_score_components',
@@ -166,6 +161,7 @@ function parseArgs(args: readonly string[]): CliOptions {
   validateArgs(args);
   const stage = readFlagValue(args, '--stage');
   const maxStage = readFlagValue(args, '--max-stage');
+  const family = readFlagValue(args, '--family');
   const artifactsDir = readFlagValue(args, '--artifacts-dir');
   const clockMs = readFlagValue(args, '--clock-ms');
 
@@ -174,6 +170,7 @@ function parseArgs(args: readonly string[]): CliOptions {
     ephemeral: args.includes('--ephemeral'),
     onlyStageId: stage,
     maxStageId: maxStage,
+    onlyFamilyId: family,
     artifactsDir: artifactsDir === null ? DEFAULT_ARTIFACTS_DIR : artifactsDir,
     clockMs: parseClockMs(clockMs),
   };
@@ -185,6 +182,17 @@ function requiredEnv(name: string): string {
     throw new Error(`${name} is required for sim-campaign runs. Use --dry-run for a manifest-only check.`);
   }
   return value;
+}
+
+function envAllowlist(target: CampaignTarget | null): Record<string, string> {
+  return {
+    NODE_ENV: process.env.NODE_ENV ?? '',
+    LOG_LEVEL: process.env.LOG_LEVEL ?? '',
+    CORGI_SIM_ALLOW: process.env.CORGI_SIM_ALLOW ?? '',
+    TOPIC_EMBEDDING_ENABLED: process.env.TOPIC_EMBEDDING_ENABLED ?? '',
+    DATABASE_URL_SHA256: target === null ? '' : sha256Text(target.databaseUrl),
+    REDIS_URL_SHA256: target === null ? '' : sha256Text(target.redisUrl),
+  };
 }
 
 function normalizePostgresUrl(url: string): string {
@@ -353,6 +361,19 @@ async function writeSummary(artifactsDir: string, summary: CampaignSummary): Pro
   return summaryPath;
 }
 
+function shouldRunFeedImpactPass(options: CliOptions, stageIds: readonly CampaignStageId[]): boolean {
+  const familyAllowsFeedImpact = options.onlyFamilyId === null || options.onlyFamilyId === 'baseline';
+  return familyAllowsFeedImpact && stageIds.includes('S2');
+}
+
+function s2StageForFeedImpact() {
+  const stage = SIMULATED_EPOCH_CAMPAIGN.find((candidate) => candidate.id === 'S2');
+  if (stage === undefined) {
+    throw new Error('S2 stage is required for the feed-impact baseline comparison but is not configured');
+  }
+  return stage;
+}
+
 function serializeCampaignError(error: unknown): string {
   if (error instanceof AggregateError) {
     return `${error.message}: ${error.errors.map((nested) => serializeCampaignError(nested)).join('; ')}`;
@@ -363,14 +384,200 @@ function serializeCampaignError(error: unknown): string {
   return String(error);
 }
 
+function combineCampaignAndArtifactError(campaignError: unknown | undefined, artifactError: unknown): unknown {
+  if (campaignError === undefined) {
+    return artifactError;
+  }
+  return new AggregateError(
+    [campaignError, artifactError],
+    'Simulation campaign failed and artifact/manifest writing also failed'
+  );
+}
+
+function mediaTypeForArtifactPath(artifactPath: string): string {
+  if (artifactPath.endsWith('.json')) {
+    return 'application/json';
+  }
+  if (artifactPath.endsWith('.csv')) {
+    return 'text/csv';
+  }
+  if (artifactPath.endsWith('.md')) {
+    return 'text/markdown';
+  }
+  if (artifactPath.endsWith('.sha256')) {
+    return 'text/plain';
+  }
+  return 'application/octet-stream';
+}
+
+function artifactPathsForCampaignSummary(
+  summaryPath: string,
+  analysisPaths: WrittenCampaignAnalysisPaths,
+  summary: CampaignSummary
+): string[] {
+  const artifactPaths = [
+    summaryPath,
+    analysisPaths.runCsvPath,
+    analysisPaths.aggregateCsvPath,
+    analysisPaths.paperNotesPath,
+    summary.feedImpact?.summaryCsvPath ?? null,
+    summary.feedImpact?.pairwiseCsvPath ?? null,
+    ...summary.runs.flatMap((run) => [
+      run.artifactJsonPath,
+      run.artifactCsvPath,
+      run.epochSeriesCsvPath,
+      run.auditLogJsonPath,
+    ]),
+  ];
+  const uniquePaths = new Set<string>();
+  for (const artifactPath of artifactPaths) {
+    if (artifactPath !== null) {
+      uniquePaths.add(artifactPath);
+    }
+  }
+  return [...uniquePaths].sort();
+}
+
+async function collectCampaignArtifacts(
+  artifactsDir: string,
+  summaryPath: string,
+  analysisPaths: WrittenCampaignAnalysisPaths,
+  summary: CampaignSummary
+): Promise<LabArtifactDescriptor[]> {
+  const descriptors: LabArtifactDescriptor[] = [];
+  for (const artifactPath of artifactPathsForCampaignSummary(summaryPath, analysisPaths, summary)) {
+    descriptors.push(
+      await collectArtifactDescriptor(
+        artifactsDir,
+        artifactPath,
+        mediaTypeForArtifactPath(artifactPath),
+        'scripts/sim-campaign.ts'
+      )
+    );
+  }
+  return descriptors;
+}
+
+function evidenceStatusForRuns(
+  summary: CampaignSummary,
+  predicate: (run: CampaignRunReceipt) => boolean
+): 'pass' | 'fail' | 'not-run' {
+  const matchingRuns = summary.runs.filter(predicate);
+  if (matchingRuns.length === 0) {
+    return 'not-run';
+  }
+  if (summary.status !== 'passed') {
+    return 'fail';
+  }
+  return matchingRuns.every((run) => run.scoreRowCount > 0 && run.topPostsFetched > 0) ? 'pass' : 'fail';
+}
+
+function evidenceStatusForRequiredValues(
+  summary: CampaignSummary,
+  predicate: (run: CampaignRunReceipt) => boolean,
+  valueForRun: (run: CampaignRunReceipt) => string,
+  requiredValues: readonly string[]
+): 'pass' | 'fail' | 'not-run' {
+  const matchingRuns = summary.runs.filter(predicate);
+  const coveredValues = new Set(matchingRuns.map(valueForRun));
+  const hasRequiredCoverage = requiredValues.every((requiredValue) => coveredValues.has(requiredValue));
+  if (!hasRequiredCoverage) {
+    return summary.status === 'failed' && matchingRuns.length > 0 ? 'fail' : 'not-run';
+  }
+  return evidenceStatusForRuns(summary, predicate);
+}
+
+function claimWithOptionalEvidence(
+  claim: string,
+  status: 'pass' | 'fail' | 'not-run',
+  evidencePath: string
+): LabClaim {
+  if (status === 'not-run') {
+    return { claim, status };
+  }
+  return { claim, status, evidencePaths: [evidencePath] };
+}
+
+function buildCampaignClaims(summary: CampaignSummary, summaryArtifactPath: string): LabClaim[] {
+  const baselineS0ToS3Status = evidenceStatusForRequiredValues(
+    summary,
+    (run) =>
+      run.familyId === 'baseline' &&
+      run.expectation === 'gate' &&
+      ['S0', 'S1', 'S2', 'S3'].includes(run.stageId),
+    (run) => run.stageId,
+    ['S0', 'S1', 'S2', 'S3']
+  );
+  const democraticSweepStatus = evidenceStatusForRequiredValues(
+    summary,
+    (run) =>
+      run.stageId === 'S2' &&
+      ['turnout', 'trim-threshold', 'persona-skew', 'polarization'].includes(run.familyId),
+    (run) => run.familyId,
+    ['turnout', 'trim-threshold', 'persona-skew', 'polarization']
+  );
+  const capacityStatus = evidenceStatusForRuns(
+    summary,
+    (run) => run.familyId === 'baseline' && run.expectation === 'capacity'
+  );
+  const feedImpactStatus =
+    summary.feedImpact === null ? 'not-run' : summary.status === 'passed' ? 'pass' : 'fail';
+
+  return [
+    {
+      claim: 'Simulation campaign generated the requested scenario runs without zero-score feed outputs',
+      status: summary.status === 'passed' ? 'pass' : 'fail',
+      evidencePaths: [summaryArtifactPath],
+    },
+    claimWithOptionalEvidence(
+      'Baseline S0-S3 gate runs completed as paper-core correctness evidence',
+      baselineS0ToS3Status,
+      summaryArtifactPath
+    ),
+    claimWithOptionalEvidence(
+      'Democratic-process S2 sweeps completed across turnout, trim-threshold, persona-skew, and polarization families',
+      democraticSweepStatus,
+      summaryArtifactPath
+    ),
+    claimWithOptionalEvidence(
+      'Capacity baseline stages completed as implementation-scale evidence only',
+      capacityStatus,
+      summaryArtifactPath
+    ),
+    claimWithOptionalEvidence(
+      'Feed-impact comparison produced default, engagement-only, and community-governed ranking churn metrics',
+      feedImpactStatus,
+      summaryArtifactPath
+    ),
+  ];
+}
+
+function buildCampaignThresholds(options: CliOptions): Record<string, unknown> {
+  return {
+    pipelineStepTimeoutMs: PIPELINE_STEP_TIMEOUT_MS,
+    minimumScoreRowsPerRun: 1,
+    feedImpactSeed: FEED_IMPACT_SEED,
+    feedImpactTopK: FEED_IMPACT_TOP_K,
+    feedImpactTailThreshold: FEED_IMPACT_TAIL_THRESHOLD,
+    onlyStageId: options.onlyStageId,
+    maxStageId: options.maxStageId,
+    onlyFamilyId: options.onlyFamilyId,
+    ephemeral: options.ephemeral,
+  };
+}
+
 async function runCampaign(options: CliOptions): Promise<void> {
   const stages = selectCampaignStages({
     onlyStageId: options.onlyStageId,
     maxStageId: options.maxStageId,
+    onlyFamilyId: options.onlyFamilyId,
   });
+  const campaignRuns = requireCampaignRunsForSelection(stages, { onlyFamilyId: options.onlyFamilyId });
 
   if (options.dryRun) {
-    await writeStdout(`${JSON.stringify(campaignManifest(stages, new Date().toISOString()), null, 2)}\n`);
+    await writeStdout(
+      `${JSON.stringify(campaignManifest(stages, new Date().toISOString(), { onlyFamilyId: options.onlyFamilyId }), null, 2)}\n`
+    );
     return;
   }
 
@@ -379,6 +586,7 @@ async function runCampaign(options: CliOptions): Promise<void> {
   let target: CampaignTarget | null = null;
   let dbClient: CampaignDb | null = null;
   let redisClient: CampaignRedis | null = null;
+  let feedImpact: CampaignFeedImpactReceipt | null = null;
   let primaryError: unknown;
 
   try {
@@ -395,50 +603,105 @@ async function runCampaign(options: CliOptions): Promise<void> {
     const harnessModule = await import('../src/harness/index.js');
     const { db } = dbModule;
     const { redis } = redisModule;
-    const { runScenario, createRng, SeededClock } = harnessModule;
+    const {
+      buildBaselineComparisonArtifactRows: buildRows,
+      createRng,
+      feedImpactReceipt: createFeedImpactReceipt,
+      runBaselineComparison,
+      runScenario,
+      SeededClock,
+      writeBaselineComparisonArtifacts: writeFeedImpactArtifacts,
+    } = harnessModule;
     const campaignClockMs = options.clockMs === null ? Date.now() : options.clockMs;
 
-    for (const stage of stages) {
-      for (const seed of stage.seeds) {
-        await resetCampaignData(db, redis);
-        const runStartedAtMs = Date.now();
-        const scenario = scenarioForCampaignRun(stage, seed);
-        const clockMs = campaignClockMs;
-        const result = await runScenario(scenario, {
-          deps: {
-            rng: createRng(seed),
-            clock: new SeededClock(clockMs),
-            db,
-            databaseUrl: target.databaseUrl,
-            redisUrl: target.redisUrl,
-            pipelineStepTimeoutMs: PIPELINE_STEP_TIMEOUT_MS,
-          },
-          artifactsDir: options.artifactsDir,
-        });
-        const scoreRowCount = await fetchScoreRowCount(db, result.metrics.scoring.epochId);
-        if (scoreRowCount < 1) {
-          throw new Error(
-            `campaign run produced zero score rows: stage=${stage.id} seed=${seed} epoch=${result.metrics.scoring.epochId} clockMs=${clockMs}`
-          );
-        }
-        const redisFeedCount = await fetchRedisFeedCount(redis);
-
-        runs.push({
-          stageId: stage.id,
-          label: stage.label,
-          seed,
-          subscriberCount: stage.subscriberCount,
-          postCount: stage.postCount,
-          expectation: stage.expectation,
-          durationMs: Date.now() - runStartedAtMs,
-          scoreRowCount,
-          redisFeedCount,
-          topPostsFetched: result.metrics.scoring.topPosts.length,
-          voteCount: result.metrics.population.voteCount,
-          artifactJsonPath: result.artifactPaths?.jsonPath ?? null,
-          artifactCsvPath: result.artifactPaths?.csvPath ?? null,
-        });
+    for (const run of campaignRuns) {
+      await resetCampaignData(db, redis);
+      const runStartedAtMs = Date.now();
+      const clockMs = campaignClockMs;
+      const scenarioArtifactsDir = path.join(
+        options.artifactsDir,
+        'runs',
+        run.stageId,
+        run.familyId,
+        run.variantId,
+        `seed-${run.seed}`
+      );
+      const result = await runScenario(run.scenario, {
+        deps: {
+          rng: createRng(run.seed),
+          clock: new SeededClock(clockMs),
+          db,
+          databaseUrl: target.databaseUrl,
+          redisUrl: target.redisUrl,
+          pipelineStepTimeoutMs: PIPELINE_STEP_TIMEOUT_MS,
+        },
+        artifactsDir: scenarioArtifactsDir,
+      });
+      const scoreRowCount = await fetchScoreRowCount(db, result.metrics.scoring.epochId);
+      if (scoreRowCount < 1) {
+        throw new Error(
+          `campaign run produced zero score rows: stage=${run.stageId} family=${run.familyId} variant=${run.variantId} seed=${run.seed} epoch=${result.metrics.scoring.epochId} clockMs=${clockMs}`
+        );
       }
+      const redisFeedCount = await fetchRedisFeedCount(redis);
+
+      runs.push({
+        stageId: run.stageId,
+        label: run.label,
+        familyId: run.familyId,
+        variantId: run.variantId,
+        scenarioId: run.id,
+        scenarioKind: result.metrics.scenarioKind,
+        scenarioVersion: result.metrics.scenarioVersion,
+        seed: run.seed,
+        subscriberCount: run.subscriberCount,
+        postCount: run.postCount,
+        expectation: run.expectation,
+        durationMs: Date.now() - runStartedAtMs,
+        scoreRowCount,
+        redisFeedCount,
+        topPostsFetched: result.metrics.scoring.topPosts.length,
+        voteCount: result.metrics.population.voteCount,
+        weightSum: result.metrics.aggregation.weightSum,
+        weights: {
+          recency: result.metrics.aggregation.weights.recency,
+          engagement: result.metrics.aggregation.weights.engagement,
+          bridging: result.metrics.aggregation.weights.bridging,
+          sourceDiversity: result.metrics.aggregation.weights.sourceDiversity,
+          relevance: result.metrics.aggregation.weights.relevance,
+        },
+        artifactJsonPath: result.artifactPaths?.jsonPath ?? null,
+        artifactCsvPath: result.artifactPaths?.csvPath ?? null,
+        epochSeriesCsvPath: result.epochSeriesPaths?.csvPath ?? null,
+        auditLogJsonPath: result.epochSeriesPaths?.auditLogPath ?? null,
+      });
+    }
+
+    if (shouldRunFeedImpactPass(options, stages.map((stage) => stage.id))) {
+      await resetCampaignData(db, redis);
+      const s2Stage = s2StageForFeedImpact();
+      const baselineScenario = scenarioForCampaignRun(s2Stage, FEED_IMPACT_SEED);
+      const baselineResult = await runBaselineComparison(
+        {
+          db,
+          rng: createRng(FEED_IMPACT_SEED),
+          clock: new SeededClock(campaignClockMs),
+        },
+        {
+          populationConfig: baselineScenario.population,
+          topK: FEED_IMPACT_TOP_K,
+          pipelineStepTimeoutMs: PIPELINE_STEP_TIMEOUT_MS,
+        }
+      );
+      const rows = buildRows(baselineResult, FEED_IMPACT_TAIL_THRESHOLD);
+      const paths = await writeFeedImpactArtifacts(options.artifactsDir, rows.summaryRows, rows.pairwiseRows);
+      feedImpact = createFeedImpactReceipt(
+        FEED_IMPACT_SEED,
+        FEED_IMPACT_TOP_K,
+        paths,
+        rows.summaryRows,
+        rows.pairwiseRows
+      );
     }
   } catch (err) {
     primaryError = err;
@@ -490,12 +753,53 @@ async function runCampaign(options: CliOptions): Promise<void> {
     durationMs: Date.now() - startedAtMs,
     status: finalError === undefined ? 'passed' : 'failed',
     error: finalError === undefined ? null : serializeCampaignError(finalError),
-    totalRuns: totalCampaignRuns(stages),
+    totalRuns: campaignRuns.length,
+    feedImpact,
     runs,
   };
 
-  const summaryPath = await writeSummary(options.artifactsDir, summary);
-  await writeStdout(`${JSON.stringify({ ...summary, summaryPath }, null, 2)}\n`);
+  try {
+    const artifactsDir = path.resolve(options.artifactsDir);
+    const summaryPath = await writeSummary(artifactsDir, summary);
+    const analysisPaths = await writeCampaignAnalysisArtifacts(artifactsDir, summary);
+    const artifacts = await collectCampaignArtifacts(artifactsDir, summaryPath, analysisPaths, summary);
+    const summaryDescriptor = artifacts.find((artifact) => artifact.path === 'campaign-summary.json');
+    if (summaryDescriptor === undefined) {
+      throw new Error(`Campaign summary descriptor was not collected for ${summaryPath}`);
+    }
+    const checksumsPath = await writeChecksums(artifactsDir, artifacts);
+    artifacts.push(
+      await collectArtifactDescriptor(artifactsDir, checksumsPath, 'text/plain', 'src/harness/lab-artifacts.ts')
+    );
+
+    const manifest: LabManifest = {
+      schemaVersion: '1.0.0',
+      issue: ISSUE_KEY,
+      branch: await collectGitBranch(process.cwd()),
+      git: await collectGitStateWithDefaultBase(process.cwd()),
+      command: {
+        argv: process.argv,
+        cwd: process.cwd(),
+        exitCode: finalError === undefined ? 0 : 1,
+        stdoutPath: null,
+        stderrPath: null,
+      },
+      envAllowlist: envAllowlist(target),
+      runtime: await collectRuntimeState(process.cwd()),
+      startedAt: summary.startedAt,
+      endedAt: new Date().toISOString(),
+      artifacts,
+      thresholds: buildCampaignThresholds(options),
+      claims: buildCampaignClaims(summary, summaryDescriptor.path),
+    };
+    const manifestPath = await writeLabManifest(artifactsDir, manifest);
+
+    await writeStdout(
+      `${JSON.stringify({ ...summary, summaryPath, analysisPaths, checksumsPath, manifestPath }, null, 2)}\n`
+    );
+  } catch (artifactError: unknown) {
+    throw combineCampaignAndArtifactError(finalError, artifactError);
+  }
 
   if (finalError !== undefined) {
     throw finalError;

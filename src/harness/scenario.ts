@@ -87,6 +87,14 @@ const baseFields = {
   population: PopulationConfigSchema.default({}),
 };
 
+export const PersonaDriftSchema = z
+  .object({
+    from: PersonaMixSchema,
+    to: PersonaMixSchema,
+  })
+  .strict();
+export type PersonaDrift = z.infer<typeof PersonaDriftSchema>;
+
 /**
  * ScenarioV1: the only version today. A discriminated union on `kind` so
  * new scenario shapes can be added later without breaking existing callers.
@@ -113,8 +121,14 @@ export const ScenarioV1Schema = z.discriminatedUnion('kind', [
        * rounds, and a long run is only cheap because `population` stays a
        * small, fixed-size synthetic corpus reused every round — see
        * `PopulationConfigSchema.subscriberCount`/`postCount`.
-       */
+      */
       rounds: z.number().int().min(1).max(1000),
+      /**
+       * Optional electorate drift for paper-grade multi-epoch runs. When set,
+       * the fixed corpus is still seeded once, but each round's regenerated
+       * votes linearly interpolate the persona mix from `from` to `to`.
+       */
+      personaDrift: PersonaDriftSchema.optional(),
       ...baseFields,
     })
     .strict(),

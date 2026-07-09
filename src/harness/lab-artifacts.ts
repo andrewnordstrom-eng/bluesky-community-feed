@@ -9,6 +9,7 @@ import { Ajv2020, type ErrorObject, type ValidateFunction } from 'ajv/dist/2020.
 const execFileAsync = promisify(execFile);
 const EXEC_TIMEOUT_MS = 30_000;
 const MANIFEST_SCHEMA_PATH = path.resolve(process.cwd(), 'artifacts/lab/manifest.schema.json');
+const DEFAULT_GIT_BASE_REFS = ['origin/HEAD', 'origin/main', 'HEAD'] as const;
 
 export interface LabArtifactDescriptor {
   path: string;
@@ -255,12 +256,11 @@ async function collectUntrackedFileHashInput(cwd: string): Promise<string> {
   return chunks.join('\0');
 }
 
-export async function collectGitState(cwd: string, baseRef: string): Promise<LabGitState> {
+async function collectGitStateForBase(cwd: string, base: string): Promise<LabGitState> {
   const head = await execText('git', ['rev-parse', 'HEAD'], cwd);
   const status = await execTextRaw('git', ['status', '--porcelain=v1'], cwd);
   const diff = await execTextRaw('git', ['--no-pager', 'diff', 'HEAD', '--binary'], cwd);
   const untrackedHashInput = await collectUntrackedFileHashInput(cwd);
-  const base = await execText('git', ['merge-base', 'HEAD', '--', baseRef], cwd);
 
   return {
     head,
@@ -270,6 +270,36 @@ export async function collectGitState(cwd: string, baseRef: string): Promise<Lab
       .filter((line) => line.length > 0),
     diffSha256: sha256Text(`${diff}\0${untrackedHashInput}`),
   };
+}
+
+async function resolveGitBase(cwd: string, baseRef: string): Promise<string> {
+  return await execText('git', ['merge-base', 'HEAD', '--', baseRef], cwd);
+}
+
+export async function collectGitState(cwd: string, baseRef: string): Promise<LabGitState> {
+  const base = await resolveGitBase(cwd, baseRef);
+  return await collectGitStateForBase(cwd, base);
+}
+
+export async function collectGitStateWithDefaultBase(cwd: string): Promise<LabGitState> {
+  const errors: Error[] = [];
+  for (const baseRef of DEFAULT_GIT_BASE_REFS) {
+    try {
+      const base = await resolveGitBase(cwd, baseRef);
+      return await collectGitStateForBase(cwd, base);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        errors.push(new Error(`failed with base ref ${baseRef}: ${error.message}`, { cause: error }));
+      } else {
+        errors.push(new Error(`failed with base ref ${baseRef}: non-Error thrown`));
+      }
+    }
+  }
+
+  throw new AggregateError(
+    errors,
+    `failed to collect git state in ${cwd} using base refs ${DEFAULT_GIT_BASE_REFS.join(', ')}`
+  );
 }
 
 export async function collectGitBranch(cwd: string): Promise<string> {
