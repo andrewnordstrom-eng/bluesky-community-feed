@@ -413,28 +413,50 @@ async function dropOldPartitions(
 async function cascadeDeletePostEngagement(postsPartitionName: string): Promise<number> {
   assertSafeIdentifier(postsPartitionName);
   let totalDeleted = 0;
+  // Keyset cursor over the posts partition's `uri` (its PK's leading column).
+  // No real URI is <= '' so this starts before the first row.
+  let afterUri = '';
 
-  // Batch over post_engagement itself (the table being modified), not over the
-  // static posts partition — selecting `SELECT uri FROM <partition> LIMIT n`
-  // returns the SAME n rows every iteration (nothing is removed from the
-  // partition), so once those n engagement rows are gone the count drops below
-  // BATCH_SIZE and the loop exits, orphaning every post beyond the first n.
-  // Keying the LIMIT off post_engagement.ctid makes each batch delete a fresh
-  // set and self-advance (same pattern purgeDefaultPartition's posts branch uses).
+  // Drive the cascade from the small side: keyset-paginate the (static,
+  // about-to-be-dropped) posts partition by `uri`, then delete the matching
+  // post_engagement rows by primary key (`post_uri = ANY(batch)`). Both halves
+  // are index scans (partition PK for the keyset, post_engagement PK for the
+  // delete), so a batch is ~BATCH_SIZE index probes — never a scan of the
+  // multi-GB post_engagement heap.
+  //
+  // The previous form (`DELETE ... WHERE ctid IN (SELECT ctid FROM
+  // post_engagement WHERE post_uri IN (SELECT uri FROM <partition>) LIMIT n)`)
+  // batched over post_engagement to self-advance, but that plan hash-joined a
+  // full Parallel Seq Scan of all of post_engagement on EVERY batch. At firehose
+  // volume that ran past the statement timeout under write contention and
+  // cascaded zero rows — so the posts partition never dropped, retried every
+  // maintenance cycle, and the repeated full scans starved the incremental
+  // scoring fetch (which joins the same table), freezing the feed (observed
+  // 2026-07-09: engagementRowsCascaded:0, drop-old 57014, feed degraded).
+  //
+  // Keyset on `uri` self-advances without the partition shrinking (the concern
+  // the old ctid form worked around), so the loop terminates on the count of
+  // partition rows read — NOT the delete count, since a batch of posts may match
+  // few or zero engagement rows and must not short-circuit the sweep.
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    const result = await db.query(
-      `DELETE FROM post_engagement
-       WHERE ctid IN (
-         SELECT pe.ctid FROM post_engagement pe
-         WHERE pe.post_uri IN (SELECT uri FROM ${quoteIdent(postsPartitionName)})
-         LIMIT $1
-       )`,
-      [BATCH_SIZE]
+    const batch = await db.query<{ uri: string }>(
+      `SELECT uri FROM ${quoteIdent(postsPartitionName)}
+       WHERE uri > $1 ORDER BY uri LIMIT $2`,
+      [afterUri, BATCH_SIZE]
     );
-    const deleted = result.rowCount ?? 0;
-    totalDeleted += deleted;
-    if (deleted < BATCH_SIZE) break;
+    if (batch.rows.length === 0) break;
+
+    const uris = batch.rows.map((row) => row.uri);
+    afterUri = uris[uris.length - 1];
+
+    const result = await db.query(
+      `DELETE FROM post_engagement WHERE post_uri = ANY($1::text[])`,
+      [uris]
+    );
+    totalDeleted += result.rowCount ?? 0;
+
+    if (batch.rows.length < BATCH_SIZE) break;
   }
 
   return totalDeleted;
