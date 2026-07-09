@@ -191,7 +191,7 @@ Final code-head high-signal findings:
 - The adversarial sweep remains bounded only for this configured synthetic scenario, not generally strategyproof: S2 10 percent engagement-attacker left bridging at 0.694667, while 40 percent shifted engagement to 0.289333 and bridging to 0.457.
 - S4/S5 passed as local capacity receipts. The lower wall time observed here is a rerun observation only, not a controlled performance benchmark.
 
-This lab-doc update is docs-only relative to the clean harness-code evidence head above. After the CodeRabbit test-only followup, an additional PR-head S0 baseline smoke was captured from `7bdc900f957871ed043329f6d251883fcac66991`.
+This lab-doc update is docs-only relative to the clean harness-code evidence head above. After the CodeRabbit test-only follow-up, an additional PR-head S0 baseline smoke was captured from `7bdc900f957871ed043329f6d251883fcac66991`.
 
 Final PR-head smoke receipt:
 
