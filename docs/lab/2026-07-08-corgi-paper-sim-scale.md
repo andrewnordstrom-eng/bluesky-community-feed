@@ -191,7 +191,16 @@ Final code-head high-signal findings:
 - The adversarial sweep remains bounded only for this configured synthetic scenario, not generally strategyproof: S2 10 percent engagement-attacker left bridging at 0.694667, while 40 percent shifted engagement to 0.289333 and bridging to 0.457.
 - S4/S5 passed as local capacity receipts. The lower wall time observed here is a rerun observation only, not a controlled performance benchmark.
 
-This lab-doc update is docs-only relative to the clean harness-code evidence head above. After committing the lab receipt, run one additional S0 baseline smoke from the final PR head and record that final PR-head smoke in the PR/Linear closeout receipt.
+This lab-doc update is docs-only relative to the clean harness-code evidence head above. After the CodeRabbit test-only followup, an additional PR-head S0 baseline smoke was captured from `7bdc900f957871ed043329f6d251883fcac66991`.
+
+Final PR-head smoke receipt:
+
+- Command: `npm run sim:campaign -- --ephemeral --stage S0 --family baseline --artifacts-dir artifacts/lab/PROJ-1551/2026-07-09-final-code-head-confirmation/final-pr-head-post-coderabbit-s0-smoke`.
+- Result: passed, 1/1 run, 3037 ms total.
+- Run shape: S0 baseline, seed 42, 30 subscribers, 50 posts, 24 votes, 13 score rows, Redis feed count 12.
+- Manifest: `artifacts/lab/PROJ-1551/2026-07-09-final-code-head-confirmation/final-pr-head-post-coderabbit-s0-smoke/manifest.json`.
+- Manifest git state: `git.head` `7bdc900f957871ed043329f6d251883fcac66991`, `git.base` `07f945d5c99b6dcaf83a452562cb27bd34cd9ee2`, `dirtyFiles: []`, `diffSha256` `6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d`.
+- Checksum verification: `shasum -a 256 -c checksums.sha256` passed in the final PR-head smoke root.
 
 ## Superseded Final-Head Confirmation
 
