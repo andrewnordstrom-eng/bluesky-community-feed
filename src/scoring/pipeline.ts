@@ -468,7 +468,24 @@ async function getPostsForIncrementalScoring(
 
   const params: unknown[] = [cutoff.toISOString(), epochId, SCORING_CANDIDATE_LIMIT, ...sharedParams];
 
-  const sql = `(
+  // The engagement-changed half (second UNION arm) re-scores posts whose
+  // engagement moved since they were last scored (pe.updated_at > ps.scored_at).
+  // Any in-window post has scored_at >= created_at > $1, so that predicate
+  // already implies pe.updated_at > $1 — this MATERIALIZED CTE therefore drops
+  // ZERO result rows (verified on prod: symdiff=0 vs the un-CTE'd form). Its sole
+  // purpose is to pin the plan: without it the planner nested-loops a
+  // post_engagement primary-key probe for every scored in-window post (~575k
+  // probes, ~21s at current volume); MATERIALIZED forces a single hash join over
+  // the in-window engagement set instead (~2x faster, ~11s), which keeps the
+  // fetch well clear of the 60s statement_timeout under background contention.
+  // Half 1 keeps its own LEFT JOIN post_engagement — it must include posts with
+  // no engagement row at all, which this filtered set would exclude.
+  const sql = `WITH changed_engagement AS MATERIALIZED (
+      SELECT post_uri, updated_at, like_count, repost_count, reply_count
+      FROM post_engagement
+      WHERE updated_at > $1
+    )
+    (
       SELECT p.uri, p.cid, p.author_did, p.text, p.reply_root, p.reply_parent,
              p.langs, p.has_media, p.created_at, p.topic_vector,
              p.classification_method,
@@ -503,7 +520,9 @@ async function getPostsForIncrementalScoring(
              COALESCE(pe.repost_count, 0) as repost_count,
              COALESCE(pe.reply_count, 0) as reply_count
       FROM posts p
-      INNER JOIN post_engagement pe ON p.uri = pe.post_uri
+      -- pe is the MATERIALIZED changed_engagement CTE (top of query): the
+      -- in-window engagement set, hash-joined here instead of PK-probed per row.
+      INNER JOIN changed_engagement pe ON p.uri = pe.post_uri
       -- Same two partition-pruning predicates as the first half. This
       -- engagement-changed half plans as a hash join, so the explicit
       -- ps.created_at > $1 (not just the equality) is what prunes post_scores.
@@ -518,12 +537,13 @@ async function getPostsForIncrementalScoring(
     )`;
 
   // This UNION scans the whole 72h firehose window (hundreds of thousands of
-  // posts/scores) and legitimately runs ~20-30s at current volume. That is
-  // within the pool's statement_timeout (DB_STATEMENT_TIMEOUT, 60s) — sized for
-  // exactly this query, the heaviest in the system — and well under the
-  // pipeline-level SCORING_TIMEOUT_MS. The explicit ps.created_at > $1 on each
-  // half (see the SQL above) is what keeps it in that range: it prunes
-  // post_scores to the 72h daily partitions instead of scanning all ~36.
+  // posts/scores) and runs ~15-25s at current volume — within the pool's
+  // statement_timeout (DB_STATEMENT_TIMEOUT, 60s) with comfortable headroom.
+  // Two things keep it there: (a) the explicit ps.created_at > $1 on each half
+  // prunes post_scores to the 72h daily partitions instead of scanning all ~36;
+  // (b) the changed_engagement MATERIALIZED CTE forces the engagement-changed
+  // half into a hash join rather than ~575k per-row PK probes (see the CTE
+  // comment above). This is still the heaviest query in the system.
   const result = await db.query(sql, params);
   return result.rows.map(toPostForScoring);
 }
