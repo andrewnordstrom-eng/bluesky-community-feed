@@ -1,4 +1,12 @@
-# Community-Governed Bluesky Feed
+<p align="center">
+  <img src="docs/assets/corgi-logo-square.png" alt="Corgi logo" width="160">
+</p>
+
+<h1 align="center">Corgi</h1>
+
+<p align="center">
+  A community-governed Bluesky feed where subscribers vote on the ranking algorithm.
+</p>
 
 [![Deploy](https://github.com/andrewnordstrom-eng/bluesky-community-feed/actions/workflows/deploy.yml/badge.svg)](https://github.com/andrewnordstrom-eng/bluesky-community-feed/actions/workflows/deploy.yml)
 [![Deploy Docs](https://github.com/andrewnordstrom-eng/bluesky-community-feed/actions/workflows/deploy-docs.yml/badge.svg)](https://github.com/andrewnordstrom-eng/bluesky-community-feed/actions/workflows/deploy-docs.yml)
@@ -8,7 +16,7 @@
 [![Node >= 20](https://img.shields.io/badge/Node-%3E%3D20-339933)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-6-3178C6)](https://www.typescriptlang.org/)
 
-A production Bluesky custom feed where subscribers democratically vote on ranking weights and content rules. The backend applies those decisions in a transparent, auditable scoring pipeline. Every ranking decision is decomposed, stored, and explainable.
+Corgi is a production Bluesky custom feed where subscribers democratically vote on ranking weights and content rules. The backend applies those decisions in a transparent, auditable scoring pipeline. Every ranking decision is decomposed, stored, and explainable.
 
 > **Research question:** Can communities meaningfully govern their own recommendation algorithms?
 
@@ -22,7 +30,7 @@ A production Bluesky custom feed where subscribers democratically vote on rankin
 
 **No coding required** — just a Bluesky account.
 
-1. **Add the feed** — Search "Community Governed" in Bluesky's Feeds tab, or open:
+1. **Add Corgi's feed** — Search "Community Governed" in Bluesky's Feeds tab, or open:
    [View feed on Bluesky](https://bsky.app/profile/corgi-network.bsky.social/feed/community-gov)
 
 2. **Vote on the algorithm** — Sign in with your Bluesky handle + [app password](https://bsky.app/settings/app-passwords):
