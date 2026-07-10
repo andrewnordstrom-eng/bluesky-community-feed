@@ -1,5 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import { config } from '../../config.js';
+import { getFeedCommunities, publicFeedUris, type FeedCommunity } from '../community-registry.js';
+
+export interface RegisterDescribeGeneratorOptions {
+  communities: readonly FeedCommunity[];
+}
 
 /**
  * Register the describeFeedGenerator endpoint.
@@ -7,7 +12,9 @@ import { config } from '../../config.js';
  *
  * Spec: §9.4 - GET /xrpc/app.bsky.feed.describeFeedGenerator
  */
-export function registerDescribeGenerator(app: FastifyInstance): void {
+export function registerDescribeGenerator(app: FastifyInstance, options?: RegisterDescribeGeneratorOptions): void {
+  const communities = options?.communities ?? getFeedCommunities();
+
   app.get('/xrpc/app.bsky.feed.describeFeedGenerator', {
     schema: {
       tags: ['Feed'],
@@ -37,11 +44,7 @@ export function registerDescribeGenerator(app: FastifyInstance): void {
   }, async (_request, reply) => {
     return reply.send({
       did: config.FEEDGEN_SERVICE_DID,
-      feeds: [
-        {
-          uri: `at://${config.FEEDGEN_PUBLISHER_DID}/app.bsky.feed.generator/community-gov`,
-        },
-      ],
+      feeds: publicFeedUris(communities, config.FEEDGEN_PUBLISHER_DID).map((uri) => ({ uri })),
     });
   });
 }

@@ -38,8 +38,13 @@ export const CONFIDENCE_THRESHOLD = 0.5;
  * @returns Score between 0.0 and 1.0 (higher = more relevant to community preferences)
  */
 export function scoreRelevance(post: PostForScoring, context: ScoringContext): number {
-  const topicVector = post.topicVector;
-  const topicWeights = context.epoch.topicWeights;
+  return scoreTopicVectorRelevance(post.topicVector, context.epoch.topicWeights);
+}
+
+export function scoreTopicVectorRelevance(
+  topicVector: Record<string, number> | undefined,
+  topicWeights: Record<string, number> | undefined
+): number {
 
   // No topic data on post = neutral
   if (!topicVector || Object.keys(topicVector).length === 0) {

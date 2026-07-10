@@ -10,6 +10,7 @@ import { config } from '../config.js';
 import { GOVERNANCE_WEIGHT_VOTE_FIELDS, VOTABLE_WEIGHT_PARAMS } from '../config/votable-params.js';
 import { logger } from '../lib/logger.js';
 import { GovernanceWeights, normalizeWeights, ContentRules, emptyContentRules } from './governance.types.js';
+import { aggregateRowsWithTrimmedMean } from './aggregation-math.js';
 
 /**
  * Weight component names for iteration.
@@ -91,34 +92,20 @@ export async function aggregateVotes(epochId: number): Promise<GovernanceWeights
 
   logger.info({ epochId, voteCount: n }, 'Aggregating votes');
 
-  // Calculate trim count (10% from each end)
-  const trimPct = 0.1;
-  const trimCount = Math.floor(n * trimPct);
-
-  // For small vote counts, don't trim (need at least 10 votes to trim 1 from each end)
-  const effectiveTrimCount = n >= 10 ? trimCount : 0;
-
-  const aggregated = Object.fromEntries(
-    WEIGHT_COMPONENTS.map((component) => [component, 0] as const)
-  ) as Record<WeightComponent, number>;
+  const aggregation = aggregateRowsWithTrimmedMean({
+    rows: votes.rows as Array<Record<string, number>>,
+    components: WEIGHT_COMPONENTS,
+  });
+  const aggregated = aggregation.values as Record<WeightComponent, number>;
 
   for (const component of WEIGHT_COMPONENTS) {
-    const values = votes.rows
-      .map((v: Record<string, number>) => v[component])
-      .sort((a: number, b: number) => a - b);
-
-    // Trim extremes
-    const trimmed =
-      effectiveTrimCount > 0
-        ? values.slice(effectiveTrimCount, n - effectiveTrimCount)
-        : values;
-
-    // Calculate mean
-    const mean = trimmed.reduce((sum: number, v: number) => sum + v, 0) / trimmed.length;
-    aggregated[component] = mean;
-
     logger.debug(
-      { component, original: values.length, trimmed: trimmed.length, mean },
+      {
+        component,
+        original: n,
+        trimmed: n - aggregation.trimCount * 2,
+        mean: aggregated[component],
+      },
       'Component aggregation'
     );
   }

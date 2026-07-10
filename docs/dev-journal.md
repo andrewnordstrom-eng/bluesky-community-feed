@@ -1401,3 +1401,103 @@ PROJ-1433 requires every metric used in the paper or site to have a receipt and 
 - Removed hard Sybil-resistance wording from refreshed paper/site claims. Current safe wording is simulation/mechanism evidence only, and the metrics packet preserves the PROJ-1551 warning that synthetic voter populations do not prove real electorate behavior, Sybil resistance, personhood, or abuse resistance.
 - Kept the `web-next` type fixes scoped to validation blockers discovered during PROJ-1433; no visual behavior was intentionally changed in those two helper components.
 - Redacted the example production post's raw handle, post text, DID, and source URI from the public metrics packet and UI fixtures; public site and paper copy now use anonymized receipt labels while preserving the numeric proof.
+
+## 2026-07-09 #02 — PROJ-1431 shadow reviewer demo backend contract
+
+**Branch:** `dev/PROJ-1431-recsys-reviewer-demo-path-tells-the-corgi-loop-end-to-end`
+**Commits:** pending Andrew approval.
+**Files changed:** `src/demo/**`, `src/feed/server.ts`, `src/governance/aggregation.ts`, `src/governance/aggregation-math.ts`, `tests/demo-shadow-*.test.ts`, `tests/web-next-shadow-demo-contract.test.ts`, `tests/rate-limit-config.test.ts`, `web-next/app/demo/shadow-demo-contract.ts`, `docs/lab/demo-shadow-governance-contract.md`, `docs/RECSYS_VALIDATION_EVIDENCE.md`.
+
+### What changed
+
+Added the reviewer-safe shadow demo backend contract for PROJ-1431. Public `/api/demo/*` routes create anonymous demo sessions, freeze a production-sourced Open Science Builders corpus per session, accept a reviewer-only vote, run 24 deterministic synthetic community voters, advance shadow epochs, return reranked feed rows, and generate inspectable receipt math from stored production score decompositions.
+
+The default demo electorate is now one reviewer plus 24 deterministic synthetic voters grouped into Research Practitioners, Data Stewards, Current-Awareness Readers, Community Discussants, and Interdisciplinary Connectors. With 25 total votes, the same trimmed-mean helper used by production actually trims extremes instead of quietly behaving like a small-electorate mean. Each voter combines a stable bloc preference, prior-policy inertia, bounded response to the reviewer, and deterministic epoch variation. LLM agents are explicitly out of scope for v2 so every simulated vote is seeded, inspectable, replayable, and cost-bounded.
+
+Corrected the epoch transition semantics before UI integration: the open epoch now retains its baseline policy, ballots produce a pending aggregate, and the pending aggregate becomes the next epoch's policy. This makes displayed rank movement a causal comparison between two policies instead of recomputing both sides from one aggregate. Topic-intent ballots use the existing production topic slugs and the extracted production relevance formula, so topic controls alter ranking and receipt math rather than serving as decorative UI.
+
+### Isolation
+
+The demo remains Redis-only under `demo:*` namespaces and does not mutate `governance_votes`, `governance_epochs`, `governance_audit_log`, production feed cache keys, production snapshots, or research exports. It does not call production epoch transition, vote-writing, scoring-pipeline, feed-cache writer, audit writer, or export writer paths. Reviewer clicks reweight stored raw components; they do not run the production scorer.
+
+The corpus provenance line for UI use is: "Live-scored snapshot, frozen for this demo run so rank movement is attributable to policy changes." A refresh-live-snapshot action creates a new session boundary and never changes an existing session's frozen comparison set.
+
+### Measurements
+
+- Focused shadow-demo slices passed with dummy non-production env, including the final store/route/public-view hardening slice at 3 files / 26 tests.
+- Root TypeScript build passed with dummy non-production env: `npm run build`.
+- Full deploy-parity `npm run verify` passed with a temporary `.env.example` copy and local loopback/IPC permission: root build, default suite 118 files / 1,065 Vitest tests, CLI build, MCP-local skip, SDK build, SDK fixture, legacy `web` lint/build, and `web-next` static build.
+- Claude's integrated `web-next` demo worktree passed lint, TypeScript, 6 demo test files / 26 tests, and the production static build. A same-origin browser run served that static export from the HTTP-only compiled backend and completed session creation, reviewer vote, 24-voter aggregation, epoch 2 reranking/receipt, a different epoch 3 proposal, and a second reranking/receipt. The pending policy changed from approximately 23/17/18/19/23 to 18/28/15/14/25 across recency/engagement/bridging/source-diversity/relevance, confirming history-aware multi-epoch behavior. Viewports 1440x1100, 756x762, and 390x844 had no horizontal overflow and the final run reported no browser console errors.
+- A post-hardening HTTP-only smoke against local Redis completed two full epochs under contract `2026-07-10.shadow-demo.v2`: 25 ballots and trim count 2 in each round, epoch-2 receipt score 0.689742, epoch-3 receipt score 0.675619, and matching visible/receipt rank 1. With the intentionally non-production `.env.example` database, corpus status was correctly `degraded`; session creation took 13.93 ms, vote/voter/advance writes stayed below 2.60 ms, and feed/receipt reads stayed below 1.00 ms in this local run.
+- The assembled run exposed and fixed a Fastify route collision between the public Next `/docs/` page and admin Swagger UI. Product docs remain `/docs`; the production-gated API explorer moved to `/api/docs`.
+- Multiple CodeRabbit local review passes completed. All verified HIGH/MEDIUM findings were fixed; the final scoped backend pass reported only two intentionally skipped trivial performance/generalization suggestions, and the final frontend finding was fixed with a two-epoch mock-adapter regression test. No commit has been made pending Andrew approval.
+
+### Decisions & alternatives
+
+- Kept the compatibility route path `POST /api/demo/sessions/:sessionId/agents/run`, but documented and typed it as deterministic synthetic community voters rather than LLM agents.
+- Made `open_science_builders` the only live shadow community in v2 after a read-only 72-hour production query found 84,831 active-epoch scored candidates from 46,652 authors, including 2,274 posts spanning at least two target topics. Birders remains a preview/future secondary feed.
+- Chose a session-frozen corpus over continuous churn so rank movement in the demo is attributable to policy changes, not shifting live post supply.
+- Did not claim mature live Birders feed supply; the contract records scout thresholds that still need production evidence before that claim is safe.
+
+## 2026-07-09 #03 — PROJ-1431 Birders feed readiness scout
+
+**Branch:** `dev/PROJ-1431-recsys-reviewer-demo-path-tells-the-corgi-loop-end-to-end`
+**Commits:** pending Andrew approval.
+**Files changed:** `src/feed/community-registry.ts`, `src/feed/community-materializer.ts`, `src/feed/birders-scout-command.ts`, `scripts/birders-feed-scout.ts`, `src/feed/routes/describe-generator.ts`, `src/feed/routes/feed-skeleton.ts`, `src/feed/snapshot-cache.ts`, `tests/feed-community-registry.test.ts`, `tests/birders-feed-materializer.test.ts`, `tests/birders-scout-command.test.ts`, `tests/feed-skeleton-validation.test.ts`, `package.json`, `docs/lab/birders-feed-readiness.md`, `docs/RECSYS_VALIDATION_EVIDENCE.md`, `docs/dev-journal.md`.
+
+### What changed
+
+Added a disabled/private Birders Who Code feed-readiness substrate without publishing a new Bluesky feed. The code-first registry now contains `community-gov` as the enabled public production feed and `birders_who_code` as a disabled private future feed with its own rkey, terms, seed weights, and namespaced Redis keys.
+
+Added a Birders scout/materializer that reads recent non-deleted production posts, joins active-epoch score decompositions, filters with Birders plus code/data bridge terms, reweights stored raw components with the Birders seed policy, and can write only `feed:community:birders_who_code:*` keys when explicitly run in materialize mode. The default `npm run feed:birders-scout` path is read-only.
+
+The feed skeleton now dispatches by registered feed rkey while preserving current `community-gov` behavior. Disabled Birders requests are rejected clearly, and `describeFeedGenerator` advertises only enabled public feeds.
+
+### Why
+
+This lets us prove supply and infrastructure readiness for a real Birders feed before creating a public Bluesky feed record or adding true multi-community governance. It also lays the lower-risk substrate for a future no-code feed builder: registry entry, terms, seed policy, namespaced feed keys, materialization, and health metadata.
+
+### Production read-only measurements
+
+Production host: `corgi-vps`.
+Checkout path: `/opt/bluesky-feed`.
+Query mode: read-only transaction with `ROLLBACK`.
+Window: 72 hours.
+Active production epoch: 2.
+
+Broad Birders OR bridge scout, sampled 2026-07-10T00:33:28.29665+00:00:
+
+- 22,449 candidate posts, 7,483.00/day.
+- 12,935 unique authors, 4,311.67/day.
+- 75.18% bridge-post share.
+- 3.44% top-author concentration.
+- 1,649 strong bridge/high-relevance posts, 549.67/day.
+- Status by broad readiness thresholds: ready.
+
+Stricter split scout, sampled 2026-07-10T00:35:48.833196+00:00:
+
+- `broad_or`: 22,440 posts, 7,480.00/day, 12,931 authors, 4,310.33 authors/day, 570.00 relevance>=0.65 posts/day, 4.67 strict strong/day.
+- `bird_only`: 5,732 posts, 1,910.67/day, 4,153 authors, 1,384.33 authors/day, 25.00 relevance>=0.65 posts/day, 4.67 strict strong/day.
+- `bridge_only`: 16,870 posts, 5,623.33/day, 9,377 authors, 3,125.67 authors/day, 549.67 relevance>=0.65 posts/day, 4.67 strict strong/day.
+- `bird_and_bridge`: 162 posts, 54.00/day, 136 authors, 45.33 authors/day, 4.67 relevance>=0.65 posts/day, 4.67 strict strong/day.
+
+### Measurements
+
+- Focused Birders/feed slice passed with dummy non-production env: `./node_modules/.bin/vitest run tests/feed-community-registry.test.ts tests/birders-feed-materializer.test.ts tests/birders-scout-command.test.ts tests/feed-skeleton-validation.test.ts tests/feed-snapshot-cache.test.ts`, 5 files / 50 tests.
+- Root TypeScript build passed with dummy non-production env: `npm run build`.
+- `npm run feed:birders-scout -- --help` exited cleanly after keeping the registry pure and lazy-loading DB/Redis modules after argument parsing.
+- Full `npm run verify` passed with dummy non-production env and local loopback/IPC permission: root build, default suite 117 files / 1,045 Vitest tests, CLI build, MCP-local skip, SDK build, SDK fixture, legacy `web` lint/build, and `web-next` static build.
+
+### Decisions & alternatives
+
+- Kept Birders disabled and private. No Bluesky feed record was published.
+- Kept governance out of this pass: no per-community votes, epochs, audit logs, migrations, or feed-builder UI.
+- Kept materialization namespaced and rejected `community-gov` in the Birders materializer so the readiness command cannot overwrite `feed:current`.
+- Optimized the scout SQL after the first broad production query timed out. The revised shape filters matching recent posts before joining active-epoch scores and preserves an active-epoch metrics row even when candidate supply is zero.
+- Treated broad OR supply as useful capacity evidence but not as proof of Birders specificity. The stricter split shows birding supply is healthy, while true bird+code strong supply needs term/scoring tuning and qualitative precision review before publication.
+
+### Open questions
+
+- Run the disabled materializer against production Redis only after an explicit operator window, then hydrate a sample through Bluesky AppView for human precision/safety review.
+- Decide whether `bird_and_bridge` should be a hard feed filter or a boosting feature; current evidence suggests hard filtering may be too narrow for a lively public feed.
+- True governed multi-community feeds still require per-community feed dispatch, Redis namespaces, epochs, weights, votes, receipts, and migration planning beyond this static-policy readiness substrate.

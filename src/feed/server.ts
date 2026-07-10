@@ -16,6 +16,7 @@ import { registerFeedSkeleton } from './routes/feed-skeleton.js';
 import { registerSendInteractions } from './routes/send-interactions.js';
 import { registerGovernanceRoutes } from '../governance/server.js';
 import { registerTransparencyRoutes } from '../transparency/server.js';
+import { registerShadowDemoRoutes } from '../demo/routes.js';
 import { registerDebugRoutes } from './routes/debug.js';
 import { registerAdminRoutes } from '../admin/routes/index.js';
 import { registerLegalRoutes } from '../legal/server.js';
@@ -26,6 +27,8 @@ import { AppError, isAppError } from '../lib/errors.js';
 import { redis } from '../db/redis.js';
 import { getAuthenticatedDid } from '../governance/auth.js';
 import { requireAdmin } from '../auth/admin.js';
+import type { ShadowDemoService } from '../demo/service.js';
+import { buildRouteRateLimitConfig } from './rate-limit-config.js';
 
 // Extend FastifyRequest to include correlationId
 declare module 'fastify' {
@@ -38,7 +41,11 @@ declare module 'fastify' {
  * Create and configure the Fastify server instance.
  * Registers all feed-related routes.
  */
-export async function createServer() {
+export interface CreateServerOptions {
+  shadowDemoService?: ShadowDemoService | null;
+}
+
+export async function createServer(options?: CreateServerOptions) {
   const app = Fastify({
     logger: false, // We use our own pino logger
     trustProxy: parseTrustProxyConfig(config.TRUST_PROXY),
@@ -116,6 +123,7 @@ export async function createServer() {
         { name: 'Auth', description: 'Bluesky authentication for governance actions' },
         { name: 'Topics', description: 'Topic catalog and topic weight voting' },
         { name: 'Transparency', description: 'Score explanations, feed stats, and audit logs' },
+        { name: 'Demo', description: 'Public shadow demo sessions and read-only reviewer walkthroughs' },
         { name: 'Admin', description: 'Admin-only endpoints (requires BOT_ADMIN_DIDS)' },
         { name: 'Export', description: 'Research data export (anonymized, admin-only)' },
         { name: 'Health', description: 'Server health checks and liveness probes' },
@@ -141,7 +149,10 @@ export async function createServer() {
   });
 
   await app.register(swaggerUi, {
-    routePrefix: '/docs',
+    // `/docs` belongs to the public Next product documentation. Keep the
+    // admin-gated API explorer under the API namespace so a static export can
+    // register its own `/docs/` route without Fastify startup collisions.
+    routePrefix: '/api/docs',
     uiConfig: {
       docExpansion: 'list',
       deepLinking: true,
@@ -229,6 +240,9 @@ export async function createServer() {
 
   // Register transparency routes
   registerTransparencyRoutes(app);
+
+  // Register public shadow demo routes
+  registerShadowDemoRoutes(app, options?.shadowDemoService ?? null);
 
   // Register debug routes
   registerDebugRoutes(app);
@@ -513,104 +527,6 @@ export async function createServer() {
   }
 
   return app;
-}
-
-interface RouteRateLimitConfig {
-  max: number;
-  timeWindow: number;
-  keyGenerator?: (request: FastifyRequest) => string | Promise<string>;
-}
-
-function normalizeRouteMethods(method: string | string[]): string[] {
-  if (Array.isArray(method)) {
-    return method.map((value) => value.toUpperCase());
-  }
-  return [method.toUpperCase()];
-}
-
-export function buildRouteRateLimitConfig(
-  url: string,
-  method: string | string[],
-  governanceMutationKeyGenerator: (request: FastifyRequest) => string | Promise<string>
-): RouteRateLimitConfig | null {
-  const methods = normalizeRouteMethods(method);
-  const isReadOnly = methods.every((value) => value === 'GET' || value === 'HEAD' || value === 'OPTIONS');
-
-  // Tight rate limit on sendInteractions due to cold-cache DID resolution cost
-  if (url === '/xrpc/app.bsky.feed.sendInteractions') {
-    return {
-      max: config.RATE_LIMIT_INTERACTIONS_MAX,
-      timeWindow: config.RATE_LIMIT_INTERACTIONS_WINDOW_MS,
-    };
-  }
-
-  // MCP transport is admin-only and can invoke expensive backend actions.
-  // Use critical admin limits instead of relying on the looser global cap.
-  if (url === '/mcp') {
-    return {
-      max: config.RATE_LIMIT_ADMIN_CRITICAL_MAX,
-      timeWindow: config.RATE_LIMIT_ADMIN_CRITICAL_WINDOW_MS,
-    };
-  }
-
-  if (url.startsWith('/api/governance/auth/login')) {
-    return {
-      max: config.RATE_LIMIT_LOGIN_MAX,
-      timeWindow: config.RATE_LIMIT_LOGIN_WINDOW_MS,
-    };
-  }
-
-  if (url.startsWith('/api/governance/vote')) {
-    return {
-      max: config.RATE_LIMIT_VOTE_MAX,
-      timeWindow: config.RATE_LIMIT_VOTE_WINDOW_MS,
-      keyGenerator: governanceMutationKeyGenerator,
-    };
-  }
-
-  if (url.startsWith('/api/governance/') && !isReadOnly) {
-    const isCriticalGovernanceMutation =
-      url === '/api/governance/epochs/transition' ||
-      url === '/api/governance/auth/logout';
-    return {
-      max: isCriticalGovernanceMutation
-        ? config.RATE_LIMIT_ADMIN_CRITICAL_MAX
-        : config.RATE_LIMIT_VOTE_MAX,
-      timeWindow: isCriticalGovernanceMutation
-        ? config.RATE_LIMIT_ADMIN_CRITICAL_WINDOW_MS
-        : config.RATE_LIMIT_VOTE_WINDOW_MS,
-      keyGenerator: governanceMutationKeyGenerator,
-    };
-  }
-
-  if (url.startsWith('/api/admin/')) {
-    const isCriticalAdminAction =
-      url === '/api/admin/epochs/transition' ||
-      url === '/api/admin/feed/rescore' ||
-      url === '/api/admin/scheduler/check' ||
-      (url.startsWith('/api/admin/governance/') && !isReadOnly);
-    return {
-      max: isCriticalAdminAction
-        ? config.RATE_LIMIT_ADMIN_CRITICAL_MAX
-        : config.RATE_LIMIT_ADMIN_MAX,
-      timeWindow: isCriticalAdminAction
-        ? config.RATE_LIMIT_ADMIN_CRITICAL_WINDOW_MS
-        : config.RATE_LIMIT_ADMIN_WINDOW_MS,
-    };
-  }
-
-  if (
-    url === '/api/bot/announce' ||
-    url === '/api/bot/retry' ||
-    url === '/api/bot/unpin'
-  ) {
-    return {
-      max: config.RATE_LIMIT_ADMIN_CRITICAL_MAX,
-      timeWindow: config.RATE_LIMIT_ADMIN_CRITICAL_WINDOW_MS,
-    };
-  }
-
-  return null;
 }
 
 function parseAllowedOrigins(): Set<string> {

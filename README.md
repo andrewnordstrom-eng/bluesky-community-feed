@@ -63,7 +63,7 @@ A production Bluesky custom feed where subscribers democratically vote on rankin
 - CLI tool (`feed-cli`): full admin operations from any terminal, no VPS access required
 - MCP server: Streamable HTTP admin tools for natural-language feed management
 - Public API reference at [docs.corgi.network](https://docs.corgi.network), auto-deployed from `docs/docs-site/`
-- Admin Swagger UI at `/docs` (production-gated)
+- Admin Swagger UI at `/api/docs` (production-gated); `/docs` is the public product documentation
 - Research data export: votes, scores, engagement, epochs, audit log (CSV/JSON)
 
 **Engineering**
@@ -219,7 +219,6 @@ All 15 numeric values (5× raw, weight, weighted) are persisted per post per epo
 - `POST /xrpc/app.bsky.feed.sendInteractions` — See More/See Less signals
 - `GET /api/transparency/*` — Score explanations, stats, counterfactuals, audit log
 - `GET /health`, `/health/ready`, `/health/live` — Health checks
-- `GET /docs` — OpenAPI / Swagger UI
 
 **Governance (session auth)**
 - `POST /api/governance/auth/login` — Bluesky handle + app password
@@ -227,6 +226,7 @@ All 15 numeric values (5× raw, weight, weighted) are persisted per post per epo
 - `GET /api/governance/weights`, `/epochs`, `/content-rules` — Current governance state
 
 **Admin (session auth + DID allowlist)**
+- `GET /api/docs` — OpenAPI / Swagger UI (admin-gated in production)
 - `/api/admin/status`, `/epochs`, `/governance/*` — Governance controls
 - `/api/admin/feed/*` — Feed health, rescore, Jetstream reconnect
 - `/api/admin/interactions/*` — Scroll depth, engagement, keyword analytics
