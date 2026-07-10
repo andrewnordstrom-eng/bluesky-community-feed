@@ -62,6 +62,17 @@ describe('shadow demo weight math', () => {
         relevance: 0,
       })
     ).toThrow(/finite/);
+    expect(() => validateShadowWeights({
+      recency: 0,
+      engagement: 0,
+      bridging: 0,
+      source_diversity: 0,
+      relevance: 0,
+    })).toThrow(/sum to 1.0/);
+  });
+
+  it('rejects an empty electorate', () => {
+    expect(() => aggregateShadowVotes([])).toThrow('Cannot aggregate zero shadow demo votes');
   });
 
   it('does not trim small electorates below ten votes', () => {

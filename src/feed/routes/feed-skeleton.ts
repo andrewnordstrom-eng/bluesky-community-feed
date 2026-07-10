@@ -290,8 +290,8 @@ export function registerFeedSkeleton(app: FastifyInstance, options?: RegisterFee
         });
       }
 
-      // Private feed mode: require approved participant
-      if (config.FEED_PRIVATE_MODE) {
+      // Private communities and global private mode require an approved participant.
+      if (!community.public || config.FEED_PRIVATE_MODE) {
         const viewerDid = await verifyFeedRequesterDid(authHeader);
         if (!viewerDid) return reply.send({ feed: [] });
         const approved = await isParticipantApproved(viewerDid);

@@ -4,25 +4,20 @@ import { DemoStoreCorruptionError, RedisDemoStore } from '../src/demo/store.js';
 import type { ShadowDemoSessionState } from '../src/demo/types.js';
 
 describe('Redis shadow demo store', () => {
-  it('writes session and frozen corpus in one Redis transaction', async () => {
-    const transaction = {
-      setex: vi.fn(),
-      exec: vi.fn(async () => [[null, 'OK'], [null, 'OK']]),
-    };
-    transaction.setex.mockReturnValue(transaction);
-    const redis = { multi: vi.fn(() => transaction) } as unknown as Redis;
+  it('writes one session record without duplicating the frozen corpus', async () => {
+    const setex = vi.fn().mockResolvedValue('OK');
+    const redis = { setex } as unknown as Redis;
     const store = new RedisDemoStore(redis);
     const session = storedSession();
 
     await store.writeSession(session, 120);
 
-    expect(redis.multi).toHaveBeenCalledTimes(1);
-    expect(transaction.setex).toHaveBeenCalledTimes(2);
-    expect(transaction.setex.mock.calls.map((call) => call[0])).toEqual([
+    expect(setex).toHaveBeenCalledTimes(1);
+    expect(setex).toHaveBeenCalledWith(
       'demo:session:demo-store-session',
-      'demo:corpus:demo-store-corpus',
-    ]);
-    expect(transaction.exec).toHaveBeenCalledTimes(1);
+      120,
+      JSON.stringify(session)
+    );
   });
 
   it('returns null only for missing records and raises explicit corruption errors', async () => {
@@ -37,18 +32,15 @@ describe('Redis shadow demo store', () => {
     await expect(store.readSession('partial')).rejects.toBeInstanceOf(DemoStoreCorruptionError);
   });
 
-  it('raises when a Redis transaction command fails', async () => {
-    const transaction = {
-      setex: vi.fn(),
-      exec: vi.fn(async () => [[null, 'OK'], [new Error('corpus write failed'), null]]),
-    };
-    transaction.setex.mockReturnValue(transaction);
-    const redis = { multi: vi.fn(() => transaction) } as unknown as Redis;
+  it('surfaces a failed session write without leaving a second corpus key', async () => {
+    const setex = vi.fn().mockRejectedValue(new Error('session write failed'));
+    const redis = { setex } as unknown as Redis;
     const store = new RedisDemoStore(redis);
 
     await expect(store.writeSession(storedSession(), 120)).rejects.toThrow(
-      /Redis transaction failed.*corpus write failed/
+      'session write failed'
     );
+    expect(setex).toHaveBeenCalledTimes(1);
   });
 
   it('rejects malformed nested epochs, votes, and corpus items', async () => {

@@ -56,6 +56,7 @@ export const DEMO_COMMUNITIES: Record<ShadowDemoCommunityId, ShadowDemoCommunity
 };
 
 const CANDIDATE_LIMIT = 80;
+const SCORE_READ_BATCH_SIZE = 10;
 const APPVIEW_TIMEOUT_MS = 8000;
 const MIN_PUBLIC_SCORED_POSTS = 5;
 const OPEN_SCIENCE_TOPIC_SLUGS = [
@@ -235,30 +236,34 @@ async function buildScoredCorpusItems(options: {
   readScore: (options: ReadPostScoreOptions) => Promise<PostScoreRecord | null>;
 }): Promise<ShadowDemoCorpusItem[]> {
   const items: ShadowDemoCorpusItem[] = [];
-  for (const row of options.rows) {
-    const score = await options.readScore({
-      postUri: row.uri,
-      epochId: options.epochId,
-    });
-    if (!score) {
-      continue;
-    }
-    const rawScores = internalRawScoresToShadow(score.components);
-    if (!hasAllFiniteRawScores(rawScores)) {
-      continue;
-    }
-    items.push({
-      postUri: row.uri,
-      authorDid: row.author_did,
-      createdAt: dateToIso(row.created_at),
-      topicVector: row.topic_vector ?? {},
-      rawScores,
-      productionScore: score.totalScore,
-      productionEpochId: score.epochId,
-      scoredAt: score.scoredAt.toISOString(),
-      componentDetails: score.componentDetails,
-      displayPost: hiddenDisplayPost('Post has not been hydrated from Bluesky public AppView yet'),
-    });
+  for (let start = 0; start < options.rows.length; start += SCORE_READ_BATCH_SIZE) {
+    const batch = options.rows.slice(start, start + SCORE_READ_BATCH_SIZE);
+    const scoredBatch = await Promise.all(batch.map(async (row) => {
+      const score = await options.readScore({
+        postUri: row.uri,
+        epochId: options.epochId,
+      });
+      if (!score) {
+        return null;
+      }
+      const rawScores = internalRawScoresToShadow(score.components);
+      if (!hasAllFiniteRawScores(rawScores)) {
+        return null;
+      }
+      return {
+        postUri: row.uri,
+        authorDid: row.author_did,
+        createdAt: dateToIso(row.created_at),
+        topicVector: row.topic_vector ?? {},
+        rawScores,
+        productionScore: score.totalScore,
+        productionEpochId: score.epochId,
+        scoredAt: score.scoredAt.toISOString(),
+        componentDetails: score.componentDetails,
+        displayPost: hiddenDisplayPost('Post has not been hydrated from Bluesky public AppView yet'),
+      } satisfies ShadowDemoCorpusItem;
+    }));
+    items.push(...scoredBatch.filter((item): item is NonNullable<typeof item> => item !== null));
   }
   return items;
 }

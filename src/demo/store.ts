@@ -196,20 +196,7 @@ export class RedisDemoStore implements DemoStore {
   }
 
   async writeSession(session: ShadowDemoSessionState, ttlSeconds: number): Promise<void> {
-    const result = await this.redis
-      .multi()
-      .setex(sessionKey(session.sessionId), ttlSeconds, JSON.stringify(session))
-      .setex(corpusKey(session.corpus.corpusId), ttlSeconds, JSON.stringify(session.corpus))
-      .exec();
-    if (result === null) {
-      throw new Error(`Shadow demo Redis transaction aborted for session ${session.sessionId}`);
-    }
-    const failedCommand = result.find(([error]) => error !== null);
-    if (failedCommand !== undefined) {
-      throw new Error(
-        `Shadow demo Redis transaction failed for session ${session.sessionId}: ${String(failedCommand[0])}`
-      );
-    }
+    await this.redis.setex(sessionKey(session.sessionId), ttlSeconds, JSON.stringify(session));
   }
 
   async readIdempotency<TPayload>(sessionId: string, key: string): Promise<IdempotencyRecord<TPayload> | null> {
@@ -441,10 +428,6 @@ export function demoSharedCorpusKeyPrefix(): string {
 
 function sessionKey(sessionId: string): string {
   return `${demoSessionKeyPrefix()}${sessionId}`;
-}
-
-function corpusKey(corpusId: string): string {
-  return `${demoCorpusKeyPrefix()}${corpusId}`;
 }
 
 function sharedCorpusKey(communityId: ShadowDemoCommunityId): string {

@@ -46,6 +46,12 @@ vi.mock('../src/feed/access-control.js', () => ({
 }));
 
 import { config } from '../src/config.js';
+import {
+  feedUriForCommunity,
+  getFeedCommunities,
+  resolveFeedCommunityByRkey,
+  type FeedCommunity,
+} from '../src/feed/community-registry.js';
 import { __resetFeedRequestTrackerForTests, drainFeedRequestTracker } from '../src/feed/request-tracker.js';
 import { registerFeedSkeleton } from '../src/feed/routes/feed-skeleton.js';
 import { clearCurrentFeedSnapshotMemoryCache } from '../src/feed/snapshot-cache.js';
@@ -145,6 +151,32 @@ describe('getFeedSkeleton auth handling', () => {
     expect(isParticipantApprovedMock).toHaveBeenCalledWith('did:plc:approved-viewer');
     expect(dbQueryMock).toHaveBeenCalledTimes(1);
     expect(dbQueryMock.mock.calls[0][1]).toEqual(['did:plc:approved-viewer']);
+
+    await app.close();
+  });
+
+  it('does not serve an enabled private community to an anonymous caller', async () => {
+    const birders = resolveFeedCommunityByRkey('birders-who-code', getFeedCommunities());
+    if (!birders) {
+      throw new Error('Birders community fixture missing from registry');
+    }
+    const privateBirders: FeedCommunity = {
+      ...birders,
+      status: 'enabled',
+      public: false,
+    };
+    const app = buildTestApp();
+    registerFeedSkeleton(app, { communities: [privateBirders] });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/xrpc/app.bsky.feed.getFeedSkeleton?feed=${encodeURIComponent(feedUriForCommunity(privateBirders, config.FEEDGEN_PUBLISHER_DID))}&limit=2`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ feed: [] });
+    expect(verifyFeedRequesterDidMock).toHaveBeenCalledWith(undefined);
+    expect(redisMock.zrevrange).not.toHaveBeenCalled();
 
     await app.close();
   });

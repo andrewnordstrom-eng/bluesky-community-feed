@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { config } from '../src/config.js';
 import {
   feedUriForCommunity,
+  feedUriForRkey,
   getFeedCommunities,
+  isFeedCommunityServable,
   publicFeedUris,
   resolveFeedCommunityByRkey,
   resolveFeedCommunityByUri,
@@ -47,6 +49,29 @@ describe('feed community registry', () => {
     const uri = feedUriForCommunity(enabledBirders, config.FEEDGEN_PUBLISHER_DID);
 
     expect(resolveFeedCommunityByUri(uri, config.FEEDGEN_PUBLISHER_DID, [enabledBirders])).toEqual(enabledBirders);
+  });
+
+  it('returns null for unknown or empty registry lookups', () => {
+    expect(resolveFeedCommunityByRkey('unknown', getFeedCommunities())).toBeNull();
+    expect(resolveFeedCommunityByUri(
+      feedUriForRkey('unknown', config.FEEDGEN_PUBLISHER_DID),
+      config.FEEDGEN_PUBLISHER_DID,
+      getFeedCommunities()
+    )).toBeNull();
+    expect(resolveFeedCommunityByRkey('community-gov', [])).toBeNull();
+    expect(publicFeedUris([], config.FEEDGEN_PUBLISHER_DID)).toEqual([]);
+  });
+
+  it('serves only enabled registry entries', () => {
+    const communities = getFeedCommunities();
+    const communityGov = resolveFeedCommunityByRkey('community-gov', communities);
+    const birders = resolveFeedCommunityByRkey('birders-who-code', communities);
+    if (!communityGov || !birders) {
+      throw new Error('Feed community fixtures missing from registry');
+    }
+
+    expect(isFeedCommunityServable(communityGov)).toBe(true);
+    expect(isFeedCommunityServable(birders)).toBe(false);
   });
 });
 

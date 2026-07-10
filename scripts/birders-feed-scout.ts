@@ -19,6 +19,7 @@ async function main(): Promise<void> {
     import('../src/feed/community-materializer.js'),
   ]);
 
+  let operationError: unknown;
   try {
     const community = resolveBirdersCommunity();
     const now = new Date();
@@ -44,9 +45,26 @@ async function main(): Promise<void> {
       limit: options.limit,
     });
     console.log(options.json ? JSON.stringify(report, null, 2) : renderBirdersScoutReport(report));
+  } catch (err) {
+    operationError = err;
+    throw err;
   } finally {
-    redis.disconnect();
-    await db.end();
+    const cleanupErrors: unknown[] = [];
+    try {
+      redis.disconnect();
+    } catch (err) {
+      cleanupErrors.push(err);
+      console.error('Failed to disconnect Redis after Birders scout:', err);
+    }
+    try {
+      await db.end();
+    } catch (err) {
+      cleanupErrors.push(err);
+      console.error('Failed to close PostgreSQL after Birders scout:', err);
+    }
+    if (operationError === undefined && cleanupErrors.length > 0) {
+      throw new AggregateError(cleanupErrors, 'Birders scout cleanup failed');
+    }
   }
 }
 

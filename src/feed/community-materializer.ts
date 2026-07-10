@@ -497,6 +497,9 @@ function finiteNumber(value: string | number | null): number {
 }
 
 function nullableFiniteInteger(value: string | number | null): number | null {
+  if (value === null) {
+    return null;
+  }
   const parsed = finiteNumber(value);
   if (!Number.isInteger(parsed)) {
     return null;

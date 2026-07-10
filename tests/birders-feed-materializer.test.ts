@@ -203,6 +203,45 @@ describe('Birders feed readiness materializer', () => {
     );
   });
 
+  it('reports unavailable when there is no active production epoch', async () => {
+    const community = birdersCommunity();
+    const dbPool = buildDbMock([
+      {
+        uri: null,
+        author_did: null,
+        text: null,
+        active_epoch_id: null,
+        recency_score: null,
+        engagement_score: null,
+        bridging_score: null,
+        source_diversity_score: null,
+        relevance_score: null,
+        community_score: null,
+        candidate_count: 0,
+        unique_author_count: 0,
+        bridge_post_count: 0,
+        strong_bridge_high_relevance_count: 0,
+        top_author_post_count: 0,
+      },
+    ]);
+
+    const report = await scoutCommunityFeed({
+      community,
+      dbPool,
+      now: new Date('2026-07-09T20:00:00.000Z'),
+      windowHours: 72,
+      limit: 50,
+    });
+
+    expect(report).toMatchObject({
+      activeEpochId: null,
+      status: 'unavailable',
+    });
+    expect(report.warnings).toContain(
+      'No active production epoch was available for Birders materialization.'
+    );
+  });
+
   it('materializes only namespaced Birders Redis keys and leaves production feed keys untouched', async () => {
     const community = birdersCommunity();
     const dbPool = buildDbMock([
