@@ -4,6 +4,11 @@ import { ArrowDown, ArrowRight, ArrowUp, Minus } from "lucide-react"
 import type { ShadowDemoCounterfactual, ShadowDemoReceipt } from "@/app/demo/shadow-demo-contract"
 import { SIGNAL_COLORS, formatPercent, formatScore } from "@/app/demo/shadow-demo-fixtures"
 import { DISCLOSURE } from "@/app/demo/shadow-demo-copy"
+import {
+  buildReceiptDisplayMath,
+  formatReceiptPercent,
+  formatReceiptScore,
+} from "@/lib/receipt-display-math"
 
 function DeltaChip({ delta }: { readonly delta: number | null }) {
   if (delta === null || delta === 0) {
@@ -56,6 +61,7 @@ export function ReceiptPanel({
   readonly maxEpochs: number
 }) {
   const topTopics = receipt.topicBreakdown.slice(0, 3)
+  const displayMath = buildReceiptDisplayMath(receipt.components)
 
   return (
     <aside className="flex h-full flex-col rounded-[1.5rem] border border-primary/20 bg-card shadow-[0_18px_50px_rgba(46,38,32,0.08)]">
@@ -69,7 +75,7 @@ export function ReceiptPanel({
             </p>
           </div>
           <span className="rounded-full border border-primary/20 bg-primary/10 px-3 py-1 font-mono text-xs font-semibold text-primary">
-            {formatScore(receipt.totalScore)}
+            {formatReceiptScore(displayMath.totalScore)}
           </span>
         </div>
         {receipt.previousRank !== null ? (
@@ -87,9 +93,10 @@ export function ReceiptPanel({
         <div className="rounded-xl border border-primary/15 bg-primary/[0.055] px-4 py-3">
           <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-primary/65">Receipt math</p>
           <p className="mt-1 text-sm font-semibold text-foreground">Raw signal × community weight = contribution</p>
+          <p className="mt-1 text-[11px] text-foreground/45">Values use four-decimal display precision; the score is their displayed sum.</p>
         </div>
 
-        {receipt.components.map((component) => (
+        {displayMath.components.map((component) => (
           <div
             key={component.key}
             className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-xl border border-border/70 bg-background px-4 py-2.5"
@@ -99,8 +106,8 @@ export function ReceiptPanel({
               {component.label}
             </p>
             <p className="text-right font-mono text-xs text-foreground/60">
-              {formatScore(component.rawScore)} × {formatPercent(component.weight)}
-              <span className="ml-2 font-bold text-primary">= {formatScore(component.contribution)}</span>
+              {formatReceiptScore(component.rawScore)} × {formatReceiptPercent(component.weight)}
+              <span className="ml-2 font-bold text-primary">= {formatReceiptScore(component.contribution)}</span>
             </p>
           </div>
         ))}

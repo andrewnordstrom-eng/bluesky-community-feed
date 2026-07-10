@@ -18,8 +18,7 @@ const steps = [
   {
     n: "01",
     title: "Open the Corgi feed on Bluesky",
-    body: "Open the feed in your Bluesky app or on the web, then tap the pin icon to add it to your Home. It shows up alongside your other feeds — no account changes required.",
-    // [DRAFT] Confirm the exact pin/subscribe steps and whether the feed is publicly discoverable in Bluesky search.
+    body: "Open the feed in your Bluesky app or on the web, then use Bluesky's feed controls to save it to your Home. No Corgi account is required to browse it.",
     cta: { label: "Open the feed on Bluesky", href: CORGI_FEED_URL, external: true },
   },
   {
@@ -92,14 +91,14 @@ export default function StartPage() {
                       href={step.cta.href}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="mt-3 inline-flex text-sm font-semibold text-primary hover:underline underline-offset-2"
+                      className="mt-3 inline-flex rounded text-sm font-semibold text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                     >
                       {step.cta.label} &rarr;
                     </a>
                   ) : (
                     <Link
                       href={step.cta.href}
-                      className="mt-3 inline-flex text-sm font-semibold text-primary hover:underline underline-offset-2"
+                      className="mt-3 inline-flex rounded text-sm font-semibold text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                     >
                       {step.cta.label} &rarr;
                     </Link>

@@ -8,7 +8,6 @@ export const metadata: Metadata = {
     "Corgi is an open-source, community-governed Bluesky feed. Learn who operates it, how the feed is governed, and what happens to your vote and your account.",
 }
 
-// NOTE: first-pass copy — edit the [DRAFT] specifics (stewardship, funding, team).
 const SECTIONS = [
   {
     id: "mission",
@@ -34,11 +33,10 @@ const SECTIONS = [
     body: (
       <>
         <P>
-          Corgi is an <Strong>independent, open-source project</Strong> — not an ad-funded company. The ranking engine,
-          the governance pipeline, and this site are all developed in the open on{" "}
+          Corgi is maintained by Andrew Nordstrom as an <Strong>independent, open-source project</Strong> — not an
+          ad-funded company. The ranking engine, the governance pipeline, and this site are all developed in the open on{" "}
           <InlineLink href="https://github.com/andrewnordstrom-eng/bluesky-community-feed">GitHub</InlineLink>, so anyone
           can read the code that decides the order.
-          {/* TODO: name the maintainer(s)/org and any funding or affiliations once confirmed. */}
         </P>
         <P>
           There are no ads, and we don&rsquo;t sell or rent your data. If that ever changes, it will be announced in the
@@ -104,9 +102,9 @@ const SECTIONS = [
       <>
         <P>
           Read the code, open an issue, or suggest a change on{" "}
-          <InlineLink href="https://github.com/andrewnordstrom-eng/bluesky-community-feed">GitHub</InlineLink>. Questions
-          or feedback: <InlineLink href="mailto:hello@corgi.network">hello@corgi.network</InlineLink>.
-          {/* TODO: confirm the contact address before launch. */} Ready to try it? See{" "}
+          <InlineLink href="https://github.com/andrewnordstrom-eng/bluesky-community-feed">GitHub</InlineLink>. For help,
+          feedback, and private security-reporting guidance, visit <InlineLink href="/support">Support</InlineLink>. Ready
+          to try it? See{" "}
           <InlineLink href="/start">how to add the feed in Bluesky</InlineLink>.
         </P>
       </>

@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback } from "react"
+import { useCallback, useId } from "react"
 import { SIGNAL_COLORS, type SignalKey } from "@/lib/signals"
 
 export interface SliderSignal {
@@ -37,6 +37,7 @@ export function LinkedSlider({
   communityValues,
   disabled = false,
 }: LinkedSliderProps) {
+  const descriptionIdPrefix = useId()
   const total = signals.reduce((s, sig) => s + sig.value, 0)
   const totalPct = Math.round(total * 100)
   const isValid = Math.abs(total - 1) < 0.001
@@ -77,6 +78,7 @@ export function LinkedSlider({
         const color = signalColor(sig.key)
         const communityPct =
           communityValues?.[sig.key] != null ? Math.round(communityValues[sig.key] * 100) : null
+        const communityDescriptionId = communityPct === null ? undefined : `${descriptionIdPrefix}-${sig.key}`
 
         return (
           <div key={sig.key} className="flex flex-col gap-2">
@@ -111,13 +113,16 @@ export function LinkedSlider({
               {/* Community-average marker — vote relative to consensus */}
               {communityPct != null && (
                 <div
-                  className="absolute inset-y-0 my-auto flex items-center pointer-events-none"
+                  className="absolute inset-y-0 my-auto flex items-center"
                   style={{ left: `calc(${communityPct}% - 1px)` }}
-                  title={`Community average ${communityPct}%`}
+                  aria-hidden="true"
                 >
-                  <span className="h-[18px] w-0.5 rounded-full bg-foreground/45" />
+                  <span className="pointer-events-none h-[18px] w-0.5 rounded-full bg-foreground/45" />
                 </div>
               )}
+              {communityDescriptionId ? (
+                <span id={communityDescriptionId} className="sr-only">Community average {communityPct}%</span>
+              ) : null}
               <input
                 type="range"
                 min={0}
@@ -129,6 +134,7 @@ export function LinkedSlider({
                 aria-valuenow={pct}
                 aria-valuemin={0}
                 aria-valuemax={100}
+                aria-describedby={communityDescriptionId}
                 onChange={(e) => rebalance(sig.key, Number(e.target.value) / 100)}
                 className="absolute inset-0 w-full opacity-0 cursor-pointer h-full disabled:cursor-not-allowed"
                 style={{ zIndex: 2 }}

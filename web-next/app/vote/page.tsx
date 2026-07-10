@@ -593,20 +593,22 @@ export default function VotePage() {
     queryFn: weightsApi.getCurrentEpoch,
     retry: false,
   })
+  const activeEpochId = epochQuery.data?.id ?? null
   const topicsQuery = useQuery({
     queryKey: ["topics"],
     queryFn: voteApi.getTopicCatalog,
     retry: false,
   })
   const contentRulesQuery = useQuery({
-    queryKey: ["content-rules"],
+    queryKey: ["content-rules", activeEpochId],
     queryFn: voteApi.getContentRules,
+    enabled: activeEpochId !== null,
     retry: false,
   })
   const myVoteQuery = useQuery({
-    queryKey: ["vote", "mine"],
+    queryKey: ["vote", "mine", activeEpochId],
     queryFn: voteApi.getVote,
-    enabled: isAuthenticated,
+    enabled: isAuthenticated && activeEpochId !== null,
     retry: false,
   })
 
@@ -662,6 +664,7 @@ export default function VotePage() {
   } else {
     content = (
       <VoteWorkbench
+        key={epochQuery.data.id}
         epoch={epochQuery.data}
         myVote={myVoteQuery.data}
         topics={topicsQuery.data?.topics ?? []}

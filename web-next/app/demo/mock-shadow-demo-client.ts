@@ -311,6 +311,14 @@ export function createMockShadowDemoClient(options: MockShadowDemoClientOptions 
           ...state.publishedEpoch,
           status: "open",
           closedAt: null,
+          voteSummary: {
+            reviewerVotes: 0,
+            agentVotes: 0,
+            totalVotes: 0,
+            aggregateMethod: "trimmed_mean_no_trim_under_10",
+            trimCount: 0,
+            reviewerInfluenceShare: 0,
+          },
         }
         state.publishedEpoch = null
         state.baselineRankById = { ...state.currentRankById }

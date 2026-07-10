@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, type ReactNode } from "react"
 import Link from "next/link"
 import Image from "next/image"
 import { useQuery } from "@tanstack/react-query"
@@ -21,7 +21,7 @@ function SettingsCard({
 }: {
   title: string
   description?: string
-  children: React.ReactNode
+  children: ReactNode
 }) {
   return (
     <section className="rounded-2xl border border-border bg-card p-5 shadow-[0_2px_10px_rgba(46,38,32,0.05)] sm:p-6">
@@ -58,7 +58,7 @@ export default function SettingsPage() {
     retry: false,
   })
 
-  let content: React.ReactNode
+  let content: ReactNode
 
   if (isLoading) {
     content = (

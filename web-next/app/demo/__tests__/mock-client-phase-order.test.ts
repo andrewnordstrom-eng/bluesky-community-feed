@@ -261,6 +261,13 @@ describe("mock client — phase order + nextRecommendedAction", () => {
     )
 
     expect(secondVote.payload.session.phase).toBe("reviewer_vote_cast")
+    expect(secondVote.payload.currentEpoch.voteSummary).toMatchObject({
+      reviewerVotes: 1,
+      agentVotes: 0,
+      totalVotes: 1,
+      trimCount: 0,
+      reviewerInfluenceShare: 1,
+    })
     expect(secondAgents.payload.agentVotes).toHaveLength(24)
     expect(secondAdvance.payload.currentEpoch.sequence).toBe(3)
     expect(secondAdvance.payload.currentEpoch.weights.engagement).toBeGreaterThan(

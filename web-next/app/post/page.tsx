@@ -13,6 +13,7 @@ import { PolicyBar, PolicyLegend } from "@/components/ui/policy-bar"
 import { Skeleton, EmptyState, ErrorCard } from "@/components/ui/state-kit"
 import { Button } from "@/components/ui/button"
 import { transparencyApi } from "@/lib/api/client"
+import { parseBlueskyUrlOrAtUri } from "@/lib/post-uri"
 import { SIGNAL_KEYS } from "@/lib/signals"
 
 /* ─── Signal metadata ──────────────────────────────────── */
@@ -275,9 +276,15 @@ function PostExplanationInner() {
   const uri = searchParams.get("uri") ?? ""
   const [copied, setCopied] = useState(false)
   const [inputUri, setInputUri] = useState("")
+  const [inputError, setInputError] = useState<string | null>(null)
   const explain = () => {
-    const trimmed = inputUri.trim()
-    if (trimmed) router.push(`/post?uri=${encodeURIComponent(trimmed)}`)
+    try {
+      const normalized = parseBlueskyUrlOrAtUri(inputUri)
+      setInputError(null)
+      router.push(`/post?uri=${encodeURIComponent(normalized)}`)
+    } catch (error) {
+      setInputError(error instanceof Error ? error.message : "That post reference is not supported.")
+    }
   }
 
   // Real explanation fetch. Disabled until a URI is present. A 404 from the
@@ -420,22 +427,34 @@ function PostExplanationInner() {
               Paste an AT-URI or Bluesky post URL to see how it was scored — which signals lifted it and which held it
               back — whenever Corgi has a receipt for it.
             </p>
-            <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-              <input
-                type="text"
-                value={inputUri}
-                onChange={(e) => setInputUri(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") explain()
-                }}
-                placeholder="at://did:plc:… or https://bsky.app/profile/…"
-                aria-label="Post AT-URI or Bluesky URL"
-                className="h-10 min-w-0 flex-1 rounded-lg border border-border bg-background px-3.5 font-mono text-sm text-foreground placeholder:text-foreground/45 transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-              />
+            <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-start">
+              <div className="min-w-0 flex-1">
+                <input
+                  type="text"
+                  value={inputUri}
+                  onChange={(e) => {
+                    setInputUri(e.target.value)
+                    setInputError(null)
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") explain()
+                  }}
+                  placeholder="at://did:plc:… or https://bsky.app/profile/did:plc:…"
+                  aria-label="Post AT-URI or Bluesky URL"
+                  aria-invalid={inputError !== null}
+                  aria-describedby={inputError ? "post-reference-error" : undefined}
+                  className="h-10 w-full min-w-0 rounded-lg border border-border bg-background px-3.5 font-mono text-sm text-foreground placeholder:text-foreground/45 transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+                {inputError ? (
+                  <p id="post-reference-error" role="alert" className="mt-2 text-xs leading-relaxed text-tongue-foreground">
+                    {inputError}
+                  </p>
+                ) : null}
+              </div>
               <Button
                 disabled={!inputUri.trim()}
                 onClick={explain}
-                className="rounded-lg bg-primary px-5 text-sm text-primary-foreground shadow-[0_2px_8px_rgba(200,97,44,0.25)] transition-all hover:bg-primary-dark disabled:opacity-40"
+                className="h-10 rounded-lg bg-primary px-5 text-sm text-primary-foreground shadow-[0_2px_8px_rgba(200,97,44,0.25)] transition-all hover:bg-primary-dark disabled:opacity-40"
               >
                 Explain
               </Button>
