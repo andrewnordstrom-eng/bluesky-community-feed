@@ -43,7 +43,9 @@ vi.mock('../src/db/client.js', () => ({
 vi.mock('../src/db/redis.js', () => ({
   redis: {
     pipeline: redisPipelineFactoryMock,
+    multi: redisPipelineFactoryMock,
     incr: vi.fn().mockResolvedValue(1),
+    set: vi.fn().mockResolvedValue('OK'),
     del: vi.fn().mockResolvedValue(1),
     eval: vi.fn().mockResolvedValue(1),
   },
@@ -104,6 +106,7 @@ describe('relevance floor in feed output', () => {
 
     const pipeline = {
       del: pipelineDelMock.mockReturnThis(),
+      expire: vi.fn().mockReturnThis(),
       zadd: pipelineZaddMock.mockReturnThis(),
       set: pipelineSetMock.mockReturnThis(),
       exec: pipelineExecMock.mockResolvedValue([]),
@@ -166,7 +169,7 @@ describe('relevance floor in feed output', () => {
     expect(writeCall![1][3]).toBe(0.15);
   });
 
-  it('clears feed and writes zero count when no posts pass floor', async () => {
+  it('preserves the served feed when no posts pass floor', async () => {
     // No posts to score → writeToRedisFromDb returns empty
     dbQueryMock
       .mockResolvedValueOnce({ rows: [makeEpochRow()] })
@@ -176,8 +179,7 @@ describe('relevance floor in feed output', () => {
 
     await runScoringPipeline();
 
-    expect(pipelineDelMock).toHaveBeenCalledWith('feed:current');
-    expect(pipelineSetMock).toHaveBeenCalledWith('feed:count', '0');
+    expect(redisPipelineFactoryMock).not.toHaveBeenCalled();
     expect(pipelineZaddMock).not.toHaveBeenCalled();
   });
 
@@ -196,11 +198,14 @@ describe('relevance floor in feed output', () => {
     await runScoringPipeline();
 
     expect(pipelineZaddMock).toHaveBeenCalledWith(
-      'feed:current',
+      expect.stringMatching(/^feed:staging:current:/),
       0.85,
       'at://did:plc:test/post/high'
     );
-    expect(pipelineSetMock).toHaveBeenCalledWith('feed:count', '1');
+    expect(pipelineSetMock).toHaveBeenCalledWith(
+      expect.stringMatching(/^feed:staging:metadata:.*:3$/),
+      '1'
+    );
   });
 
   it('writes correct metadata count for multiple posts', async () => {
@@ -217,8 +222,18 @@ describe('relevance floor in feed output', () => {
 
     await runScoringPipeline();
 
-    expect(pipelineSetMock).toHaveBeenCalledWith('feed:count', '2');
+    expect(pipelineSetMock).toHaveBeenCalledWith(
+      expect.stringMatching(/^feed:staging:metadata:.*:3$/),
+      '2'
+    );
     expect(pipelineZaddMock).toHaveBeenCalledTimes(2);
+    expect(pipelineZaddMock).toHaveBeenCalledWith(
+      expect.stringMatching(/^feed:staging:current:/),
+      0.9,
+      'at://post/1',
+      0.7,
+      'at://post/2'
+    );
   });
 
   it('epoch ID is passed as first parameter to writeToRedisFromDb query', async () => {

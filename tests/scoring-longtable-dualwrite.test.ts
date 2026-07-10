@@ -55,7 +55,14 @@ vi.mock('../src/db/client.js', () => ({
 }));
 
 vi.mock('../src/db/redis.js', () => ({
-  redis: { pipeline: redisPipelineFactoryMock, incr: vi.fn().mockResolvedValue(1), del: vi.fn().mockResolvedValue(1), eval: vi.fn().mockResolvedValue(1) },
+  redis: {
+    pipeline: redisPipelineFactoryMock,
+    multi: redisPipelineFactoryMock,
+    incr: vi.fn().mockResolvedValue(1),
+    set: vi.fn().mockResolvedValue('OK'),
+    del: vi.fn().mockResolvedValue(1),
+    eval: vi.fn().mockResolvedValue(1),
+  },
 }));
 
 vi.mock('../src/governance/content-filter.js', () => ({
@@ -87,6 +94,7 @@ import { buildEpochRow, buildPostRow } from './helpers/index.js';
 function setupDefaultMocks() {
   const pipeline = {
     del: pipelineDelMock.mockReturnThis(),
+    expire: vi.fn().mockReturnThis(),
     zadd: pipelineZaddMock.mockReturnThis(),
     set: pipelineSetMock.mockReturnThis(),
     exec: pipelineExecMock.mockResolvedValue([]),

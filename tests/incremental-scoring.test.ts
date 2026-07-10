@@ -7,6 +7,7 @@ const {
   pipelineZaddMock,
   pipelineSetMock,
   pipelineExecMock,
+  pipelineExpireMock,
   redisEvalMock,
   getCurrentContentRulesMock,
   hasActiveContentRulesMock,
@@ -20,6 +21,7 @@ const {
   pipelineZaddMock: vi.fn(),
   pipelineSetMock: vi.fn(),
   pipelineExecMock: vi.fn(),
+  pipelineExpireMock: vi.fn(),
   redisEvalMock: vi.fn(),
   getCurrentContentRulesMock: vi.fn(),
   hasActiveContentRulesMock: vi.fn(),
@@ -37,7 +39,9 @@ vi.mock('../src/db/client.js', () => ({
 vi.mock('../src/db/redis.js', () => ({
   redis: {
     pipeline: redisPipelineFactoryMock,
+    multi: redisPipelineFactoryMock,
     incr: vi.fn().mockResolvedValue(1),
+    set: vi.fn().mockResolvedValue('OK'),
     del: vi.fn().mockResolvedValue(1),
     eval: redisEvalMock,
   },
@@ -64,6 +68,7 @@ vi.mock('../src/lib/logger.js', () => ({
 
 
 import { runScoringPipeline, getLastScoringRunAt, __resetPipelineState } from '../src/scoring/pipeline.js';
+import { config } from '../src/config.js';
 import { buildEpochRow, buildPostRow } from './helpers/index.js';
 
 function makeEpochRow(id = 2) {
@@ -77,6 +82,7 @@ function makePostRow(uri = 'at://did:plc:test/post/1') {
 function setupDefaultMocks() {
   const pipeline = {
     del: pipelineDelMock.mockReturnThis(),
+    expire: pipelineExpireMock.mockReturnThis(),
     zadd: pipelineZaddMock.mockReturnThis(),
     set: pipelineSetMock.mockReturnThis(),
     exec: pipelineExecMock.mockResolvedValue([]),
@@ -129,11 +135,23 @@ describe('incremental scoring pipeline', () => {
   });
 
   it('keeps the scoring run successful when snapshot invalidation fails after Redis write', async () => {
-    redisEvalMock.mockRejectedValueOnce(new Error('redis eval unavailable'));
+    redisEvalMock
+      .mockResolvedValueOnce(1)
+      .mockRejectedValueOnce(new Error('redis eval unavailable'));
     dbQueryMock
       .mockResolvedValueOnce({ rows: [makeEpochRow()] })
       .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({
+        rows: [{
+          post_uri: 'at://did:plc:test/post/1',
+          total_score: 0.5,
+          author_did: 'did:plc:author',
+          bridging_score: 0.3,
+          engagement_score: 0.4,
+          embed_url: null,
+          text_length: 20,
+        }],
+      })
       .mockResolvedValueOnce({ rows: [] });
 
     await runScoringPipeline();
@@ -261,8 +279,43 @@ describe('incremental scoring pipeline', () => {
     );
     expect(writeCall).toBeDefined();
 
-    // Redis should have the post from DB, not just from the in-memory scored array
-    expect(pipelineZaddMock).toHaveBeenCalledWith('feed:current', 0.5, postRow.uri);
+    const currentZaddCall = pipelineZaddMock.mock.calls.find(
+      (call: unknown[]) => String(call[0]).startsWith('feed:staging:current:')
+    );
+    expect(currentZaddCall).toBeDefined();
+    const stagedCurrentKey = String(currentZaddCall?.[0]);
+    const runId = stagedCurrentKey.slice('feed:staging:current:'.length);
+    expect(runId).not.toBe('');
+    const stagedLastKnownGoodKey = `feed:staging:last_known_good:${runId}`;
+    const stagedMetadataKeys = Array.from(
+      { length: 7 },
+      (_value, index) => `feed:staging:metadata:${runId}:${index}`
+    );
+    const stagedKeys = [stagedCurrentKey, stagedLastKnownGoodKey, ...stagedMetadataKeys];
+
+    // Redis should have the post from DB, not just from the in-memory scored array.
+    expect(pipelineZaddMock).toHaveBeenCalledWith(stagedCurrentKey, 0.5, postRow.uri);
+    expect(pipelineZaddMock).toHaveBeenCalledWith(stagedLastKnownGoodKey, 0.5, postRow.uri);
+    expect(pipelineExpireMock).toHaveBeenCalledTimes(9);
+    const expectedStagingTtlSeconds = Math.ceil((config.SCORING_TIMEOUT_MS * 2) / 1000);
+    expect(pipelineExpireMock.mock.calls).toEqual(
+      stagedKeys.map((key) => [key, expectedStagingTtlSeconds])
+    );
+    expect(redisEvalMock).toHaveBeenCalledWith(
+      expect.any(String),
+      18,
+      ...stagedKeys,
+      'feed:current',
+      'feed:last_known_good',
+      'feed:epoch',
+      'feed:run_id',
+      'feed:updated_at',
+      'feed:count',
+      'feed:last_known_good_epoch',
+      'feed:last_known_good_run_id',
+      'feed:last_known_good_count',
+      '9'
+    );
   });
 
   it('materializes current feed stats after writing Redis feed', async () => {
@@ -380,36 +433,19 @@ describe('incremental scoring pipeline', () => {
     expect(uniqueAuthors).toBe(2);
   });
 
-  it('materializes explicit zero stats for an empty current feed', async () => {
+  it('skips the current-feed metrics write when publication is skipped', async () => {
     dbQueryMock
       .mockResolvedValueOnce({ rows: [makeEpochRow()] })
-      .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] });
 
     await runScoringPipeline();
 
-    const [
-      epochId,
-      authorGini,
-      avgBridging,
-      medianBridging,
-      avgEngagement,
-      medianTotal,
-      totalPostsScored,
-      uniqueAuthors,
-      runId,
-    ] = findEpochMetricsInsertParams();
-    expect(epochId).toBe(2);
-    expect(authorGini).toBe(0);
-    expect(avgBridging).toBe(0);
-    expect(medianBridging).toBe(0);
-    expect(avgEngagement).toBe(0);
-    expect(medianTotal).toBe(0);
-    expect(totalPostsScored).toBe(0);
-    expect(uniqueAuthors).toBe(0);
-    expect(typeof runId).toBe('string');
+    expect(queryWasCalledWith('INSERT INTO epoch_metrics')).toBe(false);
+    expect(queryWasCalledWith('current_scoring_run')).toBe(true);
+    expect(redisPipelineFactoryMock).not.toHaveBeenCalled();
+    expect(redisEvalMock).not.toHaveBeenCalled();
   });
 
   it('keeps scoring successful when current feed metrics materialization fails', async () => {
@@ -417,7 +453,17 @@ describe('incremental scoring pipeline', () => {
     dbQueryMock
       .mockResolvedValueOnce({ rows: [makeEpochRow()] })
       .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({
+        rows: [{
+          post_uri: 'at://did:plc:test/post/metrics',
+          total_score: 0.5,
+          author_did: 'did:plc:author',
+          bridging_score: 0.3,
+          engagement_score: 0.4,
+          embed_url: null,
+          text_length: 20,
+        }],
+      })
       .mockRejectedValueOnce(metricsError)
       .mockResolvedValueOnce({ rows: [] });
 
