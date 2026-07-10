@@ -13,6 +13,7 @@ import { PolicyBar, PolicyLegend } from "@/components/ui/policy-bar"
 import { Skeleton, EmptyState, ErrorCard } from "@/components/ui/state-kit"
 import { Button } from "@/components/ui/button"
 import { transparencyApi } from "@/lib/api/client"
+import { SIGNAL_KEYS } from "@/lib/signals"
 
 /* ─── Signal metadata ──────────────────────────────────── */
 
@@ -322,13 +323,16 @@ function PostExplanationInner() {
 
   /* Build component array for ScoreBreakdown (only when loaded) */
   const scoreComponents: ScoreComponent[] = explanation
-    ? Object.entries(explanation.components).map(([key, c]) => ({
+    ? SIGNAL_KEYS.map((key) => {
+      const c = explanation.components[key]
+      return {
         key,
         label: SIGNAL_META[key]?.label ?? key,
         raw_score: c.raw_score,
         weight: c.weight,
         weighted: c.weighted,
-      }))
+      }
+    })
     : []
 
   /* Build radar signals */

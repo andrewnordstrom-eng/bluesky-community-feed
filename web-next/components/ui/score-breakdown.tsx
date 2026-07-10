@@ -4,7 +4,7 @@ import { WeightBar } from "./weight-bar"
 import { SIGNAL_COLORS, SIGNAL_LABELS, type SignalKey } from "@/lib/signals"
 
 export interface ScoreComponent {
-  key: string
+  key: SignalKey
   label: string
   raw_score: number    // 0–1
   weight: number       // 0–1
@@ -36,7 +36,7 @@ export function ScoreBreakdown({ components, total_score, epochLabel, className 
       {/* Component rows */}
       {components.map((c) => {
         const isNegative = c.weighted < 0
-        const label = SIGNAL_LABELS[c.key as SignalKey] ?? c.label
+        const label = SIGNAL_LABELS[c.key]
         // bar width = weighted contribution as a fraction of total (clamped)
         const barValue = displayTotal > 0 ? Math.max(0, c.weighted) / displayTotal : 0
 
@@ -48,7 +48,7 @@ export function ScoreBreakdown({ components, total_score, epochLabel, className 
                 label=""
                 value={barValue}
                 negative={isNegative}
-                color={SIGNAL_COLORS[c.key as SignalKey]}
+                color={SIGNAL_COLORS[c.key]}
                 size="sm"
               />
             </div>

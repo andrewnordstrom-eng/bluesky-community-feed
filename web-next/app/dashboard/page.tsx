@@ -9,7 +9,7 @@ import { PolicyBar, PolicyLegend } from "@/components/ui/policy-bar"
 import { StatusChip } from "@/components/ui/status-chip"
 import { WeightsSkeleton, EmptyState, ErrorCard, Skeleton } from "@/components/ui/state-kit"
 import { Button } from "@/components/ui/button"
-import { SIGNAL_LABELS } from "@/lib/signals"
+import { SIGNAL_KEYS, SIGNAL_LABELS, type SignalKey } from "@/lib/signals"
 import { transparencyApi, weightsApi, type EpochResponse } from "@/lib/api/client"
 
 /* ─── Round-diff derivation ────────────────────────────────
@@ -22,7 +22,7 @@ interface RoundDiff {
   voter_count: number
   current_weights: EpochResponse["weights"]
   previous_weights: EpochResponse["weights"]
-  weight_changes: { key: string; before: number; after: number; delta: number }[]
+  weight_changes: { key: SignalKey; before: number; after: number; delta: number }[]
   keywords_added: { include: string[]; exclude: string[] }
   keywords_removed: { include: string[]; exclude: string[] }
 }
@@ -32,8 +32,7 @@ function deriveRoundDiff(epochs?: EpochResponse[]): RoundDiff | null {
   const sorted = [...epochs].sort((a, b) => b.id - a.id)
   const curr = sorted[0]
   const prev = sorted[1]
-  const keys = ["recency", "engagement", "bridging", "source_diversity", "relevance"] as const
-  const weight_changes = keys
+  const weight_changes = SIGNAL_KEYS
     .map((key) => {
       const before = prev.weights[key]
       const after = curr.weights[key]
@@ -321,7 +320,7 @@ export default function DashboardPage() {
                   <div className="flex flex-wrap gap-x-4 gap-y-1.5">
                     {diff.weight_changes.map((wc) => (
                       <span key={wc.key} className="inline-flex items-center gap-1.5 text-[12px]">
-                        <span className="text-foreground/60">{SIGNAL_LABELS[wc.key as keyof typeof SIGNAL_LABELS] ?? wc.key}</span>
+                        <span className="text-foreground/60">{SIGNAL_LABELS[wc.key]}</span>
                         <DeltaChip delta={wc.delta} />
                       </span>
                     ))}

@@ -377,7 +377,11 @@ function VoteWorkbench({ epoch, myVote, topics, contentRules, isAuthenticated, o
                 <div className="flex flex-col gap-3">
                   <PolicyBar weights={myWeights} height={12} />
                   <PolicyLegend weights={myWeights} />
-                  <p className="text-xs text-foreground/40 italic pt-1">Ballot locked — your submitted vote for this round is shown above.</p>
+                  <p className="text-xs text-foreground/40 italic pt-1">
+                    {myVote
+                      ? "Ballot locked — your submitted vote for this round is shown above."
+                      : "Ballot locked — no vote was submitted; the community weights are shown above."}
+                  </p>
                 </div>
               ) : (
                 <LinkedSlider
