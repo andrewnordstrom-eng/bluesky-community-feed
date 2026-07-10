@@ -5,8 +5,6 @@ import { logger } from '../lib/logger.js';
 import { COMMUNITY_GOV_REDIS_KEYS, type FeedCommunity } from './community-registry.js';
 
 const SNAPSHOT_TTL_SECONDS = 300;
-const FEED_LAST_KNOWN_GOOD_KEY = 'feed:last_known_good';
-const FEED_LAST_KNOWN_GOOD_FALLBACK_TOTAL_KEY = 'feed:last_known_good_fallback_total';
 export const CURRENT_FEED_SNAPSHOT_KEY = COMMUNITY_GOV_REDIS_KEYS.currentSnapshot;
 const CURRENT_FEED_GENERATION_KEY = COMMUNITY_GOV_REDIS_KEYS.snapshotGeneration;
 const SNAPSHOT_KEY_PREFIX = COMMUNITY_GOV_REDIS_KEYS.snapshotPrefix;
@@ -52,8 +50,8 @@ interface FeedSnapshotSpec {
 
 const CURRENT_FEED_SNAPSHOT_SPEC: FeedSnapshotSpec = {
   sortedSetKey: COMMUNITY_GOV_REDIS_KEYS.current,
-  fallbackSortedSetKey: FEED_LAST_KNOWN_GOOD_KEY,
-  fallbackMetricKey: FEED_LAST_KNOWN_GOOD_FALLBACK_TOTAL_KEY,
+  fallbackSortedSetKey: COMMUNITY_GOV_REDIS_KEYS.lastKnownGood,
+  fallbackMetricKey: COMMUNITY_GOV_REDIS_KEYS.lastKnownGoodFallbackTotal,
   currentSnapshotKey: CURRENT_FEED_SNAPSHOT_KEY,
   generationKey: CURRENT_FEED_GENERATION_KEY,
   snapshotKeyPrefix: SNAPSHOT_KEY_PREFIX,
@@ -343,11 +341,10 @@ async function getFeedSnapshotByIdForSpec(
 }
 
 function feedSnapshotSpecForCommunity(community: FeedCommunity): FeedSnapshotSpec {
-  const isProductionCommunity = community.communityId === 'community-gov';
   return {
     sortedSetKey: community.redis.current,
-    fallbackSortedSetKey: isProductionCommunity ? FEED_LAST_KNOWN_GOOD_KEY : null,
-    fallbackMetricKey: isProductionCommunity ? FEED_LAST_KNOWN_GOOD_FALLBACK_TOTAL_KEY : null,
+    fallbackSortedSetKey: community.redis.lastKnownGood,
+    fallbackMetricKey: community.redis.lastKnownGoodFallbackTotal,
     currentSnapshotKey: community.redis.currentSnapshot,
     generationKey: community.redis.snapshotGeneration,
     snapshotKeyPrefix: community.redis.snapshotPrefix,
@@ -408,8 +405,8 @@ export async function invalidateCommunityFeedSnapshot(community: FeedCommunity):
 
 export const __snapshotCacheKeysForTests = {
   currentFeedKey: COMMUNITY_GOV_REDIS_KEYS.current,
-  lastKnownGoodFeedKey: FEED_LAST_KNOWN_GOOD_KEY,
-  lastKnownGoodFallbackTotalKey: FEED_LAST_KNOWN_GOOD_FALLBACK_TOTAL_KEY,
+  lastKnownGoodFeedKey: COMMUNITY_GOV_REDIS_KEYS.lastKnownGood,
+  lastKnownGoodFallbackTotalKey: COMMUNITY_GOV_REDIS_KEYS.lastKnownGoodFallbackTotal,
   currentSnapshotKey: CURRENT_FEED_SNAPSHOT_KEY,
   currentGenerationKey: CURRENT_FEED_GENERATION_KEY,
   snapshotKeyPrefix: SNAPSHOT_KEY_PREFIX,

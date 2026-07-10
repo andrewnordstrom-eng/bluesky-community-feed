@@ -44,6 +44,8 @@ export interface FeedCommunityTerms {
 
 export interface FeedCommunityRedisKeys {
   current: string;
+  lastKnownGood: string | null;
+  lastKnownGoodFallbackTotal: string | null;
   epoch: string;
   health: string;
   currentSnapshot: string;
@@ -66,6 +68,8 @@ export interface FeedCommunity {
 
 export const COMMUNITY_GOV_REDIS_KEYS: FeedCommunityRedisKeys = {
   current: 'feed:current',
+  lastKnownGood: 'feed:last_known_good',
+  lastKnownGoodFallbackTotal: 'feed:last_known_good_fallback_total',
   epoch: 'feed:epoch',
   health: 'feed:health',
   currentSnapshot: 'feed:current_snapshot_id',
@@ -77,6 +81,8 @@ export const BIRDERS_REDIS_PREFIX = 'feed:community:birders_who_code';
 
 export const BIRDERS_REDIS_KEYS: FeedCommunityRedisKeys = {
   current: `${BIRDERS_REDIS_PREFIX}:current`,
+  lastKnownGood: null,
+  lastKnownGoodFallbackTotal: null,
   epoch: `${BIRDERS_REDIS_PREFIX}:epoch`,
   health: `${BIRDERS_REDIS_PREFIX}:health`,
   currentSnapshot: `${BIRDERS_REDIS_PREFIX}:current_snapshot_id`,
