@@ -68,6 +68,7 @@ vi.mock('../src/lib/logger.js', () => ({
 
 
 import { runScoringPipeline, getLastScoringRunAt, __resetPipelineState } from '../src/scoring/pipeline.js';
+import { config } from '../src/config.js';
 import { buildEpochRow, buildPostRow } from './helpers/index.js';
 
 function makeEpochRow(id = 2) {
@@ -278,46 +279,32 @@ describe('incremental scoring pipeline', () => {
     );
     expect(writeCall).toBeDefined();
 
-    // Redis should have the post from DB, not just from the in-memory scored array
-    expect(pipelineZaddMock).toHaveBeenCalledWith(
-      expect.stringMatching(/^feed:staging:current:/),
-      0.5,
-      postRow.uri
+    const currentZaddCall = pipelineZaddMock.mock.calls.find(
+      (call: unknown[]) => String(call[0]).startsWith('feed:staging:current:')
     );
-    expect(pipelineZaddMock).toHaveBeenCalledWith(
-      expect.stringMatching(/^feed:staging:last_known_good:/),
-      0.5,
-      postRow.uri
+    expect(currentZaddCall).toBeDefined();
+    const stagedCurrentKey = String(currentZaddCall?.[0]);
+    const runId = stagedCurrentKey.slice('feed:staging:current:'.length);
+    expect(runId).not.toBe('');
+    const stagedLastKnownGoodKey = `feed:staging:last_known_good:${runId}`;
+    const stagedMetadataKeys = Array.from(
+      { length: 7 },
+      (_value, index) => `feed:staging:metadata:${runId}:${index}`
     );
+    const stagedKeys = [stagedCurrentKey, stagedLastKnownGoodKey, ...stagedMetadataKeys];
+
+    // Redis should have the post from DB, not just from the in-memory scored array.
+    expect(pipelineZaddMock).toHaveBeenCalledWith(stagedCurrentKey, 0.5, postRow.uri);
+    expect(pipelineZaddMock).toHaveBeenCalledWith(stagedLastKnownGoodKey, 0.5, postRow.uri);
     expect(pipelineExpireMock).toHaveBeenCalledTimes(9);
-    const stagedExpiryCalls = pipelineExpireMock.mock.calls as Array<[string, number]>;
-    expect(new Set(stagedExpiryCalls.map(([key]) => key)).size).toBe(9);
-    expect(stagedExpiryCalls.every(([, ttlSeconds]) => ttlSeconds === 480)).toBe(true);
-    expect(stagedExpiryCalls.map(([key]) => key)).toEqual(
-      expect.arrayContaining([
-        expect.stringMatching(/^feed:staging:current:/),
-        expect.stringMatching(/^feed:staging:last_known_good:/),
-        expect.stringMatching(/^feed:staging:metadata:.*:0$/),
-        expect.stringMatching(/^feed:staging:metadata:.*:1$/),
-        expect.stringMatching(/^feed:staging:metadata:.*:2$/),
-        expect.stringMatching(/^feed:staging:metadata:.*:3$/),
-        expect.stringMatching(/^feed:staging:metadata:.*:4$/),
-        expect.stringMatching(/^feed:staging:metadata:.*:5$/),
-        expect.stringMatching(/^feed:staging:metadata:.*:6$/),
-      ])
+    const expectedStagingTtlSeconds = Math.ceil((config.SCORING_TIMEOUT_MS * 2) / 1000);
+    expect(pipelineExpireMock.mock.calls).toEqual(
+      stagedKeys.map((key) => [key, expectedStagingTtlSeconds])
     );
     expect(redisEvalMock).toHaveBeenCalledWith(
       expect.any(String),
       18,
-      expect.stringMatching(/^feed:staging:current:/),
-      expect.stringMatching(/^feed:staging:last_known_good:/),
-      expect.stringMatching(/^feed:staging:metadata:.*:0$/),
-      expect.stringMatching(/^feed:staging:metadata:.*:1$/),
-      expect.stringMatching(/^feed:staging:metadata:.*:2$/),
-      expect.stringMatching(/^feed:staging:metadata:.*:3$/),
-      expect.stringMatching(/^feed:staging:metadata:.*:4$/),
-      expect.stringMatching(/^feed:staging:metadata:.*:5$/),
-      expect.stringMatching(/^feed:staging:metadata:.*:6$/),
+      ...stagedKeys,
       'feed:current',
       'feed:last_known_good',
       'feed:epoch',

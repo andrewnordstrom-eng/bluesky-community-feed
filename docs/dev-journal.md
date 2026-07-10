@@ -1405,7 +1405,7 @@ PROJ-1433 requires every metric used in the paper or site to have a receipt and 
 ## 2026-07-09 #01 — PROJ-1467 current-main reliability refresh
 
 **Branch:** `dev/PROJ-1467-last-known-good-feed-fallback-refresh`
-**Commits:** `a3222b3`; hosted-review follow-up included in this branch
+**Commits:** `a3222b3`, `58e2458`, `c438fae`, plus the current hosted-review fix
 **Files changed:** scoring publication, shared feed snapshot cache, focused scoring/cache tests, and the dated lab note.
 
 ### What changed
@@ -1424,14 +1424,15 @@ PROJ-1433 requires every metric used in the paper or site to have a receipt and 
 
 - `npm ci --ignore-scripts`: 531 packages installed, 0 vulnerabilities.
 - `npm run build`: pass.
-- Focused reliability slice: 8 files / 91 tests passed.
+- Focused reliability slice: 8 files / 92 tests passed.
 - Exact publish Lua script against local Redis: 9 staged keys promoted; missing-source preflight rejected without mutating destination state.
-- Full `npm run verify` with `.env.example` and `NODE_ENV=production`: pass; 109 files / 1,024 tests, CLI build, SDK build/fixture, legacy web lint/build, and `web-next` static export all passed.
+- Full `npm run verify` with `.env.example` and `NODE_ENV=production`: pass; 109 files / 1,025 tests, CLI build, SDK build/fixture, legacy web lint/build, and `web-next` static export all passed.
 - First CodeRabbit local review: 2 major, 4 minor, 2 trivial findings; all addressed.
 - Second CodeRabbit local review: 0 major, 1 minor, 3 trivial findings; all addressed.
 - Third CodeRabbit local review: 0 major, 0 minor, 4 trivial test-polish findings; all addressed.
 - First hosted CodeRabbit review on PR #329: 0 major, 2 minor, 4 trivial findings; all addressed in the follow-up diff.
 - Local review of the hosted follow-up: 0 major, 1 minor, 2 trivial findings; all addressed before push.
+- Hosted current-head review on PR #329: 7 actionable findings; all addressed by correcting the publication-consistency claim, documenting best-effort fallback telemetry, and strengthening exact Redis transaction, TTL, and malformed-`ZADD` regressions.
 - `git diff --check`: pass.
 
 ### Boundaries

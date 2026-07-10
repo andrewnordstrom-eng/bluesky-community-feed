@@ -114,6 +114,7 @@ function getZaddCalls(): Array<{ score: number; member: string }> {
   return pipelineZaddMock.mock.calls
     .filter((call: unknown[]) => String(call[0]).startsWith('feed:staging:current:'))
     .flatMap((call: unknown[]) => {
+      expect(call.length).toBeGreaterThanOrEqual(3);
       expect((call.length - 1) % 2).toBe(0);
       const entries: Array<{ score: number; member: string }> = [];
       for (let index = 1; index < call.length; index += 2) {
@@ -153,6 +154,12 @@ describe('URL deduplication in writeToRedisFromDb', () => {
 
   it('rejects a malformed staged ZADD command', () => {
     pipelineZaddMock('feed:staging:current:test-run', 0.9);
+
+    expect(() => getZaddCalls()).toThrow();
+  });
+
+  it('rejects a staged ZADD with no score-member pairs', () => {
+    pipelineZaddMock('feed:staging:current:test-run');
 
     expect(() => getZaddCalls()).toThrow();
   });

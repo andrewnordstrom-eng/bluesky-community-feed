@@ -1147,7 +1147,6 @@ async function writeToRedisFromDb(epochId: number, runId: string): Promise<FeedP
     topPosts = feedCandidates;
   }
 
-  const feedStatsSnapshot = buildCurrentFeedStatsSnapshot(topPosts);
   if (topPosts.length === 0) {
     const emptyResultAt = new Date().toISOString();
     logger.warn(
@@ -1157,6 +1156,8 @@ async function writeToRedisFromDb(epochId: number, runId: string): Promise<FeedP
     recordEmptyFeedPublishTelemetry(epochId, runId, emptyResultAt);
     return { published: false, feedStatsSnapshot: null };
   }
+
+  const feedStatsSnapshot = buildCurrentFeedStatsSnapshot(topPosts);
 
   const stagedCurrentKey = `${FEED_STAGED_CURRENT_PREFIX}${runId}`;
   const stagedLastKnownGoodKey = `${FEED_STAGED_LAST_KNOWN_GOOD_PREFIX}${runId}`;

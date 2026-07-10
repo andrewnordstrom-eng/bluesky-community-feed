@@ -73,6 +73,7 @@ vi.mock('../src/lib/logger.js', () => ({
 }));
 
 import { runScoringPipeline, __resetPipelineState } from '../src/scoring/pipeline.js';
+import { config } from '../src/config.js';
 
 function makeEpochRow() {
   return {
@@ -131,7 +132,9 @@ describe('scoring pipeline empty-feed Redis updates', () => {
       expire: pipelineExpireMock.mockReturnThis(),
       zadd: pipelineZaddMock.mockReturnThis(),
       set: pipelineSetMock.mockReturnThis(),
-      exec: pipelineExecMock.mockResolvedValue([]),
+      exec: pipelineExecMock.mockResolvedValue(
+        Array.from({ length: 19 }, () => [null, 'OK'] as [null, string])
+      ),
     };
     redisPipelineFactoryMock.mockReturnValue(pipeline);
   });
@@ -319,9 +322,10 @@ describe('scoring pipeline empty-feed Redis updates', () => {
       0.8,
       'at://did:plc:test/post/1'
     );
+    const expectedStagingTtlSeconds = Math.ceil((config.SCORING_TIMEOUT_MS * 2) / 1000);
     expect(pipelineExpireMock).toHaveBeenCalledWith(
       expect.stringMatching(/^feed:staging:current:/),
-      480
+      expectedStagingTtlSeconds
     );
     expect(pipelineSetMock).toHaveBeenCalledWith(
       expect.stringMatching(/^feed:staging:metadata:.*:3$/),
