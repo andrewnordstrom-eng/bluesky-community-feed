@@ -1401,3 +1401,37 @@ PROJ-1433 requires every metric used in the paper or site to have a receipt and 
 - Removed hard Sybil-resistance wording from refreshed paper/site claims. Current safe wording is simulation/mechanism evidence only, and the metrics packet preserves the PROJ-1551 warning that synthetic voter populations do not prove real electorate behavior, Sybil resistance, personhood, or abuse resistance.
 - Kept the `web-next` type fixes scoped to validation blockers discovered during PROJ-1433; no visual behavior was intentionally changed in those two helper components.
 - Redacted the example production post's raw handle, post text, DID, and source URI from the public metrics packet and UI fixtures; public site and paper copy now use anonymized receipt labels while preserving the numeric proof.
+
+## 2026-07-09 #01 — PROJ-1467 current-main reliability refresh
+
+**Branch:** `dev/PROJ-1467-last-known-good-feed-fallback-refresh`
+**Commits:** pending explicit approval
+**Files changed:** scoring publication, shared feed snapshot cache, focused scoring/cache tests, and the dated lab note.
+
+### What changed
+
+- Ported the uncommitted last-known-good work onto current `origin/main` rather than merging the stale 18-commit-behind branch.
+- Preserved the new shared snapshot-cache architecture: fallback selection occurs during snapshot creation, not inside the feed route.
+- Made zero-row scoring non-destructive and observable.
+- Staged non-empty publication to current and last-known-good sorted sets, then atomically promoted both sets and seven metadata keys with a preflighted Lua script.
+- Made snapshot loads single-flight, kept fallback telemetry off the response critical path, and counted fallback only after successful snapshot publication.
+- Prevented a skipped empty publication from recording a false zero-valued `current_feed` metrics row.
+- Added cleanup, concurrency, retry, bounded-read, and failure regressions without touching Claude's active UI worktree or product components.
+
+### Measurements
+
+- `npm ci --ignore-scripts`: 531 packages installed, 0 vulnerabilities.
+- `npm run build`: pass.
+- Focused reliability slice: 8 files / 85 tests passed.
+- Exact publish Lua script against local Redis: 9 staged keys promoted; missing-source preflight rejected without mutating destination state.
+- Full `npm run verify` with `.env.example` and `NODE_ENV=production`: pass; 109 files / 1,018 tests, CLI build, SDK build/fixture, legacy web lint/build, and `web-next` static export all passed.
+- First CodeRabbit local review: 2 major, 4 minor, 2 trivial findings; all addressed.
+- Second CodeRabbit local review: 0 major, 1 minor, 3 trivial findings; all addressed.
+- Third CodeRabbit local review: 0 major, 0 minor, 4 trivial test-polish findings; all addressed.
+- `git diff --check`: pass.
+
+### Boundaries
+
+- No commit, PR, merge, deploy, production rescore, production Redis mutation, or browser/UI change was made in this entry.
+- The local Redis receipt used uniquely prefixed temporary keys and deleted them in a `finally` block.
+- A hosted CodeRabbit request remains gated on an approved commit and PR; the repo wrapper will be used after a PR number exists.

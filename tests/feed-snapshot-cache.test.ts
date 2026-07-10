@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { redisMock } = vi.hoisted(() => ({
+const { loggerWarnMock, redisMock } = vi.hoisted(() => ({
+  loggerWarnMock: vi.fn(),
   redisMock: {
     get: vi.fn(),
     zrevrange: vi.fn(),
     eval: vi.fn(),
     del: vi.fn(),
+    incr: vi.fn(),
     pttl: vi.fn(),
   },
 }));
@@ -14,6 +16,13 @@ vi.mock('../src/db/redis.js', () => ({
   redis: redisMock,
 }));
 
+vi.mock('../src/lib/logger.js', () => ({
+  logger: {
+    warn: loggerWarnMock,
+  },
+}));
+
+import { config } from '../src/config.js';
 import {
   FEED_SNAPSHOT_BY_ID_MEMORY_CACHE_MAX_ENTRIES,
   __snapshotCacheKeysForTests,
@@ -85,6 +94,7 @@ describe('feed snapshot cache', () => {
     vi.clearAllMocks();
     clearCurrentFeedSnapshotMemoryCache();
     redisMock.pttl.mockResolvedValue(300_000);
+    redisMock.incr.mockResolvedValue(1);
   });
 
   afterEach(() => {
@@ -101,6 +111,187 @@ describe('feed snapshot cache', () => {
     expect(snapshot?.uris).toEqual(['at://did:plc:test/app.bsky.feed.post/1']);
     expect(redisMock.zrevrange).toHaveBeenCalledTimes(2);
     expect(redisMock.eval).toHaveBeenCalledTimes(2);
+  });
+
+  it('limits snapshot reads to the configured feed maximum', async () => {
+    const rankedUris = Array.from(
+      { length: config.FEED_MAX_POSTS + 10 },
+      (_value, index) => `at://did:plc:test/app.bsky.feed.post/${index}`
+    );
+    redisMock.get.mockResolvedValue(null);
+    redisMock.zrevrange.mockImplementation(
+      (_key: string, start: number, stop: number) => Promise.resolve(rankedUris.slice(start, stop + 1))
+    );
+    redisMock.eval.mockResolvedValue(1);
+
+    const snapshot = await getCurrentFeedSnapshot();
+
+    expect(snapshot?.uris).toHaveLength(config.FEED_MAX_POSTS);
+    expect(snapshot?.uris.at(-1)).toBe(
+      `at://did:plc:test/app.bsky.feed.post/${config.FEED_MAX_POSTS - 1}`
+    );
+  });
+
+  it('creates the current snapshot from last-known-good when the live feed is empty', async () => {
+    const fallbackUris = ['at://did:plc:test/app.bsky.feed.post/fallback'];
+    redisMock.get.mockResolvedValue(null);
+    redisMock.zrevrange.mockImplementation((key: string) => {
+      if (key === __snapshotCacheKeysForTests.currentFeedKey) {
+        return Promise.resolve([]);
+      }
+      if (key === __snapshotCacheKeysForTests.lastKnownGoodFeedKey) {
+        return Promise.resolve(fallbackUris);
+      }
+      throw new Error(`Unexpected sorted-set key: ${key}`);
+    });
+    redisMock.eval.mockResolvedValue(1);
+
+    const snapshot = await getCurrentFeedSnapshot();
+
+    expect(snapshot?.uris).toEqual(fallbackUris);
+    expect(redisMock.zrevrange).toHaveBeenNthCalledWith(
+      1,
+      __snapshotCacheKeysForTests.currentFeedKey,
+      0,
+      config.FEED_MAX_POSTS - 1
+    );
+    expect(redisMock.zrevrange).toHaveBeenNthCalledWith(
+      2,
+      __snapshotCacheKeysForTests.lastKnownGoodFeedKey,
+      0,
+      config.FEED_MAX_POSTS - 1
+    );
+    expect(redisMock.incr).toHaveBeenCalledWith(
+      __snapshotCacheKeysForTests.lastKnownGoodFallbackTotalKey
+    );
+    expect(redisMock.eval).toHaveBeenCalledWith(
+      expect.stringContaining('SETEX'),
+      3,
+      __snapshotCacheKeysForTests.currentGenerationKey,
+      __snapshotCacheKeysForTests.currentSnapshotKey,
+      expect.stringMatching(/^snapshot:/),
+      '0',
+      expect.any(String),
+      '300',
+      JSON.stringify(fallbackUris)
+    );
+  });
+
+  it('serves last-known-good without waiting for fallback metric recording', async () => {
+    const fallbackUris = ['at://did:plc:test/app.bsky.feed.post/fallback'];
+    redisMock.get.mockResolvedValue(null);
+    redisMock.zrevrange
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(fallbackUris);
+    redisMock.incr.mockReturnValueOnce(new Promise(() => undefined));
+    redisMock.eval.mockResolvedValue(1);
+
+    await expect(getCurrentFeedSnapshot()).resolves.toMatchObject({ uris: fallbackUris });
+  });
+
+  it('still serves last-known-good when fallback metric recording rejects', async () => {
+    const fallbackUris = ['at://did:plc:test/app.bsky.feed.post/fallback'];
+    redisMock.get.mockResolvedValue(null);
+    redisMock.zrevrange
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(fallbackUris);
+    redisMock.incr.mockRejectedValueOnce(new Error('metric unavailable'));
+    redisMock.eval.mockResolvedValue(1);
+
+    await expect(getCurrentFeedSnapshot()).resolves.toMatchObject({ uris: fallbackUris });
+    await vi.waitFor(() => {
+      expect(loggerWarnMock).toHaveBeenCalledWith(
+        { error: expect.objectContaining({ message: 'metric unavailable' }) },
+        'Failed to record last-known-good feed fallback metric'
+      );
+    });
+  });
+
+  it('shares one fallback publication across concurrent callers', async () => {
+    const fallbackUris = ['at://did:plc:test/app.bsky.feed.post/fallback'];
+    redisMock.get.mockResolvedValue(null);
+    redisMock.zrevrange.mockImplementation((key: string) => {
+      if (key === __snapshotCacheKeysForTests.currentFeedKey) {
+        return Promise.resolve([]);
+      }
+      if (key === __snapshotCacheKeysForTests.lastKnownGoodFeedKey) {
+        return Promise.resolve(fallbackUris);
+      }
+      throw new Error(`Unexpected sorted-set key: ${key}`);
+    });
+    redisMock.eval.mockResolvedValue(1);
+
+    const [first, second] = await Promise.all([
+      getCurrentFeedSnapshot(),
+      getCurrentFeedSnapshot(),
+    ]);
+
+    expect(first).toEqual(second);
+    expect(redisMock.zrevrange).toHaveBeenCalledTimes(2);
+    expect(redisMock.incr).toHaveBeenCalledTimes(1);
+    expect(redisMock.eval).toHaveBeenCalledTimes(1);
+  });
+
+  it('counts fallback only after a generation-conflict retry publishes', async () => {
+    const fallbackUris = ['at://did:plc:test/app.bsky.feed.post/fallback'];
+    redisMock.get.mockResolvedValue(null);
+    redisMock.zrevrange.mockImplementation((key: string) => {
+      if (key === __snapshotCacheKeysForTests.currentFeedKey) {
+        return Promise.resolve([]);
+      }
+      if (key === __snapshotCacheKeysForTests.lastKnownGoodFeedKey) {
+        return Promise.resolve(fallbackUris);
+      }
+      throw new Error(`Unexpected sorted-set key: ${key}`);
+    });
+    redisMock.eval.mockResolvedValueOnce(0).mockResolvedValueOnce(1);
+
+    await expect(getCurrentFeedSnapshot()).resolves.toMatchObject({ uris: fallbackUris });
+
+    expect(redisMock.eval).toHaveBeenCalledTimes(2);
+    expect(redisMock.incr).toHaveBeenCalledTimes(1);
+  });
+
+  it('propagates current feed read failures before fallback side effects', async () => {
+    redisMock.get.mockResolvedValue(null);
+    redisMock.zrevrange.mockRejectedValueOnce(new Error('current feed read failed'));
+
+    await expect(getCurrentFeedSnapshot()).rejects.toThrow('current feed read failed');
+    expect(redisMock.incr).not.toHaveBeenCalled();
+    expect(redisMock.eval).not.toHaveBeenCalled();
+  });
+
+  it('propagates fallback feed read failures before fallback side effects', async () => {
+    redisMock.get.mockResolvedValue(null);
+    redisMock.zrevrange
+      .mockResolvedValueOnce([])
+      .mockRejectedValueOnce(new Error('fallback feed read failed'));
+
+    await expect(getCurrentFeedSnapshot()).rejects.toThrow('fallback feed read failed');
+    expect(redisMock.incr).not.toHaveBeenCalled();
+    expect(redisMock.eval).not.toHaveBeenCalled();
+  });
+
+  it('allows a successful retry after a feed read failure', async () => {
+    const rankedUris = ['at://did:plc:test/app.bsky.feed.post/recovered'];
+    redisMock.get.mockResolvedValue(null);
+    redisMock.zrevrange.mockRejectedValueOnce(new Error('current feed read failed'));
+
+    await expect(getCurrentFeedSnapshot()).rejects.toThrow('current feed read failed');
+
+    redisMock.zrevrange.mockResolvedValueOnce(rankedUris);
+    redisMock.eval.mockResolvedValueOnce(1);
+    await expect(getCurrentFeedSnapshot()).resolves.toMatchObject({ uris: rankedUris });
+  });
+
+  it('returns null when both current and last-known-good feeds are empty', async () => {
+    redisMock.get.mockResolvedValue(null);
+    redisMock.zrevrange.mockResolvedValue([]);
+
+    await expect(getCurrentFeedSnapshot()).resolves.toBeNull();
+    expect(redisMock.zrevrange).toHaveBeenCalledTimes(2);
+    expect(redisMock.incr).not.toHaveBeenCalled();
+    expect(redisMock.eval).not.toHaveBeenCalled();
   });
 
   it('serves a current memory-cache hit only while the generation matches', async () => {

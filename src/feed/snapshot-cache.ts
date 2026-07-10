@@ -1,8 +1,12 @@
 import { randomUUID } from 'crypto';
 import { config } from '../config.js';
 import { redis } from '../db/redis.js';
+import { logger } from '../lib/logger.js';
 
 const SNAPSHOT_TTL_SECONDS = 300;
+const FEED_CURRENT_KEY = 'feed:current';
+const FEED_LAST_KNOWN_GOOD_KEY = 'feed:last_known_good';
+const FEED_LAST_KNOWN_GOOD_FALLBACK_TOTAL_KEY = 'feed:last_known_good_fallback_total';
 export const CURRENT_FEED_SNAPSHOT_KEY = 'feed:current_snapshot_id';
 const CURRENT_FEED_GENERATION_KEY = 'feed:current_snapshot_generation';
 const SNAPSHOT_KEY_PREFIX = 'snapshot:';
@@ -196,9 +200,23 @@ async function readCurrentSnapshotFromRedis(): Promise<FeedSnapshot | null> {
 async function createCurrentSnapshot(): Promise<FeedSnapshot | null> {
   for (let attempt = 0; attempt < 2; attempt++) {
     const generation = await readCurrentGeneration();
-    const rankedUris = await redis.zrevrange('feed:current', 0, config.FEED_MAX_POSTS - 1);
+    let usedLastKnownGood = false;
+    let rankedUris = await redis.zrevrange(FEED_CURRENT_KEY, 0, config.FEED_MAX_POSTS - 1);
     if (rankedUris.length === 0) {
-      return null;
+      rankedUris = await redis.zrevrange(
+        FEED_LAST_KNOWN_GOOD_KEY,
+        0,
+        config.FEED_MAX_POSTS - 1
+      );
+      if (rankedUris.length === 0) {
+        return null;
+      }
+      usedLastKnownGood = true;
+
+      logger.warn(
+        { fallbackCount: rankedUris.length },
+        'Current feed is empty; creating snapshot from last-known-good feed'
+      );
     }
 
     const snapshot: FeedSnapshot = {
@@ -218,6 +236,11 @@ async function createCurrentSnapshot(): Promise<FeedSnapshot | null> {
       serializedSnapshot
     );
     if (published === 1) {
+      if (usedLastKnownGood) {
+        void redis.incr(FEED_LAST_KNOWN_GOOD_FALLBACK_TOTAL_KEY).catch((error) => {
+          logger.warn({ error }, 'Failed to record last-known-good feed fallback metric');
+        });
+      }
       return await writeCurrentMemorySnapshot(snapshot, generation);
     }
 
@@ -230,7 +253,7 @@ async function createCurrentSnapshot(): Promise<FeedSnapshot | null> {
   return null;
 }
 
-export async function getCurrentFeedSnapshot(): Promise<FeedSnapshot | null> {
+async function loadCurrentFeedSnapshot(): Promise<FeedSnapshot | null> {
   const memorySnapshot = await readCurrentMemorySnapshot();
   if (memorySnapshot !== null) {
     return memorySnapshot;
@@ -241,15 +264,22 @@ export async function getCurrentFeedSnapshot(): Promise<FeedSnapshot | null> {
     return redisSnapshot;
   }
 
+  return await createCurrentSnapshot();
+}
+
+export async function getCurrentFeedSnapshot(): Promise<FeedSnapshot | null> {
   if (currentSnapshotPromise !== null) {
     return currentSnapshotPromise;
   }
 
-  currentSnapshotPromise = createCurrentSnapshot();
+  const snapshotPromise = loadCurrentFeedSnapshot();
+  currentSnapshotPromise = snapshotPromise;
   try {
-    return await currentSnapshotPromise;
+    return await snapshotPromise;
   } finally {
-    currentSnapshotPromise = null;
+    if (currentSnapshotPromise === snapshotPromise) {
+      currentSnapshotPromise = null;
+    }
   }
 }
 
@@ -297,6 +327,9 @@ export async function invalidateCurrentFeedSnapshot(): Promise<void> {
 }
 
 export const __snapshotCacheKeysForTests = {
+  currentFeedKey: FEED_CURRENT_KEY,
+  lastKnownGoodFeedKey: FEED_LAST_KNOWN_GOOD_KEY,
+  lastKnownGoodFallbackTotalKey: FEED_LAST_KNOWN_GOOD_FALLBACK_TOTAL_KEY,
   currentSnapshotKey: CURRENT_FEED_SNAPSHOT_KEY,
   currentGenerationKey: CURRENT_FEED_GENERATION_KEY,
   snapshotKeyPrefix: SNAPSHOT_KEY_PREFIX,

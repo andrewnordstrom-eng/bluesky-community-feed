@@ -39,7 +39,9 @@ vi.mock('../src/db/client.js', () => ({
 vi.mock('../src/db/redis.js', () => ({
   redis: {
     pipeline: redisPipelineFactoryMock,
+    multi: redisPipelineFactoryMock,
     incr: vi.fn().mockResolvedValue(1),
+    set: vi.fn().mockResolvedValue('OK'),
     del: vi.fn().mockResolvedValue(1),
     eval: vi.fn().mockResolvedValue(1),
   },
@@ -66,6 +68,7 @@ function makeEpochRow(id = 2) {
 function setupDefaultMocks() {
   const pipeline = {
     del: pipelineDelMock.mockReturnThis(),
+    expire: vi.fn().mockReturnThis(),
     zadd: pipelineZaddMock.mockReturnThis(),
     set: pipelineSetMock.mockReturnThis(),
     exec: pipelineExecMock.mockResolvedValue([]),
@@ -108,12 +111,18 @@ async function runWithFeedRows(
 
 /** Extract zadd calls as an array of { score, member } objects. */
 function getZaddCalls(): Array<{ score: number; member: string }> {
-  return pipelineZaddMock.mock.calls.map(
-    (call: [string, number, string]) => ({
-      score: call[1],
-      member: call[2],
-    })
-  );
+  return pipelineZaddMock.mock.calls
+    .filter((call: unknown[]) => String(call[0]).startsWith('feed:staging:current:'))
+    .flatMap((call: unknown[]) => {
+      const entries: Array<{ score: number; member: string }> = [];
+      for (let index = 1; index < call.length; index += 2) {
+        entries.push({
+          score: Number(call[index]),
+          member: String(call[index + 1]),
+        });
+      }
+      return entries;
+    });
 }
 
 describe('URL deduplication in writeToRedisFromDb', () => {
