@@ -1,0 +1,767 @@
+import { describe, expect, it, vi } from 'vitest';
+import swagger from '@fastify/swagger';
+import { ShadowDemoService } from '../src/demo/service.js';
+import { MemoryDemoStore } from '../src/demo/store.js';
+import { registerShadowDemoRoutes } from '../src/demo/routes.js';
+import type {
+  ShadowDemoCorpus,
+  ShadowDemoEnvelope,
+  ShadowDemoSessionPayload,
+} from '../src/demo/types.js';
+import {
+  SHADOW_DEMO_GUIDED_EPOCHS,
+  SHADOW_DEMO_MAX_EPOCHS_PER_SESSION,
+  SHADOW_DEMO_SYNTHETIC_VOTER_COUNT,
+  SHADOW_DEMO_TOTAL_DEMO_VOTERS,
+} from '../src/demo/types.js';
+import { buildTestApp } from './helpers/index.js';
+
+const NOW = new Date('2026-07-09T12:00:00.000Z');
+
+describe('shadow demo routes', () => {
+  it('publishes demo endpoints under the Demo OpenAPI tag', async () => {
+    const app = buildTestApp();
+    await app.register(swagger, {
+      openapi: {
+        info: { title: 'Shadow demo test', version: '1.0.0' },
+      },
+    });
+    const service = new ShadowDemoService({
+      store: new MemoryDemoStore(),
+      loadCorpus: async () => demoCorpus(),
+      now: () => NOW,
+    });
+    registerShadowDemoRoutes(app, service);
+    await app.ready();
+
+    const specification = app.swagger() as {
+      paths?: Record<string, { post?: { tags?: string[] }; get?: { tags?: string[] } }>;
+    };
+    expect(specification.paths?.['/api/demo/sessions']?.post?.tags).toContain('Demo');
+    expect(specification.paths?.['/api/demo/sessions/{sessionId}/feed']?.get?.tags).toContain('Demo');
+
+    await app.close();
+  });
+
+  it('runs the reviewer vote, deterministic synthetic voters, epoch advance, feed, and receipt flow', async () => {
+    const app = buildTestApp();
+    const service = new ShadowDemoService({
+      store: new MemoryDemoStore(),
+      loadCorpus: async () => demoCorpus(),
+      now: () => NOW,
+    });
+    registerShadowDemoRoutes(app, service);
+
+    const createResponse = await app.inject({
+      method: 'POST',
+      url: '/api/demo/sessions',
+      payload: { communityId: 'open_science_builders' },
+    });
+    expect(createResponse.statusCode).toBe(200);
+    const createBody = createResponse.json() as ShadowDemoEnvelope<ShadowDemoSessionPayload>;
+    const sessionId = createBody.payload.session.sessionId;
+    const firstEpochId = createBody.payload.session.currentEpochId;
+    expect(createBody.payload.session.maxEpochs).toBe(10);
+    expect(createBody.payload.session.guidedEpochs).toBe(SHADOW_DEMO_GUIDED_EPOCHS);
+    expect(createBody.payload.session.syntheticVoterCount).toBe(SHADOW_DEMO_SYNTHETIC_VOTER_COUNT);
+    expect(createBody.payload.session.totalDemoVoters).toBe(SHADOW_DEMO_TOTAL_DEMO_VOTERS);
+    expect(createBody.payload.session.corpusProvenance.description).toContain('frozen for this demo run');
+    expect(createBody.payload.session.voterProfiles.map((profile) => profile.id)).toEqual([
+      'research_practitioner',
+      'dataset_steward',
+      'current_awareness',
+      'community_discussant',
+      'interdisciplinary_connector',
+    ]);
+
+    const initialFeedResponse = await app.inject({
+      method: 'GET',
+      url: `/api/demo/sessions/${sessionId}/feed?limit=3`,
+    });
+    expect(initialFeedResponse.statusCode).toBe(200);
+    expect(initialFeedResponse.json().payload.posts[0].post.uri).toBe('at://did:plc:demo2/app.bsky.feed.post/two');
+
+    const votePayload = {
+      baseEpochId: firstEpochId,
+      idempotencyKey: 'vote-1',
+      weights: {
+        recency: 0,
+        engagement: 0,
+        bridging: 0,
+        source_diversity: 0,
+        relevance: 1,
+      },
+      topicIntent: {
+        topicWeights: {
+          'science-research': 0.9,
+          'data-science': 0.85,
+          'software-development': 0.7,
+          'open-source': 0.8,
+        },
+      },
+    };
+    const voteResponse = await app.inject({
+      method: 'POST',
+      url: `/api/demo/sessions/${sessionId}/votes`,
+      payload: votePayload,
+    });
+    expect(voteResponse.statusCode).toBe(200);
+    expect(voteResponse.json().payload.session.voteCount).toBe(1);
+
+    const repeatedVoteResponse = await app.inject({
+      method: 'POST',
+      url: `/api/demo/sessions/${sessionId}/votes`,
+      payload: votePayload,
+    });
+    expect(repeatedVoteResponse.statusCode).toBe(200);
+    expect(repeatedVoteResponse.json().payload.session.voteCount).toBe(1);
+
+    const conflictingVoteResponse = await app.inject({
+      method: 'POST',
+      url: `/api/demo/sessions/${sessionId}/votes`,
+      payload: {
+        ...votePayload,
+        weights: {
+          recency: 1,
+          engagement: 0,
+          bridging: 0,
+          source_diversity: 0,
+          relevance: 0,
+        },
+      },
+    });
+    expect(conflictingVoteResponse.statusCode).toBe(409);
+
+    const syntheticVotersResponse = await app.inject({
+      method: 'POST',
+      url: `/api/demo/sessions/${sessionId}/agents/run`,
+      payload: {
+        baseEpochId: firstEpochId,
+        idempotencyKey: 'synthetic-voters-1',
+      },
+    });
+    expect(syntheticVotersResponse.statusCode).toBe(200);
+    expect(syntheticVotersResponse.json().payload.session.voteCount).toBe(SHADOW_DEMO_TOTAL_DEMO_VOTERS);
+    expect(syntheticVotersResponse.json().payload.session.votes).toHaveLength(SHADOW_DEMO_TOTAL_DEMO_VOTERS);
+    expect(syntheticVotersResponse.json().payload.session.epochs[0].aggregate).toMatchObject({
+      voteCount: 0,
+      trimCount: 0,
+    });
+    expect(syntheticVotersResponse.json().payload.session.pendingAggregate).toMatchObject({
+      voteCount: SHADOW_DEMO_TOTAL_DEMO_VOTERS,
+      trimCount: 2,
+    });
+
+    const advanceResponse = await app.inject({
+      method: 'POST',
+      url: `/api/demo/sessions/${sessionId}/epochs/advance`,
+      payload: {
+        fromEpochId: firstEpochId,
+        idempotencyKey: 'advance-1',
+      },
+    });
+    expect(advanceResponse.statusCode).toBe(200);
+    const nextEpochId = advanceResponse.json().payload.session.currentEpochId;
+    expect(nextEpochId).not.toBe(firstEpochId);
+
+    const rerankedFeedResponse = await app.inject({
+      method: 'GET',
+      url: `/api/demo/sessions/${sessionId}/feed?epochId=${nextEpochId}&limit=3`,
+    });
+    expect(rerankedFeedResponse.statusCode).toBe(200);
+    const rerankedPosts = rerankedFeedResponse.json().payload.posts;
+    const firstPost = rerankedPosts[0];
+    expect(firstPost.post.kind).toBe('public_post');
+    expect(firstPost.previousRank).toBeTypeOf('number');
+    expect(rerankedPosts.some((post: { movement: number | null }) => post.movement !== null && post.movement !== 0)).toBe(true);
+
+    const receiptResponse = await app.inject({
+      method: 'GET',
+      url: `/api/demo/sessions/${sessionId}/receipts?epochId=${nextEpochId}&postUri=${encodeURIComponent(firstPost.post.uri)}`,
+    });
+    expect(receiptResponse.statusCode).toBe(200);
+    const receipt = receiptResponse.json().payload.receipt;
+    const contributionSum = receipt.components.reduce(
+      (sum: number, component: { contribution: number }) => sum + component.contribution,
+      0
+    );
+    expect(contributionSum).toBeCloseTo(receipt.score, 5);
+    expect(receipt.counterfactuals.map((entry: { label: string }) => entry.label)).toEqual([
+      'previous_epoch',
+      'engagement_only',
+      'without_reviewer_vote',
+    ]);
+    for (const topic of receipt.topicSignals as Array<{ topic: string }>) {
+      expect(Object.hasOwn(receipt.aggregate.topicIntent.topicWeights, topic.topic)).toBe(true);
+    }
+
+    const staleVoteResponse = await app.inject({
+      method: 'POST',
+      url: `/api/demo/sessions/${sessionId}/votes`,
+      payload: {
+        baseEpochId: firstEpochId,
+        weights: votePayload.weights,
+        topicIntent: votePayload.topicIntent,
+      },
+    });
+    expect(staleVoteResponse.statusCode).toBe(409);
+
+    const outsideReceiptResponse = await app.inject({
+      method: 'GET',
+      url: `/api/demo/sessions/${sessionId}/receipts?postUri=${encodeURIComponent('at://did:plc:nope/app.bsky.feed.post/nope')}`,
+    });
+    expect(outsideReceiptResponse.statusCode).toBe(400);
+
+    await app.close();
+  });
+
+  it('does not expose score math for rows hidden by Bluesky public-view policy', async () => {
+    const app = buildTestApp();
+    const service = new ShadowDemoService({
+      store: new MemoryDemoStore(),
+      loadCorpus: async () => ({
+        ...demoCorpus(),
+        items: [
+          {
+            ...item({
+              index: 4,
+              text: 'Hidden but internally rankable',
+              rawScores: {
+                recency: 1,
+                engagement: 1,
+                bridging: 1,
+                source_diversity: 1,
+                relevance: 1,
+              },
+            }),
+            displayPost: {
+              kind: 'hidden_post',
+              reason: 'Hidden by Bluesky public-view label !hide',
+            },
+          },
+          item({
+            index: 1,
+            text: 'Public comparator',
+            rawScores: {
+              recency: 0.1,
+              engagement: 0.1,
+              bridging: 0.1,
+              source_diversity: 0.1,
+              relevance: 0.1,
+            },
+          }),
+        ],
+      }),
+      now: () => NOW,
+    });
+    registerShadowDemoRoutes(app, service);
+
+    const createResponse = await app.inject({
+      method: 'POST',
+      url: '/api/demo/sessions',
+      payload: { communityId: 'open_science_builders' },
+    });
+    const sessionId = createResponse.json().payload.session.sessionId;
+    const feedResponse = await app.inject({
+      method: 'GET',
+      url: `/api/demo/sessions/${sessionId}/feed?limit=2`,
+    });
+    const hiddenRow = feedResponse.json().payload.posts[0];
+
+    expect(hiddenRow.post).toEqual({
+      kind: 'hidden_post',
+      reason: 'Hidden by Bluesky public-view label !hide',
+    });
+    expect(hiddenRow.score).toBeNull();
+    expect(hiddenRow.rawScores).toBeNull();
+    expect(hiddenRow.weightedComponents).toBeNull();
+
+    await app.close();
+  });
+
+  it('caps a session at ten shadow epochs', async () => {
+    const app = buildTestApp();
+    const service = new ShadowDemoService({
+      store: new MemoryDemoStore(),
+      loadCorpus: async () => demoCorpus(),
+      now: () => NOW,
+    });
+    registerShadowDemoRoutes(app, service);
+
+    const createResponse = await app.inject({
+      method: 'POST',
+      url: '/api/demo/sessions',
+      payload: { communityId: 'open_science_builders' },
+    });
+    const sessionId = createResponse.json().payload.session.sessionId;
+    let currentEpochId = createResponse.json().payload.session.currentEpochId as string;
+
+    for (let sequence = 1; sequence < SHADOW_DEMO_MAX_EPOCHS_PER_SESSION; sequence += 1) {
+      const voteResponse = await app.inject({
+        method: 'POST',
+        url: `/api/demo/sessions/${sessionId}/votes`,
+        payload: {
+          baseEpochId: currentEpochId,
+          idempotencyKey: `vote-${sequence}`,
+          weights: {
+            recency: 0.2,
+            engagement: 0.2,
+            bridging: 0.2,
+            source_diversity: 0.2,
+            relevance: 0.2,
+          },
+          topicIntent: { topicWeights: { 'science-research': 0.8 } },
+        },
+      });
+      expect(voteResponse.statusCode).toBe(200);
+      const votersResponse = await app.inject({
+        method: 'POST',
+        url: `/api/demo/sessions/${sessionId}/agents/run`,
+        payload: {
+          baseEpochId: currentEpochId,
+          idempotencyKey: `voters-${sequence}`,
+        },
+      });
+      expect(votersResponse.statusCode).toBe(200);
+      const advanceResponse = await app.inject({
+        method: 'POST',
+        url: `/api/demo/sessions/${sessionId}/epochs/advance`,
+        payload: {
+          fromEpochId: currentEpochId,
+          idempotencyKey: `advance-${sequence}`,
+        },
+      });
+      expect(advanceResponse.statusCode).toBe(200);
+      currentEpochId = advanceResponse.json().payload.session.currentEpochId as string;
+    }
+
+    const cappedResponse = await app.inject({
+      method: 'POST',
+      url: `/api/demo/sessions/${sessionId}/epochs/advance`,
+      payload: {
+        fromEpochId: currentEpochId,
+        idempotencyKey: 'advance-over-cap',
+      },
+    });
+
+    expect(cappedResponse.statusCode).toBe(409);
+    expect(cappedResponse.json().message).toContain('10 epoch limit');
+
+    await app.close();
+  });
+
+  it('reuses a short-lived shared corpus cache while freezing separate session corpora', async () => {
+    const app = buildTestApp();
+    let loadCount = 0;
+    const service = new ShadowDemoService({
+      store: new MemoryDemoStore(),
+      loadCorpus: async () => {
+        loadCount += 1;
+        return demoCorpus();
+      },
+      now: () => NOW,
+    });
+    registerShadowDemoRoutes(app, service);
+
+    const firstResponse = await app.inject({
+      method: 'POST',
+      url: '/api/demo/sessions',
+      payload: { communityId: 'open_science_builders' },
+    });
+    const secondResponse = await app.inject({
+      method: 'POST',
+      url: '/api/demo/sessions',
+      payload: { communityId: 'open_science_builders' },
+    });
+
+    expect(firstResponse.statusCode).toBe(200);
+    expect(secondResponse.statusCode).toBe(200);
+    expect(loadCount).toBe(1);
+    expect(firstResponse.json().payload.session.sessionId).not.toBe(secondResponse.json().payload.session.sessionId);
+
+    await app.close();
+  });
+
+  it('refreshes the live corpus only by creating a new frozen session boundary', async () => {
+    const app = buildTestApp();
+    let loadCount = 0;
+    const service = new ShadowDemoService({
+      store: new MemoryDemoStore(),
+      loadCorpus: async () => {
+        loadCount += 1;
+        if (loadCount === 1) {
+          return demoCorpus();
+        }
+        return {
+          ...demoCorpus(),
+          items: [
+            item({
+              index: 1,
+              text: 'Refreshed candidate now leads the live-scored snapshot.',
+              rawScores: {
+                recency: 0.9,
+                engagement: 1,
+                bridging: 0.8,
+                source_diversity: 0.8,
+                relevance: 0.9,
+              },
+            }),
+            ...demoCorpus().items.slice(1),
+          ],
+        };
+      },
+      now: () => NOW,
+    });
+    registerShadowDemoRoutes(app, service);
+
+    const firstResponse = await app.inject({
+      method: 'POST',
+      url: '/api/demo/sessions',
+      payload: { communityId: 'open_science_builders' },
+    });
+    const firstSessionId = firstResponse.json().payload.session.sessionId;
+
+    const refreshedResponse = await app.inject({
+      method: 'POST',
+      url: '/api/demo/sessions',
+      payload: { communityId: 'open_science_builders', refreshCorpus: true },
+    });
+    const refreshedSessionId = refreshedResponse.json().payload.session.sessionId;
+
+    const firstFeedResponse = await app.inject({
+      method: 'GET',
+      url: `/api/demo/sessions/${firstSessionId}/feed?limit=1`,
+    });
+    const refreshedFeedResponse = await app.inject({
+      method: 'GET',
+      url: `/api/demo/sessions/${refreshedSessionId}/feed?limit=1`,
+    });
+
+    expect(loadCount).toBe(2);
+    expect(firstFeedResponse.json().payload.posts[0].post.uri).toBe('at://did:plc:demo2/app.bsky.feed.post/two');
+    expect(refreshedFeedResponse.json().payload.posts[0].post.uri).toBe('at://did:plc:demo1/app.bsky.feed.post/one');
+
+    await app.close();
+  });
+
+  it('rejects a refresh immediately when another corpus refresh owns the build lock', async () => {
+    const app = buildTestApp();
+    const store = new MemoryDemoStore();
+    await store.acquireCorpusBuildLock('open_science_builders', 'held-refresh', 15_000);
+    const service = new ShadowDemoService({
+      store,
+      loadCorpus: async () => demoCorpus(),
+      now: () => NOW,
+    });
+    registerShadowDemoRoutes(app, service);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/demo/sessions',
+      payload: { communityId: 'open_science_builders', refreshCorpus: true },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json().message).toContain('refresh is already running');
+    await store.releaseCorpusBuildLock('open_science_builders', 'held-refresh');
+    await app.close();
+  });
+
+  it('waits through a slow shared corpus build instead of creating a false conflict', async () => {
+    vi.useFakeTimers();
+    const store = new MemoryDemoStore();
+    await store.acquireCorpusBuildLock('open_science_builders', 'slow-builder', 15_000);
+    const service = new ShadowDemoService({
+      store,
+      loadCorpus: async () => demoCorpus(),
+      now: () => NOW,
+    });
+
+    try {
+      const sessionPromise = service.createSession({
+        communityId: 'open_science_builders',
+        refreshCorpus: false,
+      });
+      setTimeout(() => {
+        void store.writeSharedCorpus('open_science_builders', demoCorpus(), 300);
+      }, 3_000);
+
+      await vi.advanceTimersByTimeAsync(3_100);
+
+      await expect(sessionPromise).resolves.toMatchObject({
+        payload: {
+          session: {
+            community: { id: 'open_science_builders' },
+          },
+        },
+      });
+    } finally {
+      await store.releaseCorpusBuildLock('open_science_builders', 'slow-builder');
+      vi.useRealTimers();
+    }
+  });
+
+  it('returns one conflict when the corpus build never publishes before its lease expires', async () => {
+    vi.useFakeTimers();
+    const store = new MemoryDemoStore();
+    await store.acquireCorpusBuildLock('open_science_builders', 'stalled-builder', 15_000);
+    const service = new ShadowDemoService({
+      store,
+      loadCorpus: async () => demoCorpus(),
+      now: () => NOW,
+    });
+
+    try {
+      const sessionPromise = service.createSession({
+        communityId: 'open_science_builders',
+        refreshCorpus: false,
+      });
+      const conflict = expect(sessionPromise).rejects.toThrow(/corpus is warming/);
+
+      await vi.advanceTimersByTimeAsync(15_600);
+
+      await conflict;
+    } finally {
+      await store.releaseCorpusBuildLock('open_science_builders', 'stalled-builder');
+      vi.useRealTimers();
+    }
+  });
+
+  it('renews a long corpus-build lease so a second builder cannot take ownership', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    const store = new ExpiringCorpusLockStore();
+    const service = new ShadowDemoService({
+      store,
+      loadCorpus: async () => {
+        for (let batch = 0; batch < 4; batch += 1) {
+          await testDelay(8_000);
+        }
+        return demoCorpus();
+      },
+      now: () => NOW,
+    });
+
+    try {
+      const firstSession = service.createSession({
+        communityId: 'open_science_builders',
+        refreshCorpus: false,
+      });
+      await vi.advanceTimersByTimeAsync(16_000);
+      const secondSession = service.createSession({
+        communityId: 'open_science_builders',
+        refreshCorpus: false,
+      });
+      const secondConflict = expect(secondSession).rejects.toThrow(/corpus is warming/);
+
+      await vi.advanceTimersByTimeAsync(17_000);
+
+      await expect(firstSession).resolves.toMatchObject({ sessionId: expect.stringMatching(/^demo-/) });
+      await secondConflict;
+      expect(store.successfulAcquireCount).toBe(1);
+      expect(store.renewalCount).toBeGreaterThanOrEqual(6);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects malformed header idempotency keys with the same validation as body keys', async () => {
+    const app = buildTestApp();
+    const service = new ShadowDemoService({
+      store: new MemoryDemoStore(),
+      loadCorpus: async () => demoCorpus(),
+      now: () => NOW,
+    });
+    registerShadowDemoRoutes(app, service);
+    const createResponse = await app.inject({
+      method: 'POST',
+      url: '/api/demo/sessions',
+      payload: { communityId: 'open_science_builders' },
+    });
+    const sessionId = createResponse.json().payload.session.sessionId;
+    const epochId = createResponse.json().payload.session.currentEpochId;
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/demo/sessions/${sessionId}/votes`,
+      headers: { 'idempotency-key': 'contains spaces' },
+      payload: {
+        baseEpochId: epochId,
+        weights: {
+          recency: 0.2,
+          engagement: 0.2,
+          bridging: 0.2,
+          source_diversity: 0.2,
+          relevance: 0.2,
+        },
+        topicIntent: { topicWeights: {} },
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().message).toContain('idempotency-key header is malformed');
+    await app.close();
+  });
+});
+
+function demoCorpus(): ShadowDemoCorpus {
+  return {
+    corpusId: 'corpus-test',
+    communityId: 'open_science_builders',
+    baseProductionEpochId: 2,
+    baseWeights: {
+      recency: 0,
+      engagement: 1,
+      bridging: 0,
+      source_diversity: 0,
+      relevance: 0,
+    },
+    baseTopicIntent: {
+      topicWeights: {},
+    },
+    createdAt: NOW.toISOString(),
+    expiresAt: new Date(NOW.getTime() + 90 * 60 * 1000).toISOString(),
+    health: {
+      status: 'live',
+      source: 'production_scores_appview',
+      candidatePosts72h: 3,
+      publicScoredPosts: 3,
+      uniqueAuthors72h: 3,
+      bridgePostShare: 0.333,
+      topAuthorConcentration: 0.333,
+      sampledAt: NOW.toISOString(),
+    },
+    warnings: [],
+    items: [
+      item({
+        index: 1,
+        text: 'Open-source bird-call classifier dataset just dropped.',
+        rawScores: {
+          recency: 0.4,
+          engagement: 0.2,
+          bridging: 0.9,
+          source_diversity: 0.7,
+          relevance: 0.95,
+        },
+      }),
+      item({
+        index: 2,
+        text: 'Programmers will do anything except go outside.',
+        rawScores: {
+          recency: 0.5,
+          engagement: 0.98,
+          bridging: 0.2,
+          source_diversity: 0.2,
+          relevance: 0.35,
+        },
+      }),
+      item({
+        index: 3,
+        text: 'Field notes from a rainy owl survey, plus the messy CSV.',
+        rawScores: {
+          recency: 0.7,
+          engagement: 0.5,
+          bridging: 0.8,
+          source_diversity: 0.8,
+          relevance: 0.82,
+        },
+      }),
+    ],
+  };
+}
+
+class ExpiringCorpusLockStore extends MemoryDemoStore {
+  successfulAcquireCount = 0;
+  renewalCount = 0;
+  private corpusLockOwner: string | null = null;
+  private corpusLockExpiresAt = 0;
+
+  override async acquireCorpusBuildLock(
+    _communityId: 'open_science_builders',
+    token: string,
+    ttlMs: number
+  ): Promise<boolean> {
+    if (this.corpusLockOwner !== null && this.corpusLockExpiresAt > Date.now()) {
+      return false;
+    }
+    this.corpusLockOwner = token;
+    this.corpusLockExpiresAt = Date.now() + ttlMs;
+    this.successfulAcquireCount += 1;
+    return true;
+  }
+
+  override async renewCorpusBuildLock(
+    _communityId: 'open_science_builders',
+    token: string,
+    ttlMs: number
+  ): Promise<boolean> {
+    if (this.corpusLockOwner !== token || this.corpusLockExpiresAt <= Date.now()) {
+      return false;
+    }
+    this.corpusLockExpiresAt = Date.now() + ttlMs;
+    this.renewalCount += 1;
+    return true;
+  }
+
+  override async releaseCorpusBuildLock(
+    _communityId: 'open_science_builders',
+    token: string
+  ): Promise<void> {
+    if (this.corpusLockOwner === token) {
+      this.corpusLockOwner = null;
+      this.corpusLockExpiresAt = 0;
+    }
+  }
+}
+
+async function testDelay(ms: number): Promise<void> {
+  await new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function item(options: {
+  index: number;
+  text: string;
+  rawScores: ShadowDemoCorpus['items'][number]['rawScores'];
+}): ShadowDemoCorpus['items'][number] {
+  const uri = `at://did:plc:demo${options.index}/app.bsky.feed.post/${numberWord(options.index)}`;
+  return {
+    postUri: uri,
+    authorDid: `did:plc:demo${options.index}`,
+    createdAt: NOW.toISOString(),
+    topicVector: { 'science-research': options.rawScores.relevance },
+    rawScores: options.rawScores,
+    productionScore: options.rawScores.engagement,
+    productionEpochId: 2,
+    scoredAt: NOW.toISOString(),
+    componentDetails: null,
+    displayPost: {
+      kind: 'public_post',
+      uri,
+      cid: `bafy${options.index}`,
+      authorDid: `did:plc:demo${options.index}`,
+      authorHandle: `user${options.index}.bsky.social`,
+      authorDisplayName: `User ${options.index}`,
+      authorAvatar: null,
+      text: options.text,
+      likeCount: options.index,
+      repostCount: options.index,
+      replyCount: options.index,
+      quoteCount: 0,
+      indexedAt: NOW.toISOString(),
+      createdAt: NOW.toISOString(),
+      bskyUrl: `https://bsky.app/profile/user${options.index}.bsky.social/post/${numberWord(options.index)}`,
+    },
+  };
+}
+
+function numberWord(value: number): string {
+  if (value === 1) {
+    return 'one';
+  }
+  if (value === 2) {
+    return 'two';
+  }
+  return 'three';
+}

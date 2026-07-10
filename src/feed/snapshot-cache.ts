@@ -2,14 +2,12 @@ import { randomUUID } from 'crypto';
 import { config } from '../config.js';
 import { redis } from '../db/redis.js';
 import { logger } from '../lib/logger.js';
+import { COMMUNITY_GOV_REDIS_KEYS, type FeedCommunity } from './community-registry.js';
 
 const SNAPSHOT_TTL_SECONDS = 300;
-const FEED_CURRENT_KEY = 'feed:current';
-const FEED_LAST_KNOWN_GOOD_KEY = 'feed:last_known_good';
-const FEED_LAST_KNOWN_GOOD_FALLBACK_TOTAL_KEY = 'feed:last_known_good_fallback_total';
-export const CURRENT_FEED_SNAPSHOT_KEY = 'feed:current_snapshot_id';
-const CURRENT_FEED_GENERATION_KEY = 'feed:current_snapshot_generation';
-const SNAPSHOT_KEY_PREFIX = 'snapshot:';
+export const CURRENT_FEED_SNAPSHOT_KEY = COMMUNITY_GOV_REDIS_KEYS.currentSnapshot;
+const CURRENT_FEED_GENERATION_KEY = COMMUNITY_GOV_REDIS_KEYS.snapshotGeneration;
+const SNAPSHOT_KEY_PREFIX = COMMUNITY_GOV_REDIS_KEYS.snapshotPrefix;
 export const FEED_SNAPSHOT_BY_ID_MEMORY_CACHE_MAX_ENTRIES = 1_000;
 const PUBLISH_CURRENT_SNAPSHOT_SCRIPT = `
 local generationKey = KEYS[1]
@@ -40,12 +38,40 @@ export interface FeedSnapshot {
   uris: string[];
 }
 
-let currentSnapshotPromise: Promise<FeedSnapshot | null> | null = null;
-let currentMemorySnapshotCache: { expiresAtMs: number; generation: string; snapshot: FeedSnapshot } | null = null;
+interface FeedSnapshotSpec {
+  sortedSetKey: string;
+  fallbackSortedSetKey: string | null;
+  fallbackMetricKey: string | null;
+  currentSnapshotKey: string;
+  generationKey: string;
+  snapshotKeyPrefix: string;
+  maxPosts: number;
+}
+
+const CURRENT_FEED_SNAPSHOT_SPEC: FeedSnapshotSpec = {
+  sortedSetKey: COMMUNITY_GOV_REDIS_KEYS.current,
+  fallbackSortedSetKey: COMMUNITY_GOV_REDIS_KEYS.lastKnownGood,
+  fallbackMetricKey: COMMUNITY_GOV_REDIS_KEYS.lastKnownGoodFallbackTotal,
+  currentSnapshotKey: CURRENT_FEED_SNAPSHOT_KEY,
+  generationKey: CURRENT_FEED_GENERATION_KEY,
+  snapshotKeyPrefix: SNAPSHOT_KEY_PREFIX,
+  maxPosts: config.FEED_MAX_POSTS,
+};
+
+let currentSnapshotPromises = new Map<string, Promise<FeedSnapshot | null>>();
+let currentMemorySnapshotCache = new Map<string, { expiresAtMs: number; generation: string; snapshot: FeedSnapshot }>();
 const byIdMemorySnapshotCache = new Map<string, { expiresAtMs: number; snapshot: FeedSnapshot }>();
 
-function snapshotKey(snapshotId: string): string {
-  return `${SNAPSHOT_KEY_PREFIX}${snapshotId}`;
+function specCacheKey(spec: FeedSnapshotSpec): string {
+  return spec.currentSnapshotKey;
+}
+
+function snapshotMemoryKey(spec: FeedSnapshotSpec, snapshotId: string): string {
+  return `${spec.snapshotKeyPrefix}${snapshotId}`;
+}
+
+function snapshotKey(spec: FeedSnapshotSpec, snapshotId: string): string {
+  return snapshotMemoryKey(spec, snapshotId);
 }
 
 function parseSnapshot(snapshotId: string, snapshotData: string): FeedSnapshot | null {
@@ -64,45 +90,47 @@ function parseSnapshot(snapshotId: string, snapshotData: string): FeedSnapshot |
   };
 }
 
-async function readCurrentGeneration(): Promise<string> {
-  return (await redis.get(CURRENT_FEED_GENERATION_KEY)) ?? '0';
+async function readCurrentGeneration(spec: FeedSnapshotSpec): Promise<string> {
+  return (await redis.get(spec.generationKey)) ?? '0';
 }
 
-async function readCurrentMemorySnapshot(): Promise<FeedSnapshot | null> {
-  const cached = currentMemorySnapshotCache;
-  if (cached === null) {
+async function readCurrentMemorySnapshot(spec: FeedSnapshotSpec): Promise<FeedSnapshot | null> {
+  const key = specCacheKey(spec);
+  const cached = currentMemorySnapshotCache.get(key);
+  if (cached === undefined) {
     return null;
   }
   if (cached.expiresAtMs <= Date.now()) {
-    if (currentMemorySnapshotCache === cached) {
-      currentMemorySnapshotCache = null;
+    if (currentMemorySnapshotCache.get(key) === cached) {
+      currentMemorySnapshotCache.delete(key);
     }
     return null;
   }
-  const generation = await readCurrentGeneration();
-  if (currentMemorySnapshotCache !== cached) {
+  const generation = await readCurrentGeneration(spec);
+  if (currentMemorySnapshotCache.get(key) !== cached) {
     return null;
   }
   if (cached.generation !== generation) {
-    if (currentMemorySnapshotCache === cached) {
-      currentMemorySnapshotCache = null;
+    if (currentMemorySnapshotCache.get(key) === cached) {
+      currentMemorySnapshotCache.delete(key);
     }
     return null;
   }
   return cached.snapshot;
 }
 
-function readMemorySnapshotById(snapshotId: string): FeedSnapshot | null {
-  const cached = byIdMemorySnapshotCache.get(snapshotId);
+function readMemorySnapshotById(spec: FeedSnapshotSpec, snapshotId: string): FeedSnapshot | null {
+  const memoryKey = snapshotMemoryKey(spec, snapshotId);
+  const cached = byIdMemorySnapshotCache.get(memoryKey);
   if (cached === undefined) {
     return null;
   }
   if (cached.expiresAtMs <= Date.now()) {
-    byIdMemorySnapshotCache.delete(snapshotId);
+    byIdMemorySnapshotCache.delete(memoryKey);
     return null;
   }
-  byIdMemorySnapshotCache.delete(snapshotId);
-  byIdMemorySnapshotCache.set(snapshotId, cached);
+  byIdMemorySnapshotCache.delete(memoryKey);
+  byIdMemorySnapshotCache.set(memoryKey, cached);
   return cached.snapshot;
 }
 
@@ -124,41 +152,51 @@ function evictOldestByIdMemorySnapshots(): void {
   }
 }
 
-async function readSnapshotMemoryTtlMs(snapshotId: string): Promise<number | null> {
-  const ttlMs = await redis.pttl(snapshotKey(snapshotId));
+async function readSnapshotMemoryTtlMs(spec: FeedSnapshotSpec, snapshotId: string): Promise<number | null> {
+  const ttlMs = await redis.pttl(snapshotKey(spec, snapshotId));
   if (ttlMs <= 0) {
     return null;
   }
   return Math.min(ttlMs, SNAPSHOT_TTL_SECONDS * 1000);
 }
 
-async function writeCurrentMemorySnapshot(snapshot: FeedSnapshot, generation: string): Promise<FeedSnapshot> {
-  const ttlMs = await readSnapshotMemoryTtlMs(snapshot.snapshotId);
+async function writeCurrentMemorySnapshot(
+  spec: FeedSnapshotSpec,
+  snapshot: FeedSnapshot,
+  generation: string
+): Promise<FeedSnapshot> {
+  const key = specCacheKey(spec);
+  const ttlMs = await readSnapshotMemoryTtlMs(spec, snapshot.snapshotId);
   if (ttlMs === null) {
-    currentMemorySnapshotCache = null;
-    byIdMemorySnapshotCache.delete(snapshot.snapshotId);
+    currentMemorySnapshotCache.delete(key);
+    byIdMemorySnapshotCache.delete(snapshotMemoryKey(spec, snapshot.snapshotId));
     return snapshot;
   }
   const nowMs = Date.now();
-  currentMemorySnapshotCache = {
+  currentMemorySnapshotCache.set(key, {
     expiresAtMs: nowMs + ttlMs,
     generation,
     snapshot,
-  };
-  await writeByIdMemorySnapshot(snapshot, ttlMs);
+  });
+  await writeByIdMemorySnapshot(spec, snapshot, ttlMs);
   return snapshot;
 }
 
-async function writeByIdMemorySnapshot(snapshot: FeedSnapshot, knownTtlMs?: number | null): Promise<FeedSnapshot> {
-  const ttlMs = knownTtlMs === undefined ? await readSnapshotMemoryTtlMs(snapshot.snapshotId) : knownTtlMs;
+async function writeByIdMemorySnapshot(
+  spec: FeedSnapshotSpec,
+  snapshot: FeedSnapshot,
+  knownTtlMs?: number | null
+): Promise<FeedSnapshot> {
+  const ttlMs = knownTtlMs === undefined ? await readSnapshotMemoryTtlMs(spec, snapshot.snapshotId) : knownTtlMs;
+  const memoryKey = snapshotMemoryKey(spec, snapshot.snapshotId);
   const nowMs = Date.now();
   sweepExpiredByIdMemorySnapshots(nowMs);
   if (ttlMs === null) {
-    byIdMemorySnapshotCache.delete(snapshot.snapshotId);
+    byIdMemorySnapshotCache.delete(memoryKey);
     return snapshot;
   }
-  byIdMemorySnapshotCache.delete(snapshot.snapshotId);
-  byIdMemorySnapshotCache.set(snapshot.snapshotId, {
+  byIdMemorySnapshotCache.delete(memoryKey);
+  byIdMemorySnapshotCache.set(memoryKey, {
     expiresAtMs: nowMs + ttlMs,
     snapshot,
   });
@@ -166,55 +204,54 @@ async function writeByIdMemorySnapshot(snapshot: FeedSnapshot, knownTtlMs?: numb
   return snapshot;
 }
 
-async function deleteCorruptSnapshot(snapshotId: string): Promise<void> {
-  byIdMemorySnapshotCache.delete(snapshotId);
-  await redis.del(snapshotKey(snapshotId));
-  const currentSnapshotId = await redis.get(CURRENT_FEED_SNAPSHOT_KEY);
+async function deleteCorruptSnapshot(spec: FeedSnapshotSpec, snapshotId: string): Promise<void> {
+  byIdMemorySnapshotCache.delete(snapshotMemoryKey(spec, snapshotId));
+  await redis.del(snapshotKey(spec, snapshotId));
+  const currentSnapshotId = await redis.get(spec.currentSnapshotKey);
   if (currentSnapshotId === snapshotId) {
-    await redis.del(CURRENT_FEED_SNAPSHOT_KEY);
-    currentMemorySnapshotCache = null;
+    await redis.del(spec.currentSnapshotKey);
+    currentMemorySnapshotCache.delete(specCacheKey(spec));
   }
 }
 
-async function readCurrentSnapshotFromRedis(): Promise<FeedSnapshot | null> {
-  const generation = await readCurrentGeneration();
-  const snapshotId = await redis.get(CURRENT_FEED_SNAPSHOT_KEY);
+async function readCurrentSnapshotFromRedis(spec: FeedSnapshotSpec): Promise<FeedSnapshot | null> {
+  const generation = await readCurrentGeneration(spec);
+  const snapshotId = await redis.get(spec.currentSnapshotKey);
   if (!snapshotId) {
     return null;
   }
 
-  const snapshotData = await redis.get(snapshotKey(snapshotId));
+  const snapshotData = await redis.get(snapshotKey(spec, snapshotId));
   if (!snapshotData) {
-    await redis.del(CURRENT_FEED_SNAPSHOT_KEY);
+    await redis.del(spec.currentSnapshotKey);
     return null;
   }
 
   const snapshot = parseSnapshot(snapshotId, snapshotData);
   if (snapshot === null) {
-    await deleteCorruptSnapshot(snapshotId);
+    await deleteCorruptSnapshot(spec, snapshotId);
     return null;
   }
-  return await writeCurrentMemorySnapshot(snapshot, generation);
+  return await writeCurrentMemorySnapshot(spec, snapshot, generation);
 }
 
-async function createCurrentSnapshot(): Promise<FeedSnapshot | null> {
+async function createCurrentSnapshot(spec: FeedSnapshotSpec): Promise<FeedSnapshot | null> {
   for (let attempt = 0; attempt < 2; attempt++) {
-    const generation = await readCurrentGeneration();
+    const generation = await readCurrentGeneration(spec);
     let usedLastKnownGood = false;
-    let rankedUris = await redis.zrevrange(FEED_CURRENT_KEY, 0, config.FEED_MAX_POSTS - 1);
+    let rankedUris = await redis.zrevrange(spec.sortedSetKey, 0, spec.maxPosts - 1);
     if (rankedUris.length === 0) {
-      rankedUris = await redis.zrevrange(
-        FEED_LAST_KNOWN_GOOD_KEY,
-        0,
-        config.FEED_MAX_POSTS - 1
-      );
+      if (spec.fallbackSortedSetKey === null) {
+        return null;
+      }
+      rankedUris = await redis.zrevrange(spec.fallbackSortedSetKey, 0, spec.maxPosts - 1);
       if (rankedUris.length === 0) {
         return null;
       }
       usedLastKnownGood = true;
 
       logger.warn(
-        { fallbackCount: rankedUris.length },
+        { fallbackCount: rankedUris.length, sortedSetKey: spec.sortedSetKey },
         'Current feed is empty; creating snapshot from last-known-good feed'
       );
     }
@@ -227,24 +264,24 @@ async function createCurrentSnapshot(): Promise<FeedSnapshot | null> {
     const published = await redis.eval(
       PUBLISH_CURRENT_SNAPSHOT_SCRIPT,
       3,
-      CURRENT_FEED_GENERATION_KEY,
-      CURRENT_FEED_SNAPSHOT_KEY,
-      snapshotKey(snapshot.snapshotId),
+      spec.generationKey,
+      spec.currentSnapshotKey,
+      snapshotKey(spec, snapshot.snapshotId),
       generation,
       snapshot.snapshotId,
       String(SNAPSHOT_TTL_SECONDS),
       serializedSnapshot
     );
     if (published === 1) {
-      if (usedLastKnownGood) {
-        void redis.incr(FEED_LAST_KNOWN_GOOD_FALLBACK_TOTAL_KEY).catch((error) => {
+      if (usedLastKnownGood && spec.fallbackMetricKey !== null) {
+        void redis.incr(spec.fallbackMetricKey).catch((error) => {
           logger.warn({ error }, 'Failed to record last-known-good feed fallback metric');
         });
       }
-      return await writeCurrentMemorySnapshot(snapshot, generation);
+      return await writeCurrentMemorySnapshot(spec, snapshot, generation);
     }
 
-    const currentSnapshot = await readCurrentSnapshotFromRedis();
+    const currentSnapshot = await readCurrentSnapshotFromRedis(spec);
     if (currentSnapshot !== null) {
       return currentSnapshot;
     }
@@ -253,83 +290,123 @@ async function createCurrentSnapshot(): Promise<FeedSnapshot | null> {
   return null;
 }
 
-async function loadCurrentFeedSnapshot(): Promise<FeedSnapshot | null> {
-  const memorySnapshot = await readCurrentMemorySnapshot();
+async function getCurrentFeedSnapshotForSpec(spec: FeedSnapshotSpec): Promise<FeedSnapshot | null> {
+  const memorySnapshot = await readCurrentMemorySnapshot(spec);
   if (memorySnapshot !== null) {
     return memorySnapshot;
   }
 
-  const redisSnapshot = await readCurrentSnapshotFromRedis();
+  const redisSnapshot = await readCurrentSnapshotFromRedis(spec);
   if (redisSnapshot !== null) {
     return redisSnapshot;
   }
 
-  return await createCurrentSnapshot();
-}
-
-export async function getCurrentFeedSnapshot(): Promise<FeedSnapshot | null> {
-  if (currentSnapshotPromise !== null) {
-    return currentSnapshotPromise;
+  const key = specCacheKey(spec);
+  const pending = currentSnapshotPromises.get(key);
+  if (pending !== undefined) {
+    return pending;
   }
 
-  const snapshotPromise = loadCurrentFeedSnapshot();
-  currentSnapshotPromise = snapshotPromise;
+  const currentSnapshotPromise = createCurrentSnapshot(spec);
+  currentSnapshotPromises.set(key, currentSnapshotPromise);
   try {
-    return await snapshotPromise;
+    return await currentSnapshotPromise;
   } finally {
-    if (currentSnapshotPromise === snapshotPromise) {
-      currentSnapshotPromise = null;
+    if (currentSnapshotPromises.get(key) === currentSnapshotPromise) {
+      currentSnapshotPromises.delete(key);
     }
   }
 }
 
-export async function getFeedSnapshotById(snapshotId: string): Promise<FeedSnapshot | null> {
-  const memorySnapshot = readMemorySnapshotById(snapshotId);
+async function getFeedSnapshotByIdForSpec(
+  spec: FeedSnapshotSpec,
+  snapshotId: string
+): Promise<FeedSnapshot | null> {
+  const memorySnapshot = readMemorySnapshotById(spec, snapshotId);
   if (memorySnapshot !== null) {
     return memorySnapshot;
   }
 
-  const snapshotData = await redis.get(snapshotKey(snapshotId));
+  const snapshotData = await redis.get(snapshotKey(spec, snapshotId));
   if (!snapshotData) {
     return null;
   }
 
   const snapshot = parseSnapshot(snapshotId, snapshotData);
   if (snapshot === null) {
-    await deleteCorruptSnapshot(snapshotId);
+    await deleteCorruptSnapshot(spec, snapshotId);
     return null;
   }
-  return await writeByIdMemorySnapshot(snapshot);
+  return await writeByIdMemorySnapshot(spec, snapshot);
+}
+
+function feedSnapshotSpecForCommunity(community: FeedCommunity): FeedSnapshotSpec {
+  return {
+    sortedSetKey: community.redis.current,
+    fallbackSortedSetKey: community.redis.lastKnownGood,
+    fallbackMetricKey: community.redis.lastKnownGoodFallbackTotal,
+    currentSnapshotKey: community.redis.currentSnapshot,
+    generationKey: community.redis.snapshotGeneration,
+    snapshotKeyPrefix: community.redis.snapshotPrefix,
+    maxPosts: config.FEED_MAX_POSTS,
+  };
+}
+
+export async function getCurrentFeedSnapshot(): Promise<FeedSnapshot | null> {
+  return getCurrentFeedSnapshotForSpec(CURRENT_FEED_SNAPSHOT_SPEC);
+}
+
+export async function getFeedSnapshotById(snapshotId: string): Promise<FeedSnapshot | null> {
+  return getFeedSnapshotByIdForSpec(CURRENT_FEED_SNAPSHOT_SPEC, snapshotId);
+}
+
+export async function getCommunityFeedSnapshot(community: FeedCommunity): Promise<FeedSnapshot | null> {
+  return getCurrentFeedSnapshotForSpec(feedSnapshotSpecForCommunity(community));
+}
+
+export async function getCommunityFeedSnapshotById(
+  community: FeedCommunity,
+  snapshotId: string
+): Promise<FeedSnapshot | null> {
+  return getFeedSnapshotByIdForSpec(feedSnapshotSpecForCommunity(community), snapshotId);
 }
 
 export function clearCurrentFeedSnapshotMemoryCache(): void {
-  currentMemorySnapshotCache = null;
+  currentMemorySnapshotCache.clear();
   byIdMemorySnapshotCache.clear();
-  currentSnapshotPromise = null;
+  currentSnapshotPromises.clear();
 }
 
-function clearCurrentSnapshotPointerMemoryCache(): void {
-  currentMemorySnapshotCache = null;
-  currentSnapshotPromise = null;
+function clearCurrentSnapshotPointerMemoryCache(spec: FeedSnapshotSpec): void {
+  currentMemorySnapshotCache.delete(specCacheKey(spec));
+  currentSnapshotPromises.delete(specCacheKey(spec));
 }
 
-export async function invalidateCurrentFeedSnapshot(): Promise<void> {
+async function invalidateFeedSnapshotForSpec(spec: FeedSnapshotSpec): Promise<void> {
   try {
     await redis.eval(
       INVALIDATE_CURRENT_SNAPSHOT_SCRIPT,
       2,
-      CURRENT_FEED_GENERATION_KEY,
-      CURRENT_FEED_SNAPSHOT_KEY
+      spec.generationKey,
+      spec.currentSnapshotKey
     );
   } finally {
-    clearCurrentSnapshotPointerMemoryCache();
+    clearCurrentSnapshotPointerMemoryCache(spec);
   }
 }
 
+export async function invalidateCurrentFeedSnapshot(): Promise<void> {
+  await invalidateFeedSnapshotForSpec(CURRENT_FEED_SNAPSHOT_SPEC);
+}
+
+export async function invalidateCommunityFeedSnapshot(community: FeedCommunity): Promise<void> {
+  await invalidateFeedSnapshotForSpec(feedSnapshotSpecForCommunity(community));
+}
+
 export const __snapshotCacheKeysForTests = {
-  currentFeedKey: FEED_CURRENT_KEY,
-  lastKnownGoodFeedKey: FEED_LAST_KNOWN_GOOD_KEY,
-  lastKnownGoodFallbackTotalKey: FEED_LAST_KNOWN_GOOD_FALLBACK_TOTAL_KEY,
+  currentFeedKey: COMMUNITY_GOV_REDIS_KEYS.current,
+  lastKnownGoodFeedKey: COMMUNITY_GOV_REDIS_KEYS.lastKnownGood,
+  lastKnownGoodFallbackTotalKey: COMMUNITY_GOV_REDIS_KEYS.lastKnownGoodFallbackTotal,
   currentSnapshotKey: CURRENT_FEED_SNAPSHOT_KEY,
   currentGenerationKey: CURRENT_FEED_GENERATION_KEY,
   snapshotKeyPrefix: SNAPSHOT_KEY_PREFIX,

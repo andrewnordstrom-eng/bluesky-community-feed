@@ -21,19 +21,25 @@ import { encodeCursor, decodeCursor } from '../cursor.js';
 import { verifyFeedRequesterDid } from '../jwt-verifier.js';
 import { isParticipantApproved } from '../access-control.js';
 import {
+  feedUriForCommunity,
+  getFeedCommunities,
+  isFeedCommunityServable,
+  resolveFeedCommunityByUri,
+  type FeedCommunity,
+} from '../community-registry.js';
+import {
   enqueueFeedRequestTracking,
   noteFeedRequestTrackingAbandonedBackendOperation,
 } from '../request-tracker.js';
-import { getCurrentFeedSnapshot, getFeedSnapshotById } from '../snapshot-cache.js';
+import { getCommunityFeedSnapshot, getCommunityFeedSnapshotById } from '../snapshot-cache.js';
 
-// The AT-URI for this feed
-const FEED_URI = `at://${config.FEEDGEN_PUBLISHER_DID}/app.bsky.feed.generator/community-gov`;
 const MIN_CURSOR_OFFSET = 0;
 const MAX_CURSOR_OFFSET = 10000;
 const SnapshotIdSchema = z.string().min(1).max(128).regex(/^[A-Za-z0-9:_-]+$/);
 
 interface FeedRequestTrackingContext {
   authHeader: string | undefined;
+  community: FeedCommunity;
   precomputedViewerDid: string | undefined;
   signal: AbortSignal;
   snapshotId: string;
@@ -117,12 +123,13 @@ async function trackFeedRequest(context: FeedRequestTrackingContext): Promise<vo
 
     const epochIdStr = await waitForTrackingOperation(
       context.signal,
-      () => redis.get('feed:epoch'),
-      'redis.get(feed:epoch)'
+      () => redis.get(context.community.redis.epoch),
+      `redis.get(${context.community.redis.epoch})`
     );
 
     const logEntry = JSON.stringify({
       viewer_did: viewerDid,
+      community_id: context.community.communityId,
       epoch_id: epochIdStr ? parseInt(epochIdStr, 10) : 0,
       snapshot_id: context.snapshotId,
       page_offset: context.pageOffset,
@@ -174,6 +181,10 @@ interface FeedSkeletonQuery {
   limit?: string;
 }
 
+export interface RegisterFeedSkeletonOptions {
+  communities: readonly FeedCommunity[];
+}
+
 /** Route-level schema for OpenAPI docs (no superRefine — Ajv can't compile Zod effects). */
 const FeedSkeletonRouteSchema = z.object({
   feed: z.string(),
@@ -202,7 +213,9 @@ const FeedSkeletonQuerySchema = FeedSkeletonRouteSchema.superRefine((query, ctx)
  *
  * Spec: §9.1-9.3 - GET /xrpc/app.bsky.feed.getFeedSkeleton
  */
-export function registerFeedSkeleton(app: FastifyInstance): void {
+export function registerFeedSkeleton(app: FastifyInstance, options?: RegisterFeedSkeletonOptions): void {
+  const communities = options?.communities ?? getFeedCommunities();
+
   app.get(
     '/xrpc/app.bsky.feed.getFeedSkeleton',
     {
@@ -253,17 +266,32 @@ export function registerFeedSkeleton(app: FastifyInstance): void {
       const isFirstPage = !cursor;
       let precomputedViewerDid: string | undefined;
 
-      // Validate this is a request for OUR feed
-      if (feed !== FEED_URI) {
-        logger.warn({ feed, expected: FEED_URI }, 'Unknown feed requested');
+      const community = resolveFeedCommunityByUri(feed, config.FEEDGEN_PUBLISHER_DID, communities);
+      if (community === null) {
+        logger.warn(
+          {
+            feed,
+            supportedFeeds: communities.map((candidate) =>
+              feedUriForCommunity(candidate, config.FEEDGEN_PUBLISHER_DID)
+            ),
+          },
+          'Unknown feed requested'
+        );
         return reply.code(400).send({
           error: 'UnsupportedAlgorithm',
           message: 'Unknown feed',
         });
       }
+      if (!isFeedCommunityServable(community)) {
+        logger.warn({ feed, communityId: community.communityId }, 'Disabled feed requested');
+        return reply.code(400).send({
+          error: 'UnsupportedAlgorithm',
+          message: 'Feed is disabled',
+        });
+      }
 
-      // Private feed mode: require approved participant
-      if (config.FEED_PRIVATE_MODE) {
+      // Private communities and global private mode require an approved participant.
+      if (!community.public || config.FEED_PRIVATE_MODE) {
         const viewerDid = await verifyFeedRequesterDid(authHeader);
         if (!viewerDid) return reply.send({ feed: [] });
         const approved = await isParticipantApproved(viewerDid);
@@ -317,9 +345,9 @@ export function registerFeedSkeleton(app: FastifyInstance): void {
         // Try to get snapshot from the shared in-memory/Redis snapshot cache.
         let snapshot;
         try {
-          snapshot = await getFeedSnapshotById(snapshotId);
+          snapshot = await getCommunityFeedSnapshotById(community, snapshotId);
         } catch (err) {
-          logger.warn({ err, snapshotId }, 'Failed to read feed snapshot by id');
+          logger.warn({ err, communityId: community.communityId, snapshotId }, 'Failed to read feed snapshot by id');
           return reply.send({ feed: [] });
         }
         if (snapshot === null) {
@@ -334,9 +362,9 @@ export function registerFeedSkeleton(app: FastifyInstance): void {
         offset = 0;
         let snapshot;
         try {
-          snapshot = await getCurrentFeedSnapshot();
+          snapshot = await getCommunityFeedSnapshot(community);
         } catch (err) {
-          logger.warn({ err }, 'Failed to read current feed snapshot');
+          logger.warn({ err, communityId: community.communityId }, 'Failed to read current feed snapshot');
           return reply.send({ feed: [] });
         }
         if (snapshot === null) {
@@ -350,7 +378,7 @@ export function registerFeedSkeleton(app: FastifyInstance): void {
 
       // Check for pinned announcement (first page only)
       let pinnedUri: string | null = null;
-      if (isFirstPage) {
+      if (isFirstPage && community.includePinnedAnnouncements) {
         const pinnedData = await redis.get('bot:latest_announcement');
         if (pinnedData) {
           try {
@@ -379,6 +407,7 @@ export function registerFeedSkeleton(app: FastifyInstance): void {
       logger.debug(
         {
           feedItems: feedItems.length,
+          communityId: community.communityId,
           hasMore,
           snapshotId,
           authHeaderPresent: Boolean(authHeader),
@@ -396,6 +425,7 @@ export function registerFeedSkeleton(app: FastifyInstance): void {
       const trackingAccepted = enqueueFeedRequestTracking((signal) =>
         trackFeedRequest({
           authHeader,
+          community,
           precomputedViewerDid,
           signal,
           snapshotId,

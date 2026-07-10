@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { FastifyRequest } from 'fastify';
 import { config } from '../src/config.js';
-import { buildRouteRateLimitConfig } from '../src/feed/server.js';
+import { buildRouteRateLimitConfig } from '../src/feed/rate-limit-config.js';
 
 const noopKeyGenerator = (_request: FastifyRequest) => 'key';
 
@@ -40,6 +40,47 @@ describe('route rate-limit policy', () => {
     );
 
     expect(policy).toBeNull();
+  });
+
+  it('applies vote-like limits to shadow demo mutation endpoints', () => {
+    const policy = buildRouteRateLimitConfig(
+      '/api/demo/sessions/session-1/votes',
+      'POST',
+      noopKeyGenerator
+    );
+
+    expect(policy).toMatchObject({
+      max: config.RATE_LIMIT_VOTE_MAX,
+      timeWindow: config.RATE_LIMIT_VOTE_WINDOW_MS,
+      keyGenerator: noopKeyGenerator,
+    });
+  });
+
+  it('applies login-like limits to shadow demo session creation', () => {
+    const policy = buildRouteRateLimitConfig(
+      '/api/demo/sessions',
+      'POST',
+      noopKeyGenerator
+    );
+
+    expect(policy).toMatchObject({
+      max: config.RATE_LIMIT_LOGIN_MAX,
+      timeWindow: config.RATE_LIMIT_LOGIN_WINDOW_MS,
+      keyGenerator: noopKeyGenerator,
+    });
+  });
+
+  it('applies bounded read limits to shadow demo read endpoints', () => {
+    const policy = buildRouteRateLimitConfig(
+      '/api/demo/sessions/session-1/feed',
+      'GET',
+      noopKeyGenerator
+    );
+
+    expect(policy).toMatchObject({
+      max: config.RATE_LIMIT_INTERACTIONS_MAX,
+      timeWindow: config.RATE_LIMIT_INTERACTIONS_WINDOW_MS,
+    });
   });
 
   it('applies critical limits to MCP transport endpoint', () => {

@@ -37,6 +37,12 @@ vi.mock('../src/db/client.js', () => ({
 
 import { config } from '../src/config.js';
 import { decodeCursor } from '../src/feed/cursor.js';
+import {
+  feedUriForCommunity,
+  getFeedCommunities,
+  resolveFeedCommunityByRkey,
+  type FeedCommunity,
+} from '../src/feed/community-registry.js';
 import { __resetFeedRequestTrackerForTests, drainFeedRequestTracker } from '../src/feed/request-tracker.js';
 import { registerFeedSkeleton } from '../src/feed/routes/feed-skeleton.js';
 import { clearCurrentFeedSnapshotMemoryCache } from '../src/feed/snapshot-cache.js';
@@ -245,6 +251,72 @@ describe('getFeedSkeleton query validation', () => {
     expect(response.statusCode).toBe(200);
     const body = response.json();
     expect(body.feed).toHaveLength(2);
+
+    await app.close();
+  });
+
+  it('rejects the disabled Birders feed without reading its Redis bucket', async () => {
+    const app = buildTestApp();
+    registerFeedSkeleton(app);
+
+    const birdersUri = `at://${config.FEEDGEN_PUBLISHER_DID}/app.bsky.feed.generator/birders-who-code`;
+    const response = await app.inject({
+      method: 'GET',
+      url: `/xrpc/app.bsky.feed.getFeedSkeleton?feed=${encodeURIComponent(birdersUri)}&limit=2`,
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: 'UnsupportedAlgorithm',
+      message: 'Feed is disabled',
+    });
+    expect(redisMock.zrevrange).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it('serves an explicitly enabled Birders test config from its namespaced Redis bucket', async () => {
+    const birders = resolveFeedCommunityByRkey('birders-who-code', getFeedCommunities());
+    if (!birders) {
+      throw new Error('Birders community fixture missing from registry');
+    }
+    const enabledBirders: FeedCommunity = {
+      ...birders,
+      status: 'enabled',
+      public: true,
+      includePinnedAnnouncements: false,
+    };
+    const app = buildTestApp();
+    registerFeedSkeleton(app, { communities: [enabledBirders] });
+
+    redisMock.zrevrange.mockResolvedValueOnce([
+      'at://did:plc:bird/app.bsky.feed.post/1',
+      'at://did:plc:bird/app.bsky.feed.post/2',
+    ]);
+    redisMock.get.mockImplementation((key: string) => {
+      if (key === enabledBirders.redis.snapshotGeneration) return Promise.resolve('0');
+      if (key === enabledBirders.redis.epoch) return Promise.resolve('9');
+      return Promise.resolve(null);
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/xrpc/app.bsky.feed.getFeedSkeleton?feed=${encodeURIComponent(feedUriForCommunity(enabledBirders, config.FEEDGEN_PUBLISHER_DID))}&limit=2`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      feed: [
+        { post: 'at://did:plc:bird/app.bsky.feed.post/1' },
+        { post: 'at://did:plc:bird/app.bsky.feed.post/2' },
+      ],
+    });
+    expect(redisMock.zrevrange).toHaveBeenCalledWith(
+      'feed:community:birders_who_code:current',
+      0,
+      expect.any(Number)
+    );
+    expect(redisMock.get).not.toHaveBeenCalledWith('bot:latest_announcement');
 
     await app.close();
   });
