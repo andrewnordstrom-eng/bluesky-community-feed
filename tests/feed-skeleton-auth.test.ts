@@ -176,6 +176,7 @@ describe('getFeedSkeleton auth handling', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ feed: [] });
     expect(verifyFeedRequesterDidMock).toHaveBeenCalledWith(undefined);
+    expect(isParticipantApprovedMock).not.toHaveBeenCalled();
     expect(redisMock.zrevrange).not.toHaveBeenCalled();
 
     await app.close();

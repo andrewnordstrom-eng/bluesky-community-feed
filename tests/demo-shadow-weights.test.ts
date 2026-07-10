@@ -62,6 +62,15 @@ describe('shadow demo weight math', () => {
         relevance: 0,
       })
     ).toThrow(/finite/);
+    expect(() =>
+      validateShadowWeights({
+        recency: -0.5,
+        engagement: 1.5,
+        bridging: 0,
+        source_diversity: 0,
+        relevance: 0,
+      })
+    ).toThrow(/non-negative/);
     expect(() => validateShadowWeights({
       recency: 0,
       engagement: 0,
@@ -94,6 +103,14 @@ describe('shadow demo weight math', () => {
     expect(summary.trimCount).toBe(0);
     expect(summary.weights.recency).toBe(0.5);
     expect(summary.weights.engagement).toBe(0.5);
+  });
+
+  it('does not trim exactly nine votes', () => {
+    const summary = aggregateShadowVotes(Array(9).fill(RECENCY_ONLY));
+
+    expect(summary.aggregateMethod).toBe('trimmed_mean_no_trim_under_10');
+    expect(summary.voteCount).toBe(9);
+    expect(summary.trimCount).toBe(0);
   });
 
   it('trims extremes once ten or more votes exist', () => {
