@@ -53,7 +53,13 @@ const {
 
 vi.mock('../src/db/client.js', () => ({ db: { query: dbQueryMock } }));
 vi.mock('../src/db/redis.js', () => ({
-  redis: { pipeline: redisPipelineFactoryMock, incr: vi.fn().mockResolvedValue(1), del: vi.fn().mockResolvedValue(1), eval: vi.fn().mockResolvedValue(1) },
+  redis: {
+    pipeline: redisPipelineFactoryMock,
+    incr: vi.fn().mockResolvedValue(1),
+    set: vi.fn().mockResolvedValue('OK'),
+    del: vi.fn().mockResolvedValue(1),
+    eval: vi.fn().mockResolvedValue(1),
+  },
 }));
 vi.mock('../src/governance/content-filter.js', () => ({
   getCurrentContentRules: getCurrentContentRulesMock,

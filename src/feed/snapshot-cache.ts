@@ -1,9 +1,12 @@
 import { randomUUID } from 'crypto';
 import { config } from '../config.js';
 import { redis } from '../db/redis.js';
+import { logger } from '../lib/logger.js';
 import { COMMUNITY_GOV_REDIS_KEYS, type FeedCommunity } from './community-registry.js';
 
 const SNAPSHOT_TTL_SECONDS = 300;
+const FEED_LAST_KNOWN_GOOD_KEY = 'feed:last_known_good';
+const FEED_LAST_KNOWN_GOOD_FALLBACK_TOTAL_KEY = 'feed:last_known_good_fallback_total';
 export const CURRENT_FEED_SNAPSHOT_KEY = COMMUNITY_GOV_REDIS_KEYS.currentSnapshot;
 const CURRENT_FEED_GENERATION_KEY = COMMUNITY_GOV_REDIS_KEYS.snapshotGeneration;
 const SNAPSHOT_KEY_PREFIX = COMMUNITY_GOV_REDIS_KEYS.snapshotPrefix;
@@ -39,6 +42,8 @@ export interface FeedSnapshot {
 
 interface FeedSnapshotSpec {
   sortedSetKey: string;
+  fallbackSortedSetKey: string | null;
+  fallbackMetricKey: string | null;
   currentSnapshotKey: string;
   generationKey: string;
   snapshotKeyPrefix: string;
@@ -47,6 +52,8 @@ interface FeedSnapshotSpec {
 
 const CURRENT_FEED_SNAPSHOT_SPEC: FeedSnapshotSpec = {
   sortedSetKey: COMMUNITY_GOV_REDIS_KEYS.current,
+  fallbackSortedSetKey: FEED_LAST_KNOWN_GOOD_KEY,
+  fallbackMetricKey: FEED_LAST_KNOWN_GOOD_FALLBACK_TOTAL_KEY,
   currentSnapshotKey: CURRENT_FEED_SNAPSHOT_KEY,
   generationKey: CURRENT_FEED_GENERATION_KEY,
   snapshotKeyPrefix: SNAPSHOT_KEY_PREFIX,
@@ -233,9 +240,22 @@ async function readCurrentSnapshotFromRedis(spec: FeedSnapshotSpec): Promise<Fee
 async function createCurrentSnapshot(spec: FeedSnapshotSpec): Promise<FeedSnapshot | null> {
   for (let attempt = 0; attempt < 2; attempt++) {
     const generation = await readCurrentGeneration(spec);
-    const rankedUris = await redis.zrevrange(spec.sortedSetKey, 0, spec.maxPosts - 1);
+    let usedLastKnownGood = false;
+    let rankedUris = await redis.zrevrange(spec.sortedSetKey, 0, spec.maxPosts - 1);
     if (rankedUris.length === 0) {
-      return null;
+      if (spec.fallbackSortedSetKey === null) {
+        return null;
+      }
+      rankedUris = await redis.zrevrange(spec.fallbackSortedSetKey, 0, spec.maxPosts - 1);
+      if (rankedUris.length === 0) {
+        return null;
+      }
+      usedLastKnownGood = true;
+
+      logger.warn(
+        { fallbackCount: rankedUris.length, sortedSetKey: spec.sortedSetKey },
+        'Current feed is empty; creating snapshot from last-known-good feed'
+      );
     }
 
     const snapshot: FeedSnapshot = {
@@ -255,6 +275,11 @@ async function createCurrentSnapshot(spec: FeedSnapshotSpec): Promise<FeedSnapsh
       serializedSnapshot
     );
     if (published === 1) {
+      if (usedLastKnownGood && spec.fallbackMetricKey !== null) {
+        void redis.incr(spec.fallbackMetricKey).catch((error) => {
+          logger.warn({ error }, 'Failed to record last-known-good feed fallback metric');
+        });
+      }
       return await writeCurrentMemorySnapshot(spec, snapshot, generation);
     }
 
@@ -318,8 +343,11 @@ async function getFeedSnapshotByIdForSpec(
 }
 
 function feedSnapshotSpecForCommunity(community: FeedCommunity): FeedSnapshotSpec {
+  const isProductionCommunity = community.communityId === 'community-gov';
   return {
     sortedSetKey: community.redis.current,
+    fallbackSortedSetKey: isProductionCommunity ? FEED_LAST_KNOWN_GOOD_KEY : null,
+    fallbackMetricKey: isProductionCommunity ? FEED_LAST_KNOWN_GOOD_FALLBACK_TOTAL_KEY : null,
     currentSnapshotKey: community.redis.currentSnapshot,
     generationKey: community.redis.snapshotGeneration,
     snapshotKeyPrefix: community.redis.snapshotPrefix,
@@ -379,6 +407,9 @@ export async function invalidateCommunityFeedSnapshot(community: FeedCommunity):
 }
 
 export const __snapshotCacheKeysForTests = {
+  currentFeedKey: COMMUNITY_GOV_REDIS_KEYS.current,
+  lastKnownGoodFeedKey: FEED_LAST_KNOWN_GOOD_KEY,
+  lastKnownGoodFallbackTotalKey: FEED_LAST_KNOWN_GOOD_FALLBACK_TOTAL_KEY,
   currentSnapshotKey: CURRENT_FEED_SNAPSHOT_KEY,
   currentGenerationKey: CURRENT_FEED_GENERATION_KEY,
   snapshotKeyPrefix: SNAPSHOT_KEY_PREFIX,

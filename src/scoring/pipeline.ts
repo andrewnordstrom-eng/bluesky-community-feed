@@ -43,6 +43,50 @@ const SCORING_TIMEOUT_MS = config.SCORING_TIMEOUT_MS;
 const SCORING_CANDIDATE_LIMIT = config.SCORING_CANDIDATE_LIMIT;
 const SQL_BOUNDARY_KEYWORD_PATTERN = /^[a-z0-9][a-z0-9\s-]*$/;
 const EPOCH_METRICS_CURRENT_FEED_RETENTION_ROWS = 24;
+const FEED_CURRENT_KEY = 'feed:current';
+const FEED_LAST_KNOWN_GOOD_KEY = 'feed:last_known_good';
+const FEED_EMPTY_RESULT_SKIPPED_TOTAL_KEY = 'feed:empty_result_skipped_total';
+const FEED_LAST_EMPTY_RESULT_AT_KEY = 'feed:last_empty_result_at';
+const FEED_STAGED_CURRENT_PREFIX = 'feed:staging:current:';
+const FEED_STAGED_LAST_KNOWN_GOOD_PREFIX = 'feed:staging:last_known_good:';
+const FEED_STAGED_METADATA_PREFIX = 'feed:staging:metadata:';
+const FEED_STAGING_TTL_SECONDS = Math.ceil((SCORING_TIMEOUT_MS * 2) / 1000);
+const PUBLISH_STAGED_FEED_SCRIPT = `
+local sourceCount = tonumber(ARGV[1])
+if sourceCount == nil or sourceCount <= 0 or #KEYS ~= sourceCount * 2 then
+  return redis.error_reply('invalid staged feed publish arguments')
+end
+for index = 1, sourceCount do
+  if redis.call('EXISTS', KEYS[index]) ~= 1 then
+    return redis.error_reply('missing staged feed publish key at index ' .. index)
+  end
+end
+for index = 1, sourceCount do
+  local destinationIndex = sourceCount + index
+  redis.call('RENAME', KEYS[index], KEYS[destinationIndex])
+  redis.call('PERSIST', KEYS[destinationIndex])
+end
+return 1
+`;
+
+type RedisTransactionResult = Array<[Error | null, unknown]>;
+
+class RedisTransactionAbortedError extends Error {
+  constructor(operation: string) {
+    super(`Redis transaction aborted during ${operation}: exec returned null`);
+    this.name = 'RedisTransactionAbortedError';
+  }
+}
+
+class RedisTransactionCommandError extends Error {
+  constructor(operation: string, commandIndex: number, cause: Error) {
+    super(
+      `Redis transaction failed during ${operation} at command ${commandIndex}: ${cause.message}`,
+      { cause }
+    );
+    this.name = 'RedisTransactionCommandError';
+  }
+}
 
 // Track last successful run for health checks
 let lastSuccessfulRunAt: Date | null = null;
@@ -57,6 +101,56 @@ let incrementalRunCount = 0;
 let missingWeightWarned = new Set<string>();
 let scoringRunInFlight: Promise<void> | null = null;
 
+function assertRedisTransactionSucceeded(
+  results: RedisTransactionResult | null,
+  operation: string
+): void {
+  if (results === null) {
+    throw new RedisTransactionAbortedError(operation);
+  }
+
+  for (const [index, [error]] of results.entries()) {
+    if (error !== null) {
+      throw new RedisTransactionCommandError(operation, index, error);
+    }
+  }
+}
+
+async function cleanupStagedFeedPublish(stagedKeys: string[]): Promise<void> {
+  try {
+    await redis.del(...stagedKeys);
+  } catch (error) {
+    logger.warn(
+      { error, stagedKeys },
+      'Failed to clean up staged feed publish keys'
+    );
+  }
+}
+
+function recordEmptyFeedPublishTelemetry(
+  epochId: number,
+  runId: string,
+  emptyResultAt: string
+): void {
+  const writes = [
+    { key: FEED_EMPTY_RESULT_SKIPPED_TOTAL_KEY, promise: redis.incr(FEED_EMPTY_RESULT_SKIPPED_TOTAL_KEY) },
+    { key: FEED_LAST_EMPTY_RESULT_AT_KEY, promise: redis.set(FEED_LAST_EMPTY_RESULT_AT_KEY, emptyResultAt) },
+  ];
+  void Promise.allSettled(writes.map(({ promise }) => promise)).then((results) => {
+    const failures = results.flatMap((result, index) => (
+      result.status === 'rejected'
+        ? [{ key: writes[index].key, error: result.reason }]
+        : []
+    ));
+    if (failures.length > 0) {
+      logger.warn(
+        { failures, epochId, runId, emptyResultAt },
+        'Failed to record empty feed publish telemetry'
+      );
+    }
+  });
+}
+
 interface CurrentFeedStatsSnapshot {
   totalPostsScored: number;
   uniqueAuthors: number;
@@ -65,6 +159,11 @@ interface CurrentFeedStatsSnapshot {
   medianBridging: number;
   medianTotal: number;
   authorGini: number;
+}
+
+interface FeedPublicationResult {
+  published: boolean;
+  feedStatsSnapshot: CurrentFeedStatsSnapshot | null;
 }
 
 interface RedisFeedCandidate {
@@ -203,7 +302,7 @@ async function runScoringPipelineInternal(): Promise<void> {
     }
 
     if (allPosts.length === 0 && !useIncremental) {
-      logger.warn({ epochId: epoch.id }, 'No posts to score in the window, clearing feed');
+      logger.warn({ epochId: epoch.id }, 'No posts to score in the window');
     }
 
     // 2b. Apply content filtering as a backup guard.
@@ -228,7 +327,7 @@ async function runScoringPipelineInternal(): Promise<void> {
       );
 
       if (posts.length === 0 && !useIncremental) {
-        logger.warn({ epochId: epoch.id }, 'All posts filtered out by content rules, clearing feed');
+        logger.warn({ epochId: epoch.id }, 'All posts filtered out by content rules');
       }
     }
 
@@ -241,7 +340,7 @@ async function runScoringPipelineInternal(): Promise<void> {
     // In incremental mode, only new/changed posts were scored above, but
     // previous scores remain in post_scores. Reading from DB gives the
     // complete, correctly-ranked feed.
-    const feedStatsSnapshot = await writeToRedisFromDb(epoch.id, runId);
+    const feedPublication = await writeToRedisFromDb(epoch.id, runId);
 
     const elapsed = Date.now() - startTime;
     logger.info(
@@ -267,10 +366,12 @@ async function runScoringPipelineInternal(): Promise<void> {
       posts_scored: posts.length,
       posts_filtered: allPosts.length - posts.length,
     });
-    try {
-      await updateEpochMetrics(epoch.id, runId, feedStatsSnapshot);
-    } catch (err) {
-      logger.warn({ err, epochId: epoch.id, runId }, 'Failed to update epoch transparency metrics');
+    if (feedPublication.published && feedPublication.feedStatsSnapshot !== null) {
+      try {
+        await updateEpochMetrics(epoch.id, runId, feedPublication.feedStatsSnapshot);
+      } catch (err) {
+        logger.warn({ err, epochId: epoch.id, runId }, 'Failed to update epoch transparency metrics');
+      }
     }
     await updateCurrentRunScope(runId, epoch.id, elapsed, posts.length, allPosts.length - posts.length);
   } catch (err) {
@@ -961,7 +1062,7 @@ async function storeScoreComponents(
  * Applies the scoring window cutoff so posts older than SCORING_WINDOW_HOURS
  * are excluded even if they have stale scores in post_scores.
  */
-async function writeToRedisFromDb(epochId: number, runId: string): Promise<CurrentFeedStatsSnapshot> {
+async function writeToRedisFromDb(epochId: number, runId: string): Promise<FeedPublicationResult> {
   const cutoffMs = config.SCORING_WINDOW_HOURS * 60 * 60 * 1000;
   const cutoff = new Date(Date.now() - cutoffMs);
 
@@ -1046,36 +1147,81 @@ async function writeToRedisFromDb(epochId: number, runId: string): Promise<Curre
     topPosts = feedCandidates;
   }
 
-  // Use Redis pipeline for atomic batch write
-  const pipeline = redis.pipeline();
-
-  // Delete old feed; invalidate the shared pagination snapshot only after the write is durable.
-  pipeline.del('feed:current');
-
-  // Add all posts to sorted set (score = total_score)
-  for (const post of topPosts) {
-    pipeline.zadd('feed:current', post.total_score, post.post_uri);
+  if (topPosts.length === 0) {
+    const emptyResultAt = new Date().toISOString();
+    logger.warn(
+      { epochId, runId, emptyResultAt },
+      'Scoring result produced zero feed rows; preserving current feed'
+    );
+    recordEmptyFeedPublishTelemetry(epochId, runId, emptyResultAt);
+    return { published: false, feedStatsSnapshot: null };
   }
 
-  // Store metadata
-  pipeline.set('feed:epoch', epochId.toString());
-  pipeline.set('feed:run_id', runId);
-  pipeline.set('feed:updated_at', new Date().toISOString());
-  pipeline.set('feed:count', topPosts.length.toString());
+  const feedStatsSnapshot = buildCurrentFeedStatsSnapshot(topPosts);
 
-  await pipeline.exec();
+  const stagedCurrentKey = `${FEED_STAGED_CURRENT_PREFIX}${runId}`;
+  const stagedLastKnownGoodKey = `${FEED_STAGED_LAST_KNOWN_GOOD_PREFIX}${runId}`;
+  const updatedAt = new Date().toISOString();
+  const metadataEntries: ReadonlyArray<readonly [string, string]> = [
+    ['feed:epoch', epochId.toString()],
+    ['feed:run_id', runId],
+    ['feed:updated_at', updatedAt],
+    ['feed:count', topPosts.length.toString()],
+    ['feed:last_known_good_epoch', epochId.toString()],
+    ['feed:last_known_good_run_id', runId],
+    ['feed:last_known_good_count', topPosts.length.toString()],
+  ];
+  const stagedMetadataKeys = metadataEntries.map(
+    (_entry, index) => `${FEED_STAGED_METADATA_PREFIX}${runId}:${index}`
+  );
+  const stagedKeys = [stagedCurrentKey, stagedLastKnownGoodKey, ...stagedMetadataKeys];
+  const publishDestinationKeys = [
+    FEED_CURRENT_KEY,
+    FEED_LAST_KNOWN_GOOD_KEY,
+    ...metadataEntries.map(([destinationKey]) => destinationKey),
+  ];
+
+  try {
+    const stagingTransaction = redis.multi();
+    stagingTransaction.del(...stagedKeys);
+    const zaddArguments: Array<string | number> = [];
+    for (const post of topPosts) {
+      zaddArguments.push(post.total_score, post.post_uri);
+    }
+    stagingTransaction.zadd(stagedCurrentKey, ...zaddArguments);
+    stagingTransaction.zadd(stagedLastKnownGoodKey, ...zaddArguments);
+    for (const [index, [, value]] of metadataEntries.entries()) {
+      stagingTransaction.set(stagedMetadataKeys[index], value);
+    }
+    for (const stagedKey of stagedKeys) {
+      stagingTransaction.expire(stagedKey, FEED_STAGING_TTL_SECONDS);
+    }
+    assertRedisTransactionSucceeded(
+      await stagingTransaction.exec(),
+      'staged feed materialization'
+    );
+
+    const published = await redis.eval(
+      PUBLISH_STAGED_FEED_SCRIPT,
+      stagedKeys.length + publishDestinationKeys.length,
+      ...stagedKeys,
+      ...publishDestinationKeys,
+      stagedKeys.length.toString()
+    );
+    if (published !== 1) {
+      throw new Error(`Atomic feed publish returned unexpected result: ${String(published)}`);
+    }
+  } catch (error) {
+    await cleanupStagedFeedPublish(stagedKeys);
+    throw error;
+  }
+
   try {
     await invalidateCurrentFeedSnapshot();
   } catch (err) {
     logger.warn({ err, epochId, runId }, 'Failed to invalidate current feed snapshot cache after feed write');
   }
 
-  const feedStatsSnapshot = buildCurrentFeedStatsSnapshot(topPosts);
-  if (topPosts.length === 0) {
-    logger.info({ epochId }, 'Feed cleared in Redis due to empty scoring result');
-    return feedStatsSnapshot;
-  }
-
   logger.info({ postCount: topPosts.length, epochId }, 'Feed written to Redis');
-  return feedStatsSnapshot;
+  return { published: true, feedStatsSnapshot };
 }
