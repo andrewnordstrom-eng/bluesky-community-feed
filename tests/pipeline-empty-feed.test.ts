@@ -157,7 +157,9 @@ describe('scoring pipeline empty-feed Redis updates', () => {
 
     expect(redisPipelineFactoryMock).not.toHaveBeenCalled();
     expect(redisDelMock).not.toHaveBeenCalled();
+    expect(redisEvalMock).not.toHaveBeenCalled();
     expect(redisIncrMock).toHaveBeenCalledWith('feed:empty_result_skipped_total');
+    expect(redisSetMock).toHaveBeenCalledTimes(1);
     expect(redisSetMock).toHaveBeenCalledWith('feed:last_empty_result_at', expect.any(String));
     expect(pipelineZaddMock).not.toHaveBeenCalled();
     expect(updateScoringStatusMock).toHaveBeenCalledWith(
@@ -188,7 +190,9 @@ describe('scoring pipeline empty-feed Redis updates', () => {
 
     expect(redisPipelineFactoryMock).not.toHaveBeenCalled();
     expect(redisDelMock).not.toHaveBeenCalled();
+    expect(redisEvalMock).not.toHaveBeenCalled();
     expect(redisIncrMock).toHaveBeenCalledWith('feed:empty_result_skipped_total');
+    expect(redisSetMock).toHaveBeenCalledTimes(1);
     expect(redisSetMock).toHaveBeenCalledWith('feed:last_empty_result_at', expect.any(String));
     expect(pipelineZaddMock).not.toHaveBeenCalled();
     expect(updateScoringStatusMock).toHaveBeenCalledWith(
