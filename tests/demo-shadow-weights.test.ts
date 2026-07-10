@@ -75,6 +75,17 @@ describe('shadow demo weight math', () => {
     expect(() => aggregateShadowVotes([])).toThrow('Cannot aggregate zero shadow demo votes');
   });
 
+  it('uses the stored relevance score when topic intent is empty', () => {
+    const scored = scoreFromRawWeights(
+      { recency: 0.5, engagement: 0.8, bridging: 0.25, source_diversity: 1, relevance: 0.4 },
+      { recency: 0.2, engagement: 0.3, bridging: 0.1, source_diversity: 0.1, relevance: 0.3 },
+      { 'science-research': 0.8 },
+      { topicWeights: {} }
+    );
+
+    expect(scored.effectiveRawScores.relevance).toBe(0.4);
+  });
+
   it('does not trim small electorates below ten votes', () => {
     const summary = aggregateShadowVotes([RECENCY_ONLY, ENGAGEMENT_ONLY]);
 

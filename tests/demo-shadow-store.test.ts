@@ -4,19 +4,46 @@ import { DemoStoreCorruptionError, RedisDemoStore } from '../src/demo/store.js';
 import type { ShadowDemoSessionState } from '../src/demo/types.js';
 
 describe('Redis shadow demo store', () => {
-  it('writes one session record without duplicating the frozen corpus', async () => {
+  it('writes the frozen corpus once and stores only a corpus reference in the session', async () => {
+    const exists = vi.fn().mockResolvedValue(0);
     const setex = vi.fn().mockResolvedValue('OK');
-    const redis = { setex } as unknown as Redis;
+    const redis = { exists, setex } as unknown as Redis;
     const store = new RedisDemoStore(redis);
     const session = storedSession();
 
     await store.writeSession(session, 120);
 
+    expect(exists).toHaveBeenCalledWith('demo:corpus:demo-store-corpus');
+    expect(setex).toHaveBeenNthCalledWith(
+      1,
+      'demo:corpus:demo-store-corpus',
+      120,
+      JSON.stringify(session.corpus)
+    );
+    const { corpus: _corpus, ...sessionHeader } = session;
+    expect(setex).toHaveBeenNthCalledWith(
+      2,
+      'demo:session:demo-store-session',
+      120,
+      JSON.stringify(sessionHeader)
+    );
+  });
+
+  it('reuses an existing corpus blob without rewriting its bytes', async () => {
+    const exists = vi.fn().mockResolvedValue(1);
+    const expire = vi.fn().mockResolvedValue(1);
+    const setex = vi.fn().mockResolvedValue('OK');
+    const redis = { exists, expire, setex } as unknown as Redis;
+    const store = new RedisDemoStore(redis);
+
+    await store.writeSession(storedSession(), 120);
+
+    expect(expire).toHaveBeenCalledWith('demo:corpus:demo-store-corpus', 120);
     expect(setex).toHaveBeenCalledTimes(1);
     expect(setex).toHaveBeenCalledWith(
       'demo:session:demo-store-session',
       120,
-      JSON.stringify(session)
+      expect.not.stringContaining('"items"')
     );
   });
 
@@ -33,14 +60,42 @@ describe('Redis shadow demo store', () => {
   });
 
   it('surfaces a failed session write without leaving a second corpus key', async () => {
+    const exists = vi.fn().mockResolvedValue(1);
+    const expire = vi.fn().mockResolvedValue(1);
     const setex = vi.fn().mockRejectedValue(new Error('session write failed'));
-    const redis = { setex } as unknown as Redis;
+    const redis = { exists, expire, setex } as unknown as Redis;
     const store = new RedisDemoStore(redis);
 
     await expect(store.writeSession(storedSession(), 120)).rejects.toThrow(
       'session write failed'
     );
     expect(setex).toHaveBeenCalledTimes(1);
+  });
+
+  it('hydrates a stored session header from its frozen corpus record', async () => {
+    const session = storedSession();
+    const { corpus, ...sessionHeader } = session;
+    const get = vi.fn()
+      .mockResolvedValueOnce(JSON.stringify(sessionHeader))
+      .mockResolvedValueOnce(JSON.stringify(corpus));
+    const store = new RedisDemoStore({ get } as unknown as Redis);
+
+    await expect(store.readSession(session.sessionId)).resolves.toEqual(session);
+    expect(get).toHaveBeenNthCalledWith(1, 'demo:session:demo-store-session');
+    expect(get).toHaveBeenNthCalledWith(2, 'demo:corpus:demo-store-corpus');
+  });
+
+  it('raises explicit corruption when a session references a missing corpus', async () => {
+    const session = storedSession();
+    const { corpus: _corpus, ...sessionHeader } = session;
+    const get = vi.fn()
+      .mockResolvedValueOnce(JSON.stringify(sessionHeader))
+      .mockResolvedValueOnce(null);
+    const store = new RedisDemoStore({ get } as unknown as Redis);
+
+    await expect(store.readSession(session.sessionId)).rejects.toThrow(
+      /referenced corpus demo-store-corpus is missing/
+    );
   });
 
   it('rejects malformed nested epochs, votes, and corpus items', async () => {

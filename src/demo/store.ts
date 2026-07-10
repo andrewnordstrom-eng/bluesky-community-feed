@@ -129,7 +129,7 @@ const StoredVoteSchema = z.discriminatedUnion('actorType', [
   }),
 ]);
 
-const StoredSessionSchema = z.object({
+const StoredSessionHeaderSchema = z.object({
   sessionId: z.string().min(1),
   communityId: z.enum(SHADOW_DEMO_COMMUNITY_IDS),
   seed: z.string().min(1),
@@ -140,7 +140,6 @@ const StoredSessionSchema = z.object({
   currentEpochId: z.string().min(1),
   epochs: z.array(StoredEpochSchema),
   votes: z.array(StoredVoteSchema),
-  corpus: StoredCorpusSchema,
   warnings: z.array(StoredWarningSchema),
 });
 
@@ -192,11 +191,39 @@ export class RedisDemoStore implements DemoStore {
   async readSession(sessionId: string): Promise<ShadowDemoSessionState | null> {
     const key = sessionKey(sessionId);
     const raw = await this.redis.get(key);
-    return raw ? parseStoredRecord<ShadowDemoSessionState>(StoredSessionSchema, raw, key) : null;
+    if (!raw) {
+      return null;
+    }
+    const header = parseStoredRecord<Omit<ShadowDemoSessionState, 'corpus'>>(
+      StoredSessionHeaderSchema,
+      raw,
+      key
+    );
+    const storedCorpusKey = corpusKey(header.corpusId);
+    const rawCorpus = await this.redis.get(storedCorpusKey);
+    if (!rawCorpus) {
+      throw new DemoStoreCorruptionError(
+        key,
+        `referenced corpus ${header.corpusId} is missing at ${storedCorpusKey}`
+      );
+    }
+    const corpus = parseStoredRecord<ShadowDemoCorpus>(StoredCorpusSchema, rawCorpus, storedCorpusKey);
+    return { ...header, corpus };
   }
 
   async writeSession(session: ShadowDemoSessionState, ttlSeconds: number): Promise<void> {
-    await this.redis.setex(sessionKey(session.sessionId), ttlSeconds, JSON.stringify(session));
+    const storedCorpusKey = corpusKey(session.corpusId);
+    const corpusExists = await this.redis.exists(storedCorpusKey);
+    if (corpusExists === 0) {
+      await this.redis.setex(storedCorpusKey, ttlSeconds, JSON.stringify(session.corpus));
+    } else {
+      const refreshed = await this.redis.expire(storedCorpusKey, ttlSeconds);
+      if (refreshed === 0) {
+        await this.redis.setex(storedCorpusKey, ttlSeconds, JSON.stringify(session.corpus));
+      }
+    }
+    const { corpus: _corpus, ...sessionHeader } = session;
+    await this.redis.setex(sessionKey(session.sessionId), ttlSeconds, JSON.stringify(sessionHeader));
   }
 
   async readIdempotency<TPayload>(sessionId: string, key: string): Promise<IdempotencyRecord<TPayload> | null> {
@@ -428,6 +455,10 @@ export function demoSharedCorpusKeyPrefix(): string {
 
 function sessionKey(sessionId: string): string {
   return `${demoSessionKeyPrefix()}${sessionId}`;
+}
+
+function corpusKey(corpusId: string): string {
+  return `${demoCorpusKeyPrefix()}${corpusId}`;
 }
 
 function sharedCorpusKey(communityId: ShadowDemoCommunityId): string {
