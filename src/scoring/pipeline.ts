@@ -127,6 +127,30 @@ async function cleanupStagedFeedPublish(stagedKeys: string[]): Promise<void> {
   }
 }
 
+function recordEmptyFeedPublishTelemetry(
+  epochId: number,
+  runId: string,
+  emptyResultAt: string
+): void {
+  const writes = [
+    { key: FEED_EMPTY_RESULT_SKIPPED_TOTAL_KEY, promise: redis.incr(FEED_EMPTY_RESULT_SKIPPED_TOTAL_KEY) },
+    { key: FEED_LAST_EMPTY_RESULT_AT_KEY, promise: redis.set(FEED_LAST_EMPTY_RESULT_AT_KEY, emptyResultAt) },
+  ];
+  void Promise.allSettled(writes.map(({ promise }) => promise)).then((results) => {
+    const failures = results.flatMap((result, index) => (
+      result.status === 'rejected'
+        ? [{ key: writes[index].key, error: result.reason }]
+        : []
+    ));
+    if (failures.length > 0) {
+      logger.warn(
+        { failures, epochId, runId, emptyResultAt },
+        'Failed to record empty feed publish telemetry'
+      );
+    }
+  });
+}
+
 interface CurrentFeedStatsSnapshot {
   totalPostsScored: number;
   uniqueAuthors: number;
@@ -1130,15 +1154,7 @@ async function writeToRedisFromDb(epochId: number, runId: string): Promise<FeedP
       { epochId, runId, emptyResultAt },
       'Scoring result produced zero feed rows; preserving current feed'
     );
-    try {
-      await redis.incr(FEED_EMPTY_RESULT_SKIPPED_TOTAL_KEY);
-      await redis.set(FEED_LAST_EMPTY_RESULT_AT_KEY, emptyResultAt);
-    } catch (error) {
-      logger.warn(
-        { error, epochId, runId, emptyResultAt },
-        'Failed to record empty feed publish telemetry'
-      );
-    }
+    recordEmptyFeedPublishTelemetry(epochId, runId, emptyResultAt);
     return { published: false, feedStatsSnapshot: null };
   }
 

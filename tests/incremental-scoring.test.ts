@@ -7,6 +7,7 @@ const {
   pipelineZaddMock,
   pipelineSetMock,
   pipelineExecMock,
+  pipelineExpireMock,
   redisEvalMock,
   getCurrentContentRulesMock,
   hasActiveContentRulesMock,
@@ -20,6 +21,7 @@ const {
   pipelineZaddMock: vi.fn(),
   pipelineSetMock: vi.fn(),
   pipelineExecMock: vi.fn(),
+  pipelineExpireMock: vi.fn(),
   redisEvalMock: vi.fn(),
   getCurrentContentRulesMock: vi.fn(),
   hasActiveContentRulesMock: vi.fn(),
@@ -79,7 +81,7 @@ function makePostRow(uri = 'at://did:plc:test/post/1') {
 function setupDefaultMocks() {
   const pipeline = {
     del: pipelineDelMock.mockReturnThis(),
-    expire: vi.fn().mockReturnThis(),
+    expire: pipelineExpireMock.mockReturnThis(),
     zadd: pipelineZaddMock.mockReturnThis(),
     set: pipelineSetMock.mockReturnThis(),
     exec: pipelineExecMock.mockResolvedValue([]),
@@ -282,6 +284,51 @@ describe('incremental scoring pipeline', () => {
       0.5,
       postRow.uri
     );
+    expect(pipelineZaddMock).toHaveBeenCalledWith(
+      expect.stringMatching(/^feed:staging:last_known_good:/),
+      0.5,
+      postRow.uri
+    );
+    expect(pipelineExpireMock).toHaveBeenCalledTimes(9);
+    const stagedExpiryCalls = pipelineExpireMock.mock.calls as Array<[string, number]>;
+    expect(new Set(stagedExpiryCalls.map(([key]) => key)).size).toBe(9);
+    expect(stagedExpiryCalls.every(([, ttlSeconds]) => ttlSeconds === 480)).toBe(true);
+    expect(stagedExpiryCalls.map(([key]) => key)).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/^feed:staging:current:/),
+        expect.stringMatching(/^feed:staging:last_known_good:/),
+        expect.stringMatching(/^feed:staging:metadata:.*:0$/),
+        expect.stringMatching(/^feed:staging:metadata:.*:1$/),
+        expect.stringMatching(/^feed:staging:metadata:.*:2$/),
+        expect.stringMatching(/^feed:staging:metadata:.*:3$/),
+        expect.stringMatching(/^feed:staging:metadata:.*:4$/),
+        expect.stringMatching(/^feed:staging:metadata:.*:5$/),
+        expect.stringMatching(/^feed:staging:metadata:.*:6$/),
+      ])
+    );
+    expect(redisEvalMock).toHaveBeenCalledWith(
+      expect.any(String),
+      18,
+      expect.stringMatching(/^feed:staging:current:/),
+      expect.stringMatching(/^feed:staging:last_known_good:/),
+      expect.stringMatching(/^feed:staging:metadata:.*:0$/),
+      expect.stringMatching(/^feed:staging:metadata:.*:1$/),
+      expect.stringMatching(/^feed:staging:metadata:.*:2$/),
+      expect.stringMatching(/^feed:staging:metadata:.*:3$/),
+      expect.stringMatching(/^feed:staging:metadata:.*:4$/),
+      expect.stringMatching(/^feed:staging:metadata:.*:5$/),
+      expect.stringMatching(/^feed:staging:metadata:.*:6$/),
+      'feed:current',
+      'feed:last_known_good',
+      'feed:epoch',
+      'feed:run_id',
+      'feed:updated_at',
+      'feed:count',
+      'feed:last_known_good_epoch',
+      'feed:last_known_good_run_id',
+      'feed:last_known_good_count',
+      '9'
+    );
   });
 
   it('materializes current feed stats after writing Redis feed', async () => {
@@ -410,6 +457,8 @@ describe('incremental scoring pipeline', () => {
 
     expect(queryWasCalledWith('INSERT INTO epoch_metrics')).toBe(false);
     expect(queryWasCalledWith('current_scoring_run')).toBe(true);
+    expect(redisPipelineFactoryMock).not.toHaveBeenCalled();
+    expect(redisEvalMock).not.toHaveBeenCalled();
   });
 
   it('keeps scoring successful when current feed metrics materialization fails', async () => {

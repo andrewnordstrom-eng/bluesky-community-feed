@@ -1405,7 +1405,7 @@ PROJ-1433 requires every metric used in the paper or site to have a receipt and 
 ## 2026-07-09 #01 — PROJ-1467 current-main reliability refresh
 
 **Branch:** `dev/PROJ-1467-last-known-good-feed-fallback-refresh`
-**Commits:** pending explicit approval
+**Commits:** `a3222b3`; hosted-review follow-up included in this branch
 **Files changed:** scoring publication, shared feed snapshot cache, focused scoring/cache tests, and the dated lab note.
 
 ### What changed
@@ -1414,7 +1414,9 @@ PROJ-1433 requires every metric used in the paper or site to have a receipt and 
 - Preserved the new shared snapshot-cache architecture: fallback selection occurs during snapshot creation, not inside the feed route.
 - Made zero-row scoring non-destructive and observable.
 - Staged non-empty publication to current and last-known-good sorted sets, then atomically promoted both sets and seven metadata keys with a preflighted Lua script.
+- The seven metadata destinations are `feed:epoch`, `feed:run_id`, `feed:updated_at`, `feed:count`, `feed:last_known_good_epoch`, `feed:last_known_good_run_id`, and `feed:last_known_good_count`; the script renames each staged source over its destination before persisting the destination.
 - Made snapshot loads single-flight, kept fallback telemetry off the response critical path, and counted fallback only after successful snapshot publication.
+- Kept zero-row skip telemetry best-effort and non-blocking: both writes are attempted independently, failures are logged, and the served feed remains unchanged.
 - Prevented a skipped empty publication from recording a false zero-valued `current_feed` metrics row.
 - Added cleanup, concurrency, retry, bounded-read, and failure regressions without touching Claude's active UI worktree or product components.
 
@@ -1422,16 +1424,18 @@ PROJ-1433 requires every metric used in the paper or site to have a receipt and 
 
 - `npm ci --ignore-scripts`: 531 packages installed, 0 vulnerabilities.
 - `npm run build`: pass.
-- Focused reliability slice: 8 files / 85 tests passed.
+- Focused reliability slice: 8 files / 91 tests passed.
 - Exact publish Lua script against local Redis: 9 staged keys promoted; missing-source preflight rejected without mutating destination state.
-- Full `npm run verify` with `.env.example` and `NODE_ENV=production`: pass; 109 files / 1,018 tests, CLI build, SDK build/fixture, legacy web lint/build, and `web-next` static export all passed.
+- Full `npm run verify` with `.env.example` and `NODE_ENV=production`: pass; 109 files / 1,024 tests, CLI build, SDK build/fixture, legacy web lint/build, and `web-next` static export all passed.
 - First CodeRabbit local review: 2 major, 4 minor, 2 trivial findings; all addressed.
 - Second CodeRabbit local review: 0 major, 1 minor, 3 trivial findings; all addressed.
 - Third CodeRabbit local review: 0 major, 0 minor, 4 trivial test-polish findings; all addressed.
+- First hosted CodeRabbit review on PR #329: 0 major, 2 minor, 4 trivial findings; all addressed in the follow-up diff.
+- Local review of the hosted follow-up: 0 major, 1 minor, 2 trivial findings; all addressed before push.
 - `git diff --check`: pass.
 
 ### Boundaries
 
-- No commit, PR, merge, deploy, production rescore, production Redis mutation, or browser/UI change was made in this entry.
+- Commit `a3222b3` and PR #329 exist; no merge, deploy, production rescore, production Redis mutation, or browser/UI change was made.
 - The local Redis receipt used uniquely prefixed temporary keys and deleted them in a `finally` block.
-- A hosted CodeRabbit request remains gated on an approved commit and PR; the repo wrapper will be used after a PR number exists.
+- Hosted review requests were routed through the repository readiness/request wrappers.

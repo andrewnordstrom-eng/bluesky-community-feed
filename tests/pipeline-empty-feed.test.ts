@@ -16,6 +16,7 @@ const {
   hasActiveContentRulesMock,
   filterPostsMock,
   updateScoringStatusMock,
+  loggerWarnMock,
 } = vi.hoisted(() => ({
   dbQueryMock: vi.fn(),
   redisPipelineFactoryMock: vi.fn(),
@@ -32,6 +33,7 @@ const {
   hasActiveContentRulesMock: vi.fn(),
   filterPostsMock: vi.fn(),
   updateScoringStatusMock: vi.fn(),
+  loggerWarnMock: vi.fn(),
 }));
 
 vi.mock('../src/db/client.js', () => ({
@@ -59,6 +61,15 @@ vi.mock('../src/governance/content-filter.js', () => ({
 
 vi.mock('../src/admin/status-tracker.js', () => ({
   updateScoringStatus: updateScoringStatusMock,
+}));
+
+vi.mock('../src/lib/logger.js', () => ({
+  logger: {
+    debug: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    warn: loggerWarnMock,
+  },
 }));
 
 import { runScoringPipeline, __resetPipelineState } from '../src/scoring/pipeline.js';
@@ -188,6 +199,65 @@ describe('scoring pipeline empty-feed Redis updates', () => {
     );
   });
 
+  it('preserves the served feed when empty-result telemetry fails', async () => {
+    const telemetryError = new Error('empty-result telemetry unavailable');
+    dbQueryMock
+      .mockResolvedValueOnce({ rows: [makeEpochRow()] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+    getCurrentContentRulesMock.mockResolvedValue({ includeKeywords: [], excludeKeywords: [] });
+    hasActiveContentRulesMock.mockReturnValue(false);
+    redisIncrMock.mockRejectedValueOnce(telemetryError);
+
+    await expect(runScoringPipeline()).resolves.toBeUndefined();
+
+    expect(redisPipelineFactoryMock).not.toHaveBeenCalled();
+    expect(redisEvalMock).not.toHaveBeenCalled();
+    expect(redisDelMock).not.toHaveBeenCalled();
+    expect(redisSetMock).toHaveBeenCalledWith('feed:last_empty_result_at', expect.any(String));
+    expect(updateScoringStatusMock).toHaveBeenCalledOnce();
+    await vi.waitFor(() => {
+      expect(loggerWarnMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          failures: [{ key: 'feed:empty_result_skipped_total', error: telemetryError }],
+          epochId: 2,
+          runId: expect.any(String),
+        }),
+        'Failed to record empty feed publish telemetry'
+      );
+    });
+  });
+
+  it('preserves the served feed when empty-result timestamp telemetry fails', async () => {
+    const telemetryError = new Error('empty-result timestamp unavailable');
+    dbQueryMock
+      .mockResolvedValueOnce({ rows: [makeEpochRow()] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+    getCurrentContentRulesMock.mockResolvedValue({ includeKeywords: [], excludeKeywords: [] });
+    hasActiveContentRulesMock.mockReturnValue(false);
+    redisSetMock.mockRejectedValueOnce(telemetryError);
+
+    await expect(runScoringPipeline()).resolves.toBeUndefined();
+
+    expect(redisIncrMock).toHaveBeenCalledWith('feed:empty_result_skipped_total');
+    expect(redisPipelineFactoryMock).not.toHaveBeenCalled();
+    expect(redisEvalMock).not.toHaveBeenCalled();
+    expect(redisDelMock).not.toHaveBeenCalled();
+    await vi.waitFor(() => {
+      expect(loggerWarnMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          failures: [{ key: 'feed:last_empty_result_at', error: telemetryError }],
+          epochId: 2,
+          runId: expect.any(String),
+        }),
+        'Failed to record empty feed publish telemetry'
+      );
+    });
+  });
+
   it('builds SQL keyword prefilter so LIMIT applies to matching posts', async () => {
     dbQueryMock
       .mockResolvedValueOnce({ rows: [makeEpochRow()] })   // getActiveEpoch
@@ -304,6 +374,7 @@ describe('scoring pipeline empty-feed Redis updates', () => {
 
     await expect(runScoringPipeline()).rejects.toThrow('publish failed');
 
+    expect(pipelineExpireMock).toHaveBeenCalledTimes(9);
     expect(redisDelMock).toHaveBeenCalledWith(
       expect.stringMatching(/^feed:staging:current:/),
       expect.stringMatching(/^feed:staging:last_known_good:/),

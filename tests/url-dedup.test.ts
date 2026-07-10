@@ -114,11 +114,15 @@ function getZaddCalls(): Array<{ score: number; member: string }> {
   return pipelineZaddMock.mock.calls
     .filter((call: unknown[]) => String(call[0]).startsWith('feed:staging:current:'))
     .flatMap((call: unknown[]) => {
+      expect((call.length - 1) % 2).toBe(0);
       const entries: Array<{ score: number; member: string }> = [];
       for (let index = 1; index < call.length; index += 2) {
+        expect(typeof call[index]).toBe('number');
+        expect(Number.isFinite(call[index])).toBe(true);
+        expect(typeof call[index + 1]).toBe('string');
         entries.push({
-          score: Number(call[index]),
-          member: String(call[index + 1]),
+          score: call[index] as number,
+          member: call[index + 1] as string,
         });
       }
       return entries;
@@ -130,6 +134,39 @@ describe('URL deduplication in writeToRedisFromDb', () => {
     __resetPipelineState();
     vi.clearAllMocks();
     setupDefaultMocks();
+  });
+
+  it('parses multiple score-member pairs from one staged ZADD', () => {
+    pipelineZaddMock(
+      'feed:staging:current:test-run',
+      0.9,
+      'at://post/1',
+      0.7,
+      'at://post/2'
+    );
+
+    expect(getZaddCalls()).toEqual([
+      { score: 0.9, member: 'at://post/1' },
+      { score: 0.7, member: 'at://post/2' },
+    ]);
+  });
+
+  it('rejects a malformed staged ZADD command', () => {
+    pipelineZaddMock('feed:staging:current:test-run', 0.9);
+
+    expect(() => getZaddCalls()).toThrow();
+  });
+
+  it('rejects a staged ZADD with a non-numeric score', () => {
+    pipelineZaddMock('feed:staging:current:test-run', '0.9', 'at://post/1');
+
+    expect(() => getZaddCalls()).toThrow();
+  });
+
+  it('rejects a staged ZADD with a non-string member', () => {
+    pipelineZaddMock('feed:staging:current:test-run', 0.9, 12345);
+
+    expect(() => getZaddCalls()).toThrow();
   });
 
   it('first post with a URL gets full score', async () => {

@@ -12,13 +12,22 @@ Non-empty scoring results are written to two run-scoped staging sorted sets plus
 
 - `feed:current`
 - `feed:last_known_good`
+- `feed:epoch`
+- `feed:run_id`
+- `feed:updated_at`
+- `feed:count`
+- `feed:last_known_good_epoch`
+- `feed:last_known_good_run_id`
+- `feed:last_known_good_count`
 
-The publish also writes current and last-known-good epoch, run, and count metadata. The script verifies every source key exists before its first mutation. Redis executes the script without interleaving other clients, and every command after preflight is a rename or persist against an existing source, so readers cannot observe a mixed feed/metadata publication. Staging keys expire after twice the configured scoring timeout so an interrupted run cannot leave permanent debris.
+The script verifies every source key exists before its first mutation. Redis executes the script without interleaving other clients. After preflight, it renames each staged source over its destination and then runs `PERSIST` on that destination, so readers cannot observe a mixed feed/metadata publication. Staging keys expire after twice the configured scoring timeout so an interrupted run cannot leave permanent debris.
 
-A zero-row result does not publish, delete, or invalidate the current snapshot. It records:
+A zero-row result does not publish, delete, or invalidate the current snapshot. It attempts these best-effort telemetry writes:
 
 - `feed:empty_result_skipped_total`
 - `feed:last_empty_result_at`
+
+Both telemetry writes are attempted independently. Failures are logged, neither write delays the scoring run, and neither can suppress feed preservation or turn the skipped result into a publication.
 
 First-page feed requests continue through the shared snapshot cache. Snapshot creation reads `feed:current` first and reads `feed:last_known_good` only when current is empty. Concurrent callers share one in-flight load. A successfully published fallback snapshot records `feed:last_known_good_fallback_total`; a compare-and-set retry does not overcount. Metric latency or failure is isolated from the served response.
 
@@ -28,7 +37,7 @@ The focused suite covers:
 
 1. No candidates and all-filtered candidates preserve the served feed.
 2. Relevance-floor zero-row results preserve the served feed.
-3. Empty-result telemetry is recorded without publishing.
+3. Empty-result telemetry is attempted without publishing; telemetry failure still preserves the feed.
 4. Non-empty results stage current and last-known-good sets with batched `ZADD` commands.
 5. Staging TTL and all current/last-known-good metadata are emitted.
 6. Staging aborts, staging command errors, rejected publish scripts, and unexpected publish results surface and trigger staged-key cleanup.
@@ -46,15 +55,17 @@ The focused suite covers:
 | --- | --- |
 | `npm ci --ignore-scripts` | 531 packages installed; 0 vulnerabilities |
 | `npm run build` | Pass |
-| Focused Vitest slice | 8 files, 85 tests passed |
+| Focused Vitest slice | 8 files, 91 tests passed |
 | Exact Lua script against local Redis | 9 keys promoted atomically; missing-source preflight rejected without mutating published state |
-| Full `npm run verify` with deterministic example env and `NODE_ENV=production` | 109 test files, 1,018 tests, CLI/SDK/legacy web/Next export passed |
+| Full `npm run verify` with deterministic example env and `NODE_ENV=production` | 109 test files, 1,024 tests, CLI/SDK/legacy web/Next export passed |
 | CodeRabbit local pass 1 | 2 major, 4 minor, 2 trivial findings; all addressed |
 | CodeRabbit local pass 2 | 0 major, 1 minor, 3 trivial findings; all addressed |
 | CodeRabbit local pass 3 | 0 major, 0 minor, 4 trivial test-polish findings; all addressed |
+| CodeRabbit hosted pass 1 on PR #329 | 0 major, 2 minor, 4 trivial findings; all addressed in the review follow-up |
+| CodeRabbit local follow-up pass | 0 major, 1 minor, 2 trivial findings; all addressed before push |
 | `git diff --check` | Pass |
 
-The hosted CodeRabbit wrapper still requires a PR number and therefore remains post-commit-approval work. No raw GitHub review trigger was used.
+The hosted CodeRabbit request was posted through the repository wrapper for PR #329. No raw GitHub review trigger was used.
 
 ## Production Gate
 
