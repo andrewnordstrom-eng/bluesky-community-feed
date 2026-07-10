@@ -210,6 +210,7 @@ interface ApiReceiptPayload {
 }
 
 const SHADOW_DEMO_REQUEST_TIMEOUT_MS = 10_000
+const SHADOW_DEMO_CORPUS_REQUEST_TIMEOUT_MS = 30_000
 
 export function createHttpShadowDemoClient(): ShadowDemoClient {
   return {
@@ -218,6 +219,7 @@ export function createHttpShadowDemoClient(): ShadowDemoClient {
         SHADOW_DEMO_ENDPOINTS.createSession,
         { method: "POST", body: JSON.stringify({ communityId: request.communityId, refreshCorpus: false }) },
         signal,
+        SHADOW_DEMO_CORPUS_REQUEST_TIMEOUT_MS,
       )
       return sessionResponseEnvelope(sessionEnvelope, request.scenarioId, signal)
     },
@@ -227,8 +229,19 @@ export function createHttpShadowDemoClient(): ShadowDemoClient {
         SHADOW_DEMO_ENDPOINTS.session(sessionId),
         { method: "GET" },
         signal,
+        SHADOW_DEMO_REQUEST_TIMEOUT_MS,
       )
       return sessionResponseEnvelope(sessionEnvelope, "guided_default", signal)
+    },
+
+    async refreshCorpus(request, signal) {
+      const sessionEnvelope = await requestApi<ApiSessionPayload>(
+        SHADOW_DEMO_ENDPOINTS.refreshCorpus,
+        { method: "POST", body: JSON.stringify({ communityId: request.communityId, refreshCorpus: true }) },
+        signal,
+        SHADOW_DEMO_CORPUS_REQUEST_TIMEOUT_MS,
+      )
+      return sessionResponseEnvelope(sessionEnvelope, request.scenarioId, signal)
     },
 
     async castVote(sessionId, request, signal) {
@@ -244,6 +257,7 @@ export function createHttpShadowDemoClient(): ShadowDemoClient {
           }),
         },
         signal,
+        SHADOW_DEMO_REQUEST_TIMEOUT_MS,
       )
       const apiSession = envelope.payload.session
       const reviewerVote = [...apiSession.votes]
@@ -268,6 +282,7 @@ export function createHttpShadowDemoClient(): ShadowDemoClient {
           body: JSON.stringify({ idempotencyKey: request.idempotencyKey, baseEpochId: request.baseEpochId }),
         },
         signal,
+        SHADOW_DEMO_REQUEST_TIMEOUT_MS,
       )
       const apiSession = envelope.payload.session
       if (apiSession.pendingAggregate === null) {
@@ -290,6 +305,7 @@ export function createHttpShadowDemoClient(): ShadowDemoClient {
         feedPath(sessionId, request.fromEpochId, 12),
         { method: "GET" },
         signal,
+        SHADOW_DEMO_REQUEST_TIMEOUT_MS,
       )
       const envelope = await requestApi<ApiSessionPayload>(
         SHADOW_DEMO_ENDPOINTS.advanceEpoch(sessionId),
@@ -298,12 +314,14 @@ export function createHttpShadowDemoClient(): ShadowDemoClient {
           body: JSON.stringify({ idempotencyKey: request.idempotencyKey, fromEpochId: request.fromEpochId }),
         },
         signal,
+        SHADOW_DEMO_REQUEST_TIMEOUT_MS,
       )
       const apiSession = envelope.payload.session
       const feedAfterEnvelope = await requestApi<ApiFeedPayload>(
         feedPath(sessionId, apiSession.currentEpochId, 12),
         { method: "GET" },
         signal,
+        SHADOW_DEMO_REQUEST_TIMEOUT_MS,
       )
       return mapEnvelope(envelope, {
         session: mapSession(apiSession, "guided_default"),
@@ -320,14 +338,25 @@ export function createHttpShadowDemoClient(): ShadowDemoClient {
         feedPath(sessionId, request.epochId, request.limit),
         { method: "GET" },
         signal,
+        SHADOW_DEMO_REQUEST_TIMEOUT_MS,
       )
       return mapEnvelope(envelope, mapFeed(envelope.payload, envelope.generatedAt))
     },
 
     async getReceipt(sessionId, request, signal) {
       const [receiptEnvelope, sessionEnvelope] = await Promise.all([
-        requestApi<ApiReceiptPayload>(receiptPath(sessionId, request), { method: "GET" }, signal),
-        requestApi<ApiSessionPayload>(SHADOW_DEMO_ENDPOINTS.session(sessionId), { method: "GET" }, signal),
+        requestApi<ApiReceiptPayload>(
+          receiptPath(sessionId, request),
+          { method: "GET" },
+          signal,
+          SHADOW_DEMO_REQUEST_TIMEOUT_MS,
+        ),
+        requestApi<ApiSessionPayload>(
+          SHADOW_DEMO_ENDPOINTS.session(sessionId),
+          { method: "GET" },
+          signal,
+          SHADOW_DEMO_REQUEST_TIMEOUT_MS,
+        ),
       ])
       return mapEnvelope(receiptEnvelope, {
         session: mapSession(sessionEnvelope.payload.session, "guided_default"),
@@ -347,6 +376,7 @@ async function sessionResponseEnvelope(
     feedPath(apiSession.sessionId, apiSession.currentEpochId, 12),
     { method: "GET" },
     signal,
+    SHADOW_DEMO_REQUEST_TIMEOUT_MS,
   )
   const currentEpochIndex = apiSession.epochs.findIndex((epoch) => epoch.id === apiSession.currentEpochId)
   const previousEpoch = currentEpochIndex > 0 ? apiSession.epochs[currentEpochIndex - 1] : null
@@ -364,6 +394,7 @@ async function requestApi<TPayload>(
   path: string,
   init: RequestInit,
   signal: AbortSignal,
+  timeoutMs: number,
 ): Promise<ApiEnvelope<TPayload>> {
   const controller = new AbortController()
   let timedOut = false
@@ -372,8 +403,8 @@ async function requestApi<TPayload>(
   else signal.addEventListener("abort", abortFromParent, { once: true })
   const timeout = setTimeout(() => {
     timedOut = true
-    controller.abort(new Error(`Shadow demo request timed out after ${SHADOW_DEMO_REQUEST_TIMEOUT_MS}ms`))
-  }, SHADOW_DEMO_REQUEST_TIMEOUT_MS)
+    controller.abort(new Error(`Shadow demo request timed out after ${timeoutMs}ms`))
+  }, timeoutMs)
 
   try {
     const response = await fetch(apiUrl(path), {
@@ -401,7 +432,7 @@ async function requestApi<TPayload>(
     return envelope
   } catch (error) {
     if (timedOut) {
-      throw new Error(`Shadow demo request timed out after ${SHADOW_DEMO_REQUEST_TIMEOUT_MS}ms`)
+      throw new Error(`Shadow demo request timed out after ${timeoutMs}ms`)
     }
     if (signal.aborted) {
       throw signal.reason instanceof Error ? signal.reason : new Error("Shadow demo request was cancelled")

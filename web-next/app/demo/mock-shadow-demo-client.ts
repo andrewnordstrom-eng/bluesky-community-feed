@@ -18,6 +18,7 @@ import {
   type CastShadowDemoVoteRequest,
   type CastShadowDemoVoteResponse,
   type CreateShadowDemoSessionRequest,
+  type RefreshShadowDemoCorpusRequest,
   type RunShadowDemoAgentsRequest,
   type RunShadowDemoAgentsResponse,
   type ShadowDemoAction,
@@ -77,6 +78,8 @@ interface SessionState {
   baselineRankById: Readonly<Record<string, number>>
   readonly idempotency: Map<string, unknown>
 }
+
+type IdempotentOperation = "vote" | "synthetic_voters" | "advance_epoch"
 
 const ISOLATION = {
   writesProductionGovernance: false,
@@ -147,6 +150,12 @@ export function createMockShadowDemoClient(options: MockShadowDemoClientOptions 
     return state
   }
 
+  function throwIfAborted(signal: AbortSignal): void {
+    if (!signal.aborted) return
+    if (signal.reason instanceof Error) throw signal.reason
+    throw new DOMException("The operation was aborted.", "AbortError")
+  }
+
   function buildFeed(state: SessionState, weights: ShadowDemoWeights, previousRankById: Readonly<Record<string, number>> | null): ShadowDemoFeed {
     const { items } = rankCorpus(state.corpus, weights, previousRankById)
     const publicEntries = state.corpus.filter((entry) => entry.hidden === undefined)
@@ -197,9 +206,13 @@ export function createMockShadowDemoClient(options: MockShadowDemoClientOptions 
     state.session = { ...state.session, phase, sequence: state.session.sequence + 1 }
   }
 
-  /** Return a cached idempotent response if this key was already applied. */
-  function replay<T>(state: SessionState, key: string): ShadowDemoEnvelope<T> | null {
-    const cached = state.idempotency.get(key)
+  function operationKey(operation: IdempotentOperation, key: string): string {
+    return `${operation}:${key}`
+  }
+
+  /** Return a cached idempotent response if this operation and key were already applied. */
+  function replay<T>(state: SessionState, operation: IdempotentOperation, key: string): ShadowDemoEnvelope<T> | null {
+    const cached = state.idempotency.get(operationKey(operation, key))
     if (cached === undefined) {
       return null
     }
@@ -213,7 +226,8 @@ export function createMockShadowDemoClient(options: MockShadowDemoClientOptions 
   }
 
   const client: ShadowDemoClient = {
-    async createSession(request: CreateShadowDemoSessionRequest, _signal: AbortSignal) {
+    async createSession(request: CreateShadowDemoSessionRequest, signal: AbortSignal) {
+      throwIfAborted(signal)
       const fixture = getCommunityFixture(request.communityId)
       if (fixture.isPreview || fixture.corpus.length === 0) {
         throw new ShadowDemoClientError(`Community not available in this demo pass: ${request.communityId}`, "invalid_request")
@@ -270,14 +284,21 @@ export function createMockShadowDemoClient(options: MockShadowDemoClientOptions 
       return envelope(sessionId, sessionResponse(state))
     },
 
-    async getSession(sessionId: string, _signal: AbortSignal) {
+    async getSession(sessionId: string, signal: AbortSignal) {
+      throwIfAborted(signal)
       const state = requireSession(sessionId)
       return envelope(sessionId, sessionResponse(state))
     },
 
-    async castVote(sessionId: string, request: CastShadowDemoVoteRequest, _signal: AbortSignal) {
+    async refreshCorpus(request: RefreshShadowDemoCorpusRequest, signal: AbortSignal) {
+      throwIfAborted(signal)
+      return client.createSession(request, signal)
+    },
+
+    async castVote(sessionId: string, request: CastShadowDemoVoteRequest, signal: AbortSignal) {
+      throwIfAborted(signal)
       const state = requireSession(sessionId)
-      const replayed = replay<CastShadowDemoVoteResponse>(state, request.idempotencyKey)
+      const replayed = replay<CastShadowDemoVoteResponse>(state, "vote", request.idempotencyKey)
       if (replayed) {
         return replayed
       }
@@ -333,13 +354,14 @@ export function createMockShadowDemoClient(options: MockShadowDemoClientOptions 
         nextRecommendedAction: "run_agent_votes",
       }
       const result = envelope(sessionId, payload)
-      state.idempotency.set(request.idempotencyKey, result)
+      state.idempotency.set(operationKey("vote", request.idempotencyKey), result)
       return result
     },
 
-    async runAgents(sessionId: string, request: RunShadowDemoAgentsRequest, _signal: AbortSignal) {
+    async runAgents(sessionId: string, request: RunShadowDemoAgentsRequest, signal: AbortSignal) {
+      throwIfAborted(signal)
       const state = requireSession(sessionId)
-      const replayed = replay<RunShadowDemoAgentsResponse>(state, request.idempotencyKey)
+      const replayed = replay<RunShadowDemoAgentsResponse>(state, "synthetic_voters", request.idempotencyKey)
       if (replayed) {
         return replayed
       }
@@ -394,13 +416,14 @@ export function createMockShadowDemoClient(options: MockShadowDemoClientOptions 
         nextRecommendedAction: "advance_epoch",
       }
       const result = envelope(sessionId, payload)
-      state.idempotency.set(request.idempotencyKey, result)
+      state.idempotency.set(operationKey("synthetic_voters", request.idempotencyKey), result)
       return result
     },
 
-    async advanceEpoch(sessionId: string, request: AdvanceShadowDemoEpochRequest, _signal: AbortSignal) {
+    async advanceEpoch(sessionId: string, request: AdvanceShadowDemoEpochRequest, signal: AbortSignal) {
+      throwIfAborted(signal)
       const state = requireSession(sessionId)
-      const replayed = replay<AdvanceShadowDemoEpochResponse>(state, request.idempotencyKey)
+      const replayed = replay<AdvanceShadowDemoEpochResponse>(state, "advance_epoch", request.idempotencyKey)
       if (replayed) {
         return replayed
       }
@@ -458,19 +481,40 @@ export function createMockShadowDemoClient(options: MockShadowDemoClientOptions 
         nextRecommendedAction: "select_post",
       }
       const result = envelope(sessionId, payload)
-      state.idempotency.set(request.idempotencyKey, result)
+      state.idempotency.set(operationKey("advance_epoch", request.idempotencyKey), result)
       return result
     },
 
-    async getFeed(sessionId: string, request: ShadowDemoFeedRequest, _signal: AbortSignal) {
+    async getFeed(sessionId: string, request: ShadowDemoFeedRequest, signal: AbortSignal) {
+      throwIfAborted(signal)
+      if (!Number.isInteger(request.limit) || request.limit < 1 || request.limit > 100) {
+        throw new ShadowDemoClientError("Feed limit must be an integer between 1 and 100.", "invalid_request")
+      }
       const state = requireSession(sessionId)
-      const isPublished = state.publishedEpoch?.id === request.epochId
-      const weights = isPublished ? state.publishedEpoch!.weights : state.openEpoch.weights
+      const publishedEpoch = state.publishedEpoch
+      const isPublished = publishedEpoch?.id === request.epochId
+      const isOpen = state.openEpoch.id === request.epochId
+      if (!isPublished && !isOpen) {
+        throw new ShadowDemoClientError("That epoch is not part of this demo session.", "stale_epoch")
+      }
+      const weights = isPublished && publishedEpoch !== null ? publishedEpoch.weights : state.openEpoch.weights
       const previous = isPublished ? state.baselineRankById : null
-      return envelope(sessionId, buildFeed(state, weights, previous))
+      const feed = buildFeed(state, weights, previous)
+      const items = feed.items.slice(0, request.limit)
+      return envelope(sessionId, {
+        ...feed,
+        epochId: request.epochId,
+        items,
+        corpusHealth: {
+          ...feed.corpusHealth,
+          displayedPublicPostCount: items.filter((item) => item.visibility === "public").length,
+          displayedHiddenPostCount: items.filter((item) => item.visibility === "hidden").length,
+        },
+      })
     },
 
-    async getReceipt(sessionId: string, request: ShadowDemoReceiptRequest, _signal: AbortSignal) {
+    async getReceipt(sessionId: string, request: ShadowDemoReceiptRequest, signal: AbortSignal) {
+      throwIfAborted(signal)
       const state = requireSession(sessionId)
       const entry = state.corpus.find((candidate) => candidate.post.uri === request.postUri)
       if (entry === undefined) {

@@ -7,8 +7,8 @@ export const metadata: Metadata = {
   description: "How to get help with Corgi: contact, bug reports, feature requests, security disclosure, and account help.",
 }
 
-// NOTE: first-pass copy — confirm the [DRAFT] contact address.
 const GITHUB_ISSUES = "https://github.com/andrewnordstrom-eng/bluesky-community-feed/issues"
+const PRIVATE_SECURITY_REPORT = "https://github.com/andrewnordstrom-eng/bluesky-community-feed/security/advisories/new"
 
 const SECTIONS = [
   {
@@ -19,8 +19,7 @@ const SECTIONS = [
         <P>The fastest ways to reach us:</P>
         <UL>
           <LI><Strong>GitHub issues</Strong> — search existing threads or open a new one at <InlineLink href={GITHUB_ISSUES}>the issue tracker</InlineLink>. Best for bugs and feature requests.</LI>
-          {/* TODO: confirm the contact address before launch. */}
-          <LI><Strong>Email</Strong> — <InlineLink href="mailto:hello@corgi.network">hello@corgi.network</InlineLink> for anything that doesn&rsquo;t belong in public.</LI>
+          <LI><Strong>Security</Strong> — use <InlineLink href={PRIVATE_SECURITY_REPORT}>GitHub private vulnerability reporting</InlineLink> for sensitive security or privacy reports.</LI>
         </UL>
         <P>
           Many questions are already answered on the <InlineLink href="/#faq-section">FAQ</InlineLink> and in the{" "}
@@ -65,9 +64,9 @@ const SECTIONS = [
     body: (
       <>
         <P>
-          Found a security or privacy issue? Please disclose it responsibly and privately to{" "}
-          <InlineLink href="mailto:hello@corgi.network">hello@corgi.network</InlineLink> rather than a public issue, and
-          give us a reasonable window to fix it before disclosure.
+          Found a security or privacy issue? Please use{" "}
+          <InlineLink href={PRIVATE_SECURITY_REPORT}>GitHub private vulnerability reporting</InlineLink> rather than a
+          public issue, and give us a reasonable window to fix it before disclosure.
         </P>
       </>
     ),
@@ -81,6 +80,7 @@ const SECTIONS = [
           <LI><Strong>Revoke access</Strong> — remove the Corgi app password from your Bluesky settings; Corgi loses access immediately.</LI>
           <LI><Strong>Manage participation</Strong> — see your session, research-consent status, and sign out from your <InlineLink href="/settings">account settings</InlineLink>.</LI>
           <LI><Strong>Data requests</Strong> — see the <InlineLink href="/privacy">Privacy Policy</InlineLink> for access and deletion.</LI>
+          <LI><Strong>Sensitive account details</Strong> — do not send credentials, app passwords, or sensitive account identifiers through support requests. Revoke the app password and use the settings and privacy self-service paths above.</LI>
         </UL>
       </>
     ),
