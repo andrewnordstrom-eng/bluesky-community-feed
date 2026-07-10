@@ -4,10 +4,11 @@ import { useCallback, useRef, useState } from "react"
 import Link from "next/link"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { AppShell } from "@/components/app-shell"
+import { Container } from "@/components/ui/layout"
 import { SignInDialog } from "@/components/sign-in-dialog"
 import { useAuth } from "@/components/auth-provider"
 import { StatusChip } from "@/components/ui/status-chip"
-import { WeightBar } from "@/components/ui/weight-bar"
+import { PolicyBar, PolicyLegend } from "@/components/ui/policy-bar"
 import { LinkedSlider, type SliderSignal } from "@/components/ui/linked-slider"
 import { KeywordInput } from "@/components/ui/keyword-input"
 import { TopicGroup } from "@/components/ui/topic-slider"
@@ -76,7 +77,7 @@ function SectionTab({ id, active, label, done, onClick }: {
         }`}
       aria-current={active ? "true" : undefined}
     >
-      <span className={`text-xs font-mono flex-shrink-0 ${active ? "text-primary" : "text-foreground/35"}`}>{num}</span>
+      <span className={`text-xs font-mono flex-shrink-0 ${active ? "text-primary" : "text-foreground/45"}`}>{num}</span>
       <span className="text-sm">{label}</span>
       {done && (
         <span className="ml-auto flex-shrink-0">
@@ -254,6 +255,7 @@ function VoteWorkbench({ epoch, myVote, topics, contentRules, isAuthenticated, o
   })
 
   const communityWeights = epoch.weights
+  const myWeights: Record<string, number> = Object.fromEntries(signals.map((s) => [s.key, s.value]))
   const rules = contentRules ?? {
     epoch_id: epoch.id,
     include_keywords: [],
@@ -334,7 +336,7 @@ function VoteWorkbench({ epoch, myVote, topics, contentRules, isAuthenticated, o
     : 0
 
   return (
-    <div className="max-w-6xl mx-auto px-5 py-8 flex flex-col gap-6">
+    <Container width="content" className="py-8 flex flex-col gap-6">
 
       {/* ── 3-column workbench ───────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr_240px] gap-6 items-start">
@@ -363,19 +365,19 @@ function VoteWorkbench({ epoch, myVote, topics, contentRules, isAuthenticated, o
           {activeSection === "weights" && (
             <div className="rounded-xl border border-border bg-card p-6 flex flex-col gap-6">
               <div className="flex flex-col gap-1.5">
-                <span className="text-[10px] font-mono text-foreground/35 uppercase tracking-widest">01 — Ranking weights</span>
+                <span className="text-[10px] font-mono text-foreground/45 uppercase tracking-widest">01 — Ranking weights</span>
                 <h2 className="text-lg font-semibold text-foreground leading-snug">Signal weights</h2>
                 <p className="text-sm text-foreground/50 leading-relaxed">
-                  Drag to allocate importance across the five signals. Adjusting one redistributes the rest — they always sum to 100%.
+                  Drag to allocate importance across the five signals. Adjusting one redistributes the rest — they
+                  always sum to 100%. The thin marker on each track is the community&rsquo;s current average.
                 </p>
               </div>
 
               {locked ? (
-                <div className="flex flex-col gap-4">
-                  {signals.map((sig) => (
-                    <WeightBar key={sig.key} label={sig.label} value={sig.value} />
-                  ))}
-                  <p className="text-xs text-foreground/40 italic">Ballot locked — your vote from this round is shown above.</p>
+                <div className="flex flex-col gap-3">
+                  <PolicyBar weights={myWeights} height={12} />
+                  <PolicyLegend weights={myWeights} />
+                  <p className="text-xs text-foreground/40 italic pt-1">Ballot locked — your submitted vote for this round is shown above.</p>
                 </div>
               ) : (
                 <LinkedSlider
@@ -383,6 +385,7 @@ function VoteWorkbench({ epoch, myVote, topics, contentRules, isAuthenticated, o
                   onChange={handleSignalChange}
                   lastMoved={lastMoved}
                   prevValues={prevSignalValues.current}
+                  communityValues={communityWeights}
                   disabled={locked}
                 />
               )}
@@ -401,7 +404,7 @@ function VoteWorkbench({ epoch, myVote, topics, contentRules, isAuthenticated, o
           {activeSection === "content" && (
             <div className="rounded-xl border border-border bg-card p-6 flex flex-col gap-6">
               <div className="flex flex-col gap-1.5">
-                <span className="text-[10px] font-mono text-foreground/35 uppercase tracking-widest">02 — Content rules</span>
+                <span className="text-[10px] font-mono text-foreground/45 uppercase tracking-widest">02 — Content rules</span>
                 <h2 className="text-lg font-semibold text-foreground leading-snug">Keywords</h2>
                 <p className="text-sm text-foreground/50 leading-relaxed">
                   Vote on which keywords to boost or suppress. Keywords reaching {Math.round(rules.threshold * 100)}% community support take effect.
@@ -461,7 +464,7 @@ function VoteWorkbench({ epoch, myVote, topics, contentRules, isAuthenticated, o
               <div className="flex flex-col gap-1">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex flex-col gap-1.5">
-                    <span className="text-[10px] font-mono text-foreground/35 uppercase tracking-widest">03 — Topic preferences</span>
+                    <span className="text-[10px] font-mono text-foreground/45 uppercase tracking-widest">03 — Topic preferences</span>
                     <h2 className="text-lg font-semibold text-foreground leading-snug">Topics</h2>
                     <p className="text-sm text-foreground/50 leading-relaxed">
                       Slide right to boost a topic, left to reduce it. The vertical marker shows the community average.
@@ -524,14 +527,11 @@ function VoteWorkbench({ epoch, myVote, topics, contentRules, isAuthenticated, o
         {/* ── RIGHT RAIL ────────────────────────────────── */}
         <aside className="hidden lg:flex flex-col gap-0 lg:sticky lg:top-20 rounded-xl border border-border bg-card overflow-hidden">
 
-          {/* Running community weights */}
+          {/* Running community weights — the signature stacked bar */}
           <div className="p-5 flex flex-col gap-3">
-            <p className="text-[10px] text-foreground/40 font-mono uppercase tracking-widest">Live weights · Round #{epoch.id}</p>
-            <div className="flex flex-col gap-3">
-              {Object.entries(communityWeights).map(([key, val]) => (
-                <WeightBar key={key} label={SIGNAL_META[key]?.label ?? key} value={val} size="sm" />
-              ))}
-            </div>
+            <p className="text-[10px] text-foreground/40 font-mono uppercase tracking-widest">Community mix · Round #{epoch.id}</p>
+            <PolicyBar weights={communityWeights} height={10} />
+            <PolicyLegend weights={communityWeights} />
           </div>
 
           <div className="h-px bg-border/60 mx-5" />
@@ -540,7 +540,7 @@ function VoteWorkbench({ epoch, myVote, topics, contentRules, isAuthenticated, o
           <div className="p-5 flex flex-col gap-2.5">
             <p className="text-[10px] text-foreground/40 font-mono uppercase tracking-widest">Active filters</p>
             {rules.include_keywords.length === 0 && rules.exclude_keywords.length === 0 ? (
-              <p className="text-xs text-foreground/35">None this round</p>
+              <p className="text-xs text-foreground/45">None this round</p>
             ) : (
               <div className="flex flex-wrap gap-1.5">
                 {rules.include_keywords.map((w) => (
@@ -574,7 +574,7 @@ function VoteWorkbench({ epoch, myVote, topics, contentRules, isAuthenticated, o
 
         </aside>
       </div>
-    </div>
+    </Container>
   )
 }
 
@@ -618,23 +618,23 @@ export default function VotePage() {
   let content: React.ReactNode
   if (coreLoading) {
     content = (
-      <div className="max-w-6xl mx-auto px-5 py-10">
+      <Container className="py-10">
         <WeightsSkeleton />
-      </div>
+      </Container>
     )
   } else if (epochQuery.isError || !epochQuery.data) {
     content = (
-      <div className="max-w-xl mx-auto px-5 py-20">
+      <Container width="narrow" className="py-20">
         <ErrorCard
           heading="Ballot unavailable"
           body="We couldn't load the current voting round. Try again in a moment."
           onRetry={() => epochQuery.refetch()}
         />
-      </div>
+      </Container>
     )
   } else if (topicsQuery.isError || contentRulesQuery.isError) {
     content = (
-      <div className="max-w-xl mx-auto px-5 py-20">
+      <Container width="narrow" className="py-20">
         <ErrorCard
           heading="Ballot data incomplete"
           body="Part of the ballot (topics or content rules) failed to load, so the ballot can't be shown accurately."
@@ -643,17 +643,17 @@ export default function VotePage() {
             if (contentRulesQuery.isError) void contentRulesQuery.refetch()
           }}
         />
-      </div>
+      </Container>
     )
   } else if (isAuthenticated && myVoteQuery.isError) {
     content = (
-      <div className="max-w-xl mx-auto px-5 py-20">
+      <Container width="narrow" className="py-20">
         <ErrorCard
           heading="Your ballot couldn't be loaded"
           body="We couldn't retrieve your previous vote, so the ballot won't be shown pre-filled. Retry to load it."
           onRetry={() => void myVoteQuery.refetch()}
         />
-      </div>
+      </Container>
     )
   } else {
     content = (

@@ -113,7 +113,7 @@ export function KeywordInput({
             disabled={disabled}
             placeholder={keywords.length === 0 ? "Type and press Enter…" : ""}
             aria-label={`Add ${label.toLowerCase()} keyword`}
-            className="flex-1 min-w-[120px] bg-transparent text-xs font-mono text-foreground placeholder:text-foreground/30 outline-none border-none"
+            className="flex-1 min-w-[120px] bg-transparent text-xs font-mono text-foreground placeholder:text-foreground/45 outline-none border-none"
           />
         )}
 

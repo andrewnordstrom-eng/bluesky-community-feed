@@ -1,6 +1,7 @@
 "use client"
 
 import { WeightBar } from "./weight-bar"
+import { SIGNAL_COLORS, SIGNAL_LABELS, type SignalKey } from "@/lib/signals"
 
 export interface ScoreComponent {
   key: string
@@ -16,14 +17,6 @@ interface ScoreBreakdownProps {
   /** Context label shown in footer */
   epochLabel?: string
   className?: string
-}
-
-const LABEL_MAP: Record<string, string> = {
-  recency: "Recency",
-  engagement: "Engagement",
-  bridging: "Bridging",
-  source_diversity: "Source diversity",
-  relevance: "Relevance",
 }
 
 export function ScoreBreakdown({ components, total_score, epochLabel, className }: ScoreBreakdownProps) {
@@ -43,7 +36,7 @@ export function ScoreBreakdown({ components, total_score, epochLabel, className 
       {/* Component rows */}
       {components.map((c) => {
         const isNegative = c.weighted < 0
-        const label = LABEL_MAP[c.key] ?? c.label
+        const label = SIGNAL_LABELS[c.key as SignalKey] ?? c.label
         // bar width = weighted contribution as a fraction of total (clamped)
         const barValue = displayTotal > 0 ? Math.max(0, c.weighted) / displayTotal : 0
 
@@ -55,6 +48,7 @@ export function ScoreBreakdown({ components, total_score, epochLabel, className 
                 label=""
                 value={barValue}
                 negative={isNegative}
+                color={SIGNAL_COLORS[c.key as SignalKey]}
                 size="sm"
               />
             </div>

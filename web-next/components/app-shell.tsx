@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import Image from "next/image"
+import { BrandLink } from "@/components/brand-link"
 import { Button } from "@/components/ui/button"
 import { SignInDialog } from "./sign-in-dialog"
 import { useAuth } from "@/components/auth-provider"
@@ -11,6 +11,7 @@ import { adminApi } from "@/lib/api/admin"
 import { useState, useEffect } from "react"
 import { createPortal } from "react-dom"
 import { cn } from "@/lib/utils"
+import { CONTAINER_WIDTH, GUTTER } from "@/components/ui/layout"
 
 /** Legacy shape once passed in by pages. Live auth now drives the user area;
  *  the prop is retained only for compat (e.g. its optional `isAdmin` flag,
@@ -56,9 +57,11 @@ function AnimatedMenuIcon({ open }: { open: boolean }) {
 }
 
 const NAV_ITEMS = [
-  { label: "Overview",  href: "/dashboard" },
-  { label: "Vote",      href: "/vote" },
-  { label: "Ledger",    href: "/history" },
+  { label: "Overview",   href: "/dashboard" },
+  { label: "Vote",       href: "/vote" },
+  { label: "Proposals",  href: "/proposals" },
+  { label: "Ledger",     href: "/history" },
+  { label: "Settings",   href: "/settings" },
 ]
 
 export function AppShell({ user = null, children }: AppShellProps) {
@@ -103,27 +106,16 @@ export function AppShell({ user = null, children }: AppShellProps) {
     <div className="min-h-screen flex flex-col bg-background">
       {/* ── Top bar ─────────────────────────────────────────────── */}
       <header className="sticky top-0 z-40 w-full border-b border-border bg-background/90 backdrop-blur-sm">
-        <div className="max-w-7xl mx-auto flex items-center justify-between h-14 px-5">
+        {/* 3-column grid keeps the nav dead-center regardless of side widths. */}
+        <div className={cn("mx-auto w-full grid grid-cols-[1fr_auto_1fr] items-center h-14", CONTAINER_WIDTH.content, GUTTER)}>
 
           {/* Brand mark */}
-          <Link
-            href="/dashboard"
-            aria-label="Corgi overview"
-            className="flex items-center gap-1.5 shrink-0"
-          >
-            <span className="font-display font-bold text-2xl text-foreground tracking-tight">Corgi</span>
-            <Image
-              src="/images/corgi-icon.svg"
-              alt=""
-              width={34}
-              height={24}
-              className="w-[34px] h-6 brightness-0"
-              aria-hidden="true"
-            />
-          </Link>
+          <div className="justify-self-start">
+            <BrandLink href="/dashboard" ariaLabel="Corgi dashboard" />
+          </div>
 
           {/* Primary nav */}
-          <nav className="hidden md:flex items-center gap-0.5" aria-label="Main navigation">
+          <nav className="hidden md:flex items-center gap-0.5 justify-self-center" aria-label="Main navigation">
             {NAV_ITEMS.map((item) => {
               const active = pathname === item.href || pathname.startsWith(item.href + "/")
               return (
@@ -157,7 +149,7 @@ export function AppShell({ user = null, children }: AppShellProps) {
           </nav>
 
           {/* Right side — auth state + hamburger */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 justify-self-end">
             {authedUser ? (
               /* Logged-in state */
               <div className="flex items-center gap-2">

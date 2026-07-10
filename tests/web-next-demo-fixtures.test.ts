@@ -11,6 +11,7 @@ import {
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const WEB_NEXT_ROOT = path.join(REPO_ROOT, 'web-next');
+const DEMO_PAGE_FILE = path.join(WEB_NEXT_ROOT, 'app', 'demo', 'page.tsx');
 const LIVE_METRICS_SNAPSHOT_FILE = path.join(WEB_NEXT_ROOT, 'lib', 'live-metrics-snapshot.ts');
 const README_FILE = path.join(REPO_ROOT, 'README.md');
 const DEV_JOURNAL_FILE = path.join(REPO_ROOT, 'docs', 'dev-journal.md');
@@ -22,8 +23,6 @@ const LAB_METRICS_PACKET_FILE = path.join(
 );
 
 const UI_FIXTURE_FILES = [
-  path.join(REPO_ROOT, 'web-next', 'app', 'demo', 'page.tsx'),
-  path.join(REPO_ROOT, 'web-next', 'components', 'bento-section.tsx'),
   path.join(REPO_ROOT, 'web-next', 'components', 'changelog-section.tsx'),
   path.join(REPO_ROOT, 'web-next', 'components', 'dashboard-preview.tsx'),
   path.join(REPO_ROOT, 'web-next', 'components', 'modality-preview.tsx'),
@@ -282,6 +281,24 @@ describe('web-next demo receipt fixtures', () => {
       const content = readFixtureFile(fixtureFile);
       expectAnonymizedLiveReceiptContent(content, path.relative(REPO_ROOT, fixtureFile));
     }
+  });
+
+  it('keeps the primary public demo out of the redacted snapshot happy path', () => {
+    const content = readFixtureFile(DEMO_PAGE_FILE);
+
+    // The redacted-snapshot happy path must not return: no live snapshot import,
+    // no anonymized-receipt placeholders, no redacted post text.
+    expect(content).not.toContain('live-metrics-snapshot');
+    expect(content).not.toMatch(/Anonymized receipt \d{3}/);
+    expect(content).not.toMatch(/Post text redacted/i);
+
+    // The guided shadow demo renders the honest disclosure, whose copy lives in
+    // shadow-demo-copy.ts (single source, asserted below).
+    expect(content).toContain('<DemoDisclosure');
+    const copy = readFixtureFile(path.join(WEB_NEXT_ROOT, 'app', 'demo', 'shadow-demo-copy.ts'));
+    expect(copy).toMatch(/isolated shadow namespace/i);
+    expect(copy).toMatch(/not native bluesky/i);
+    expect(copy).toMatch(/public Corgi feed/i);
   });
 
   it('keeps public PROJ-1433 receipt docs anonymized for the rank-one example', () => {

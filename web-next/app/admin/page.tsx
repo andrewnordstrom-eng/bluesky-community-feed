@@ -453,7 +453,7 @@ function PanelContentFilters({ status }: { status: AdminStatus }) {
                   </button>
                 </span>
               ))}
-              {keywords.length === 0 && <span className="text-xs text-foreground/35 italic">None active</span>}
+              {keywords.length === 0 && <span className="text-xs text-foreground/45 italic">None active</span>}
             </div>
             <div className="flex items-center gap-2">
               <input
@@ -462,7 +462,7 @@ function PanelContentFilters({ status }: { status: AdminStatus }) {
                 onChange={(e) => setAdd(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && submitAdd(list)}
                 placeholder={`Add ${list} keyword…`}
-                className="flex-1 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground placeholder:text-foreground/35 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                className="flex-1 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground placeholder:text-foreground/45 focus:outline-none focus:ring-2 focus:ring-primary/40"
               />
               <button
                 onClick={() => submitAdd(list)}
@@ -644,7 +644,7 @@ function PanelAuditLog() {
                           {hasDetails && (
                             <svg
                               width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"
-                              className={`text-foreground/30 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                              className={`text-foreground/45 transition-transform ${isExpanded ? "rotate-180" : ""}`}
                             >
                               <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                             </svg>
@@ -652,7 +652,7 @@ function PanelAuditLog() {
                         </div>
                       </td>
                       <td className="px-4 py-3 text-xs font-mono text-foreground/50 hidden md:table-cell">
-                        {entry.actor ? entry.actor.slice(-8) : <span className="italic text-foreground/30">system</span>}
+                        {entry.actor ? entry.actor.slice(-8) : <span className="italic text-foreground/45">system</span>}
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-xs text-foreground/50 hidden sm:table-cell">
                         {entry.epochId != null ? `#${entry.epochId}` : "—"}
@@ -784,7 +784,7 @@ function PanelAnnouncements() {
           onChange={(e) => setContent(e.target.value)}
           placeholder="Write an announcement to post to Bluesky…"
           rows={3}
-          className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground placeholder:text-foreground/35 focus:outline-none focus:ring-2 focus:ring-primary/40 resize-none"
+          className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground placeholder:text-foreground/45 focus:outline-none focus:ring-2 focus:ring-primary/40 resize-none"
         />
         <div className="flex items-center justify-between gap-3">
           <label className="flex items-center gap-2 text-xs text-foreground/60">
@@ -825,8 +825,8 @@ function PanelAnnouncements() {
               <div className="flex-1 flex flex-col gap-1 min-w-0">
                 <p className="text-sm text-foreground/80 leading-relaxed">{a.content}</p>
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-[10px] font-mono text-foreground/30">{relTime(a.postedAt)}</span>
-                  {a.type && <span className="text-[10px] font-mono text-foreground/30">· {a.type}</span>}
+                  <span className="text-[10px] font-mono text-foreground/45">{relTime(a.postedAt)}</span>
+                  {a.type && <span className="text-[10px] font-mono text-foreground/45">· {a.type}</span>}
                 </div>
               </div>
               {a.postUrl && (
@@ -941,7 +941,7 @@ function AdminConsole({ status }: { status: AdminStatus }) {
           style={{ maxHeight: "calc(100vh - 3.5rem - 2.5rem)", overflowY: "auto" }}
           aria-label="Admin panels"
         >
-          <span className="text-[9px] font-mono uppercase tracking-widest text-foreground/30 px-3 pb-2">Admin console</span>
+          <span className="text-[9px] font-mono uppercase tracking-widest text-foreground/45 px-3 pb-2">Admin console</span>
           {NAV_PANELS.map((p) => (
             <button
               key={p.id}

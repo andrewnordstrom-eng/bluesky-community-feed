@@ -1,105 +1,114 @@
 import Link from "next/link"
+import { Container } from "@/components/ui/layout"
+
+// Shared keyboard focus ring for footer links (raw Link/a don't get one otherwise).
+const FOCUS =
+  "rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+
+// The live Corgi community-gov feed on Bluesky.
+const CORGI_FEED_URL = "https://bsky.app/profile/corgi-network.bsky.social/feed/community-gov"
+const GITHUB_URL = "https://github.com/andrewnordstrom-eng/bluesky-community-feed"
+
+const linkGroups = [
+  {
+    heading: "Product",
+    links: [
+      { label: "How it works", href: "/how-it-works" },
+      { label: "Live demo", href: "/demo" },
+      { label: "Add the feed", href: "/start" },
+      { label: "History", href: "/history" },
+    ],
+  },
+  {
+    heading: "Governance",
+    links: [
+      { label: "Vote", href: "/vote" },
+      { label: "Proposals", href: "/proposals" },
+      { label: "Sign in", href: "/sign-in" },
+    ],
+  },
+  {
+    heading: "Project",
+    links: [
+      { label: "About", href: "/about" },
+      { label: "Docs", href: "/docs" },
+      { label: "FAQ", href: "/#faq-section" },
+      { label: "Support", href: "/support" },
+    ],
+  },
+] as const
 
 export function FooterSection() {
   return (
     <footer className="w-full bg-background border-t border-border/70">
-      <div className="w-full max-w-[1320px] mx-auto px-5">
-      {/* Main footer row */}
-      <div className="flex flex-col md:flex-row justify-between items-start gap-8 md:gap-0 py-10 md:py-14">
-        {/* Left: Logo + tagline */}
-        <div className="flex flex-col justify-start items-start gap-5">
-          <span className="text-foreground text-xl font-bold tracking-tight font-display">Corgi</span>
-          <p className="text-foreground/50 text-sm font-normal leading-relaxed max-w-[200px]">
-            Your community runs the feed. Inspectable ranking.
-          </p>
-          <div className="flex justify-start items-center gap-3">
-            <a
-              href="https://bsky.app"
-              aria-label="Bluesky"
-              className="text-foreground/40 hover:text-primary transition-colors text-xs font-medium"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Bluesky
-            </a>
-            <span className="text-foreground/20">·</span>
-            <a
-              href="https://github.com/andrewnordstrom-eng/bluesky-community-feed"
-              aria-label="GitHub"
-              className="text-foreground/40 hover:text-primary transition-colors text-xs font-medium"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              GitHub
-            </a>
-          </div>
-        </div>
-
-        {/* Right: Links */}
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-8 md:gap-12 w-full md:w-auto">
-          <div className="flex flex-col gap-3">
-            <h3 className="text-foreground/40 text-xs font-semibold tracking-wide uppercase">Product</h3>
-            <div className="flex flex-col gap-2">
-              <Link href="/how-it-works" className="text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors">
-                How it works
-              </Link>
-              <Link href="/demo" className="text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors">
-                Live demo
-              </Link>
-              <Link href="/history" className="text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors">
-                Epoch history
-              </Link>
-            </div>
-          </div>
-          <div className="flex flex-col gap-3">
-            <h3 className="text-foreground/40 text-xs font-semibold tracking-wide uppercase">Governance</h3>
-            <div className="flex flex-col gap-2">
-              <Link href="/vote" className="text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors">
-                Voting guide
-              </Link>
-              <Link href="/history" className="text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors">
-                Audit log
-              </Link>
-              <Link href="/sign-in" className="text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors">
-                Sign in
-              </Link>
-            </div>
-          </div>
-          <div className="flex flex-col gap-3">
-            <h3 className="text-foreground/40 text-xs font-semibold tracking-wide uppercase">Resources</h3>
-            <div className="flex flex-col gap-2">
-              <Link href="/#faq-section" className="text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors">
-                FAQ
-              </Link>
+      <Container>
+        {/* Main footer row */}
+        <div className="flex flex-col md:flex-row justify-between items-start gap-8 md:gap-0 py-10 md:py-14">
+          {/* Left: Logo + tagline */}
+          <div className="flex flex-col justify-start items-start gap-5">
+            <span className="text-foreground text-xl font-bold tracking-tight font-display">Corgi</span>
+            <p className="text-foreground/60 text-sm font-normal leading-relaxed max-w-[220px]">
+              Your community runs the feed. Inspectable ranking.
+            </p>
+            <div className="flex justify-start items-center gap-3">
               <a
-                href="https://github.com/andrewnordstrom-eng/bluesky-community-feed/tree/main/docs"
-                className="text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors"
+                href={CORGI_FEED_URL}
+                aria-label="The Corgi feed on Bluesky"
+                className={`text-foreground/55 hover:text-primary transition-colors text-xs font-medium ${FOCUS}`}
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                Documentation
+                Bluesky feed
               </a>
-              <Link href="/tos" className="text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors">
-                Terms
-              </Link>
-              <Link href="/privacy" className="text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors">
-                Privacy policy
-              </Link>
+              <span className="text-foreground/45" aria-hidden="true">·</span>
+              <a
+                href={GITHUB_URL}
+                aria-label="Corgi on GitHub"
+                className={`text-foreground/55 hover:text-primary transition-colors text-xs font-medium ${FOCUS}`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                GitHub
+              </a>
             </div>
           </div>
-        </div>
-      </div>
 
-      {/* Copyright bar */}
-      <div className="border-t border-border/60 py-5 flex flex-col sm:flex-row items-center justify-between gap-2">
-        <p className="text-foreground/30 text-xs font-normal">
-          &copy; 2026 Corgi. Built on Bluesky.
-        </p>
-        <p className="text-foreground/20 text-xs font-normal">
-          Open source &middot; Inspectable ranking
-        </p>
-      </div>
-      </div>
+          {/* Right: Links */}
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-8 md:gap-12 w-full md:w-auto">
+            {linkGroups.map((group) => (
+              <div key={group.heading} className="flex flex-col gap-3">
+                <h3 className="text-foreground/55 text-xs font-semibold tracking-wide uppercase">{group.heading}</h3>
+                <div className="flex flex-col gap-2">
+                  {group.links.map((link) => (
+                    <Link
+                      key={link.label}
+                      href={link.href}
+                      className={`text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors ${FOCUS}`}
+                    >
+                      {link.label}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Copyright bar */}
+        <div className="border-t border-border/60 py-5 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <p className="text-foreground/50 text-xs font-normal">
+            &copy; 2026 Corgi. Built on Bluesky. Open source.
+          </p>
+          <div className="flex items-center gap-4">
+            <Link href="/tos" className={`text-foreground/60 hover:text-primary transition-colors text-xs font-medium ${FOCUS}`}>
+              Terms
+            </Link>
+            <Link href="/privacy" className={`text-foreground/60 hover:text-primary transition-colors text-xs font-medium ${FOCUS}`}>
+              Privacy
+            </Link>
+          </div>
+        </div>
+      </Container>
     </footer>
   )
 }

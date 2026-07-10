@@ -1,6 +1,5 @@
 "use client"
 
-import type React from "react"
 import { useState } from "react"
 import { ChevronDown } from "lucide-react"
 import { AnimatePresence, motion } from "framer-motion"
@@ -24,7 +23,7 @@ const faqData = [
   {
     question: "How does voting on the weights work?",
     answer:
-      "When a voting round is active, members choose how much each ranking factor should matter: things like recency, reply depth, whether you follow the author, or a post's quality score. When the round ends, the aggregate weights become the next feed policy and the feed reranks accordingly. The full history stays inspectable.",
+      "When a voting round is active, members choose how much each ranking factor should matter: recency, engagement, bridging (posts that connect subgroups), source diversity, and topic relevance. When the round ends, the aggregate weights become the next feed policy and the feed reranks accordingly. The full history stays inspectable.",
   },
   {
     question: "Is Corgi secure? Does it need my Bluesky password?",
@@ -51,33 +50,20 @@ interface FAQItemProps {
 }
 
 const FAQItem = ({ question, answer, isOpen, onToggle }: FAQItemProps) => {
-  const handleClick = (e: React.MouseEvent) => {
-    e.preventDefault()
-    onToggle()
-  }
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault()
-      onToggle()
-    }
-  }
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      aria-expanded={isOpen}
-      className="w-full bg-card shadow-[0_2px_6px_rgba(46,38,32,0.06)] overflow-hidden rounded-xl border border-border transition-colors duration-200 cursor-pointer hover:border-primary/30"
-      onClick={handleClick}
-      onKeyDown={handleKeyDown}
-    >
-      <div className="w-full px-6 py-5 pr-5 flex justify-between items-center gap-5 text-left">
-        <div className="flex-1 text-foreground text-[0.9375rem] font-semibold leading-6 break-words">{question}</div>
-        <div className="flex justify-center items-center flex-shrink-0">
-          <ChevronDown
-            className={`w-5 h-5 text-foreground/40 transition-transform duration-300 ease-out ${isOpen ? "rotate-180" : "rotate-0"}`}
-          />
-        </div>
-      </div>
+    <div className="w-full bg-card shadow-[0_2px_6px_rgba(46,38,32,0.06)] overflow-hidden rounded-xl border border-border transition-colors duration-200 hover:border-primary/30">
+      <button
+        type="button"
+        aria-expanded={isOpen}
+        onClick={onToggle}
+        className="w-full px-6 py-5 pr-5 flex justify-between items-center gap-5 text-left rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+      >
+        <span className="flex-1 text-foreground text-[0.9375rem] font-semibold leading-6 break-words">{question}</span>
+        <ChevronDown
+          aria-hidden="true"
+          className={`w-5 h-5 flex-shrink-0 text-foreground/50 transition-transform duration-300 ease-out ${isOpen ? "rotate-180" : "rotate-0"}`}
+        />
+      </button>
       <AnimatePresence initial={false}>
         {isOpen && (
           <motion.div

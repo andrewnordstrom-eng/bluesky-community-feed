@@ -1,4 +1,5 @@
 import React from "react"
+import { ChevronDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { DemoCTA } from "@/components/landing-ctas"
@@ -6,7 +7,7 @@ import { DemoCTA } from "@/components/landing-ctas"
 export function HeroSection() {
   return (
     <section
-      className="flex flex-col items-center text-center relative mx-auto overflow-hidden pt-14 pb-20 md:pt-16 md:pb-28 lg:pt-20 lg:pb-32 px-4 md:px-6
+      className="flex min-h-[88svh] flex-col items-center justify-center text-center relative mx-auto overflow-hidden pt-16 pb-24 md:pt-20 md:pb-28 px-4 md:px-6
          w-full"
     >
       {/* SVG Background — warm cream grid */}
@@ -150,6 +151,12 @@ export function HeroSection() {
       <p className="relative z-10 mt-3 text-xs text-foreground/40 font-medium">
         Read-only demo first &middot; connect Bluesky when ready &middot; inspectable ranking
       </p>
+
+      {/* Scroll cue — invites the visitor down into the interactive demo. */}
+      <div className="pointer-events-none absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 flex-col items-center gap-1.5 text-foreground/45">
+        <span className="text-[10px] font-mono uppercase tracking-[0.22em]">See it in action</span>
+        <ChevronDown className="h-4 w-4 motion-safe:animate-bounce" aria-hidden="true" />
+      </div>
     </section>
   )
 }

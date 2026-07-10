@@ -57,7 +57,7 @@ export function LegalLayout({ title, lastUpdated, sections, backHref = "/", back
           className="hidden lg:flex flex-col gap-1 w-52 flex-shrink-0 sticky top-24"
           aria-label="Table of contents"
         >
-          <span className="text-[9px] font-mono uppercase tracking-widest text-foreground/30 px-2 pb-2">Contents</span>
+          <span className="text-[9px] font-mono uppercase tracking-widest text-foreground/45 px-2 pb-2">Contents</span>
           {sections.map((s) => (
             <a
               key={s.id}

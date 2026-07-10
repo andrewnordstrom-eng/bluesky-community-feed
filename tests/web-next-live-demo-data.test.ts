@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
   bskyPostUrlFromAtUri,
+  buildAppViewFeedUrl,
   buildPostHydrationUrl,
+  CORGI_COMMUNITY_FEED_URI,
+  normalizeAppViewFeed,
+  publicDemoHiddenReason,
   scoreComponentsFromExplanation,
+  selectReceiptPost,
   topicBreakdownFromExplanation,
   LiveDemoDataError,
-} from '../web-next/lib/live-demo-data';
+} from '../web-next/app/demo/live-demo-data';
 
 type ExplanationFixture = Parameters<typeof scoreComponentsFromExplanation>[0];
 
@@ -41,6 +46,15 @@ const EXPLANATION_FIXTURE = {
 } satisfies ExplanationFixture;
 
 describe('web-next live demo data helpers', () => {
+  it('builds the public AppView getFeed URL for the Corgi feed', () => {
+    const url = new URL(buildAppViewFeedUrl(CORGI_COMMUNITY_FEED_URI, 12));
+
+    expect(url.origin).toBe('https://public.api.bsky.app');
+    expect(url.pathname).toBe('/xrpc/app.bsky.feed.getFeed');
+    expect(url.searchParams.get('feed')).toBe(CORGI_COMMUNITY_FEED_URI);
+    expect(url.searchParams.get('limit')).toBe('12');
+  });
+
   it('builds Bluesky source URLs from AT Protocol post URIs', () => {
     expect(bskyPostUrlFromAtUri('at://did:plc:example123/app.bsky.feed.post/3abc')).toBe(
       'https://bsky.app/profile/did:plc:example123/post/3abc',
@@ -80,6 +94,117 @@ describe('web-next live demo data helpers', () => {
     expect(url.origin).toBe('https://public.api.bsky.app');
     expect(url.pathname).toBe('/xrpc/app.bsky.feed.getPosts');
     expect(url.searchParams.getAll('uris')).toEqual([]);
+  });
+
+  it('maps Bluesky public-view labels to hidden demo rows', () => {
+    expect(publicDemoHiddenReason(['!no-unauthenticated'], true)).toBe(
+      'Post hidden by Bluesky public-view policy',
+    );
+    expect(publicDemoHiddenReason(['!hide'], true)).toBe('Post hidden by Bluesky public-view policy');
+    expect(publicDemoHiddenReason(['porn'], true)).toBe('Post hidden by Bluesky adult-content policy');
+    expect(publicDemoHiddenReason([], false)).toBe('Post unavailable from Bluesky public view');
+    expect(publicDemoHiddenReason([], true)).toBeNull();
+  });
+
+  it('normalizes AppView feed items without exposing hidden post text or identity', () => {
+    const normalized = normalizeAppViewFeed({
+      cursor: 'cursor-1',
+      feed: [
+        {
+          post: {
+            uri: 'at://did:plc:public/app.bsky.feed.post/3one',
+            author: {
+              handle: 'public-user.bsky.social',
+              displayName: 'Public User',
+              avatar: 'https://cdn.example/avatar.jpg',
+            },
+            record: { text: 'Visible public post.' },
+            indexedAt: '2026-07-09T12:00:00.000Z',
+            likeCount: 10,
+            repostCount: 3,
+            replyCount: 2,
+            quoteCount: 1,
+          },
+        },
+        {
+          post: {
+            uri: 'at://did:plc:hidden/app.bsky.feed.post/3two',
+            author: {
+              handle: 'hidden-user.bsky.social',
+              displayName: 'Hidden User',
+              labels: [{ val: '!no-unauthenticated' }],
+            },
+            record: { text: 'This text must not render.' },
+          },
+        },
+        {
+          post: {
+            uri: 'at://did:plc:adult/app.bsky.feed.post/3three',
+            author: {
+              handle: 'adult-user.bsky.social',
+              displayName: 'Adult User',
+            },
+            labels: [{ val: 'porn' }],
+            record: { text: 'This adult-labeled text must not render.' },
+          },
+        },
+      ],
+    });
+
+    expect(normalized.cursor).toBe('cursor-1');
+    expect(normalized.posts[0]).toMatchObject({
+      visibility: 'public',
+      rank: 1,
+      authorHandle: 'public-user.bsky.social',
+      text: 'Visible public post.',
+      likeCount: 10,
+    });
+    expect(normalized.posts[1]).toMatchObject({
+      visibility: 'hidden',
+      rank: 2,
+      authorHandle: null,
+      text: null,
+      hiddenReason: 'Post hidden by Bluesky public-view policy',
+    });
+    expect(normalized.posts[2]).toMatchObject({
+      visibility: 'hidden',
+      rank: 3,
+      authorHandle: null,
+      text: null,
+      hiddenReason: 'Post hidden by Bluesky adult-content policy',
+    });
+  });
+
+  it('selects a public receipt post by visible feed position after hidden rows', () => {
+    const normalized = normalizeAppViewFeed({
+      feed: [
+        {
+          post: {
+            uri: 'at://did:plc:hidden/app.bsky.feed.post/3one',
+            author: {
+              handle: 'hidden-user.bsky.social',
+              labels: [{ val: '!no-unauthenticated' }],
+            },
+            record: { text: 'Hidden text.' },
+          },
+        },
+        {
+          post: {
+            uri: 'at://did:plc:visible/app.bsky.feed.post/3two',
+            author: {
+              handle: 'visible-user.bsky.social',
+              displayName: 'Visible User',
+            },
+            record: { text: 'Explain this public post.' },
+          },
+        },
+      ],
+    });
+
+    const receiptPost = selectReceiptPost(normalized.posts);
+
+    expect(receiptPost?.rank).toBe(2);
+    expect(receiptPost?.uri).toBe('at://did:plc:visible/app.bsky.feed.post/3two');
   });
 
   it('normalizes live explanation components in display order', () => {

@@ -97,7 +97,7 @@ export function SignInDialog({ open, onOpenChange }: SignInDialogProps) {
               value={handle}
               onChange={(e) => setHandle(e.target.value)}
               autoComplete="username"
-              className="bg-background border-border text-foreground placeholder:text-foreground/35 rounded-xl h-11 px-4 text-sm focus-visible:ring-primary focus-visible:ring-1 focus-visible:border-primary transition-colors"
+              className="bg-background border-border text-foreground placeholder:text-foreground/45 rounded-xl h-11 px-4 text-sm focus-visible:ring-primary focus-visible:ring-1 focus-visible:border-primary transition-colors"
             />
           </div>
 
@@ -113,7 +113,7 @@ export function SignInDialog({ open, onOpenChange }: SignInDialogProps) {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="current-password"
-                className="bg-background border-border text-foreground placeholder:text-foreground/35 rounded-xl h-11 px-4 pr-12 text-sm focus-visible:ring-primary focus-visible:ring-1 focus-visible:border-primary transition-colors"
+                className="bg-background border-border text-foreground placeholder:text-foreground/45 rounded-xl h-11 px-4 pr-12 text-sm focus-visible:ring-primary focus-visible:ring-1 focus-visible:border-primary transition-colors"
               />
               <button
                 type="button"

@@ -20,10 +20,10 @@ describe('web-next homepage anchors', () => {
     expect(faqContent).toContain('md:scroll-mt-28');
   });
 
-  it('keeps the footer audit log link pointed at the history route', () => {
+  it('keeps the footer history link pointed at the history route', () => {
     const footerContent = readRepoFile('web-next/components/footer-section.tsx');
 
-    expect(footerContent).toMatch(/<Link href="\/history"[^>]*>\s*Audit log\s*<\/Link>/);
+    expect(footerContent).toContain('{ label: "History", href: "/history" }');
   });
 
   it('keeps how-it-works navigation routed to the dedicated page', () => {
@@ -31,16 +31,19 @@ describe('web-next homepage anchors', () => {
     const footerContent = readRepoFile('web-next/components/footer-section.tsx');
 
     expect(headerContent).toMatch(/\{\s*name: "How it works", href: "\/how-it-works"\s*\}/);
-    expect(footerContent).toMatch(/<Link href="\/how-it-works"[^>]*>\s*How it works\s*<\/Link>/);
+    expect(footerContent).toContain('{ label: "How it works", href: "/how-it-works" }');
     expect(headerContent).not.toContain('handleScroll');
   });
 
-  it('keeps demo snapshot-rank fragments backed by rendered anchors', () => {
+  it('keeps landing demo links routed to the public live demo surface', () => {
     const demoContent = readRepoFile('web-next/app/demo/page.tsx');
+    const demoDataContent = readRepoFile('web-next/app/demo/live-demo-data.ts');
     const bentoContent = readRepoFile('web-next/components/bento-section.tsx');
 
-    expect(bentoContent).toContain('/demo#snapshot-rank-');
-    expect(demoContent).toContain('id={`snapshot-rank-${post.rank}`}');
+    expect(bentoContent).not.toContain('/demo#snapshot-rank-');
+    expect(bentoContent).toContain('href: "/demo"');
+    expect(demoDataContent).toContain('app.bsky.feed.getFeed');
+    expect(demoContent).not.toContain('snapshot-rank');
   });
 
   it('keeps shared landing CTAs rendered through Button asChild', () => {
@@ -56,8 +59,14 @@ describe('web-next homepage anchors', () => {
     const replayContent = readRepoFile('web-next/components/how-it-works-replay.tsx');
 
     expect(howItWorksContent).toContain('<HowItWorksReplay />');
-    expect(howItWorksContent).toMatch(/href="#replay"/);
-    expect(replayContent).toMatch(/<section id="replay"/);
+    // The page header IS the replay intro now (the old duplicate hero + its
+    // #replay jump-link were collapsed): the hero must carry the replay framing
+    // and the replay module must sit directly on the page.
+    expect(howItWorksContent).toContain('Watch the same posts become a different feed.');
+    expect(howItWorksContent).toContain('eyebrow="Replay a policy change"');
+    // The replay anchor now uses the <Section> layout primitive, which renders a
+    // <section id="replay"> at runtime — accept either the component or raw tag.
+    expect(replayContent).toMatch(/<(?:S|s)ection id="replay"/);
     expect(replayContent).toContain('Standard Bluesky clients render the ordered posts, not Corgi score panels.');
     expect(howItWorksContent).toContain('Rank badges and receipt panels in this page are Corgi annotations.');
   });

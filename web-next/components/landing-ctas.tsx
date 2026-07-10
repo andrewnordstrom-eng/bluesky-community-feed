@@ -33,7 +33,7 @@ export function SignInCTA({ className }: LandingCTAProps) {
       )}
     >
       <Link href="/sign-in">
-        Sign in when ready
+        Sign in
       </Link>
     </Button>
   )

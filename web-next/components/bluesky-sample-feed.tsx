@@ -16,7 +16,7 @@ const samplePosts = [
     avatarSrc: "/images/avatars/maya-keene.png",
     text: "Ridge lake loop: three swallows, one confusing warbler, and a deploy rollback that finally made the cache bug obvious. Field notes and diff in the thread.",
     stats: { replies: "24", reposts: "58", likes: "312" },
-    score: "+18.4",
+    score: "+0.85",
     reason: "Field note + fix",
     card: {
       imageSrc: "/images/feed/birders-field-notes.png",
@@ -32,7 +32,7 @@ const samplePosts = [
     avatarSrc: "/images/avatars/arjun-mehta.png",
     text: "Patch is live: map links now keep neighborhood context when people cross-post sightings. Please test it on your next lunch walk.",
     stats: { replies: "11", reposts: "33", likes: "146" },
-    score: "+14.9",
+    score: "+0.71",
     reason: "Useful tool",
   },
   {
@@ -43,7 +43,7 @@ const samplePosts = [
     avatarSrc: "/images/avatars/theo-kim.png",
     text: "Made a tiny chart of IDs corrected by replies versus photos. Community notes are doing more work than raw likes here.",
     stats: { replies: "8", reposts: "19", likes: "104" },
-    score: "+11.6",
+    score: "+0.58",
     reason: "Community signal",
   },
 ] as const
@@ -76,7 +76,7 @@ export function BlueskyOrderedFeed(props: BlueskyOrderedFeedProps) {
     <div className="flex flex-col gap-4">
       {props.showIntro ? (
         <div className="flex flex-col gap-1">
-          <p className="text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/35">
+          <p className="text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/45">
             Bluesky view
           </p>
           <div className="flex flex-col gap-1">

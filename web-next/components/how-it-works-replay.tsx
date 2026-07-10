@@ -3,291 +3,25 @@
 import Image from "next/image"
 import { useMemo, useState } from "react"
 import { motion, useReducedMotion } from "framer-motion"
+import { Bird, Code2, Database } from "lucide-react"
+import { BlueskyPostCard, RANK_COL_CLASS, RankColumnHeader } from "@/components/feed/bluesky-feed"
+import { CorgiRankBadge } from "@/components/feed/corgi-rank-badge"
+import { badgeMovementFor, rankSignalsFor } from "@/components/feed/replay-adapter"
 import {
-  ArrowDown,
-  ArrowUp,
-  Bird,
-  Bookmark,
-  Code2,
-  Database,
-  Heart,
-  MessageCircle,
-  Minus,
-  MoreHorizontal,
-  Repeat2,
-  Share2,
-} from "lucide-react"
-
-type SignalKey = "recency" | "engagement" | "bridging" | "sourceDiversity" | "relevance"
-type EpochId = "engagement" | "bridge" | "field" | "freshness"
-type PostId = "P1" | "P2" | "P3" | "P4" | "P5" | "P6" | "P7"
-
-interface Signal {
-  readonly key: SignalKey
-  readonly label: string
-  readonly shortLabel: string
-  readonly description: string
-  readonly barClassName: string
-}
-
-interface DemoPost {
-  readonly id: PostId
-  readonly author: string
-  readonly handle: string
-  readonly time: string
-  readonly avatarSrc: string
-  readonly text: string
-  readonly tags: readonly string[]
-  readonly stats: {
-    readonly replies: string
-    readonly reposts: string
-    readonly likes: string
-  }
-  readonly scores: Record<SignalKey, number>
-}
-
-interface Epoch {
-  readonly id: EpochId
-  readonly eyebrow: string
-  readonly label: string
-  readonly headline: string
-  readonly body: string
-  readonly weights: Record<SignalKey, number>
-}
-
-interface RankedPost {
-  readonly post: DemoPost
-  readonly score: number
-  readonly rank: number
-}
-
-const signals: readonly Signal[] = [
-  {
-    key: "recency",
-    label: "Recency",
-    shortLabel: "Fresh",
-    description: "How recently the post appeared.",
-    barClassName: "bg-[#3B82F6]",
-  },
-  {
-    key: "engagement",
-    label: "Engagement",
-    shortLabel: "Likes",
-    description: "Replies, reposts, likes, and other public attention.",
-    barClassName: "bg-[#E65F4F]",
-  },
-  {
-    key: "bridging",
-    label: "Bridging",
-    shortLabel: "Bridge",
-    description: "How well the post connects subgroups inside the community.",
-    barClassName: "bg-[#A855F7]",
-  },
-  {
-    key: "sourceDiversity",
-    label: "Source diversity",
-    shortLabel: "Diverse",
-    description: "Whether the feed is hearing from a wider set of sources.",
-    barClassName: "bg-[#10B981]",
-  },
-  {
-    key: "relevance",
-    label: "Relevance",
-    shortLabel: "Match",
-    description: "How well the post matches the community's topic.",
-    barClassName: "bg-primary",
-  },
-] as const
-
-const demoPosts: readonly DemoPost[] = [
-  {
-    id: "P1",
-    author: "Maya Keene",
-    handle: "@maya-keene.bsky.social",
-    time: "14m",
-    avatarSrc: "/images/avatars/maya-keene.png",
-    text: "Built a tiny script to log neighborhood finch sightings from my morning walks.",
-    tags: ["birding", "code", "field notes"],
-    stats: { replies: "18", reposts: "42", likes: "164" },
-    scores: { recency: 0.72, engagement: 0.42, bridging: 0.92, sourceDiversity: 0.68, relevance: 0.9 },
-  },
-  {
-    id: "P2",
-    author: "Claire Rowan",
-    handle: "@toastwindow.bsky.social",
-    time: "6m",
-    avatarSrc: "/images/avatars/claire-rowan.png",
-    text: "Rare tanager spotted near the east trailhead this morning.",
-    tags: ["sighting", "local", "fresh"],
-    stats: { replies: "9", reposts: "25", likes: "112" },
-    scores: { recency: 0.96, engagement: 0.35, bridging: 0.28, sourceDiversity: 0.55, relevance: 0.82 },
-  },
-  {
-    id: "P3",
-    author: "Arjun Mehta",
-    handle: "@arjunmehta.dev",
-    time: "31m",
-    avatarSrc: "/images/avatars/arjun-mehta.png",
-    text: "This CSS bug has haunted me for three days.",
-    tags: ["code", "debugging"],
-    stats: { replies: "21", reposts: "36", likes: "208" },
-    scores: { recency: 0.64, engagement: 0.58, bridging: 0.22, sourceDiversity: 0.42, relevance: 0.48 },
-  },
-  {
-    id: "P4",
-    author: "Eli Moreno",
-    handle: "@eli-overthinking.bsky.social",
-    time: "18m",
-    avatarSrc: "/images/avatars/eli-moreno.png",
-    text: "Programmers will do anything except go outside.",
-    tags: ["joke", "viral"],
-    stats: { replies: "86", reposts: "511", likes: "4.2K" },
-    scores: { recency: 0.7, engagement: 0.95, bridging: 0.3, sourceDiversity: 0.35, relevance: 0.36 },
-  },
-  {
-    id: "P5",
-    author: "Theo Kim",
-    handle: "@thocknotes.bsky.social",
-    time: "23m",
-    avatarSrc: "/images/avatars/theo-kim.png",
-    text: "Open-source bird-call classifier dataset just dropped.",
-    tags: ["dataset", "birding", "ml"],
-    stats: { replies: "32", reposts: "96", likes: "340" },
-    scores: { recency: 0.68, engagement: 0.62, bridging: 0.88, sourceDiversity: 0.84, relevance: 0.94 },
-  },
-  {
-    id: "P6",
-    author: "Nina Valdez",
-    handle: "@ninavaldez.bsky.social",
-    time: "1h",
-    avatarSrc: "/images/avatars/nina-valdez.png",
-    text: "Field notes from a rainy owl survey, plus the messy CSV.",
-    tags: ["field notes", "csv", "survey"],
-    stats: { replies: "7", reposts: "19", likes: "88" },
-    scores: { recency: 0.46, engagement: 0.28, bridging: 0.74, sourceDiversity: 0.72, relevance: 0.86 },
-  },
-  {
-    id: "P7",
-    author: "Leila Hart",
-    handle: "@leilahart.bsky.social",
-    time: "16m",
-    avatarSrc: "/images/avatars/leila-hart.png",
-    text: "My camera roll is 80% blurry sparrows and 20% screenshots of stack traces.",
-    tags: ["birding", "code", "funny"],
-    stats: { replies: "15", reposts: "54", likes: "261" },
-    scores: { recency: 0.75, engagement: 0.66, bridging: 0.7, sourceDiversity: 0.52, relevance: 0.76 },
-  },
-] as const
-
-const epochs: readonly Epoch[] = [
-  {
-    id: "engagement",
-    eyebrow: "Epoch 07",
-    label: "Engagement-heavy",
-    headline: "Likes dominate the feed.",
-    body: "This is the failure mode the community wants to fix: the viral joke wins even though it is a weak match.",
-    weights: { recency: 0.05, engagement: 0.65, bridging: 0.05, sourceDiversity: 0.05, relevance: 0.2 },
-  },
-  {
-    id: "bridge",
-    eyebrow: "Epoch 08",
-    label: "Bridge-building policy",
-    headline: "The community boosts posts that connect subgroups.",
-    body: "The policy rewards posts that carry useful context across both sides of the feed.",
-    weights: { recency: 0.15, engagement: 0.1, bridging: 0.35, sourceDiversity: 0.15, relevance: 0.25 },
-  },
-  {
-    id: "field",
-    eyebrow: "Epoch 09",
-    label: "Field-notes policy",
-    headline: "Useful sources get more room.",
-    body: "The feed shifts toward relevance and source diversity so datasets, surveys, and field notes do not vanish under jokes.",
-    weights: { recency: 0.15, engagement: 0.1, bridging: 0.15, sourceDiversity: 0.3, relevance: 0.3 },
-  },
-  {
-    id: "freshness",
-    eyebrow: "Epoch 10",
-    label: "Freshness push",
-    headline: "Time-sensitive sightings rise.",
-    body: "When the community cares about today's field context, fresh sightings move up without making likes the whole policy.",
-    weights: { recency: 0.55, engagement: 0.05, bridging: 0.05, sourceDiversity: 0.05, relevance: 0.3 },
-  },
-] as const
-
-function scorePost(post: DemoPost, epoch: Epoch): number {
-  return signals.reduce((total, signal) => {
-    return total + post.scores[signal.key] * epoch.weights[signal.key]
-  }, 0)
-}
-
-function rankPosts(epoch: Epoch): RankedPost[] {
-  return demoPosts
-    .map((post) => ({
-      post,
-      score: scorePost(post, epoch),
-    }))
-    .sort((left, right) => right.score - left.score)
-    .map((rankedPost, index) => ({
-      ...rankedPost,
-      rank: index + 1,
-    }))
-}
-
-function getEpochById(epochId: EpochId): Epoch {
-  const epoch = epochs.find((candidate) => candidate.id === epochId)
-
-  if (epoch === undefined) {
-    throw new Error(`Unknown epoch id: ${epochId}`)
-  }
-
-  return epoch
-}
-
-function formatPercent(value: number): string {
-  return `${Math.round(value * 100)}%`
-}
-
-function formatScore(value: number): string {
-  return value.toFixed(3)
-}
-
-function getTopPostId(epochId: EpochId): PostId {
-  const topPost = rankPosts(getEpochById(epochId))[0]
-
-  if (topPost === undefined) {
-    throw new Error(`No ranked posts for epoch: ${epochId}`)
-  }
-
-  return topPost.post.id
-}
-
-function movementLabel(currentRank: number, previousRank: number | undefined): string | null {
-  if (previousRank === undefined) {
-    return null
-  }
-
-  if (previousRank === currentRank) {
-    return "held rank"
-  }
-
-  if (previousRank > currentRank) {
-    return `up from #${previousRank}`
-  }
-
-  return `down from #${previousRank}`
-}
-
-function MovementIcon(props: { readonly currentRank: number; readonly previousRank: number | undefined }) {
-  if (props.previousRank === undefined || props.previousRank === props.currentRank) {
-    return <Minus className="h-3.5 w-3.5" aria-hidden="true" />
-  }
-
-  if (props.previousRank > props.currentRank) {
-    return <ArrowUp className="h-3.5 w-3.5" aria-hidden="true" />
-  }
-
-  return <ArrowDown className="h-3.5 w-3.5" aria-hidden="true" />
-}
+  demoPosts,
+  epochs,
+  formatPercent,
+  formatScore,
+  getEpochById,
+  getTopPostId,
+  rankPosts,
+  signals,
+  type Epoch,
+  type EpochId,
+  type PostId,
+  type RankedPost,
+} from "@/lib/replay-model"
+import { Section } from "@/components/ui/layout"
 
 function WeightBars(props: {
   readonly epoch: Epoch
@@ -306,7 +40,8 @@ function WeightBars(props: {
             </span>
             <div className="h-2 overflow-hidden rounded-full bg-border/60">
               <motion.div
-                className={`h-full rounded-full ${signal.barClassName}`}
+                className="h-full rounded-full"
+                style={{ backgroundColor: signal.barColor }}
                 initial={false}
                 animate={{ width: formatPercent(weight) }}
                 transition={props.reduceMotion ? { duration: 0 } : { duration: 0.28, ease: "easeOut" }}
@@ -328,86 +63,47 @@ function FeedCard(props: {
   readonly selected: boolean
   readonly onSelect: (postId: PostId) => void
   readonly reduceMotion: boolean
+  readonly activeEpoch: Epoch
+  readonly showMovement: boolean
 }) {
   const post = props.rankedPost.post
-  const movement = movementLabel(props.rankedPost.rank, props.previousRank)
-  const annotationTone = props.selected
-    ? "border-primary bg-primary/[0.06] shadow-[inset_3px_0_0_rgba(200,97,44,0.75)]"
-    : "border-primary/20 bg-primary/[0.035]"
-
   return (
     <motion.article
       layout={!props.reduceMotion}
       initial={false}
       transition={{ type: "spring", stiffness: 360, damping: 34 }}
-      className={`grid grid-cols-1 bg-white text-[#0B0F14] transition-shadow sm:grid-cols-[minmax(0,1fr)_112px] ${
-        props.selected ? "relative z-10 shadow-[0_10px_28px_rgba(200,97,44,0.14)] ring-2 ring-primary/80" : ""
+      className={`${RANK_COL_CLASS} bg-white transition-shadow ${
+        props.selected ? "relative z-10 shadow-[0_10px_28px_rgba(200,97,44,0.14)] ring-2 ring-inset ring-primary/70" : ""
       }`}
     >
       <button
         type="button"
         onClick={() => props.onSelect(post.id)}
-        className="flex min-w-0 items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-[#F8FAFC]"
         aria-pressed={props.selected}
+        className="w-full text-left transition-colors hover:bg-[#F8FAFC] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/60"
       >
-        <Image
-          src={post.avatarSrc}
-          alt=""
-          width={42}
-          height={42}
-          className="h-[42px] w-[42px] flex-shrink-0 rounded-full object-cover"
+        <BlueskyPostCard
+          authorDisplayName={post.author}
+          authorHandle={post.handle.replace(/^@/, "")}
+          timeLabel={post.time}
+          avatarUrl={post.avatarSrc}
+          text={post.text}
+          replyCount={post.stats.replies}
+          repostCount={post.stats.reposts}
+          likeCount={post.stats.likes}
         />
-        <span className="min-w-0 flex-1">
-          <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[15px] leading-5">
-            <span className="font-bold text-[#0B0F14]">{post.author}</span>
-            <span className="truncate font-normal text-[#42576C]">{post.handle}</span>
-            <span className="text-[#42576C]">·</span>
-            <span className="font-normal text-[#42576C]">{post.time}</span>
-          </span>
-          <span className="mt-0.5 block text-[15px] leading-5 text-[#0B0F14]">{post.text}</span>
-          <span className="flex flex-wrap items-center gap-x-7 gap-y-1 pt-3 text-[#6F869F]">
-            <span className="inline-flex items-center gap-1.5 text-[13px]">
-              <MessageCircle className="h-[18px] w-[18px]" strokeWidth={1.8} aria-hidden="true" />
-              {post.stats.replies}
-            </span>
-            <span className="inline-flex items-center gap-1.5 text-[13px]">
-              <Repeat2 className="h-[18px] w-[18px]" strokeWidth={1.8} aria-hidden="true" />
-              {post.stats.reposts}
-            </span>
-            <span className="inline-flex items-center gap-1.5 text-[13px]">
-              <Heart className="h-[18px] w-[18px]" strokeWidth={1.8} aria-hidden="true" />
-              {post.stats.likes}
-            </span>
-            <span className="inline-flex items-center justify-end">
-              <Bookmark className="h-[18px] w-[18px]" strokeWidth={1.8} aria-hidden="true" />
-              <span className="sr-only">Save</span>
-            </span>
-            <span className="inline-flex items-center justify-end">
-              <Share2 className="h-[18px] w-[18px]" strokeWidth={1.8} aria-hidden="true" />
-              <span className="sr-only">Share</span>
-            </span>
-            <span className="inline-flex items-center justify-end">
-              <MoreHorizontal className="h-[18px] w-[18px]" strokeWidth={1.8} aria-hidden="true" />
-              <span className="sr-only">More</span>
-            </span>
-          </span>
-        </span>
       </button>
-      <aside className={`flex items-center justify-between gap-2 border-t border-dashed px-4 py-3 sm:flex-col sm:justify-center sm:border-l sm:border-t-0 sm:px-2 sm:text-center ${annotationTone}`}>
-        <span className="text-[9px] font-mono font-semibold uppercase tracking-[0.16em] text-primary/55">
-          Corgi
-        </span>
-        <span className="flex h-9 w-9 items-center justify-center rounded-full border border-primary/25 bg-white text-xs font-mono font-bold text-primary shadow-sm">
-          #{props.rankedPost.rank}
-        </span>
-        <span className="font-mono text-[11px] font-semibold text-primary">{formatScore(props.rankedPost.score)}</span>
-        {movement === null ? null : (
-          <span className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-1 text-[10px] font-semibold text-foreground/55 shadow-sm">
-            <MovementIcon currentRank={props.rankedPost.rank} previousRank={props.previousRank} />
-            {movement}
-          </span>
-        )}
-      </aside>
+      <div className="flex items-center justify-center border-l border-border/60 bg-biscuit/25 px-2">
+        <CorgiRankBadge
+          rank={props.rankedPost.rank}
+          score={props.rankedPost.score}
+          movement={badgeMovementFor(props.rankedPost.rank, props.previousRank)}
+          previousRank={props.previousRank}
+          signals={rankSignalsFor(props.rankedPost, props.activeEpoch)}
+          showMovement={props.showMovement}
+          showWhy={false}
+        />
+      </div>
     </motion.article>
   )
 }
@@ -418,7 +114,7 @@ function ReceiptPanel(props: { readonly epoch: Epoch; readonly rankedPost: Ranke
   return (
     <div className="flex h-full flex-col rounded-2xl border border-border bg-card shadow-[0_2px_14px_rgba(46,38,32,0.06)]">
       <div className="border-b border-border/60 px-5 py-4">
-        <p className="text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/35">Corgi receipt</p>
+        <p className="text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/45">Corgi receipt</p>
         <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between lg:flex-col xl:flex-row">
           <div>
             <h3 className="text-xl font-bold leading-tight text-foreground">Why ranked #{props.rankedPost.rank}</h3>
@@ -464,9 +160,9 @@ function CounterfactualComparison() {
   const communityRanking = rankPosts(getEpochById("bridge")).slice(0, 4)
 
   return (
-    <section className="mx-auto max-w-[1320px] border-t border-border/60 px-5 py-12 md:px-8 md:py-16 lg:px-12">
+    <Section bordered spacing="default">
       <div className="mx-auto mb-8 max-w-3xl text-center">
-        <p className="mb-2 text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/35">Counterfactual</p>
+        <p className="mb-2 text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/45">Counterfactual</p>
         <h2 className="font-display text-3xl font-bold leading-tight tracking-tight text-foreground md:text-4xl">
           Same posts. Different policy. Different feed.
         </h2>
@@ -498,7 +194,7 @@ function CounterfactualComparison() {
           </div>
         ))}
       </div>
-    </section>
+    </Section>
   )
 }
 
@@ -506,9 +202,9 @@ function ScoringMath() {
   const bridgeEpoch = getEpochById("bridge")
 
   return (
-    <section className="mx-auto max-w-[1320px] border-t border-border/60 px-5 py-12 md:px-8 md:py-16 lg:px-12">
+    <Section bordered spacing="default">
       <div className="mx-auto mb-8 max-w-3xl text-center">
-        <p className="mb-2 text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/35">
+        <p className="mb-2 text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/45">
           Calculation
         </p>
         <h2 className="font-display text-3xl font-bold leading-tight tracking-tight text-foreground md:text-4xl">
@@ -556,7 +252,7 @@ function ScoringMath() {
 
           <div className="flex flex-col gap-4">
             <div className="rounded-xl border border-border/70 bg-background p-5">
-              <p className="text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/35">Formula</p>
+              <p className="text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/45">Formula</p>
               <p className="mt-3 font-mono text-sm leading-relaxed text-foreground/75">
                 total = sum(raw signal score x active policy weight)
               </p>
@@ -565,7 +261,7 @@ function ScoringMath() {
               </p>
             </div>
             <div className="rounded-xl border border-border/70 bg-background p-5">
-              <p className="text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/35">What an epoch means</p>
+              <p className="text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/45">What an epoch means</p>
               <p className="mt-3 text-sm leading-relaxed text-foreground/55">
                 An epoch is a stored feed policy from a voting round. The post signals stay the same in this demo, but the active epoch changes how much each signal matters.
               </p>
@@ -578,7 +274,7 @@ function ScoringMath() {
           </div>
         </div>
       </div>
-    </section>
+    </Section>
   )
 }
 
@@ -605,17 +301,7 @@ export function HowItWorksReplay() {
 
   return (
     <>
-      <section id="replay" className="mx-auto max-w-[1320px] px-4 py-10 md:px-6 md:py-14 lg:px-8">
-        <div className="mb-6 flex flex-col gap-3 text-center">
-          <p className="text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/35">Replay a policy change</p>
-          <h2 className="font-display text-3xl font-bold leading-tight tracking-tight text-foreground md:text-5xl">
-            Watch the same posts become a different feed.
-          </h2>
-          <p className="mx-auto max-w-2xl text-base font-medium leading-relaxed text-foreground/55">
-            Corgi scores candidate posts once, then applies the active community policy. Change the epoch and the feed order changes with it.
-          </p>
-        </div>
-
+      <Section id="replay" spacing="default">
         <div className="rounded-3xl border border-border bg-card shadow-[0_8px_40px_rgba(46,38,32,0.12)]">
           <div className="border-b border-border/60 px-4 py-4 sm:px-5">
             <div className="flex flex-wrap gap-2">
@@ -648,7 +334,7 @@ export function HowItWorksReplay() {
           <div className="grid gap-0 xl:grid-cols-[0.82fr_1.1fr_0.92fr]">
             <aside className="border-b border-border/60 bg-background/55 p-4 sm:p-5 xl:border-b-0 xl:border-r">
               <div className="rounded-2xl border border-border bg-card p-5 shadow-[0_2px_14px_rgba(46,38,32,0.06)]">
-                <p className="text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/35">{activeEpoch.eyebrow}</p>
+                <p className="text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/45">{activeEpoch.eyebrow}</p>
                 <h3 className="mt-2 text-2xl font-bold leading-tight text-foreground">{activeEpoch.label}</h3>
                 <p className="mt-2 text-sm leading-relaxed text-foreground/55">{activeEpoch.body}</p>
                 <div className="mt-5">
@@ -672,27 +358,30 @@ export function HowItWorksReplay() {
             </aside>
 
             <div className="border-b border-border/60 bg-white p-0 xl:border-b-0 xl:border-r">
-              <div className="border-b border-[#D4DBE2] bg-white px-4 pb-0 pt-3">
-                <div className="flex h-8 items-center justify-center">
-                  <Image
-                    src="/images/bluesky-butterfly-logo.svg"
-                    alt="Bluesky"
-                    width={28}
-                    height={25}
-                    priority={true}
-                    className="h-[25px] w-[28px]"
-                  />
+              <div className={`${RANK_COL_CLASS} border-b border-[#D9E3EE] bg-white`}>
+                <div className="px-4 pb-0 pt-3">
+                  <div className="flex h-8 items-center justify-center">
+                    <Image
+                      src="/images/bluesky-butterfly-logo.svg"
+                      alt="Bluesky"
+                      width={28}
+                      height={25}
+                      priority={true}
+                      className="h-[25px] w-[28px]"
+                    />
+                  </div>
+                  <div className="mt-1 flex min-w-0 items-end gap-5 overflow-x-auto text-[13px] font-semibold text-[#42576C] sm:text-[14px]">
+                    {["Discover", "Following", "Birders Who Code", "Tools"].map((tab, index) => (
+                      <span key={tab} className={`relative shrink-0 py-3 ${index === 2 ? "text-[#0B0F14]" : ""}`}>
+                        {tab}
+                        {index === 2 ? <span className="absolute inset-x-0 bottom-0 h-1 rounded-full bg-[#0085FF]" /> : null}
+                      </span>
+                    ))}
+                  </div>
                 </div>
-                <div className="mt-1 flex min-w-0 items-end gap-5 overflow-x-auto text-[13px] font-semibold text-[#42576C] sm:text-[14px]">
-                  {["Discover", "Following", "Birders Who Code", "Tools"].map((tab, index) => (
-                    <span key={tab} className={`relative shrink-0 py-3 ${index === 2 ? "text-[#0B0F14]" : ""}`}>
-                      {tab}
-                      {index === 2 ? <span className="absolute inset-x-0 bottom-0 h-1 rounded-full bg-[#0085FF]" /> : null}
-                    </span>
-                  ))}
-                </div>
+                <RankColumnHeader sublabel={activeEpoch.eyebrow} />
               </div>
-              <div className="divide-y divide-[#D4DBE2]">
+              <div className="divide-y divide-[#D9E3EE]">
                 {rankedPosts.map((rankedPost) => (
                   <FeedCard
                     key={rankedPost.post.id}
@@ -701,6 +390,8 @@ export function HowItWorksReplay() {
                     selected={rankedPost.post.id === selectedPostId}
                     onSelect={setSelectedPostId}
                     reduceMotion={shouldReduceMotion === true}
+                    activeEpoch={activeEpoch}
+                    showMovement={previousEpoch !== null}
                   />
                 ))}
               </div>
@@ -717,7 +408,7 @@ export function HowItWorksReplay() {
             </p>
           </div>
         </div>
-      </section>
+      </Section>
 
       <CounterfactualComparison />
       <ScoringMath />

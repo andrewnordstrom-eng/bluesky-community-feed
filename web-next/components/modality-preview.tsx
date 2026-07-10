@@ -7,7 +7,7 @@ function CorgiReceiptPanel() {
   return (
     <div className="flex h-full flex-col gap-4">
       <div className="flex flex-col gap-1">
-        <p className="text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/35">
+        <p className="text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/45">
           Corgi view
         </p>
         <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between lg:flex-col lg:items-start xl:flex-row xl:items-end">
@@ -73,9 +73,9 @@ function CorgiReceiptPanel() {
   )
 }
 
-export function ModalityPreview() {
+function ProductSurface({ showIntro }: { readonly showIntro: boolean }) {
   return (
-    <div className="w-full max-w-[1120px]">
+    <div className="mx-auto w-full max-w-[1120px]">
       <div className="rounded-3xl border border-border bg-card shadow-[0_8px_40px_rgba(46,38,32,0.12)] overflow-hidden">
         <div className="border-b border-border/60 bg-card px-5 py-4 sm:px-6">
           <p className="text-sm font-semibold text-foreground">
@@ -87,7 +87,7 @@ export function ModalityPreview() {
         </div>
         <div className="grid gap-0 lg:grid-cols-[minmax(0,1.04fr)_minmax(360px,0.96fr)]">
           <div className="border-b border-border/60 bg-background/55 p-4 sm:p-5 lg:border-b-0 lg:border-r">
-            <BlueskyOrderedFeed showIntro={true} showDisclosure={true} />
+            <BlueskyOrderedFeed showIntro={showIntro} showDisclosure={showIntro} />
           </div>
           <div className="bg-card p-4 sm:p-5">
             <CorgiReceiptPanel />
@@ -98,60 +98,8 @@ export function ModalityPreview() {
   )
 }
 
-export function BlueskyProductShowcase() {
-  return (
-    <section className="w-full max-w-[960px]">
-      <div className="mx-auto mb-6 max-w-[700px] px-2 text-center">
-        <p className="mb-2 text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/35">
-          Example community
-        </p>
-        <h2 className="font-display text-2xl font-bold leading-tight text-foreground md:text-4xl">
-          Birders Who Code
-        </h2>
-        <p className="mx-auto mt-3 max-w-[620px] text-sm font-medium leading-relaxed text-foreground/55 md:text-base">
-          Warblers, bug reports, and deploys that failed silently. Corgi lets this community decide which posts deserve lift while the feed still renders in Bluesky.
-        </p>
-      </div>
-
-      <div className="rounded-[30px] border border-border bg-card p-3 shadow-[0_18px_60px_rgba(46,38,32,0.14)] sm:p-5">
-        <div className="mb-3 grid gap-2 text-left sm:grid-cols-2">
-          <div className="rounded-2xl border border-[#D4DBE2] bg-white px-4 py-3 text-[#0B0F14]">
-            <p className="text-[10px] font-mono uppercase tracking-[0.18em] text-[#42576C]">
-              Bluesky view
-            </p>
-            <p className="mt-1 text-sm font-semibold">Posts appear in Corgi-ranked order.</p>
-          </div>
-          <div className="rounded-2xl border border-primary/20 bg-primary/[0.06] px-4 py-3">
-            <p className="text-[10px] font-mono uppercase tracking-[0.18em] text-primary/60">
-              Corgi view
-            </p>
-            <p className="mt-1 text-sm font-semibold text-foreground">Scores and receipts explain why.</p>
-          </div>
-        </div>
-        <BlueskyOrderedFeed showIntro={false} showDisclosure={false} />
-      </div>
-
-      <p className="mx-auto mt-4 max-w-[680px] px-3 text-center text-xs font-medium leading-relaxed text-foreground/45 md:text-sm">
-        Bluesky shows the ordered posts. Corgi shows why. The score rail above is a Corgi annotation for the product demo, not native Bluesky chrome.
-      </p>
-    </section>
-  )
-}
-
-export function ModalityComparisonSection() {
-  return (
-    <section id="ranking-surfaces" className="w-full px-4 py-16 md:px-8 md:py-24 lg:px-12">
-      <div className="mx-auto mb-8 flex max-w-[960px] flex-col gap-3 text-center">
-        <h2 className="font-display text-3xl font-bold leading-tight text-foreground md:text-5xl">
-          Where the ranking lives.
-        </h2>
-        <p className="mx-auto max-w-[700px] text-base font-medium leading-relaxed text-foreground/55 md:text-lg">
-          The feed order appears in Bluesky. The score, weights, receipt, and why-ranked explanation live on Corgi, where people can inspect the mechanism.
-        </p>
-      </div>
-      <div className="flex justify-center">
-        <ModalityPreview />
-      </div>
-    </section>
-  )
+// Used by /how-it-works — a static feed paired with an anonymized live receipt.
+// The landing's product surface is the interactive ReplayTeaser instead.
+export function ModalityPreview() {
+  return <ProductSurface showIntro={true} />
 }

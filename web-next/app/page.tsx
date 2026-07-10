@@ -2,16 +2,15 @@
 
 import { Header } from "@/components/header"
 import { HeroSection } from "@/components/hero-section"
-import { BlueskyProductShowcase, ModalityComparisonSection } from "@/components/modality-preview"
+import { ReplayTeaser } from "@/components/replay-teaser"
 import { CommunityExamplesSection } from "@/components/community-examples-section"
 import { SocialProof } from "@/components/social-proof"
 import { BentoSection } from "@/components/bento-section"
-import { GetStartedSection } from "@/components/get-started-section"
-import { ChangelogSection } from "@/components/changelog-section"
 import { FAQSection } from "@/components/faq-section"
 import { CTASection } from "@/components/cta-section"
 import { FooterSection } from "@/components/footer-section"
 import { AnimatedSection } from "@/components/animated-section"
+import { Container } from "@/components/ui/layout"
 
 export default function LandingPage() {
   return (
@@ -23,55 +22,50 @@ export default function LandingPage() {
         {/* Hero - full bleed */}
         <HeroSection />
 
-        {/* Lead with one dominant product surface before explaining the receipt layer. */}
-        <AnimatedSection
-          className="relative z-20 max-w-[1320px] mx-auto px-4 md:px-6 lg:px-8 -mt-14 md:-mt-24 lg:-mt-28 pb-0 flex justify-center"
-          delay={0.15}
-        >
-          <BlueskyProductShowcase />
+        {/* Interactive product demo — the narrower "product stage" width.
+            The ReplayTeaser shares its scoring model with /how-it-works (lib/replay-model). */}
+        <AnimatedSection className="relative z-20 pt-14 pb-4 md:pt-20" delay={0.15}>
+          <Container width="stage">
+            <div className="mx-auto mb-8 max-w-[720px] text-center md:mb-10">
+              <p className="mb-3 text-[11px] font-mono uppercase tracking-[0.22em] text-foreground/40">
+                Interactive preview
+              </p>
+              <h2 className="font-display text-3xl font-bold leading-tight tracking-tight text-foreground text-balance md:text-[40px] md:leading-[1.1]">
+                See a community reshape its own feed.
+              </h2>
+              <p className="mx-auto mt-4 max-w-[620px] text-base leading-relaxed text-foreground/60">
+                Meet <span className="font-semibold text-foreground">Birders Who Code</span>, a sample community of
+                developers who bird. Choose how they rank posts, and the same feed reorders in Bluesky &mdash; with the
+                Corgi score behind every move.
+              </p>
+            </div>
+            <div className="flex justify-center">
+              <ReplayTeaser />
+            </div>
+          </Container>
         </AnimatedSection>
 
-        <div className="max-w-[1320px] mx-auto">
-          {/* Open source strip */}
-          <AnimatedSection className="px-4 md:px-6 lg:px-8 mt-10 md:mt-14" delay={0.1}>
-            <SocialProof />
-          </AnimatedSection>
+        {/* Content sections each own their frame via <Section>/<Container>. */}
+        <AnimatedSection className="mt-10 md:mt-14" delay={0.1}>
+          <SocialProof />
+        </AnimatedSection>
 
-          {/* Community examples */}
-          <AnimatedSection delay={0.15}>
-            <CommunityExamplesSection />
-          </AnimatedSection>
+        <AnimatedSection delay={0.15}>
+          <CommunityExamplesSection />
+        </AnimatedSection>
 
-          {/* Explain modality after users have seen the product promise. */}
-          <AnimatedSection delay={0.15}>
-            <ModalityComparisonSection />
-          </AnimatedSection>
+        <AnimatedSection delay={0.15}>
+          <BentoSection />
+        </AnimatedSection>
 
-          {/* Feature rows */}
-          <AnimatedSection delay={0.15}>
-            <BentoSection />
-          </AnimatedSection>
+        <AnimatedSection delay={0.2}>
+          <FAQSection />
+        </AnimatedSection>
 
-          {/* Get started */}
-          <AnimatedSection delay={0.15}>
-            <GetStartedSection />
-          </AnimatedSection>
-
-          {/* Changelog / proof */}
-          <AnimatedSection className="px-5 md:px-8 lg:px-12" delay={0.2}>
-            <ChangelogSection />
-          </AnimatedSection>
-
-          {/* FAQ */}
-          <AnimatedSection className="px-5 md:px-8 lg:px-12" delay={0.2}>
-            <FAQSection />
-          </AnimatedSection>
-
-          {/* CTA */}
-          <AnimatedSection delay={0.2}>
-            <CTASection />
-          </AnimatedSection>
-        </div>
+        {/* Full-bleed dark CTA band — the page's one deliberate contrast moment. */}
+        <AnimatedSection delay={0.2}>
+          <CTASection />
+        </AnimatedSection>
 
         {/* Footer */}
         <AnimatedSection delay={0.2}>
