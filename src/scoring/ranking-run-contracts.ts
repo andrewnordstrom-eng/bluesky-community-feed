@@ -51,6 +51,12 @@ interface RankingInputRow {
   compressed_bytes: number | string;
 }
 
+interface RankingItemIdentityRow {
+  position: number;
+  post_uri: string;
+  post_created_at: Date | string;
+}
+
 export interface CompressedRankingInput {
   payload: Buffer;
   checksum: string;
@@ -281,7 +287,8 @@ export async function persistRankingRunInput(
   if (current.state !== 'running') {
     throw new Error(`Ranking input can only be persisted while running, got ${current.state}`);
   }
-  decodeCompressedRankingInput(compressed);
+  const envelope = decodeCompressedRankingInput(compressed);
+  assertInputEnvelopeMatchesRun(envelope, current);
   await client.query(
     `INSERT INTO ranking_run_inputs (
        run_id, payload, checksum, candidate_count,
@@ -378,16 +385,27 @@ export async function validateRankingRun(
     );
   }
 
-  const itemResult = await client.query<{ count: number }>(
-    `SELECT COUNT(*)::int AS count
+  const itemResult = await client.query<RankingItemIdentityRow>(
+    `SELECT position, post_uri, post_created_at
        FROM ranking_run_items
-      WHERE run_id = $1`,
+      WHERE run_id = $1
+      ORDER BY position ASC`,
     [input.runId]
   );
-  const itemCount = itemResult.rows[0]?.count ?? 0;
+  const itemCount = itemResult.rows.length;
   if (itemCount !== input.receipt.itemCount) {
     throw new Error(
       `Ranking run ${input.runId} item count mismatch: stored ${itemCount}, receipt ${input.receipt.itemCount}`
+    );
+  }
+  const storedItemOrderChecksum = hashCanonicalJson(itemResult.rows.map((item) => [
+    item.position,
+    item.post_uri,
+    toIsoTimestamp(item.post_created_at, `ranking item ${item.position} post_created_at`),
+  ]));
+  if (storedItemOrderChecksum !== input.receipt.itemOrderChecksum) {
+    throw new Error(
+      `Ranking run ${input.runId} item order checksum does not match stored slate`
     );
   }
 
@@ -448,13 +466,15 @@ export async function prepareRankingRunPublication(
 
   await client.query(
     `UPDATE ranking_runs
-        SET state = 'superseded',
-            metrics = metrics || $2::jsonb
+        SET state = 'superseded'
       WHERE id = $1`,
-    [
-      runId,
-      canonicalJson({ supersededByPolicyHash: currentPolicyHash }),
-    ]
+    [runId]
+  );
+  await client.query(
+    `INSERT INTO ranking_run_events (
+       run_id, event_type, previous_state, next_state, details
+     ) VALUES ($1, 'stale_policy_detected', 'validated', 'superseded', $2::jsonb)`,
+    [runId, canonicalJson({ supersededByPolicyHash: currentPolicyHash })]
   );
   const replacement = await enqueueRankingRunRequest(client, {
     idempotencyKey: `replacement:${runId}:${currentPolicyHash}`,
@@ -673,6 +693,24 @@ function assertReceiptMatchesRun(receipt: RankingReceipt, run: RankingRunRow): v
   if (receipt.asOf !== toIsoTimestamp(run.as_of, 'ranking run as_of')) mismatches.push('asOf');
   if (mismatches.length > 0) {
     throw new Error(`Ranking receipt does not match run identity: ${mismatches.join(', ')}`);
+  }
+}
+
+function assertInputEnvelopeMatchesRun(
+  envelope: RankingRunInputEnvelope,
+  run: RankingRunRow
+): void {
+  const mismatches: string[] = [];
+  if (envelope.runId !== run.id) mismatches.push('runId');
+  if (envelope.communityId !== run.community_id) mismatches.push('communityId');
+  if (envelope.policyHash !== run.policy_hash) mismatches.push('policyHash');
+  if (envelope.configurationHash !== run.configuration_hash) mismatches.push('configurationHash');
+  if (toIsoTimestamp(envelope.asOf, 'ranking input asOf')
+      !== toIsoTimestamp(run.as_of, 'ranking run as_of')) {
+    mismatches.push('asOf');
+  }
+  if (mismatches.length > 0) {
+    throw new Error(`Ranking input does not match run identity: ${mismatches.join(', ')}`);
   }
 }
 

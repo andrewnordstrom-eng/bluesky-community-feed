@@ -134,6 +134,13 @@ describe('Trustworthy Corgi contracts against real PostgreSQL', () => {
       };
       const compressed = createCompressedRankingInput(inputEnvelope);
       const items = [slateItem()];
+      await client.query('SAVEPOINT mismatched_input');
+      await expect(persistRankingRunInput(
+        client,
+        RUN_ID,
+        createCompressedRankingInput({ ...inputEnvelope, communityId: 'wrong-community' })
+      )).rejects.toThrow('Ranking input does not match run identity: communityId');
+      await client.query('ROLLBACK TO SAVEPOINT mismatched_input');
       await persistRankingRunInput(client, RUN_ID, compressed);
       await persistRankedSlate(client, RUN_ID, items);
 
@@ -149,6 +156,31 @@ describe('Trustworthy Corgi contracts against real PostgreSQL', () => {
         inputChecksum: compressed.checksum,
         items,
       });
+      const mismatchedReceipt = buildRankingReceipt({
+        runId: RUN_ID,
+        communityId: 'community-gov',
+        policyVersionId: materialized.bundle.policyVersionId,
+        policyHash: materialized.bundle.policyHash,
+        algorithmVersion: materialized.bundle.algorithmVersion,
+        configurationHash: CONFIGURATION_HASH,
+        codeSha: CODE_SHA,
+        asOf: AS_OF,
+        inputChecksum: compressed.checksum,
+        items: [{
+          ...slateItem(),
+          postUri: 'at://did:plc:author/app.bsky.feed.post/different',
+        }],
+      });
+      await client.query('SAVEPOINT mismatched_receipt');
+      await expect(validateRankingRun(client, {
+        runId: RUN_ID,
+        receipt: mismatchedReceipt,
+        candidateCount: 1,
+        exclusionCount: 0,
+        timings: { totalMs: 42 },
+        metrics: { replayDeterministic: true },
+      })).rejects.toThrow('item order checksum does not match stored slate');
+      await client.query('ROLLBACK TO SAVEPOINT mismatched_receipt');
       await validateRankingRun(client, {
         runId: RUN_ID,
         receipt,
@@ -241,6 +273,142 @@ describe('Trustworthy Corgi contracts against real PostgreSQL', () => {
       ).rejects.toThrow('append-only and immutable');
       await client.query('ROLLBACK TO SAVEPOINT immutable_policy');
       await client.query('ROLLBACK');
+    } finally {
+      client.release();
+    }
+  });
+
+  it('supersedes a validated run and queues a replacement when policy changes', async () => {
+    const epochId = await seedGovernedPolicyEvidence();
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+      const initialPolicy = await materializeActivePolicyVersion(client, {
+        communityId: 'community-gov',
+        algorithmVersion: 'corgi-ranking-v2',
+        effectiveAt: AS_OF,
+        provenanceReferences: [],
+      });
+      await createRankingRun(client, {
+        runId: RUN_ID,
+        communityId: 'community-gov',
+        policyVersionId: initialPolicy.bundle.policyVersionId,
+        policyHash: initialPolicy.bundle.policyHash,
+        algorithmVersion: initialPolicy.bundle.algorithmVersion,
+        configurationHash: CONFIGURATION_HASH,
+        codeSha: CODE_SHA,
+        asOf: AS_OF,
+      });
+      await transitionRankingRun(client, RUN_ID, 'running', null);
+
+      const inputEnvelope: RankingRunInputEnvelope = {
+        schemaVersion: 1,
+        runId: RUN_ID,
+        communityId: 'community-gov',
+        policyHash: initialPolicy.bundle.policyHash,
+        configurationHash: CONFIGURATION_HASH,
+        asOf: AS_OF,
+        candidates: [{
+          uri: 'at://did:plc:author/app.bsky.feed.post/1',
+          eligible: true,
+          candidateSources: ['newest'],
+          features: { recency: 1 },
+        }],
+      };
+      const compressed = createCompressedRankingInput(inputEnvelope);
+      const items = [slateItem()];
+      await persistRankingRunInput(client, RUN_ID, compressed);
+      await persistRankedSlate(client, RUN_ID, items);
+      const receipt = buildRankingReceipt({
+        runId: RUN_ID,
+        communityId: 'community-gov',
+        policyVersionId: initialPolicy.bundle.policyVersionId,
+        policyHash: initialPolicy.bundle.policyHash,
+        algorithmVersion: initialPolicy.bundle.algorithmVersion,
+        configurationHash: CONFIGURATION_HASH,
+        codeSha: CODE_SHA,
+        asOf: AS_OF,
+        inputChecksum: compressed.checksum,
+        items,
+      });
+      await validateRankingRun(client, {
+        runId: RUN_ID,
+        receipt,
+        candidateCount: 1,
+        exclusionCount: 0,
+        timings: { totalMs: 42 },
+        metrics: { replayDeterministic: true },
+      });
+
+      await client.query(
+        `UPDATE governance_epoch_weights
+            SET weight = CASE component_key
+              WHEN 'recency' THEN 0.3
+              WHEN 'engagement' THEN 0.1
+              ELSE weight
+            END
+          WHERE epoch_id = $1`,
+        [epochId]
+      );
+      await client.query(
+        `INSERT INTO governance_audit_log (action, epoch_id, details)
+         VALUES ('weights_changed', $1, $2::jsonb)`,
+        [epochId, JSON.stringify({ reason: 'stale-policy-regression' })]
+      );
+      const replacementPolicy = await materializeActivePolicyVersion(client, {
+        communityId: 'community-gov',
+        algorithmVersion: 'corgi-ranking-v2',
+        effectiveAt: '2026-07-11T21:00:00.000Z',
+        provenanceReferences: [],
+      });
+
+      const result = await prepareRankingRunPublication(
+        client,
+        RUN_ID,
+        'integration-test',
+        '2026-07-11T21:00:01.000Z'
+      );
+      expect(result).toEqual({
+        publishable: false,
+        currentPolicyHash: replacementPolicy.bundle.policyHash,
+        replacementRequestId: expect.any(String),
+      });
+      const run = await client.query<{ state: string; metrics: Record<string, unknown> }>(
+        'SELECT state, metrics FROM ranking_runs WHERE id = $1',
+        [RUN_ID]
+      );
+      expect(run.rows[0]).toEqual({
+        state: 'superseded',
+        metrics: { replayDeterministic: true },
+      });
+      const replacement = await client.query<{
+        community_id: string;
+        request_kind: string;
+        state: string;
+      }>(
+        `SELECT community_id, request_kind, state
+           FROM ranking_run_requests
+          WHERE id = $1`,
+        [result.replacementRequestId]
+      );
+      expect(replacement.rows[0]).toEqual({
+        community_id: 'community-gov',
+        request_kind: 'replacement',
+        state: 'pending',
+      });
+      const event = await client.query<{ details: Record<string, unknown> }>(
+        `SELECT details
+           FROM ranking_run_events
+          WHERE run_id = $1 AND event_type = 'stale_policy_detected'`,
+        [RUN_ID]
+      );
+      expect(event.rows[0]?.details).toEqual({
+        supersededByPolicyHash: replacementPolicy.bundle.policyHash,
+      });
+      await client.query('ROLLBACK');
+    } catch (error: unknown) {
+      await client.query('ROLLBACK');
+      throw error;
     } finally {
       client.release();
     }
