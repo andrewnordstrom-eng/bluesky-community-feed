@@ -77,6 +77,9 @@ describe('shadow demo isolation guards', () => {
     expect(deploy).toContain(`DEMO_KEY="${demoSessionKeyPrefix()}\${DEMO_SESSION_ID}"`);
 
     expect(deploy).toContain('DEMO_RESPONSE=$(curl -fsS --max-time 90');
+    expect(deploy).toContain('PROBE_TIMESTAMP=$(date +%s)');
+    expect(deploy).toContain('DEMO_CLIENT_NONCE="deploy-probe-${PROBE_OCTET}-${PROBE_TIMESTAMP}"');
+    expect(deploy).toContain('\\"clientNonce\\":\\"${DEMO_CLIENT_NONCE}\\"');
     expect(SHADOW_DEMO_SHARED_CORPUS_TTL_SECONDS).toBe(60 * 60);
     expect(usesOnlySudoDockerComposeCommands(deploy)).toBe(true);
 
