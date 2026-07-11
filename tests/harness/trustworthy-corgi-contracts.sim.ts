@@ -204,6 +204,21 @@ describe('Trustworthy Corgi contracts against real PostgreSQL', () => {
         snapshotId: 'snapshot-integration-1',
         receiptChecksum: receipt.receiptChecksum,
       })).resolves.toEqual({ repaired: true });
+      await client.query('SAVEPOINT late_item');
+      await expect(client.query(
+        `INSERT INTO ranking_run_items (
+           run_id, position, post_uri, post_created_at, author_did,
+           component_decomposition, candidate_sources, diversity_context,
+           base_score, final_score
+         ) VALUES ($1, 2, $2, $3, $4, '{}'::jsonb, ARRAY['newest'], '{}'::jsonb, 0.1, 0.1)`,
+        [
+          RUN_ID,
+          'at://did:plc:author/app.bsky.feed.post/late',
+          '2026-07-11T19:58:00.000Z',
+          'did:plc:author',
+        ]
+      )).rejects.toThrow('can only be inserted while ranking run');
+      await client.query('ROLLBACK TO SAVEPOINT late_item');
       await client.query('COMMIT');
 
       const policyCount = await db.query<{ count: number }>(
@@ -258,6 +273,12 @@ describe('Trustworthy Corgi contracts against real PostgreSQL', () => {
         codeSha: CODE_SHA,
         asOf: AS_OF,
       });
+      await transitionRankingRun(client, RUN_ID, 'running', null);
+      await client.query('SAVEPOINT invalid_validation');
+      await expect(
+        client.query("UPDATE ranking_runs SET state = 'validated' WHERE id = $1", [RUN_ID])
+      ).rejects.toThrow('must select at least one item');
+      await client.query('ROLLBACK TO SAVEPOINT invalid_validation');
       await client.query('SAVEPOINT invalid_transition');
       await expect(
         client.query("UPDATE ranking_runs SET state = 'published' WHERE id = $1", [RUN_ID])

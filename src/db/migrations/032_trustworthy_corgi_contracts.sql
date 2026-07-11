@@ -137,10 +137,18 @@ LANGUAGE plpgsql
 AS $$
 DECLARE
   transition_allowed BOOLEAN := FALSE;
+  stored_item_count INTEGER;
+  stored_candidate_count INTEGER;
+  stored_input_checksum TEXT;
 BEGIN
   IF TG_OP = 'INSERT' THEN
     IF NEW.state <> 'requested' THEN
       RAISE EXCEPTION 'ranking run must begin in requested state, got %', NEW.state;
+    END IF;
+    IF NEW.failure IS NOT NULL OR NEW.snapshot_id IS NOT NULL
+       OR NEW.input_checksum IS NOT NULL OR NEW.receipt_checksum IS NOT NULL
+       OR NEW.receipt IS NOT NULL THEN
+      RAISE EXCEPTION 'requested ranking run % must begin without result or terminal metadata', NEW.id;
     END IF;
     RETURN NEW;
   END IF;
@@ -163,17 +171,24 @@ BEGIN
     RAISE EXCEPTION 'ranking run identity is immutable for run %', OLD.id;
   END IF;
 
+  IF NEW.state <> 'failed' AND NEW.failure IS NOT NULL THEN
+    RAISE EXCEPTION 'ranking run % in state % cannot contain failure details', OLD.id, NEW.state;
+  END IF;
+  IF NEW.state <> 'published' AND NEW.snapshot_id IS NOT NULL THEN
+    RAISE EXCEPTION 'ranking run % in state % cannot contain a snapshot id', OLD.id, NEW.state;
+  END IF;
+
   IF NEW.state = OLD.state THEN
     RETURN NEW;
   END IF;
 
   IF OLD.state = 'validated' AND ROW(
     NEW.candidate_count, NEW.selected_count, NEW.exclusion_count,
-    NEW.timings, NEW.metrics, NEW.failure, NEW.input_checksum,
+    NEW.timings, NEW.metrics, NEW.input_checksum,
     NEW.receipt_checksum, NEW.receipt
   ) IS DISTINCT FROM ROW(
     OLD.candidate_count, OLD.selected_count, OLD.exclusion_count,
-    OLD.timings, OLD.metrics, OLD.failure, OLD.input_checksum,
+    OLD.timings, OLD.metrics, OLD.input_checksum,
     OLD.receipt_checksum, OLD.receipt
   ) THEN
     RAISE EXCEPTION 'validated ranking result is immutable for run %', OLD.id;
@@ -186,6 +201,66 @@ BEGIN
 
   IF NOT transition_allowed THEN
     RAISE EXCEPTION 'invalid ranking run transition % -> % for run %', OLD.state, NEW.state, OLD.id;
+  END IF;
+
+  IF NEW.state = 'validated' THEN
+    IF NEW.failure IS NOT NULL THEN
+      RAISE EXCEPTION 'validated ranking run % cannot contain failure details', OLD.id;
+    END IF;
+    IF NEW.selected_count <= 0 THEN
+      RAISE EXCEPTION 'validated ranking run % must select at least one item', OLD.id;
+    END IF;
+    IF NEW.receipt IS NULL OR NEW.input_checksum IS NULL OR NEW.receipt_checksum IS NULL THEN
+      RAISE EXCEPTION 'validated ranking run % requires a receipt and checksums', OLD.id;
+    END IF;
+    SELECT COUNT(*)::int
+      INTO stored_item_count
+      FROM ranking_run_items
+     WHERE run_id = OLD.id;
+    IF stored_item_count <> NEW.selected_count THEN
+      RAISE EXCEPTION 'validated ranking run % item count mismatch: stored %, manifest %',
+        OLD.id, stored_item_count, NEW.selected_count;
+    END IF;
+    SELECT candidate_count, checksum::text
+      INTO stored_candidate_count, stored_input_checksum
+      FROM ranking_run_inputs
+     WHERE run_id = OLD.id;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'validated ranking run % requires a replay input', OLD.id;
+    END IF;
+    IF stored_candidate_count <> NEW.candidate_count THEN
+      RAISE EXCEPTION 'validated ranking run % candidate count mismatch: stored %, manifest %',
+        OLD.id, stored_candidate_count, NEW.candidate_count;
+    END IF;
+    IF stored_input_checksum <> NEW.input_checksum::text THEN
+      RAISE EXCEPTION 'validated ranking run % input checksum mismatch', OLD.id;
+    END IF;
+    IF jsonb_typeof(NEW.receipt->'itemCount') IS DISTINCT FROM 'number'
+       OR (NEW.receipt->>'itemCount')::int <> NEW.selected_count THEN
+      RAISE EXCEPTION 'validated ranking run % receipt item count mismatch', OLD.id;
+    END IF;
+    IF NEW.receipt->>'runId' IS DISTINCT FROM NEW.id::text
+       OR NEW.receipt->>'communityId' IS DISTINCT FROM NEW.community_id
+       OR NEW.receipt->>'policyVersionId' IS DISTINCT FROM NEW.policy_version_id::text
+       OR NEW.receipt->>'policyHash' IS DISTINCT FROM NEW.policy_hash::text
+       OR NEW.receipt->>'algorithmVersion' IS DISTINCT FROM NEW.algorithm_version
+       OR NEW.receipt->>'configurationHash' IS DISTINCT FROM NEW.configuration_hash::text
+       OR NEW.receipt->>'codeSha' IS DISTINCT FROM NEW.code_sha
+       OR (NEW.receipt->>'asOf')::timestamptz IS DISTINCT FROM NEW.as_of
+       OR NEW.receipt->>'inputChecksum' IS DISTINCT FROM NEW.input_checksum::text
+       OR NEW.receipt->>'receiptChecksum' IS DISTINCT FROM NEW.receipt_checksum::text THEN
+      RAISE EXCEPTION 'validated ranking run % receipt identity mismatch', OLD.id;
+    END IF;
+  ELSIF NEW.state = 'published' THEN
+    IF NEW.snapshot_id IS NULL OR length(NEW.snapshot_id) = 0 THEN
+      RAISE EXCEPTION 'published ranking run % requires a snapshot id', OLD.id;
+    END IF;
+  ELSIF NEW.state = 'failed' THEN
+    IF NEW.failure IS NULL THEN
+      RAISE EXCEPTION 'failed ranking run % requires failure details', OLD.id;
+    END IF;
+  ELSIF NEW.failure IS NOT NULL THEN
+    RAISE EXCEPTION 'ranking run % in state % cannot contain failure details', OLD.id, NEW.state;
   END IF;
 
   IF NEW.state = 'running' THEN
@@ -257,6 +332,34 @@ CREATE TABLE IF NOT EXISTS ranking_run_items (
 CREATE INDEX IF NOT EXISTS idx_ranking_run_items_post
   ON ranking_run_items (post_uri, post_created_at DESC);
 
+CREATE OR REPLACE FUNCTION corgi_require_running_ranking_run()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  parent_state TEXT;
+BEGIN
+  SELECT state
+    INTO parent_state
+    FROM ranking_runs
+   WHERE id = NEW.run_id
+   FOR SHARE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'ranking run % does not exist', NEW.run_id;
+  END IF;
+  IF parent_state <> 'running' THEN
+    RAISE EXCEPTION '% rows can only be inserted while ranking run % is running, got %',
+      TG_TABLE_NAME, NEW.run_id, parent_state;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS ranking_run_items_require_running ON ranking_run_items;
+CREATE TRIGGER ranking_run_items_require_running
+  BEFORE INSERT ON ranking_run_items
+  FOR EACH ROW EXECUTE FUNCTION corgi_require_running_ranking_run();
+
 DROP TRIGGER IF EXISTS ranking_run_items_immutable ON ranking_run_items;
 CREATE TRIGGER ranking_run_items_immutable
   BEFORE UPDATE OR DELETE ON ranking_run_items
@@ -274,6 +377,11 @@ CREATE TABLE IF NOT EXISTS ranking_run_inputs (
   retained_until TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '7 days'),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+DROP TRIGGER IF EXISTS ranking_run_inputs_require_running ON ranking_run_inputs;
+CREATE TRIGGER ranking_run_inputs_require_running
+  BEFORE INSERT ON ranking_run_inputs
+  FOR EACH ROW EXECUTE FUNCTION corgi_require_running_ranking_run();
 
 CREATE OR REPLACE FUNCTION corgi_protect_retained_ranking_input()
 RETURNS TRIGGER
