@@ -37,7 +37,7 @@ describe('web-next replay model', () => {
     const communityRanking = rankPostsForWeights(aggregatePersonaWeights(defaultPersonaIds));
     const engagementRanking = rankPostsForWeights(aggregatePersonaWeights(['joke-enjoyer']));
 
-    expect(communityRanking[0]?.post.id).not.toBe('P4');
+    expect(communityRanking.map(({ post }) => post.id)).toEqual(['P5', 'P1', 'P6', 'P7', 'P2', 'P4', 'P3']);
     expect(engagementRanking[0]?.post.id).toBe('P4');
   });
 

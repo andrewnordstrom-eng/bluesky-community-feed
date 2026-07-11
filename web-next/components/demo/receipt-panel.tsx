@@ -54,7 +54,7 @@ function CounterfactualRow({ item }: { readonly item: ShadowDemoCounterfactual }
         <span className="mt-0.5 block text-[11px] leading-relaxed text-foreground/55">{item.description}</span>
       </span>
       <span className="flex flex-shrink-0 items-center gap-2">
-        <span className="font-mono text-sm font-semibold text-foreground">{item.rank === null ? "—" : `#${item.rank}`}</span>
+        <span className="font-mono text-sm font-semibold text-foreground">#{item.rank}</span>
         <DeltaChip delta={item.deltaFromVisibleRank} />
       </span>
     </div>

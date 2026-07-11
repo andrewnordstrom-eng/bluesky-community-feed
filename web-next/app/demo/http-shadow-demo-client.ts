@@ -125,7 +125,7 @@ export function createHttpShadowDemoClient(): ShadowDemoClient {
       return mapEnvelope(envelope, {
         session: mapSession(apiSession, "guided_default", "guided"),
         reviewerVote: mapVote(reviewerVote),
-        currentEpoch: mapEpoch(requiredEpoch(apiSession, request.baseEpochId)),
+        currentEpoch: mapCurrentEpoch(apiSession),
         nextRecommendedAction: "run_agent_votes",
       } satisfies CastShadowDemoVoteResponse)
     },
@@ -151,7 +151,7 @@ export function createHttpShadowDemoClient(): ShadowDemoClient {
         agentVotes: apiSession.votes
           .filter((vote) => vote.epochId === request.baseEpochId && vote.actorType === "synthetic_voter")
           .map(mapVote),
-        currentEpoch: mapEpoch(requiredEpoch(apiSession, request.baseEpochId)),
+        currentEpoch: mapCurrentEpoch(apiSession),
         pendingAggregate: mapAggregate(apiSession.pendingAggregate),
         nextRecommendedAction: "advance_epoch",
       } satisfies RunShadowDemoAgentsResponse)
@@ -186,7 +186,7 @@ export function createHttpShadowDemoClient(): ShadowDemoClient {
       return mapEnvelope(envelope, {
         session: mapSession(apiSession, "guided_default", "guided"),
         previousEpoch: mapEpoch(requiredEpoch(apiSession, request.fromEpochId)),
-        currentEpoch: mapEpoch(requiredEpoch(apiSession, apiSession.currentEpochId)),
+        currentEpoch: mapCurrentEpoch(apiSession),
         feedBefore: mapFeed(feedBeforeEnvelope.payload, feedBeforeEnvelope.generatedAt),
         feedAfter: mapFeed(feedAfterEnvelope.payload, feedAfterEnvelope.generatedAt),
         nextRecommendedAction: "select_post",
@@ -255,7 +255,7 @@ async function sessionResponseEnvelope(
   return mapEnvelope(envelope, {
     session: mapSession(apiSession, scenarioId, mode),
     community: mapCommunity(apiSession.community, apiSession.corpusHealth),
-    currentEpoch: mapEpoch(requiredEpoch(apiSession, apiSession.currentEpochId)),
+    currentEpoch: mapCurrentEpoch(apiSession),
     previousEpoch: previousEpoch === null ? null : mapEpoch(previousEpoch),
     feed: mapFeed(feedEnvelope.payload, feedEnvelope.generatedAt),
     nextRecommendedAction: apiSession.phase === "created" ? "cast_reviewer_vote" : "select_post",
@@ -417,6 +417,19 @@ function mapEpoch(epoch: ApiEpoch): ShadowDemoEpoch {
     startedAt: epoch.createdAt,
     closedAt: epoch.advancedAt,
   }
+}
+
+function mapCurrentEpoch(api: ApiSessionPayload["session"]): ShadowDemoEpoch {
+  const epoch = requiredEpoch(api, api.currentEpochId)
+  if (epoch.status === "advanced") {
+    return mapEpoch(epoch)
+  }
+  const status: ShadowDemoEpoch["status"] = api.phase === "synthetic_voters_ran"
+    ? "agent_voting"
+    : api.phase === "epoch_advanced"
+      ? "published"
+      : "open"
+  return { ...mapEpoch(epoch), status }
 }
 
 function mapAggregate(summary: ApiVoteSummary): ShadowDemoAggregate {

@@ -11,6 +11,9 @@ const nextConfig = {
   output: 'export',
   trailingSlash: true,
   outputFileTracingRoot: appDir,
+  turbopack: {
+    root: appDir,
+  },
   eslint: {
     ignoreDuringBuilds: true,
   },
@@ -19,6 +22,12 @@ const nextConfig = {
   },
   images: {
     unoptimized: true,
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'cdn.bsky.app',
+      },
+    ],
   },
 }
 

@@ -154,6 +154,7 @@ describe("HTTP shadow demo client", () => {
       totalVotes: 25,
       trimCount: 2,
     })
+    expect(response.payload.currentEpoch.status).toBe("agent_voting")
     expect(response.payload.agents.map((profile) => profile.name)).toEqual([
       "Research Practitioners",
       "Data Stewards",
@@ -188,6 +189,7 @@ describe("HTTP shadow demo client", () => {
     )
 
     expect(response.payload.previousEpoch.status).toBe("closed")
+    expect(response.payload.currentEpoch.status).toBe("published")
     expect(response.payload.currentEpoch.sequence).toBe(2)
     expect(response.payload.feedBefore.items.map((item) => item.rank)).toEqual([1, 2])
     expect(response.payload.feedAfter.items.map((item) => item.previousRank)).toEqual([2, 1])

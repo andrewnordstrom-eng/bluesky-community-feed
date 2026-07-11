@@ -22,6 +22,7 @@ describe("receipt display math", () => {
     }
 
     const displayedSum = display.components.reduce((total, component) => total + component.contribution, 0)
+    expect(display.totalScore).toBe(Number(displayedSum.toFixed(4)))
     expect(formatReceiptScore(display.totalScore)).toBe(formatReceiptScore(displayedSum))
   })
 

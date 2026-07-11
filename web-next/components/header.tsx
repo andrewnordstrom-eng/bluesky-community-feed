@@ -65,6 +65,7 @@ export function Header() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null)
   const mobileMenuRef = useRef<HTMLDivElement>(null)
+  const headerRef = useRef<HTMLElement>(null)
   const scrolled = useScroll(10)
   const isDemoPage = pathname === "/demo" || pathname.startsWith("/demo/")
 
@@ -86,15 +87,57 @@ export function Header() {
 
     mobileMenuRef.current?.querySelector<HTMLElement>("a, button")?.focus()
 
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return
-      event.preventDefault()
-      setMobileOpen(false)
-      mobileMenuButtonRef.current?.focus()
+    const background = [headerRef.current, ...Array.from(document.querySelectorAll<HTMLElement>("main"))]
+      .filter((element): element is HTMLElement => element !== null)
+    const priorState = background.map((element) => ({
+      element,
+      inert: element.inert,
+      ariaHidden: element.getAttribute("aria-hidden"),
+    }))
+    for (const element of background) {
+      element.inert = true
+      element.setAttribute("aria-hidden", "true")
     }
 
-    document.addEventListener("keydown", closeOnEscape)
-    return () => document.removeEventListener("keydown", closeOnEscape)
+    const handleMenuKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault()
+        setMobileOpen(false)
+        window.setTimeout(() => mobileMenuButtonRef.current?.focus(), 0)
+        return
+      }
+      if (event.key !== "Tab") return
+
+      const focusable = Array.from(
+        mobileMenuRef.current?.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ) ?? [],
+      )
+      if (focusable.length === 0) {
+        event.preventDefault()
+        return
+      }
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (first === undefined || last === undefined) return
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    document.addEventListener("keydown", handleMenuKey)
+    return () => {
+      document.removeEventListener("keydown", handleMenuKey)
+      for (const { element, inert, ariaHidden } of priorState) {
+        element.inert = inert
+        if (ariaHidden === null) element.removeAttribute("aria-hidden")
+        else element.setAttribute("aria-hidden", ariaHidden)
+      }
+    }
   }, [mobileOpen])
 
   const handleNavClick = () => {
@@ -104,6 +147,7 @@ export function Header() {
   return (
     <>
       <header
+        ref={headerRef}
         className={cn(
           "sticky top-0 z-50 w-full border-b border-transparent transition-[background-color,border-color,backdrop-filter] duration-200",
           scrolled && "bg-background/90 supports-[backdrop-filter]:bg-background/75 backdrop-blur-md border-border"
@@ -183,8 +227,24 @@ export function Header() {
           role="dialog"
           aria-modal="true"
           aria-label="Main navigation"
-          className="fixed top-14 inset-x-0 bottom-0 z-40 md:hidden bg-background/95 supports-[backdrop-filter]:bg-background/80 backdrop-blur-lg border-t border-border flex flex-col overflow-hidden"
+          className="fixed inset-0 z-[60] md:hidden bg-background/95 supports-[backdrop-filter]:bg-background/80 backdrop-blur-lg flex flex-col overflow-hidden"
         >
+          <div className={cn("mx-auto flex h-14 w-full items-center justify-between border-b border-border", CONTAINER_WIDTH.content, GUTTER)}>
+            <div onClick={handleNavClick}>
+              <BrandLink href="/" ariaLabel="Corgi home" />
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setMobileOpen(false)
+                window.setTimeout(() => mobileMenuButtonRef.current?.focus(), 0)
+              }}
+              aria-label="Close menu"
+              className={cn("flex h-9 w-9 items-center justify-center rounded-lg text-foreground/70 hover:bg-accent/60 hover:text-foreground", FOCUS)}
+            >
+              <AnimatedMenuIcon open />
+            </button>
+          </div>
           <div
             data-slot={mobileOpen ? "open" : "closed"}
             className="data-[slot=open]:animate-in data-[slot=open]:zoom-in-97 data-[slot=open]:ease-out data-[slot=open]:duration-200 flex flex-col justify-between h-full p-4"

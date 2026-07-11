@@ -18,7 +18,7 @@ export default function LandingPage() {
       {/* Header manages its own sticky positioning + scroll-based background. */}
       <Header />
 
-      <div className="relative z-10">
+      <main className="relative z-10">
         {/* Hero - full bleed */}
         <HeroSection />
 
@@ -35,8 +35,8 @@ export default function LandingPage() {
               </h2>
               <p className="mx-auto mt-4 max-w-[620px] text-base leading-relaxed text-foreground/60">
                 Meet <span className="font-semibold text-foreground">Birders Who Code</span>, a sample community of
-                developers who bird. Choose how they rank posts, and the same feed reorders in Bluesky &mdash; with the
-                Corgi score behind every move.
+                developers who bird. Choose how they rank posts and watch this illustrative preview reorder here, with
+                the Corgi score behind every move. Then use the live shadow demo to verify the full flow.
               </p>
             </div>
             <div className="flex justify-center">
@@ -71,7 +71,7 @@ export default function LandingPage() {
         <AnimatedSection delay={0.2}>
           <FooterSection />
         </AnimatedSection>
-      </div>
+      </main>
     </div>
   )
 }

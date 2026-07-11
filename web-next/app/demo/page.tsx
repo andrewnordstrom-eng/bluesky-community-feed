@@ -238,6 +238,8 @@ export default function DemoPage() {
       setPublishedEpoch(payload.currentEpoch)
       setOpenEpochId(payload.currentEpoch.id)
       setSession(payload.session)
+      setSelectedUri(null)
+      setReceipt(null)
       const top = payload.feedAfter.items.find((item): item is ShadowDemoPublicFeedItem => item.visibility === "public")
       if (top) {
         await loadReceipt(session.id, payload.currentEpoch.id, top.post.uri, request)

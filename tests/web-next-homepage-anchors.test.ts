@@ -16,8 +16,7 @@ describe('web-next homepage anchors', () => {
 
     expect(pageContent).not.toContain('id="faq-section"');
     expect((faqContent.match(/id="faq-section"/g) ?? [])).toHaveLength(1);
-    expect(faqContent).toContain('scroll-mt-24');
-    expect(faqContent).toContain('md:scroll-mt-28');
+    expect(faqContent).toMatch(/id="faq-section"[^>]*scroll-mt-24[^>]*md:scroll-mt-28/s);
   });
 
   it('keeps the footer history link pointed at the history route', () => {
@@ -44,6 +43,23 @@ describe('web-next homepage anchors', () => {
     expect(bentoContent).toContain('href: "/demo"');
     expect(demoDataContent).toContain('app.bsky.feed.getFeed');
     expect(demoContent).not.toContain('snapshot-rank');
+  });
+
+  it('labels the landing replay as a local illustration and points to live verification', () => {
+    const pageContent = readRepoFile('web-next/app/page.tsx');
+
+    expect(pageContent).toContain('illustrative preview reorder here');
+    expect(pageContent).toContain('live shadow demo to verify the full flow');
+    expect(pageContent).not.toContain('same feed reorders in Bluesky');
+  });
+
+  it('keeps public support reachable without repository access', () => {
+    const supportContent = readRepoFile('web-next/app/support/page.tsx');
+
+    expect(supportContent).toContain('mailto:hello@corgi.network');
+    expect(supportContent).toContain('<Strong>GitHub issues</Strong>');
+    expect(supportContent).toContain('existing public threads');
+    expect(supportContent).not.toContain('<P>Open a GitHub issue');
   });
 
   it('keeps shared landing CTAs rendered through Button asChild', () => {
