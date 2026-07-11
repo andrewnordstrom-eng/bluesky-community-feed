@@ -73,13 +73,7 @@ describe('shadow demo isolation guards', () => {
     expect(deploy).toContain('DEMO_POLICY');
     expect(deploy).toContain(`DEMO_KEY="${demoSessionKeyPrefix()}\${DEMO_SESSION_ID}"`);
 
-    const deployDockerCommands = deploy
-      .split('\n')
-      .filter((line) => line.includes('docker compose'));
-    expect(deployDockerCommands.length).toBeGreaterThan(0);
-    expect(
-      deployDockerCommands.every((line) => line.includes('sudo docker compose'))
-    ).toBe(true);
+    expect(usesOnlySudoDockerComposeCommands(deploy)).toBe(true);
 
     const demoCompose = compose.split('demo-redis:')[1];
     const maxmemoryMatch = demoCompose?.match(/--maxmemory\s+(\d+)mb/);
@@ -88,6 +82,135 @@ describe('shadow demo isolation guards', () => {
     expect(deploy).toContain(`[ "$DEMO_MAXMEMORY" != "${maxmemoryBytes}" ]`);
   });
 });
+
+describe('sudo Docker Compose command matcher', () => {
+  it.each([
+    'sudo docker compose up -d',
+    'if sudo docker compose exec -T demo-redis redis-cli ping; then true; fi',
+    'VALUE=$(sudo docker compose exec -T demo-redis redis-cli ping)',
+    'sudo docker \\\n      compose up -d',
+  ])('accepts privileged invocation: %j', (script) => {
+    expect(usesOnlySudoDockerComposeCommands(script)).toBe(true);
+  });
+
+  it.each([
+    '',
+    'docker compose up -d',
+    'sudo docker compose up -d\ndocker compose ps',
+    '# sudo docker compose up -d',
+    'echo "sudo docker compose up -d"',
+    'echo sudo docker compose up -d',
+    'docker \\\n      compose up -d',
+  ])('rejects missing or non-privileged invocation: %j', (script) => {
+    expect(usesOnlySudoDockerComposeCommands(script)).toBe(false);
+  });
+});
+
+function usesOnlySudoDockerComposeCommands(script: string): boolean {
+  const tokens = tokenizeShellCommands(script);
+  const invocationIndexes = tokens.flatMap((token, index) =>
+    token === 'docker' && tokens[index + 1] === 'compose' ? [index] : []
+  );
+
+  return (
+    invocationIndexes.length > 0 &&
+    invocationIndexes.every((index) => isDirectSudoCommand(tokens, index))
+  );
+}
+
+function isDirectSudoCommand(tokens: string[], dockerIndex: number): boolean {
+  if (tokens[dockerIndex - 1] !== 'sudo') {
+    return false;
+  }
+
+  const boundaries = new Set(['\n', ';', '&', '|', '(', ')']);
+  let commandStart = dockerIndex - 1;
+  while (commandStart > 0 && !boundaries.has(tokens[commandStart - 1])) {
+    commandStart -= 1;
+  }
+
+  const controlWords = new Set(['if', 'then', 'elif', 'while', 'until', '!']);
+  const commandPrefix = tokens
+    .slice(commandStart, dockerIndex)
+    .filter((token) => !controlWords.has(token));
+  return commandPrefix.length === 1 && commandPrefix[0] === 'sudo';
+}
+
+function tokenizeShellCommands(script: string): string[] {
+  const tokens: string[] = [];
+  let word = '';
+  let quote: "'" | '"' | null = null;
+  let index = 0;
+
+  const pushWord = (): void => {
+    if (word.length > 0) {
+      tokens.push(word);
+      word = '';
+    }
+  };
+
+  while (index < script.length) {
+    const char = script[index];
+    const next = script[index + 1];
+
+    if (quote !== null) {
+      if (char === quote) {
+        quote = null;
+      } else if (char === '\\' && quote === '"' && next !== undefined) {
+        word += next;
+        index += 1;
+      } else {
+        word += char;
+      }
+      index += 1;
+      continue;
+    }
+
+    if (char === "'" || char === '"') {
+      quote = char;
+      index += 1;
+      continue;
+    }
+
+    if (char === '\\' && next === '\n') {
+      index += 2;
+      continue;
+    }
+
+    if (char === '#' && word.length === 0) {
+      while (index < script.length && script[index] !== '\n') {
+        index += 1;
+      }
+      continue;
+    }
+
+    if (char === '\n') {
+      pushWord();
+      tokens.push('\n');
+      index += 1;
+      continue;
+    }
+
+    if (/\s/.test(char)) {
+      pushWord();
+      index += 1;
+      continue;
+    }
+
+    if (';&|()'.includes(char)) {
+      pushWord();
+      tokens.push(char);
+      index += 1;
+      continue;
+    }
+
+    word += char;
+    index += 1;
+  }
+
+  pushWord();
+  return tokens;
+}
 
 function demoSourceText(): string {
   return sourceFiles(DEMO_SRC_DIR)
