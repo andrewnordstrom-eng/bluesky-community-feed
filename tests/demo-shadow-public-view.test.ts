@@ -94,7 +94,10 @@ describe('shadow demo public-view filtering', () => {
 
   it('builds Bluesky source URLs from AT Protocol post URIs', () => {
     expect(bskyPostUrlFromAtUri('at://did:plc:author/app.bsky.feed.post/abc123')).toBe(
-      'https://bsky.app/profile/did%3Aplc%3Aauthor/post/abc123'
+      'https://bsky.app/profile/did:plc:author/post/abc123'
+    );
+    expect(bskyPostUrlFromAtUri('at://did:web:example.com:user/app.bsky.feed.post/abc:123')).toBe(
+      'https://bsky.app/profile/did:web:example.com:user/post/abc%3A123'
     );
   });
 
@@ -103,6 +106,7 @@ describe('shadow demo public-view filtering', () => {
       'at://did:plc:author/app.bsky.feed.post/abc?next=1',
       'at://did:plc:author/app.bsky.feed.post/abc#fragment',
       'at://did:plc:author/app.bsky.feed.post/abc 123',
+      'at://did:plc:author%2Fattacker/app.bsky.feed.post/abc123',
     ]) {
       expect(() => bskyPostUrlFromAtUri(uri)).toThrow(/non-post AT-URI/);
     }

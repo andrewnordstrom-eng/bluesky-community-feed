@@ -3,7 +3,7 @@ import type { ShadowDemoDisplayPost, ShadowDemoPublicPost } from './types.js';
 
 const HIDDEN_LABELS = new Set(['!no-unauthenticated', '!hide', '!takedown']);
 const ADULT_ONLY_LABELS = new Set(['porn', 'sexual', 'nudity', 'graphic-media']);
-const POST_AT_URI_PATTERN = /^at:\/\/(did:[a-z0-9]+:[A-Za-z0-9._:%-]+)\/app\.bsky\.feed\.post\/([A-Za-z0-9._~:@!$&'()*+,;=-]+)$/;
+const POST_AT_URI_PATTERN = /^at:\/\/(did:[a-z0-9]+:[A-Za-z0-9._:-]+)\/app\.bsky\.feed\.post\/([A-Za-z0-9._~:@!$&'()*+,;=-]+)$/;
 
 const AppViewLabelSchema = z.object({ val: z.string().optional() }).passthrough();
 const AppViewAuthorSchema = z.object({
@@ -144,7 +144,7 @@ export function bskyPostUrlFromAtUri(uri: string): string {
   if (!match) {
     throw new Error(`Cannot build Bluesky URL for non-post AT-URI: ${uri}`);
   }
-  return `https://bsky.app/profile/${encodeURIComponent(match[1])}/post/${encodeURIComponent(match[2])}`;
+  return `https://bsky.app/profile/${match[1]}/post/${encodeURIComponent(match[2])}`;
 }
 
 function labelValuesFrom(labels: AppViewLabel[] | undefined): string[] {
