@@ -63,7 +63,10 @@ export function BlueskyPostCard({
 }: BlueskyPostCardProps) {
   const compact = density === "compact"
   const avatarSize = compact ? 34 : 42
-  const showActions = replyCount !== undefined || repostCount !== undefined || likeCount !== undefined
+  const hasReplyCount = replyCount !== undefined && replyCount !== null
+  const hasRepostCount = repostCount !== undefined && repostCount !== null
+  const hasLikeCount = likeCount !== undefined && likeCount !== null
+  const showActions = hasReplyCount || hasRepostCount || hasLikeCount
   return (
     <div className={`flex min-w-0 items-start gap-3 ${compact ? "px-3.5 py-3" : "px-4 py-3.5"}`}>
       {avatarUrl ? (
@@ -94,18 +97,18 @@ export function BlueskyPostCard({
         <p className={`mt-0.5 leading-5 text-[#0B0F14] ${compact ? "text-[14px]" : "text-[15px]"}`}>{text}</p>
         {showActions && !compact ? (
           <div className="flex flex-wrap items-center gap-x-7 gap-y-1 pt-3 text-[13px] text-[#6F869F]">
-            <span className="inline-flex items-center gap-1.5 tabular-nums">
+            {hasReplyCount ? <span className="inline-flex items-center gap-1.5 tabular-nums">
               <MessageCircle className="h-[18px] w-[18px]" strokeWidth={1.8} aria-hidden="true" />
               {formatCount(replyCount)}
-            </span>
-            <span className="inline-flex items-center gap-1.5 tabular-nums">
+            </span> : null}
+            {hasRepostCount ? <span className="inline-flex items-center gap-1.5 tabular-nums">
               <Repeat2 className="h-[18px] w-[18px]" strokeWidth={1.8} aria-hidden="true" />
               {formatCount(repostCount)}
-            </span>
-            <span className="inline-flex items-center gap-1.5 tabular-nums">
+            </span> : null}
+            {hasLikeCount ? <span className="inline-flex items-center gap-1.5 tabular-nums">
               <Heart className="h-[18px] w-[18px]" strokeWidth={1.8} aria-hidden="true" />
               {formatCount(likeCount)}
-            </span>
+            </span> : null}
           </div>
         ) : null}
       </div>

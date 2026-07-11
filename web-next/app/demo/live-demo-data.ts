@@ -380,7 +380,7 @@ async function fetchJson<TResponse>(
 
     if (!response.ok) {
       throw new LiveDemoDataError(
-        `${context} failed with HTTP ${response.status} ${response.statusText}: ${body.slice(0, 500)}`,
+        `${context} failed with HTTP ${response.status} ${response.statusText}`,
       )
     }
 
@@ -431,7 +431,7 @@ function hiddenPost(rank: number, post: AppViewPostApi | undefined, labels: read
   return {
     visibility: "hidden",
     rank,
-    uri: asOptionalString(post?.uri),
+    uri: null,
     bskyUrl: null,
     authorHandle: null,
     authorDisplayName: null,

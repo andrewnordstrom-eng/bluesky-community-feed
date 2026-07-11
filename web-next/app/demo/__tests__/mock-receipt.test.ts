@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { getCommunityFixture } from "../shadow-demo-fixtures"
 import { publicOrder, driveFullFlow } from "./_flow"
 
 const signal = () => new AbortController().signal
@@ -46,7 +47,13 @@ describe("mock receipt — frozen corpus only, honest math", () => {
   it("refuses a receipt for a withheld (hidden) row", async () => {
     const { client, sessionId, advanced } = await driveFullFlow()
     const epochId = advanced.payload.currentEpoch.id
-    const hiddenUri = "at://did:plc:corgidemoh1/app.bsky.feed.post/H1"
-    await expect(client.getReceipt(sessionId, { epochId, postUri: hiddenUri }, signal())).rejects.toThrow()
+    const hiddenEntry = getCommunityFixture("open_science_builders").corpus.find((entry) => entry.hidden !== undefined)
+    if (hiddenEntry === undefined) {
+      throw new Error("Open Science Builders fixture must contain a withheld row")
+    }
+
+    await expect(client.getReceipt(sessionId, { epochId, postUri: hiddenEntry.post.uri }, signal())).rejects.toThrow(
+      "withheld from the public view",
+    )
   })
 })

@@ -11,7 +11,13 @@ import { SIGNAL_COLORS, SIGNAL_KEYS, SIGNAL_LABELS, type SignalKey } from "@/lib
 
 type Weights = Partial<Record<SignalKey, number>>
 
-const pct = (v: number) => `${Math.round((v ?? 0) * 100)}%`
+export function normalizePolicyWeight(value: number): number {
+  if (!Number.isFinite(value)) return 0
+  return Math.min(1, Math.max(0, value))
+}
+
+const pct = (value: number) => `${Math.round(normalizePolicyWeight(value) * 100)}%`
+const widthPct = (value: number) => `${normalizePolicyWeight(value) * 100}%`
 
 export function PolicyBar({
   weights,
@@ -30,12 +36,12 @@ export function PolicyBar({
       aria-label="Community signal weight mix"
     >
       {SIGNAL_KEYS.map((k) => {
-        const w = weights[k] ?? 0
+        const w = normalizePolicyWeight(weights[k] ?? 0)
         if (w <= 0) return null
         return (
           <div
             key={k}
-            style={{ width: pct(w), backgroundColor: SIGNAL_COLORS[k] }}
+            style={{ width: widthPct(w), backgroundColor: SIGNAL_COLORS[k] }}
             title={`${SIGNAL_LABELS[k]} ${pct(w)}`}
           />
         )

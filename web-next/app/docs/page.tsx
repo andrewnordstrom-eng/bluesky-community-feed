@@ -99,14 +99,16 @@ const SECTIONS = [
       <>
         <P>
           Corgi is open source. The ranking engine, governance pipeline, and this site live on{" "}
-          <InlineLink href="https://github.com/andrewnordstrom-eng/bluesky-community-feed">GitHub</InlineLink>, along with
-          full setup and API documentation.
+          <InlineLink href="https://github.com/andrewnordstrom-eng/bluesky-community-feed">GitHub</InlineLink>. The
+          public read endpoints are documented in the{" "}
+          <InlineLink href="https://github.com/andrewnordstrom-eng/bluesky-community-feed/blob/main/docs/openapi-public.json">
+            OpenAPI specification
+          </InlineLink>.
         </P>
         <P>
           The read paths are public and unauthenticated — for example the transparency stats, per-post explanations, and
           governance weights that power the <InlineLink href="/demo">demo</InlineLink>. The feed itself is a standard
           Bluesky feed generator you can subscribe to like any other custom feed.
-          {/* TODO: link the specific API reference / OpenAPI page when published. */}
         </P>
       </>
     ),

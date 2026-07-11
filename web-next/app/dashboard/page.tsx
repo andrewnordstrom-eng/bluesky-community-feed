@@ -362,7 +362,7 @@ export default function DashboardPage() {
                 ))}
               </div>
             ) : auditQuery.isError ? (
-              <ErrorCard heading="Ledger unavailable" body="We couldn't load recent audit activity." onRetry={() => auditQuery.refetch()} />
+              <ErrorCard heading="Ledger unavailable" body="We couldn't load recent audit activity." onRetry={() => void auditQuery.refetch()} />
             ) : entries.length === 0 ? (
               <EmptyState heading="No ledger entries yet" body="Audit events appear here once governance activity begins." showCorgi={false} />
             ) : (

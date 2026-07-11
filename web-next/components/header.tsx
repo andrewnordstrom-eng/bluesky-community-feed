@@ -14,6 +14,10 @@ import { CONTAINER_WIDTH, GUTTER } from "@/components/ui/layout"
 const FOCUS =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
 
+function isNavItemActive(pathname: string, href: string): boolean {
+  return href !== "/#faq-section" && (pathname === href || pathname.startsWith(`${href}/`))
+}
+
 function useScroll(threshold: number) {
   const [scrolled, setScrolled] = useState(false)
   const onScroll = useCallback(() => {
@@ -117,9 +121,7 @@ export function Header() {
           {/* Desktop nav */}
           <nav className="hidden md:flex items-center gap-0.5 justify-self-center" aria-label="Main navigation">
             {navItems.map((item) => {
-              const active = item.href !== "/#faq-section" && (
-                pathname === item.href || pathname.startsWith(`${item.href}/`)
-              )
+              const active = isNavItemActive(pathname, item.href)
 
               return (
                 <Link
@@ -189,9 +191,7 @@ export function Header() {
           >
             <nav className="flex flex-col gap-1" aria-label="Mobile navigation">
               {navItems.map((item) => {
-                const active = item.href !== "/#faq-section" && (
-                  pathname === item.href || pathname.startsWith(`${item.href}/`)
-                )
+                const active = isNavItemActive(pathname, item.href)
 
                 return (
                   <Link

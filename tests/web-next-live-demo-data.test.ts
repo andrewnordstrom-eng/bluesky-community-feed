@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   bskyPostUrlFromAtUri,
   buildAppViewFeedUrl,
   buildPostHydrationUrl,
   CORGI_COMMUNITY_FEED_URI,
+  fetchLiveDemoData,
   normalizeAppViewFeed,
   publicDemoHiddenReason,
   scoreComponentsFromExplanation,
@@ -162,6 +163,7 @@ describe('web-next live demo data helpers', () => {
     expect(normalized.posts[1]).toMatchObject({
       visibility: 'hidden',
       rank: 2,
+      uri: null,
       authorHandle: null,
       text: null,
       hiddenReason: 'Post hidden by Bluesky public-view policy',
@@ -169,10 +171,31 @@ describe('web-next live demo data helpers', () => {
     expect(normalized.posts[2]).toMatchObject({
       visibility: 'hidden',
       rank: 3,
+      uri: null,
       authorHandle: null,
       text: null,
       hiddenReason: 'Post hidden by Bluesky adult-content policy',
     });
+  });
+
+  it('does not expose upstream error bodies in public demo errors', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('token=super-secret-and-stack-trace', {
+        status: 500,
+        statusText: 'Internal Server Error',
+      }),
+    );
+
+    try {
+      const result = await fetchLiveDemoData(new AbortController().signal);
+
+      expect(result.errors).toHaveLength(3);
+      expect(result.errors.join(' ')).toContain('HTTP 500');
+      expect(result.errors.join(' ')).not.toContain('super-secret');
+      expect(result.errors.join(' ')).not.toContain('stack-trace');
+    } finally {
+      fetchMock.mockRestore();
+    }
   });
 
   it('selects a public receipt post by visible feed position after hidden rows', () => {

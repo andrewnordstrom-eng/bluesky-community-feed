@@ -148,14 +148,14 @@ export function CorgiRankBadge({
         {open && showWhy ? (
           <motion.div
             id={panelId}
-            role="dialog"
+            role="group"
             aria-label={`Why this post ranked #${rank}`}
             initial={reduce ? { opacity: 0 } : { opacity: 0, y: -6, scale: 0.97 }}
             animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
             exit={reduce ? { opacity: 0 } : { opacity: 0, y: -6, scale: 0.97 }}
             transition={{ duration: reduce ? 0 : 0.16, ease: "easeOut" }}
             style={{ transformOrigin: "top right" }}
-            className="absolute right-0 top-full z-40 mt-2 w-[300px] rounded-2xl border border-primary/20 bg-card p-4 text-left shadow-[0_18px_50px_rgba(46,38,32,0.16)]"
+            className="absolute right-0 top-full z-40 mt-2 w-[min(300px,calc(100vw-2rem))] rounded-2xl border border-primary/20 bg-card p-4 text-left shadow-[0_18px_50px_rgba(46,38,32,0.16)]"
           >
             <span className="absolute -top-[7px] right-6 h-3.5 w-3.5 rotate-45 border-l border-t border-primary/20 bg-card" aria-hidden="true" />
             <div className="flex items-baseline justify-between gap-2">
