@@ -12,7 +12,7 @@ function containsMutationOverclaim(value: string): boolean {
   const forward = new RegExp(`${mutationAction}[^.]{0,48}${productionTarget}`, "i")
   const reversed = new RegExp(`${productionTarget}[^.]{0,48}${mutationAction}`, "i")
   const conjunctionBeforeAction = new RegExp(
-    String.raw`\bbut\b|\band\b(?=\s+(?:(?:it|this demo|the demo|we)\s+)?${mutationAction})`,
+    String.raw`\bbut\b|\band\b(?=\s+(?:it|this demo|the demo|we)\s+${mutationAction})`,
     "i",
   )
   return value
@@ -72,6 +72,7 @@ describe("demo copy — honest boundaries", () => {
     expect(containsMutationOverclaim("This demo doesn’t change ranking, but it changes the production feed."), "comma-scoped negation").toBe(true)
     expect(containsMutationOverclaim("This demo does not change ranking but affects the production feed."), "conjunction-scoped negation").toBe(true)
     expect(containsMutationOverclaim("This demo does not change ranking and it affects the production feed."), "and-scoped negation").toBe(true)
+    expect(containsMutationOverclaim("This demo does not change ranking and affect the production feed."), "shared-negation conjunction").toBe(false)
     expect(containsMutationOverclaim("This changes ranking and the production feed."), "shared-action conjunction").toBe(true)
     expect(["This changes ranking.", "Production feed details."].some(containsMutationOverclaim)).toBe(false)
   })

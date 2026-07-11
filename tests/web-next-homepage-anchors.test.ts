@@ -16,7 +16,10 @@ describe('web-next homepage anchors', () => {
 
     expect(pageContent).not.toContain('id="faq-section"');
     expect((faqContent.match(/id="faq-section"/g) ?? [])).toHaveLength(1);
-    expect(faqContent).toMatch(/<(?=[^>]*id="faq-section")(?=[^>]*scroll-mt-24)(?=[^>]*md:scroll-mt-28)[^>]+>/s);
+    const faqTag = faqContent.match(/<section\b(?=[^>]*id="faq-section")[^>]*>/s)?.[0];
+    const classTokens = faqTag?.match(/\bclassName="([^"]*)"/)?.[1]?.split(/\s+/) ?? [];
+    expect(faqTag).toBeDefined();
+    expect(classTokens).toEqual(expect.arrayContaining(['scroll-mt-24', 'md:scroll-mt-28']));
   });
 
   it('keeps the footer history link pointed at the history route', () => {
