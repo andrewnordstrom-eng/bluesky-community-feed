@@ -38,10 +38,10 @@ The successful responses contain `script-src 'self' 'unsafe-inline'`. Conditiona
 
 ## Durable gate
 
-Run from `web-next`:
+Run from the repository root:
 
 ```bash
-npm run smoke:production
+npm --prefix web-next run smoke:production
 ```
 
 The Playwright smoke checks all four routes in 1440 by 1000 desktop Chrome and a 390 by 900 mobile Chrome profile. For each route it verifies the initial render, ordinary revalidation, cache-bypassing refresh, browser errors, response size, and 200/304 CSP and cache-policy parity.
