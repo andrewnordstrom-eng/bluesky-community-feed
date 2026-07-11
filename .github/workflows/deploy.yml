@@ -105,7 +105,8 @@ jobs:
             if [ "$HEALTHY" = "true" ]; then
               PROBE_TIMESTAMP=$(date +%s)
               PROBE_OCTET=$(( (PROBE_TIMESTAMP % 250) + 1 ))
-              DEMO_CLIENT_NONCE="deploy-probe-${PROBE_OCTET}-${PROBE_TIMESTAMP}"
+              PROBE_UUID=$(node -e "process.stdout.write(require('node:crypto').randomUUID())")
+              DEMO_CLIENT_NONCE="deploy-probe-${PROBE_UUID}"
               if ! DEMO_RESPONSE=$(curl -fsS --max-time 90 \
                 -H 'content-type: application/json' \
                 -H "x-forwarded-for: 198.51.100.${PROBE_OCTET}" \
