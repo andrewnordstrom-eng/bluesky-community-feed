@@ -103,11 +103,14 @@ jobs:
             # Prove the running service stores anonymous demo state in the
             # isolated Redis, not merely that the container itself responds.
             if [ "$HEALTHY" = "true" ]; then
-              PROBE_OCTET=$(( ($(date +%s) % 250) + 1 ))
+              PROBE_TIMESTAMP=$(date +%s)
+              PROBE_OCTET=$(( (PROBE_TIMESTAMP % 250) + 1 ))
+              PROBE_UUID=$(node -e "process.stdout.write(require('node:crypto').randomUUID())")
+              DEMO_CLIENT_NONCE="deploy-probe-${PROBE_UUID}"
               if ! DEMO_RESPONSE=$(curl -fsS --max-time 90 \
                 -H 'content-type: application/json' \
                 -H "x-forwarded-for: 198.51.100.${PROBE_OCTET}" \
-                -d '{"communityId":"open_science_builders"}' \
+                -d "{\"communityId\":\"open_science_builders\",\"clientNonce\":\"${DEMO_CLIENT_NONCE}\"}" \
                 http://localhost:3001/api/demo/sessions); then
                 echo "Demo isolation probe could not create a session"
                 HEALTHY=false

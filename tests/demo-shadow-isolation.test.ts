@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -17,6 +18,8 @@ const DEMO_SRC_DIR = new URL('../src/demo', import.meta.url).pathname;
 const COMPOSE_FILE = new URL('../docker-compose.prod.yml', import.meta.url).pathname;
 const SERVER_FILE = new URL('../src/feed/server.ts', import.meta.url).pathname;
 const DEPLOY_FILE = new URL('../.github/workflows/deploy.yml', import.meta.url).pathname;
+const PROBE_UUID_A = '00000000-0000-4000-8000-000000000001';
+const PROBE_UUID_B = '00000000-0000-4000-8000-000000000002';
 
 describe('shadow demo isolation guards', () => {
   it('keeps Redis state inside the demo namespace', () => {
@@ -77,6 +80,12 @@ describe('shadow demo isolation guards', () => {
     expect(deploy).toContain(`DEMO_KEY="${demoSessionKeyPrefix()}\${DEMO_SESSION_ID}"`);
 
     expect(deploy).toContain('DEMO_RESPONSE=$(curl -fsS --max-time 90');
+    expect(deploy).toContain('PROBE_TIMESTAMP=$(date +%s)');
+    expect(deploy).toContain(
+      "PROBE_UUID=$(node -e \"process.stdout.write(require('node:crypto').randomUUID())\")"
+    );
+    expect(deploy).toContain('DEMO_CLIENT_NONCE="deploy-probe-${PROBE_UUID}"');
+    expect(deploy).toContain('\\"clientNonce\\":\\"${DEMO_CLIENT_NONCE}\\"');
     expect(SHADOW_DEMO_SHARED_CORPUS_TTL_SECONDS).toBe(60 * 60);
     expect(usesOnlySudoDockerComposeCommands(deploy)).toBe(true);
 
@@ -85,6 +94,34 @@ describe('shadow demo isolation guards', () => {
     expect(maxmemoryMatch).toBeDefined();
     const maxmemoryBytes = Number(maxmemoryMatch?.[1]) * 1024 * 1024;
     expect(deploy).toContain(`[ "$DEMO_MAXMEMORY" != "${maxmemoryBytes}" ]`);
+  });
+
+  it.each([
+    { timestamp: 1_750_000_000, expectedOctet: 1 },
+    { timestamp: 1_749_999_999, expectedOctet: 250 },
+  ])(
+    'serializes a valid demo probe nonce at the octet boundary: %j',
+    ({ timestamp, expectedOctet }) => {
+      const deploy = readFileSync(DEPLOY_FILE, 'utf8');
+      const output = renderDemoProbe(deploy, timestamp, PROBE_UUID_A);
+
+      expect(output.body).toEqual({
+        communityId: 'open_science_builders',
+        clientNonce: `deploy-probe-${PROBE_UUID_A}`,
+      });
+      expect(output.body.clientNonce).toMatch(/^[A-Za-z0-9:_-]{1,64}$/);
+      expect(output.octet).toBe(expectedOctet);
+    }
+  );
+
+  it('does not replay a nonce when concurrent probes share a timestamp', () => {
+    const deploy = readFileSync(DEPLOY_FILE, 'utf8');
+    const timestamp = 1_750_000_000;
+
+    const first = renderDemoProbe(deploy, timestamp, PROBE_UUID_A);
+    const second = renderDemoProbe(deploy, timestamp, PROBE_UUID_B);
+
+    expect(first.body.clientNonce).not.toBe(second.body.clientNonce);
   });
 });
 
@@ -215,6 +252,75 @@ function tokenizeShellCommands(script: string): string[] {
 
   pushWord();
   return tokens;
+}
+
+function renderDemoProbe(
+  deploy: string,
+  timestamp: number,
+  probeUuid: string
+): {
+  body: { communityId: string; clientNonce: string };
+  octet: number;
+} {
+  const octetAssignment = deploy.match(/^\s*(PROBE_OCTET=.*)$/m)?.[1];
+  const nonceAssignment = deploy.match(/^\s*(DEMO_CLIENT_NONCE=.*)$/m)?.[1];
+  const dataArgument = deploy.match(/^\s*-d\s+(.+)\s+\\$/m)?.[1];
+  if (
+    octetAssignment === undefined ||
+    nonceAssignment === undefined ||
+    dataArgument === undefined
+  ) {
+    throw new Error('Deploy workflow is missing the executable demo probe fragment');
+  }
+
+  const serialized = execFileSync(
+    '/bin/sh',
+    [
+      '-eu',
+      '-c',
+      [
+        `PROBE_TIMESTAMP=${timestamp}`,
+        octetAssignment,
+        `PROBE_UUID=${probeUuid}`,
+        nonceAssignment,
+        'printf \'%s\\n\' "$PROBE_OCTET"',
+        `printf '%s' ${dataArgument}`,
+      ].join('\n'),
+    ],
+    { encoding: 'utf8' }
+  );
+  const separator = serialized.indexOf('\n');
+  if (separator < 1) {
+    throw new Error(`Deploy workflow emitted a demo probe payload without an octet: ${serialized}`);
+  }
+  const octet = Number(serialized.slice(0, separator));
+  if (!Number.isInteger(octet)) {
+    throw new Error(`Deploy workflow emitted an invalid demo probe octet: ${serialized}`);
+  }
+  const serializedBody = serialized.slice(separator + 1);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(serializedBody);
+  } catch (error) {
+    throw new Error(`Deploy workflow emitted invalid demo probe JSON: ${serializedBody}`, {
+      cause: error,
+    });
+  }
+  if (
+    typeof parsed !== 'object' ||
+    parsed === null ||
+    !('communityId' in parsed) ||
+    typeof parsed.communityId !== 'string' ||
+    !('clientNonce' in parsed) ||
+    typeof parsed.clientNonce !== 'string'
+  ) {
+    throw new Error(`Deploy workflow emitted an invalid demo probe payload: ${serialized}`);
+  }
+
+  return {
+    body: { communityId: parsed.communityId, clientNonce: parsed.clientNonce },
+    octet,
+  };
 }
 
 function demoSourceText(): string {
