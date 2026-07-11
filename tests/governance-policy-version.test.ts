@@ -183,4 +183,79 @@ describe('active policy materialization', () => {
       provenanceReferences: [],
     })).rejects.toThrow('serving weight rows are missing');
   });
+
+  it('fails closed when serving long-table weights are partial', async () => {
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes('FROM governance_epochs')) {
+        return {
+          rows: [{
+            id: 7,
+            recency_weight: 0.2,
+            engagement_weight: 0.2,
+            bridging_weight: 0.2,
+            source_diversity_weight: 0.2,
+            relevance_weight: 0.2,
+            topic_weights: {},
+            content_rules: {},
+            created_at: '2026-07-01T00:00:00.000Z',
+          }],
+        };
+      }
+      if (sql.includes('FROM governance_epoch_weights')) {
+        return {
+          rows: [
+            { component_key: 'recency', weight: '0.5' },
+            { component_key: 'engagement', weight: '0.5' },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+
+    await expect(materializeActivePolicyVersion(asClient(query), {
+      communityId: 'community-gov',
+      algorithmVersion: 'corgi-ranking-v2',
+      effectiveAt: '2026-07-11T20:00:00.000Z',
+      provenanceReferences: [],
+    })).rejects.toThrow('serving weight keys do not match registry');
+  });
+
+  it('fails closed when serving weights do not sum to one', async () => {
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes('FROM governance_epochs')) {
+        return {
+          rows: [{
+            id: 7,
+            recency_weight: 0.2,
+            engagement_weight: 0.2,
+            bridging_weight: 0.2,
+            source_diversity_weight: 0.2,
+            relevance_weight: 0.2,
+            topic_weights: {},
+            content_rules: {},
+            created_at: '2026-07-01T00:00:00.000Z',
+          }],
+        };
+      }
+      if (sql.includes('FROM governance_epoch_weights')) {
+        return {
+          rows: [
+            { component_key: 'bridging', weight: '0.1' },
+            { component_key: 'engagement', weight: '0.1' },
+            { component_key: 'recency', weight: '0.1' },
+            { component_key: 'relevance', weight: '0.1' },
+            { component_key: 'sourceDiversity', weight: '0.1' },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+
+    await expect(materializeActivePolicyVersion(asClient(query), {
+      communityId: 'community-gov',
+      algorithmVersion: 'corgi-ranking-v2',
+      effectiveAt: '2026-07-11T20:00:00.000Z',
+      provenanceReferences: [],
+    })).rejects.toThrow('serving weights total 0.5, expected 1');
+  });
 });

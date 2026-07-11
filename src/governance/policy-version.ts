@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { PoolClient } from 'pg';
+import { GOVERNANCE_WEIGHT_KEYS } from '../config/votable-params.js';
 import type {
   GovernancePolicyDocument,
   JsonObject,
@@ -119,6 +120,7 @@ export async function materializeActivePolicyVersion(
     Object.fromEntries(longWeightResult.rows.map((row) => [row.component_key, row.weight])),
     `serving weights for epoch ${epoch.id}`
   );
+  assertCompleteServingWeights(servingWeights, epoch.id);
   const wideWeights = normalizeNumericRecord(
     {
       recency: epoch.recency_weight,
@@ -325,6 +327,28 @@ function normalizeNumericRecord(value: unknown, label: string): Readonly<Record<
     normalized[key] = Object.is(numeric, -0) ? 0 : numeric;
   }
   return canonicalClone(normalized) as Record<string, number>;
+}
+
+function assertCompleteServingWeights(
+  servingWeights: Readonly<Record<string, number>>,
+  epochId: number
+): void {
+  const expected = [...GOVERNANCE_WEIGHT_KEYS].sort();
+  const actual = Object.keys(servingWeights).sort();
+  const missing = expected.filter((key) => !Object.hasOwn(servingWeights, key));
+  const unexpected = actual.filter((key) => !expected.includes(key));
+  if (missing.length > 0 || unexpected.length > 0) {
+    throw new Error(
+      `Cannot materialize policy for epoch ${epochId}: serving weight keys do not match registry`
+      + ` (missing: ${missing.join(', ') || 'none'}; unexpected: ${unexpected.join(', ') || 'none'})`
+    );
+  }
+  const total = Object.values(servingWeights).reduce((sum, weight) => sum + weight, 0);
+  if (Math.abs(total - 1) > 1e-9) {
+    throw new Error(
+      `Cannot materialize policy for epoch ${epochId}: serving weights total ${total}, expected 1`
+    );
+  }
 }
 
 function normalizeJsonObject(value: unknown, label: string): JsonObject {
