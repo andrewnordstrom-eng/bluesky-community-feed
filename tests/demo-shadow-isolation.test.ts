@@ -10,6 +10,7 @@ import {
   demoStagingKeyPrefix,
 } from '../src/demo/store.js';
 import { demoRateLimitKeyPrefix } from '../src/demo/rate-limit.js';
+import { SHADOW_DEMO_SHARED_CORPUS_TTL_SECONDS } from '../src/demo/types.js';
 
 const DEMO_SRC_DIR = new URL('../src/demo', import.meta.url).pathname;
 const COMPOSE_FILE = new URL('../docker-compose.prod.yml', import.meta.url).pathname;
@@ -73,6 +74,8 @@ describe('shadow demo isolation guards', () => {
     expect(deploy).toContain('DEMO_POLICY');
     expect(deploy).toContain(`DEMO_KEY="${demoSessionKeyPrefix()}\${DEMO_SESSION_ID}"`);
 
+    expect(deploy).toContain('DEMO_RESPONSE=$(curl -fsS --max-time 90');
+    expect(SHADOW_DEMO_SHARED_CORPUS_TTL_SECONDS).toBe(60 * 60);
     expect(usesOnlySudoDockerComposeCommands(deploy)).toBe(true);
 
     const demoCompose = compose.split('demo-redis:')[1];
