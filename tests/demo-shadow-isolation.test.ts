@@ -71,6 +71,13 @@ describe('shadow demo isolation guards', () => {
     expect(deploy).toContain('PRODUCTION_KEY_EXISTS');
     expect(deploy).toContain('DEMO_KEY_EXISTS');
     expect(deploy).toContain('DEMO_POLICY');
+    expect(deploy).toContain(`DEMO_KEY="${demoSessionKeyPrefix()}\${DEMO_SESSION_ID}"`);
+
+    const demoCompose = compose.split('demo-redis:')[1];
+    const maxmemoryMatch = demoCompose?.match(/--maxmemory\s+(\d+)mb/);
+    expect(maxmemoryMatch).toBeDefined();
+    const maxmemoryBytes = Number(maxmemoryMatch?.[1]) * 1024 * 1024;
+    expect(deploy).toContain(`[ "$DEMO_MAXMEMORY" != "${maxmemoryBytes}" ]`);
   });
 });
 

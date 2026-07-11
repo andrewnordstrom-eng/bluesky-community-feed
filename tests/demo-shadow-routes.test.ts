@@ -4,6 +4,7 @@ import { ShadowDemoService } from '../src/demo/service.js';
 import { MemoryDemoStore } from '../src/demo/store.js';
 import { DemoStoreUnavailableError } from '../src/demo/store.js';
 import { registerShadowDemoRoutes } from '../src/demo/routes.js';
+import { isPayloadTooLargeError } from '../src/feed/error-classification.js';
 import { DemoRateLimitError, type DemoRateLimitGuard } from '../src/demo/rate-limit.js';
 import type {
   ShadowDemoCorpus,
@@ -21,6 +22,14 @@ import { buildTestApp } from './helpers/index.js';
 const NOW = new Date('2026-07-09T12:00:00.000Z');
 
 describe('shadow demo routes', () => {
+  it('preserves Fastify body-limit errors as production HTTP 413 classifications', () => {
+    const byCode = Object.assign(new Error('body too large'), { code: 'FST_ERR_CTP_BODY_TOO_LARGE' });
+    const byStatus = Object.assign(new Error('body too large'), { statusCode: 413 });
+    expect(isPayloadTooLargeError(byCode)).toBe(true);
+    expect(isPayloadTooLargeError(byStatus)).toBe(true);
+    expect(isPayloadTooLargeError(new Error('other failure'))).toBe(false);
+  });
+
   it('publishes demo endpoints under the Demo OpenAPI tag', async () => {
     const app = buildTestApp();
     await app.register(swagger, {
@@ -647,6 +656,8 @@ describe('shadow demo routes', () => {
       payload: { communityId: 'open_science_builders' },
     });
     expect(capped.statusCode).toBe(503);
+    expect(capped.headers['retry-after']).toBe('60');
+    expect(capped.json().retryAfterSeconds).toBe(60);
     expect(capped.json().message).toContain('50-session capacity');
     await app.close();
   });

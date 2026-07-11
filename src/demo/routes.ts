@@ -5,6 +5,7 @@ import { logger } from '../lib/logger.js';
 import {
   SHADOW_DEMO_COMMUNITY_IDS,
   SHADOW_DEMO_CONTRACT_VERSION,
+  SHADOW_DEMO_SESSION_TTL_SECONDS,
   SHADOW_DEMO_TOPIC_KEYS,
   type ShadowDemoEnvelope,
 } from './types.js';
@@ -24,6 +25,7 @@ import {
 
 const IdempotencyKeySchema = z.string().min(1).max(64).regex(/^[A-Za-z0-9:_-]+$/);
 const DEMO_MUTATION_BODY_LIMIT_BYTES = 16 * 1024;
+const DEMO_CAPACITY_RETRY_AFTER_SECONDS = Math.min(60, SHADOW_DEMO_SESSION_TTL_SECONDS);
 
 const WeightSchema = z.object({
   recency: z.number().min(0).finite(),
@@ -258,6 +260,8 @@ async function handleShadowDemoRequest<TPayload>(
     const status = shadowDemoErrorStatus(error);
     if (error instanceof DemoRateLimitError) {
       reply.header('retry-after', String(error.retryAfterSeconds));
+    } else if (error instanceof DemoStoreCapacityError) {
+      reply.header('retry-after', String(DEMO_CAPACITY_RETRY_AFTER_SECONDS));
     }
     if (status >= 500) {
       logger.error({ err: error, correlationId }, 'Unexpected shadow demo request failure');
@@ -309,6 +313,9 @@ export function shadowDemoErrorBody(error: Error, correlationId: string): {
       error: error.name,
       message: error.message,
       correlationId,
+      ...(error instanceof DemoStoreCapacityError
+        ? { retryAfterSeconds: DEMO_CAPACITY_RETRY_AFTER_SECONDS }
+        : {}),
     };
   }
   if (error instanceof DemoStoreUnavailableError) {

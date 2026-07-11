@@ -90,6 +90,20 @@ describe('ConfigSchema', () => {
       DEMO_REDIS_URL: 'redis://different-credentials@127.0.0.1/9',
       EXPORT_ANONYMIZATION_SALT: PRODUCTION_SALT_32,
     })).toThrow(/DEMO_REDIS_URL must not equal REDIS_URL/);
+    expect(() => ConfigSchema.parse({
+      ...baseEnv,
+      NODE_ENV: 'production',
+      REDIS_URL: 'redis://127.0.0.1:6379',
+      DEMO_REDIS_URL: 'redis://localhost',
+      EXPORT_ANONYMIZATION_SALT: PRODUCTION_SALT_32,
+    })).toThrow(/DEMO_REDIS_URL must not equal REDIS_URL/);
+    expect(() => ConfigSchema.parse({
+      ...baseEnv,
+      NODE_ENV: 'production',
+      REDIS_URL: 'redis://[::1]:6379',
+      DEMO_REDIS_URL: 'redis://127.0.0.1',
+      EXPORT_ANONYMIZATION_SALT: PRODUCTION_SALT_32,
+    })).toThrow(/DEMO_REDIS_URL must not equal REDIS_URL/);
   });
 
   it('requires an independent production demo rate-limit HMAC key', () => {

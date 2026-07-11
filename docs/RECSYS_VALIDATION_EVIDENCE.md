@@ -55,6 +55,18 @@ and blocked claims live in the lab journal above.
 
 ## Provenance
 
+### PROJ-1692 Shadow Demo v3
+
+- Branch: `dev/PROJ-1692-recsys-harden-shadow-demo-v3-before-reviewer-ui-ships`.
+- Verified implementation head: `17c88dac73de86189d1731cb9fa74ef582dac0ea` (the pre-review head that produced the quantitative receipts above).
+- Contract/lab record: `docs/lab/demo-shadow-governance-contract.md`; implementation journal: `docs/dev-journal.md`, entry `2026-07-10 #04`.
+- Corpus/session inputs: deterministic route/store fixtures and production-shaped environment values for the full gate; the no-eviction proof used separate local production-sentinel and demo Redis instances and did not claim a mature live Open Science corpus.
+- Full verification: production-config `npm run verify`, 120 Vitest files / 1,143 tests, plus root, SDK, CLI, legacy web, and Next static builds.
+- Isolation verification: a 2 MB `noeviction` demo Redis accepted 13 writes of 64 KiB before OOM, reported 0 evictions and 2,045,280 bytes used, while a sentinel in the separate production Redis remained unchanged.
+- Scope boundary: local contract and isolation evidence only; production deployment, reviewer UI v3 wiring, native Bluesky feed publication, and empirical voter-archetype validity were not claimed by this receipt.
+
+### PROJ-1551 Validation Campaign
+
 - Branch: `dev/PROJ-1551-corgi-validation`.
 - Checkout base: `f2310a036cb668a9e7419ee8419a2cbe44dc9920` plus the uncommitted PROJ-1551 validation diff.
 - Runtime: Node `v24.15.0`, npm `11.12.1`, Docker server `29.4.3`.

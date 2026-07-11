@@ -294,10 +294,11 @@ describe('shadow demo weight math', () => {
 
   it('explains stored, zero-signal, confidence-damped, and explicit-zero relevance cases', () => {
     expect(explainTopicRelevance(0.31, {}, TOPIC_INTENT)).toMatchObject({
-      formulaApplied: false,
-      weightedSum: null,
-      signalSum: null,
-      effectiveRelevance: 0.31,
+      formulaApplied: true,
+      weightedSum: 0,
+      signalSum: 0,
+      baseRelevance: 0.2,
+      effectiveRelevance: scoreTopicVectorRelevance({}, TOPIC_INTENT.topicWeights),
     });
     expect(explainTopicRelevance(0.31, { 'science-research': 0 }, TOPIC_INTENT)).toMatchObject({
       formulaApplied: true,

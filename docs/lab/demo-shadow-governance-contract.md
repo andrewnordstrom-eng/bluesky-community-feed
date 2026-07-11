@@ -62,6 +62,25 @@ Applied epochs and receipts retain the authoritative aggregate (`voteCount=25`, 
 
 Topic receipts return the exact scorer decomposition: weighted sum, total topic signal, confidence multiplier, base relevance, effective relevance, the default-topic-weight flag, and every contributing term. When no shadow topic policy is active, the receipt identifies that the stored production relevance component was used instead.
 
+For each finite post topic score `s_i`, the scorer selects the configured community topic weight `w_i`, or the default topic weight `d=0.2` when that topic is absent from the active policy. The receipt fields reconstruct the scorer exactly:
+
+```text
+term_i = s_i * w_i
+weightedSum = sum(term_i)
+signalSum = sum(s_i)
+
+if signalSum = 0:
+  baseRelevance = d
+  confidenceMultiplier = 1
+  effectiveRelevance = d
+else:
+  baseRelevance = weightedSum / signalSum
+  confidenceMultiplier = min(1, signalSum / confidenceThreshold)
+  effectiveRelevance = clamp(baseRelevance * confidenceMultiplier, 0, 1)
+```
+
+`terms[]` exposes `s_i`, `w_i`, `term_i`, and whether `d` supplied `w_i`; `usedDefaultWeight` is true when any term used `d`; `confidenceThreshold` is the scorer threshold (`0.5` in v3). An active topic policy with an empty/zero-signal post vector therefore receives the scorer's neutral `0.2` effective relevance. Only when `topicIntent.topicWeights` itself is empty does `formulaApplied=false`; then `weightedSum` and `signalSum` are null and both `baseRelevance` and `effectiveRelevance` equal the stored production relevance component.
+
 ## Isolation Rules
 
 The demo must not import or call production epoch transition, production voting, scoring-pipeline, production feed-cache writer, audit-log writer, or research-export writer paths. It may read active production epochs, posts, and decomposed score components to build the frozen corpus.

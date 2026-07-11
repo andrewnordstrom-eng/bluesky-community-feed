@@ -96,6 +96,26 @@ describe('isolated shadow demo rate limiter', () => {
     expect(connectMock).toHaveBeenCalledOnce();
     expect(evalMock).toHaveBeenCalledOnce();
   });
+
+  it('deduplicates concurrent cold-client connection attempts', async () => {
+    const { guard, connectMock, evalMock } = createGuard([1, 60_000], 'test-secret', 'wait');
+
+    await Promise.all([
+      guard.check('read', 'reviewer-a'),
+      guard.check('read', 'reviewer-b'),
+    ]);
+
+    expect(connectMock).toHaveBeenCalledOnce();
+    expect(evalMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('wraps a cold-client connection failure as demo-only unavailability', async () => {
+    const { guard, connectMock, evalMock } = createGuard([1, 60_000], 'test-secret', 'wait');
+    connectMock.mockRejectedValueOnce(new Error('Redis authentication failed'));
+
+    await expect(guard.check('read', 'reviewer')).rejects.toBeInstanceOf(DemoStoreUnavailableError);
+    expect(evalMock).not.toHaveBeenCalled();
+  });
 });
 
 function createGuard(result: unknown, secret: string, status: string): {

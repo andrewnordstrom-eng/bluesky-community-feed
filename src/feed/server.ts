@@ -13,6 +13,7 @@ import { config } from '../config.js';
 import { registerDescribeGenerator } from './routes/describe-generator.js';
 import { registerWellKnown } from './routes/well-known.js';
 import { registerFeedSkeleton } from './routes/feed-skeleton.js';
+import { isPayloadTooLargeError } from './error-classification.js';
 import { registerSendInteractions } from './routes/send-interactions.js';
 import { registerGovernanceRoutes } from '../governance/server.js';
 import { registerTransparencyRoutes } from '../transparency/server.js';
@@ -385,6 +386,15 @@ export async function createServer(options?: CreateServerOptions) {
       message: string;
       retryAfterSeconds: number;
     }>;
+
+    if (isPayloadTooLargeError(error)) {
+      logger.warn({ correlationId }, 'Request body exceeded the configured limit');
+      return reply.status(413).send({
+        error: 'PayloadTooLarge',
+        message: 'Request body exceeds the configured limit.',
+        correlationId,
+      });
+    }
 
     if (
       rateLimitError.statusCode === 429 ||

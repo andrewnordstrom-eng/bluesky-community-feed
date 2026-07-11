@@ -125,6 +125,21 @@ describe('Redis shadow demo store', () => {
     expect(zrem).toHaveBeenCalledWith('demo:sessions:active', 'demo-store-session');
   });
 
+  it('releases the active-session reservation when the first staging write fails', async () => {
+    const evalCommand = vi.fn().mockResolvedValue(1);
+    const setex = vi.fn().mockRejectedValueOnce(new Error('OOM command not allowed'));
+    const del = vi.fn().mockResolvedValue(0);
+    const zrem = vi.fn().mockResolvedValue(1);
+    const store = new RedisDemoStore({ eval: evalCommand, setex, del, zrem } as unknown as Redis);
+
+    await expect(store.createSession(storedSession(), 120, 50)).rejects.toBeInstanceOf(
+      DemoStoreUnavailableError
+    );
+    expect(evalCommand).toHaveBeenCalledTimes(1);
+    expect(setex).toHaveBeenCalledOnce();
+    expect(zrem).toHaveBeenCalledWith('demo:sessions:active', 'demo-store-session');
+  });
+
   it('cleans staged session records when the authoritative create script fails', async () => {
     const evalCommand = vi.fn()
       .mockResolvedValueOnce(1)

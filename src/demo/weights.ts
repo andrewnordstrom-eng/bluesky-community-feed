@@ -149,7 +149,7 @@ export function explainTopicRelevance(
   topicVector: Record<string, number>,
   topicIntent: ShadowDemoTopicIntent
 ): ShadowDemoTopicRelevanceFormula {
-  if (Object.keys(topicIntent.topicWeights).length === 0 || Object.keys(topicVector).length === 0) {
+  if (Object.keys(topicIntent.topicWeights).length === 0) {
     return {
       formulaApplied: false,
       defaultTopicWeight: DEFAULT_TOPIC_WEIGHT,

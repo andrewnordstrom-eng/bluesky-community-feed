@@ -293,7 +293,11 @@ export const config = ConfigSchema.parse(process.env);
 function redisInstanceAuthority(value: string): string {
   try {
     const parsed = new URL(value);
-    return `${parsed.hostname.toLowerCase()}:${parsed.port || '6379'}`;
+    const hostname = parsed.hostname.toLowerCase();
+    const canonicalHost = new Set(['localhost', '127.0.0.1', '::1', '[::1]']).has(hostname)
+      ? 'loopback'
+      : hostname;
+    return `${canonicalHost}:${parsed.port || '6379'}`;
   } catch {
     return value;
   }
