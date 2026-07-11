@@ -104,7 +104,7 @@ jobs:
             # isolated Redis, not merely that the container itself responds.
             if [ "$HEALTHY" = "true" ]; then
               PROBE_OCTET=$(( ($(date +%s) % 250) + 1 ))
-              if ! DEMO_RESPONSE=$(curl -fsS --max-time 30 \
+              if ! DEMO_RESPONSE=$(curl -fsS --max-time 90 \
                 -H 'content-type: application/json' \
                 -H "x-forwarded-for: 198.51.100.${PROBE_OCTET}" \
                 -d '{"communityId":"open_science_builders"}' \

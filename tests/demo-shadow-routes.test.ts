@@ -7,6 +7,7 @@ import { registerShadowDemoRoutes } from '../src/demo/routes.js';
 import { isPayloadTooLargeError } from '../src/feed/error-classification.js';
 import { DemoRateLimitError, type DemoRateLimitGuard } from '../src/demo/rate-limit.js';
 import type {
+  ShadowDemoCommunityId,
   ShadowDemoCorpus,
   ShadowDemoEnvelope,
   ShadowDemoSessionPayload,
@@ -14,6 +15,7 @@ import type {
 import {
   SHADOW_DEMO_GUIDED_EPOCHS,
   SHADOW_DEMO_MAX_EPOCHS_PER_SESSION,
+  SHADOW_DEMO_SHARED_CORPUS_TTL_SECONDS,
   SHADOW_DEMO_SYNTHETIC_VOTER_COUNT,
   SHADOW_DEMO_TOTAL_DEMO_VOTERS,
 } from '../src/demo/types.js';
@@ -369,11 +371,12 @@ describe('shadow demo routes', () => {
     await app.close();
   });
 
-  it('reuses a short-lived shared corpus cache while freezing separate session corpora', async () => {
+  it('reuses a one-hour shared corpus across concurrent session creation while freezing separate corpora', async () => {
     const app = buildTestApp();
     let loadCount = 0;
+    const store = new RecordingSharedCorpusStore();
     const service = new ShadowDemoService({
-      store: new MemoryDemoStore(),
+      store,
       loadCorpus: async () => {
         loadCount += 1;
         return demoCorpus();
@@ -382,21 +385,31 @@ describe('shadow demo routes', () => {
     });
     registerShadowDemoRoutes(app, service, null);
 
-    const firstResponse = await app.inject({
-      method: 'POST',
-      url: '/api/demo/sessions',
-      payload: { communityId: 'open_science_builders' },
-    });
-    const secondResponse = await app.inject({
-      method: 'POST',
-      url: '/api/demo/sessions',
-      payload: { communityId: 'open_science_builders' },
-    });
+    const [firstResponse, secondResponse] = await Promise.all([
+      app.inject({
+        method: 'POST',
+        url: '/api/demo/sessions',
+        payload: { communityId: 'open_science_builders' },
+      }),
+      app.inject({
+        method: 'POST',
+        url: '/api/demo/sessions',
+        payload: { communityId: 'open_science_builders' },
+      }),
+    ]);
 
     expect(firstResponse.statusCode).toBe(200);
     expect(secondResponse.statusCode).toBe(200);
     expect(loadCount).toBe(1);
-    expect(firstResponse.json().payload.session.sessionId).not.toBe(secondResponse.json().payload.session.sessionId);
+    expect(store.sharedCorpusTtlSeconds).toBe(SHADOW_DEMO_SHARED_CORPUS_TTL_SECONDS);
+    expect(store.sharedCorpusTtlSeconds).toBe(60 * 60);
+
+    const firstBody = firstResponse.json() as ShadowDemoEnvelope<ShadowDemoSessionPayload>;
+    const secondBody = secondResponse.json() as ShadowDemoEnvelope<ShadowDemoSessionPayload>;
+    expect(firstBody.payload.session.sessionId).not.toBe(secondBody.payload.session.sessionId);
+    expect(firstBody.payload.session.corpusProvenance.corpusId).not.toBe(
+      secondBody.payload.session.corpusProvenance.corpusId
+    );
 
     await app.close();
   });
@@ -855,6 +868,19 @@ function demoCorpus(): ShadowDemoCorpus {
       }),
     ],
   };
+}
+
+class RecordingSharedCorpusStore extends MemoryDemoStore {
+  sharedCorpusTtlSeconds: number | null = null;
+
+  override async writeSharedCorpus(
+    communityId: ShadowDemoCommunityId,
+    corpus: ShadowDemoCorpus,
+    ttlSeconds: number
+  ): Promise<void> {
+    this.sharedCorpusTtlSeconds = ttlSeconds;
+    await super.writeSharedCorpus(communityId, corpus, ttlSeconds);
+  }
 }
 
 class ExpiringCorpusLockStore extends MemoryDemoStore {
