@@ -51,13 +51,19 @@ export default function SettingsPage() {
   const { isAuthenticated, isLoading, session, logout } = useAuth()
   const [signInOpen, setSignInOpen] = useState(false)
   const [logoutError, setLogoutError] = useState<string | null>(null)
+  const [logoutPending, setLogoutPending] = useState(false)
 
   const handleLogout = async (): Promise<void> => {
+    if (logoutPending) return
+
+    setLogoutPending(true)
     setLogoutError(null)
     try {
       await logout()
     } catch {
       setLogoutError("Sign out failed. Check your connection and try again.")
+    } finally {
+      setLogoutPending(false)
     }
   }
 
@@ -181,10 +187,12 @@ export default function SettingsPage() {
           <p className="text-xs text-foreground/50">Signed in as {session?.handle ? `@${session.handle}` : "your account"}.</p>
           <Button
             onClick={() => void handleLogout()}
+            disabled={logoutPending}
+            aria-busy={logoutPending}
             variant="outline"
             className="border-border text-foreground/70 hover:text-foreground hover:bg-biscuit/50 rounded-full px-5 text-sm"
           >
-            Sign out
+            {logoutPending ? "Signing out..." : "Sign out"}
           </Button>
         </div>
         {logoutError ? <p role="alert" className="text-right text-xs text-destructive">{logoutError}</p> : null}

@@ -1,49 +1,48 @@
 import { Container } from "@/components/ui/layout"
+import { SIGNAL_LABELS } from "@/lib/signals"
 
-// Each example is a real Bluesky-native community type with enough post volume
-// that ranking actually matters — labelled with the Corgi signal it leans on and
-// the noise it beats. Kept culturally native (Bluesky isn't LinkedIn), not a set
-// of worthy-but-generic categories.
+// Illustrative Bluesky-native community concepts, labeled only with Corgi's
+// canonical ranking signals and the kind of feed noise each policy addresses.
 const communityExamples = [
   {
     name: "Birders Who Code",
     initials: "BC",
-    signal: "Bridging",
+    signal: SIGNAL_LABELS.bridging,
     description: "Field notes, scripts, and bird-call datasets stay balanced against generic tech jokes.",
     accentClass: "bg-[#CFE1D0] text-[#3E643F]",
   },
   {
     name: "Neighborhood Mutual Aid",
     initials: "MA",
-    signal: "Recency + trust",
+    signal: `${SIGNAL_LABELS.recency} + ${SIGNAL_LABELS.source_diversity}`,
     description: "Urgent local needs and verified updates rise above old viral posts.",
     accentClass: "bg-[#C8DDF2] text-[#284C6D]",
   },
   {
     name: "Open-Source Maintainers",
     initials: "OS",
-    signal: "Relevance",
+    signal: SIGNAL_LABELS.relevance,
     description: "Patches, docs, and release notes outrank memes and project drama.",
     accentClass: "bg-[#F0D1A8] text-[#7A4A20]",
   },
   {
     name: "Science & Research Feeds",
     initials: "SR",
-    signal: "Source diversity",
+    signal: SIGNAL_LABELS.source_diversity,
     description: "Papers, replications, and expert context beat hot takes and hype.",
     accentClass: "bg-[#C6E2EA] text-[#245A68]",
   },
   {
     name: "Local Newsroom & Civic Desk",
     initials: "LC",
-    signal: "Recency + source diversity",
+    signal: `${SIGNAL_LABELS.recency} + ${SIGNAL_LABELS.source_diversity}`,
     description: "Council meetings, transit, housing, and weather stay findable during a news burst.",
     accentClass: "bg-[#D4DBE2] text-[#3A4A5C]",
   },
   {
     name: "Tabletop Creators",
     initials: "TT",
-    signal: "Community relevance",
+    signal: SIGNAL_LABELS.relevance,
     description: "Indie releases, actual play, and safety tools don't get buried by fandom noise.",
     accentClass: "bg-[#D8D5F0] text-[#4C4A7B]",
   },

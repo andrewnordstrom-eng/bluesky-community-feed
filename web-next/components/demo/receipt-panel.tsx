@@ -8,6 +8,10 @@ import { DISCLOSURE } from "@/app/demo/shadow-demo-copy"
 import { formatReceiptPercent, formatReceiptScore, tryBuildReceiptDisplayMathWithServerTotal } from "@/lib/receipt-display-math"
 
 function formatReceiptTimestamp(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return "Unavailable"
+  }
   return new Intl.DateTimeFormat("en-US", {
     year: "numeric",
     month: "short",
@@ -16,7 +20,7 @@ function formatReceiptTimestamp(value: string): string {
     minute: "2-digit",
     timeZone: "UTC",
     timeZoneName: "short",
-  }).format(new Date(value))
+  }).format(date)
 }
 
 function DeltaChip({ delta }: { readonly delta: number | null }) {
@@ -216,7 +220,7 @@ export function ReceiptPanel({
             Your direct ballot is {formatPercent(receipt.reviewerBallotShare)} of the {receipt.aggregate.voteSummary.totalVotes}-ballot aggregate. This is ballot share, not causal influence, because scripted ballots respond partly to the proposal.
           </p>
           <p className="mt-2 text-xs leading-relaxed text-foreground/65">
-            Included for {receipt.provenance.postInclusionReasons.matchedTopics.map((item) => `${item.topic} ${formatScore(item.score)}`).join(", ") || "the Open Science policy"}
+            Included for {receipt.provenance.postInclusionReasons.matchedTopics.map((item) => `${item.topic} ${formatScore(item.score)}`).join(", ") || "the active community policy"}
             {receipt.provenance.postInclusionReasons.matchedTerms.length > 0
               ? `; matched terms: ${receipt.provenance.postInclusionReasons.matchedTerms.join(", ")}.`
               : "."}

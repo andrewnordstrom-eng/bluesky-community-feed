@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useId, useState } from "react"
 import { ChevronDown } from "lucide-react"
 import { AnimatePresence, motion } from "framer-motion"
 
@@ -50,11 +50,13 @@ interface FAQItemProps {
 }
 
 const FAQItem = ({ question, answer, isOpen, onToggle }: FAQItemProps) => {
+  const answerId = useId()
   return (
     <div className="w-full bg-card shadow-[0_2px_6px_rgba(46,38,32,0.06)] overflow-hidden rounded-xl border border-border transition-colors duration-200 hover:border-primary/30">
       <button
         type="button"
         aria-expanded={isOpen}
+        aria-controls={answerId}
         onClick={onToggle}
         className="w-full px-6 py-5 pr-5 flex justify-between items-center gap-5 text-left rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
       >
@@ -67,6 +69,7 @@ const FAQItem = ({ question, answer, isOpen, onToggle }: FAQItemProps) => {
       <AnimatePresence initial={false}>
         {isOpen && (
           <motion.div
+            id={answerId}
             key="content"
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}

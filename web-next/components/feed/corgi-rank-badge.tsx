@@ -96,6 +96,7 @@ export function CorgiRankBadge({
   const summary = movementSummary(movement, previousRank)
   const [open, setOpen] = useState(defaultOpen)
   const rootRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
   const reduce = useReducedMotion() ?? false
   const panelId = useId()
 
@@ -111,6 +112,7 @@ export function CorgiRankBadge({
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") {
         setOpen(false)
+        triggerRef.current?.focus()
       }
     }
     document.addEventListener("mousedown", onDown)
@@ -133,6 +135,7 @@ export function CorgiRankBadge({
       ) : null}
       {showWhy ? (
         <button
+          ref={triggerRef}
           type="button"
           onClick={() => setOpen((value) => !value)}
           aria-expanded={open}
@@ -170,9 +173,9 @@ export function CorgiRankBadge({
                   <ArrowUp className="h-3 w-3" aria-hidden="true" />
                 ) : movement.dir === "down" ? (
                   <ArrowDown className="h-3 w-3" aria-hidden="true" />
-                ) : (
+                ) : movement.dir === "held" ? (
                   <Minus className="h-3 w-3" aria-hidden="true" />
-                )}
+                ) : null}
                 {summary.text}
               </p>
             ) : null}

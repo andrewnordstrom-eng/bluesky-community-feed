@@ -25,7 +25,10 @@ export function badgeMovementFor(
   currentRank: number,
   previousRank: number | undefined,
 ): { dir: RankMovementDir; delta: number } {
-  if (previousRank === undefined || previousRank === currentRank) {
+  if (previousRank === undefined) {
+    return { dir: "new", delta: 0 }
+  }
+  if (previousRank === currentRank) {
     return { dir: "held", delta: 0 }
   }
   const delta = previousRank - currentRank

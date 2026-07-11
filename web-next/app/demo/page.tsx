@@ -34,10 +34,16 @@ import type {
 } from "./shadow-demo-view-model"
 
 function uid(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID()
+  const secureCrypto: Crypto | undefined = typeof globalThis.crypto === "undefined" ? undefined : globalThis.crypto
+  if (secureCrypto === undefined) {
+    throw new Error("Secure randomness is unavailable in this browser.")
   }
-  return `id-${Math.floor(Math.random() * 1e9)}`
+  if (typeof secureCrypto.randomUUID === "function") {
+    return secureCrypto.randomUUID()
+  }
+  const bytes = new Uint8Array(16)
+  secureCrypto.getRandomValues(bytes)
+  return `id-${Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("")}`
 }
 
 function stepIndex(phase: ShadowDemoSession["phase"] | null, hasReceipt: boolean): number {

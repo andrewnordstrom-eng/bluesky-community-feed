@@ -230,6 +230,8 @@ export function createHttpShadowDemoClient(): ShadowDemoClient {
 }
 
 function isLegacyClientNonceRejection(error: unknown): boolean {
+  // Remove this message-specific bridge after the v3 nonce-required backend and
+  // its static client have completed the PROJ-1285 production rollout.
   return error instanceof Error
     && /Unrecognized key\(s\).*clientNonce/i.test(error.message)
 }

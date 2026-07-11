@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { DISCLOSURE, allDemoCopyStrings } from "../shadow-demo-copy"
+import { DISCLOSURE, HERO, STEP_PANELS, allDemoCopyStrings } from "../shadow-demo-copy"
 
 const mutationAction = String.raw`\b(change|changes|changed|update|updates|updated|mutate|mutates|affect|affects|write to|writes to)\b`
 const productionTarget = String.raw`\b(production|real|live)\b[^.]{0,24}\b(feed|governance)\b`
@@ -39,6 +39,13 @@ describe("demo copy — honest boundaries", () => {
 
   it("names the Bluesky-vs-Corgi annotation boundary", () => {
     expect(DISCLOSURE.annotations).toMatch(/not native bluesky/i)
+  })
+
+  it("keeps pre-session copy accurate when the corpus falls back", () => {
+    expect(HERO.subtitle).not.toMatch(/live public posts/i)
+    expect(STEP_PANELS.community.body).not.toMatch(/live public posts/i)
+    expect(DISCLOSURE.posts).toMatch(/primary path uses live public bluesky posts/i)
+    expect(DISCLOSURE.posts).toMatch(/fixture appears only if live corpus loading degrades/i)
   })
 
   it("never claims the demo mutates the production feed or governance", () => {

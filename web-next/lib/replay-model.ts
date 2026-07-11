@@ -252,7 +252,13 @@ export const demoPersonas: readonly DemoPersona[] = [
 export const defaultPersonaIds: readonly PersonaId[] = ["field-notes", "dataset-maintainer", "bridge-builder"] as const
 
 export function normalizeWeights(weights: SignalWeights): SignalWeights {
-  const total = signals.reduce((sum, signal) => sum + weights[signal.key], 0)
+  const total = signals.reduce((sum, signal) => {
+    const value = weights[signal.key]
+    if (!Number.isFinite(value) || value < 0) {
+      throw new Error(`Invalid weight for ${signal.key}: ${String(value)}`)
+    }
+    return sum + value
+  }, 0)
 
   if (total <= 0) {
     throw new Error("Cannot normalize empty signal weights")

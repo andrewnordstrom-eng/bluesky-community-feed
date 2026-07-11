@@ -10,8 +10,14 @@ export function FlowProgress({ currentIndex }: { readonly currentIndex: number }
       {FLOW_STEPS.map((step: FlowStepCopy, index) => {
         const done = index < currentIndex
         const active = index === currentIndex
+        const status = done ? "completed" : active ? "current" : "upcoming"
         return (
-          <li key={step.key} className="flex items-center gap-2">
+          <li
+            key={step.key}
+            className="flex items-center gap-2"
+            aria-label={`${step.label}: ${status}`}
+            aria-current={active ? "step" : undefined}
+          >
             <span
               className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border text-[11px] font-mono font-bold transition-colors ${
                 done
@@ -20,7 +26,6 @@ export function FlowProgress({ currentIndex }: { readonly currentIndex: number }
                     ? "border-primary bg-primary/10 text-primary"
                     : "border-border bg-background text-foreground/40"
               }`}
-              aria-current={active ? "step" : undefined}
             >
               {done ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : index + 1}
             </span>

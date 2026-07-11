@@ -38,7 +38,7 @@ function deriveRoundDiff(epochs?: EpochResponse[]): RoundDiff | null {
       const after = curr.weights[key]
       return { key, before, after, delta: after - before }
     })
-    .filter((wc) => Math.abs(wc.delta) > 0.001)
+    .filter((wc) => Math.abs(Math.round(wc.delta * 100)) >= 1)
 
   const currInc = curr.content_rules?.include_keywords ?? []
   const prevInc = prev.content_rules?.include_keywords ?? []
@@ -293,6 +293,12 @@ export default function DashboardPage() {
             </div>
             {epochsQuery.isLoading ? (
               <WeightsSkeleton />
+            ) : epochsQuery.isError ? (
+              <ErrorCard
+                heading="Round history unavailable"
+                body="We couldn't load the rounds needed for this comparison."
+                onRetry={() => void epochsQuery.refetch()}
+              />
             ) : !diff ? (
               <EmptyState
                 heading="Nothing to compare yet"

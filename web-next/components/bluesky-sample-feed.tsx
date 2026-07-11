@@ -83,7 +83,7 @@ export function BlueskyOrderedFeed(props: BlueskyOrderedFeedProps) {
             <h3 className="text-foreground font-display text-2xl font-bold leading-tight">
               Normal posts, Corgi-ranked order.
             </h3>
-            <p className="text-sm leading-relaxed text-foreground/50">
+            <p className="text-sm leading-relaxed text-foreground/60">
               The feed looks like Bluesky. Corgi changes what appears first.
             </p>
           </div>

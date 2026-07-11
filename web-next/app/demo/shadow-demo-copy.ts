@@ -9,7 +9,7 @@ export const HERO = {
   eyebrow: "Interactive demo",
   title: "Watch a community re-rank its own feed.",
   subtitle:
-    "Propose a policy for Open Science Builders, combine it with 24 scripted deterministic voter archetypes, and inspect how the same live public posts move.",
+    "Propose a policy for Open Science Builders, combine it with 24 scripted deterministic voter archetypes, and inspect how the same frozen comparison posts move.",
 } as const
 
 export interface FlowStepCopy {
@@ -30,7 +30,7 @@ export const FLOW_STEPS: readonly FlowStepCopy[] = [
 export const STEP_PANELS = {
   community: {
     heading: "Meet the community",
-    body: "Open Science Builders spans research, data science, software development, and open source. Start a session to freeze a comparison corpus of live public posts and test a policy against it.",
+    body: "Open Science Builders spans research, data science, software development, and open source. Start a session to freeze a comparison corpus and test a policy against it.",
     cta: "Start a demo session",
   },
   vote: {
