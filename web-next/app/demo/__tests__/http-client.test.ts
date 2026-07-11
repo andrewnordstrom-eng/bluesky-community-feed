@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { createHttpShadowDemoClient } from "../http-shadow-demo-client"
+import { createHttpShadowDemoClient, hiddenReason } from "../http-shadow-demo-client"
 import { type ShadowDemoWeights } from "../shadow-demo-contract"
-import { CONTRACT_VERSION } from "../shadow-demo-api-schemas"
+import {
+  apiReceiptComponentsSchema,
+  apiSyntheticVoteSchema,
+  CONTRACT_VERSION,
+} from "../shadow-demo-api-schemas"
 
 const NOW = "2026-07-10T05:00:00.000Z"
 const SESSION_ID = "demo-http-contract"
@@ -41,8 +45,30 @@ afterEach(() => {
 })
 
 describe("HTTP shadow demo client", () => {
+  it("keeps novel backend hidden reasons withheld behind a generic row", () => {
+    expect(hiddenReason("Withheld by a future public-view rule")).toBe("deleted_or_unavailable")
+  })
+
+  it("rejects synthetic voter identities that disagree with their declared bloc", () => {
+    const vote = syntheticVotes("epoch-1")[0] as Record<string, unknown>
+
+    expect(apiSyntheticVoteSchema.safeParse({ ...vote, blocId: "dataset_steward" }).success).toBe(false)
+  })
+
+  it("rejects receipts that repeat a signal instead of covering all five signals", () => {
+    const components = Object.entries(BASE_WEIGHTS).map(([signal, weight]) => ({
+      signal,
+      rawScore: 0.5,
+      weight,
+      contribution: 0.5 * weight,
+    }))
+    components[4] = { ...components[4], signal: "recency" }
+
+    expect(apiReceiptComponentsSchema.safeParse(components).success).toBe(false)
+  })
+
   it("maps a live-scored session without claiming the unpublished community is a native Bluesky feed", async () => {
-    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+    const fetchMock = vi.fn(async (input: string | URL | Request, _init?: RequestInit) => {
       const path = requestPath(input)
       if (path === "/api/demo/sessions") return jsonEnvelope(sessionPayload("created", "epoch-1", [epoch("epoch-1", 1, BASE_WEIGHTS, 0)]))
       if (path.startsWith(`/api/demo/sessions/${SESSION_ID}/feed`)) return jsonEnvelope(feedPayload("epoch-1", [1, 2]))
@@ -66,6 +92,10 @@ describe("HTTP shadow demo client", () => {
     expect(response.payload.currentEpoch.topicIntent.topicWeights).toMatchObject({
       music: 0.1,
       "decentralized-social": 0.9,
+    })
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      communityId: "open_science_builders",
+      clientNonce: "nonce",
     })
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
@@ -169,6 +199,17 @@ describe("HTTP shadow demo client", () => {
       { communityId: "open_science_builders", scenarioId: "guided_default", clientNonce: "nonce", mode: "guided" },
       new AbortController().signal,
     )).rejects.toThrow("invalid response envelope")
+  })
+
+  it("sanitizes direct network failures", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new TypeError("fetch failed: connect ECONNREFUSED 10.0.0.4:6381")
+    }))
+
+    await expect(createHttpShadowDemoClient().createSession(
+      { communityId: "open_science_builders", scenarioId: "guided_default", clientNonce: "nonce", mode: "guided" },
+      new AbortController().signal,
+    )).rejects.toThrow("temporarily unavailable")
   })
 
   it("rejects malformed provenance timestamps before they reach receipt and corpus UI", async () => {

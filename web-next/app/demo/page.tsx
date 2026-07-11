@@ -109,19 +109,20 @@ export default function DemoPage() {
       await action(request)
     } catch (cause) {
       if (request.isCurrent()) {
+        const failureMessage = cause instanceof Error ? cause.message : "Something went wrong in the demo."
         if (recoverSessionId !== null) {
           try {
             await recoverSession(recoverSessionId, request)
             if (request.isCurrent()) {
-              setError("The connection was interrupted, so Corgi refreshed this session before you continue.")
+              setError(`${failureMessage} Corgi refreshed the authoritative session state before you continue.`)
             }
           } catch {
             if (request.isCurrent()) {
-              setError(cause instanceof Error ? cause.message : "Something went wrong in the demo.")
+              setError(failureMessage)
             }
           }
         } else {
-          setError(cause instanceof Error ? cause.message : "Something went wrong in the demo.")
+          setError(failureMessage)
         }
       }
     } finally {
@@ -134,6 +135,7 @@ export default function DemoPage() {
   async function recoverSession(sessionId: string, request: DemoRequestContext): Promise<void> {
     const { payload } = await client.getSession(sessionId, request.signal)
     if (!request.isCurrent()) return
+    setStartingNextEpoch(false)
     setSession(payload.session)
     setCommunity(payload.community)
     setOpenEpochId(payload.currentEpoch.id)

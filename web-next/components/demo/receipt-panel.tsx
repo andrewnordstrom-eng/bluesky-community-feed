@@ -7,6 +7,18 @@ import { SIGNAL_COLORS, formatPercent, formatScore } from "@/app/demo/shadow-dem
 import { DISCLOSURE } from "@/app/demo/shadow-demo-copy"
 import { formatReceiptPercent, formatReceiptScore, tryBuildReceiptDisplayMathWithServerTotal } from "@/lib/receipt-display-math"
 
+function formatReceiptTimestamp(value: string): string {
+  return new Intl.DateTimeFormat("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "UTC",
+    timeZoneName: "short",
+  }).format(new Date(value))
+}
+
 function DeltaChip({ delta }: { readonly delta: number | null }) {
   if (delta === null || delta === 0) {
     return (
@@ -193,15 +205,15 @@ export function ReceiptPanel({
             </div>
             <div>
               <dt className="text-foreground/50">Snapshot sampled</dt>
-              <dd className="mt-0.5 font-mono text-foreground/75">{new Date(receipt.provenance.sampledAt).toLocaleString()}</dd>
+              <dd className="mt-0.5 font-mono text-foreground/75">{formatReceiptTimestamp(receipt.provenance.sampledAt)}</dd>
             </div>
             <div>
               <dt className="text-foreground/50">Scored</dt>
-              <dd className="mt-0.5 font-mono text-foreground/75">{new Date(receipt.scoredAt).toLocaleString()}</dd>
+              <dd className="mt-0.5 font-mono text-foreground/75">{formatReceiptTimestamp(receipt.scoredAt)}</dd>
             </div>
           </dl>
           <p className="mt-3 text-xs leading-relaxed text-foreground/65">
-            Your direct ballot is {formatPercent(receipt.reviewerBallotShare)} of the 25-ballot aggregate. This is ballot share, not causal influence, because scripted ballots respond partly to the proposal.
+            Your direct ballot is {formatPercent(receipt.reviewerBallotShare)} of the {receipt.aggregate.voteSummary.totalVotes}-ballot aggregate. This is ballot share, not causal influence, because scripted ballots respond partly to the proposal.
           </p>
           <p className="mt-2 text-xs leading-relaxed text-foreground/65">
             Included for {receipt.provenance.postInclusionReasons.matchedTopics.map((item) => `${item.topic} ${formatScore(item.score)}`).join(", ") || "the Open Science policy"}

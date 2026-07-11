@@ -444,24 +444,6 @@ export function trimmedVoterAverage(votes: readonly ShadowDemoWeights[]): Shadow
   return normalizeWeights(averaged)
 }
 
-/** Equal-voter average of a list of (already valid) weight vectors, renormalized. */
-export function equalVoterAverage(votes: readonly ShadowDemoWeights[]): ShadowDemoWeights {
-  if (votes.length === 0) {
-    throw new Error("equalVoterAverage requires at least one vote")
-  }
-  const sum = { ...ZERO_WEIGHTS }
-  for (const vote of votes) {
-    const normalized = normalizeWeights(vote)
-    for (const key of SHADOW_DEMO_SIGNAL_KEYS) {
-      sum[key] += normalized[key]
-    }
-  }
-  for (const key of SHADOW_DEMO_SIGNAL_KEYS) {
-    sum[key] /= votes.length
-  }
-  return normalizeWeights(sum)
-}
-
 export function contribution(rawScore: number, weight: number): number {
   return rawScore * weight
 }

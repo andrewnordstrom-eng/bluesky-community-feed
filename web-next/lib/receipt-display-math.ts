@@ -60,6 +60,7 @@ export function tryBuildReceiptDisplayMathWithServerTotal(
     const display = buildReceiptDisplayMath(components)
     const roundedServerTotal = roundForDisplay(serverTotalScore)
     const roundingResidual = roundForDisplay(roundedServerTotal - display.totalScore)
+    // Scores and weights are normalized; this allows ten display-precision units.
     if (Math.abs(roundingResidual) > 0.001) {
       throw new TypeError(`Receipt rounding residual exceeds 0.001; received ${roundingResidual}`)
     }

@@ -82,11 +82,20 @@ const reviewerVoteSchema = voteBaseSchema.extend({
   actorId: z.literal("reviewer"),
 }).strict()
 
-const syntheticVoteSchema = voteBaseSchema.extend({
+export const apiSyntheticVoteSchema = voteBaseSchema.extend({
   actorType: z.literal("synthetic_voter"),
   actorId: z.string().regex(/^synthetic-(research_practitioner|dataset_steward|current_awareness|community_discussant|interdisciplinary_connector)-\d+$/),
   blocId: voterBlocIdSchema,
-}).strict()
+}).strict().superRefine((vote, context) => {
+  const actorBloc = vote.actorId.match(/^synthetic-(research_practitioner|dataset_steward|current_awareness|community_discussant|interdisciplinary_connector)-\d+$/)?.[1]
+  if (actorBloc !== vote.blocId) {
+    context.addIssue({
+      code: "custom",
+      message: "Synthetic voter actorId must identify the declared blocId.",
+      path: ["blocId"],
+    })
+  }
+})
 
 const corpusHealthSchema = z.object({
   status: z.enum(["live", "degraded"]),
@@ -98,6 +107,16 @@ const corpusHealthSchema = z.object({
   topAuthorConcentration: unitNumber,
   sampledAt: isoDateTime,
 }).strict()
+
+export const apiReceiptComponentsSchema = z.array(z.object({
+  signal: signalKeySchema,
+  rawScore: finiteNumber,
+  weight: unitNumber,
+  contribution: finiteNumber,
+}).strict()).length(5).refine(
+  (components) => new Set(components.map((component) => component.signal)).size === 5,
+  { message: "Receipt must contain one component for each ranking signal." },
+)
 
 const corpusProvenanceSchema = z.object({
   mode: z.literal("production_sourced_session_frozen"),
@@ -146,7 +165,7 @@ export const apiSessionPayloadSchema = z.object({
     totalDemoVoters: z.literal(25),
     corpusProvenance: corpusProvenanceSchema,
     voterProfiles: z.array(voterProfileSchema),
-    votes: z.array(z.discriminatedUnion("actorType", [reviewerVoteSchema, syntheticVoteSchema])),
+    votes: z.array(z.union([reviewerVoteSchema, apiSyntheticVoteSchema])),
   }).strict(),
 }).strict()
 
@@ -210,12 +229,7 @@ export const apiReceiptPayloadSchema = z.object({
     scoredAt: isoDateTime,
     aggregate: voteSummarySchema,
     reviewerBallotShare: unitNumber,
-    components: z.array(z.object({
-      signal: signalKeySchema,
-      rawScore: finiteNumber,
-      weight: unitNumber,
-      contribution: finiteNumber,
-    }).strict()).length(5),
+    components: apiReceiptComponentsSchema,
     topicRelevanceFormula: z.object({
       formulaApplied: z.boolean(),
       defaultTopicWeight: unitNumber,

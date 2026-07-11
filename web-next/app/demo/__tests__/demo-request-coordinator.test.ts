@@ -22,4 +22,20 @@ describe("DemoRequestCoordinator", () => {
     expect(secondRequest.signal.aborted).toBe(false)
     expect(secondRequest.isCurrent()).toBe(true)
   })
+
+  it("allows reuse after idempotent cancellation while every older request stays stale", () => {
+    const coordinator = new DemoRequestCoordinator()
+    const first = coordinator.start()
+    coordinator.cancel()
+    coordinator.cancel()
+    const second = coordinator.start()
+    const third = coordinator.start()
+
+    expect(first.isCurrent()).toBe(false)
+    expect(first.signal.aborted).toBe(true)
+    expect(second.isCurrent()).toBe(false)
+    expect(second.signal.aborted).toBe(true)
+    expect(third.isCurrent()).toBe(true)
+    expect(third.signal.aborted).toBe(false)
+  })
 })

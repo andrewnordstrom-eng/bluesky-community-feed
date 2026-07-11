@@ -8,7 +8,7 @@ const faqData = [
   {
     question: "What is Corgi and who is it for?",
     answer:
-      "Corgi is a Bluesky feed where a community can decide how posts get ranked. The current demo is read-only, but the product loop is simple: set ranking weights, apply them to the feed, and inspect why the order changed. It's for Bluesky communities that want more local context and less generic viral drift.",
+      "Corgi is a Bluesky feed where a community can decide how posts get ranked. The no-login demo lets you set shadow ranking weights, combine them with scripted community ballots, and inspect why the isolated order changed. It's for Bluesky communities that want more local context and less generic viral drift.",
   },
   {
     question: "What does inspectable ranking actually mean?",

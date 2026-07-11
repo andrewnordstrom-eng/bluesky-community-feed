@@ -18,7 +18,7 @@ export function CTASection() {
             Inspect the feed before you trust it.
           </h2>
           <p className="max-w-xl text-base font-medium leading-relaxed text-background/70 md:text-lg">
-            Start with the read-only demo, see why Corgi ranked the feed, then connect a Bluesky app password only when
+            Start with the no-login demo, change an isolated shadow policy, then connect a Bluesky app password only when
             you&rsquo;re ready to participate.
           </p>
         </div>
@@ -34,7 +34,7 @@ export function CTASection() {
         </div>
 
         <p className="text-xs font-medium text-background/50">
-          Read-only demo first &middot; app-password sign-in &middot; inspectable ranking
+          Interactive shadow demo &middot; app-password sign-in &middot; inspectable ranking
         </p>
       </div>
     </section>

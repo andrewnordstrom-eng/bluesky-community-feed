@@ -19,7 +19,7 @@ describe('Redis shadow demo store', () => {
     const store = new RedisDemoStore(redis);
     const session = storedSession();
 
-    await expect(store.createSession(session, 120, 50)).resolves.toBe(true);
+    await expect(store.createSession(session, 120, 50, 'create-1')).resolves.toBe(true);
 
     expect(evalCommand).toHaveBeenCalledTimes(2);
     expect(evalCommand.mock.calls[0]).toEqual(expect.arrayContaining([
@@ -27,10 +27,11 @@ describe('Redis shadow demo store', () => {
       'demo:sessions:active',
     ]));
     expect(evalCommand.mock.calls[1]).toEqual(expect.arrayContaining([
-      5,
+      6,
       'demo:session:demo-store-session',
       'demo:corpus:demo-store-corpus',
       'demo:sessions:active',
+      'demo:session-nonce:create-1',
     ]));
     expect(setex).toHaveBeenCalledTimes(2);
   });
@@ -79,6 +80,18 @@ describe('Redis shadow demo store', () => {
     await expect(store.readSession('partial')).rejects.toBeInstanceOf(DemoStoreCorruptionError);
   });
 
+  it('reads retry-safe session creation nonce mappings from Redis', async () => {
+    const get = vi.fn()
+      .mockResolvedValueOnce('demo-existing-session')
+      .mockResolvedValueOnce(null);
+    const store = new RedisDemoStore({ get } as unknown as Redis);
+
+    await expect(store.readSessionIdByClientNonce('known-nonce')).resolves.toBe('demo-existing-session');
+    await expect(store.readSessionIdByClientNonce('unknown-nonce')).resolves.toBeNull();
+    expect(get).toHaveBeenNthCalledWith(1, 'demo:session-nonce:known-nonce');
+    expect(get).toHaveBeenNthCalledWith(2, 'demo:session-nonce:unknown-nonce');
+  });
+
   it('connects a cold lazy client before issuing its first store command', async () => {
     let redisStatus = 'wait';
     const connect = vi.fn(async () => {
@@ -103,7 +116,7 @@ describe('Redis shadow demo store', () => {
     const redis = { eval: evalCommand } as unknown as Redis;
     const store = new RedisDemoStore(redis);
 
-    await expect(store.createSession(storedSession(), 120, 50)).rejects.toBeInstanceOf(
+    await expect(store.createSession(storedSession(), 120, 50, 'create-2')).rejects.toBeInstanceOf(
       DemoStoreUnavailableError
     );
   });
@@ -117,7 +130,7 @@ describe('Redis shadow demo store', () => {
     const zrem = vi.fn().mockResolvedValue(1);
     const store = new RedisDemoStore({ eval: evalCommand, setex, del, zrem } as unknown as Redis);
 
-    await expect(store.createSession(storedSession(), 120, 50)).rejects.toBeInstanceOf(
+    await expect(store.createSession(storedSession(), 120, 50, 'create-3')).rejects.toBeInstanceOf(
       DemoStoreUnavailableError
     );
     expect(evalCommand).toHaveBeenCalledTimes(1);
@@ -132,7 +145,7 @@ describe('Redis shadow demo store', () => {
     const zrem = vi.fn().mockResolvedValue(1);
     const store = new RedisDemoStore({ eval: evalCommand, setex, del, zrem } as unknown as Redis);
 
-    await expect(store.createSession(storedSession(), 120, 50)).rejects.toBeInstanceOf(
+    await expect(store.createSession(storedSession(), 120, 50, 'create-4')).rejects.toBeInstanceOf(
       DemoStoreUnavailableError
     );
     expect(evalCommand).toHaveBeenCalledTimes(1);
@@ -149,7 +162,7 @@ describe('Redis shadow demo store', () => {
     const zrem = vi.fn().mockResolvedValue(1);
     const store = new RedisDemoStore({ eval: evalCommand, setex, del, zrem } as unknown as Redis);
 
-    await expect(store.createSession(storedSession(), 120, 50)).rejects.toBeInstanceOf(
+    await expect(store.createSession(storedSession(), 120, 50, 'create-5')).rejects.toBeInstanceOf(
       DemoStoreUnavailableError
     );
     expect(del).toHaveBeenCalledWith(
@@ -187,9 +200,25 @@ describe('Redis shadow demo store', () => {
     const setex = vi.fn();
     const store = new RedisDemoStore({ eval: evalCommand, setex } as unknown as Redis);
 
-    await expect(store.createSession(storedSession(), 120, 50)).resolves.toBe(false);
+    await expect(store.createSession(storedSession(), 120, 50, 'create-6')).resolves.toBe(false);
     expect(setex).not.toHaveBeenCalled();
     expect(evalCommand).toHaveBeenCalledOnce();
+  });
+
+  it('rejects a duplicate creation nonce before publishing a second session', async () => {
+    // The first eval reserves a slot; the second is the authoritative create script.
+    const evalCommand = vi.fn().mockResolvedValueOnce(1).mockResolvedValueOnce(2);
+    const setex = vi.fn().mockResolvedValue('OK');
+    const del = vi.fn().mockResolvedValue(2);
+    const zrem = vi.fn().mockResolvedValue(1);
+    const store = new RedisDemoStore({ eval: evalCommand, setex, del, zrem } as unknown as Redis);
+
+    await expect(store.createSession(storedSession(), 120, 50, 'duplicate-create')).resolves.toBe(false);
+    expect(del).toHaveBeenCalledWith(
+      expect.stringMatching(/^demo:staging:.*:session$/),
+      expect.stringMatching(/^demo:staging:.*:corpus$/)
+    );
+    expect(zrem).toHaveBeenCalledWith('demo:sessions:active', 'demo-store-session');
   });
 
   it('cleans reservations when staged create records expire before publication', async () => {
@@ -199,7 +228,7 @@ describe('Redis shadow demo store', () => {
     const zrem = vi.fn().mockResolvedValue(1);
     const store = new RedisDemoStore({ eval: evalCommand, setex, del, zrem } as unknown as Redis);
 
-    await expect(store.createSession(storedSession(), 120, 50)).rejects.toBeInstanceOf(
+    await expect(store.createSession(storedSession(), 120, 50, 'create-7')).rejects.toBeInstanceOf(
       DemoStoreUnavailableError
     );
     expect(del).toHaveBeenCalled();
@@ -232,7 +261,7 @@ describe('Redis shadow demo store', () => {
       severity: 'degraded',
     }];
 
-    await expect(store.createSession(session, 120, 50)).rejects.toBeInstanceOf(
+    await expect(store.createSession(session, 120, 50, 'create-8')).rejects.toBeInstanceOf(
       DemoStoreCapacityError
     );
     expect(evalCommand).not.toHaveBeenCalled();
@@ -275,7 +304,7 @@ describe('Redis shadow demo store', () => {
   it('allows only the current lock owner to commit concurrent session state', async () => {
     const store = new MemoryDemoStore();
     const session = storedSession();
-    await expect(store.createSession(session, 120, 50)).resolves.toBe(true);
+    await expect(store.createSession(session, 120, 50, 'create-9')).resolves.toBe(true);
     await expect(store.acquireSessionLock(session.sessionId, 'writer-a', 15_000)).resolves.toBe(true);
     await expect(store.acquireSessionLock(session.sessionId, 'writer-b', 15_000)).resolves.toBe(false);
     const nextState = { ...session, phase: 'reviewer_voted' as const };
@@ -299,25 +328,39 @@ describe('Redis shadow demo store', () => {
     await expect(store.readSession(session.sessionId)).resolves.toMatchObject({ phase: 'reviewer_voted' });
   });
 
+  it('maps one memory-store creation nonce to one session', async () => {
+    const store = new MemoryDemoStore();
+    const first = storedSession();
+    const duplicate = storedSession();
+    duplicate.sessionId = 'demo-store-duplicate';
+    duplicate.corpusId = 'demo-store-duplicate-corpus';
+    duplicate.corpus.corpusId = duplicate.corpusId;
+
+    await expect(store.createSession(first, 120, 50, 'same-create')).resolves.toBe(true);
+    await expect(store.createSession(duplicate, 120, 50, 'same-create')).resolves.toBe(false);
+    await expect(store.readSessionIdByClientNonce('same-create')).resolves.toBe(first.sessionId);
+    await expect(store.readSession(duplicate.sessionId)).resolves.toBeNull();
+  });
+
   it('enforces memory-store capacity while evicting expired sessions', async () => {
     const store = new MemoryDemoStore();
     const first = storedSession();
     first.expiresAt = '2026-07-10T00:01:00.000Z';
-    await expect(store.createSession(first, 120, 1)).resolves.toBe(true);
+    await expect(store.createSession(first, 120, 1, 'create-10')).resolves.toBe(true);
 
     const blocked = storedSession();
     blocked.sessionId = 'demo-store-blocked';
     blocked.corpusId = 'demo-store-blocked-corpus';
     blocked.corpus.corpusId = blocked.corpusId;
     blocked.createdAt = '2026-07-10T00:00:30.000Z';
-    await expect(store.createSession(blocked, 120, 1)).resolves.toBe(false);
+    await expect(store.createSession(blocked, 120, 1, 'create-11')).resolves.toBe(false);
 
     const replacement = storedSession();
     replacement.sessionId = 'demo-store-replacement';
     replacement.corpusId = 'demo-store-replacement-corpus';
     replacement.corpus.corpusId = replacement.corpusId;
     replacement.createdAt = '2026-07-10T00:02:00.000Z';
-    await expect(store.createSession(replacement, 120, 1)).resolves.toBe(true);
+    await expect(store.createSession(replacement, 120, 1, 'create-12')).resolves.toBe(true);
     await expect(store.readSession(first.sessionId)).resolves.toBeNull();
   });
 

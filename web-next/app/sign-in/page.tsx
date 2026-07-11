@@ -42,7 +42,7 @@ export default function SignInPage() {
           <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
             <Button
               onClick={() => setOpen(true)}
-              className="bg-primary text-primary-foreground hover:bg-primary-dark rounded-full px-7 py-3 text-base font-medium shadow-[0_2px_8px_rgba(200,97,44,0.3)] transition-all"
+              className="bg-primary text-primary-foreground hover:bg-primary-dark rounded-full px-7 py-3 text-base font-medium shadow-[0_2px_8px_rgba(200,97,44,0.3)] transition-all focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             >
               Sign in with an app password
             </Button>

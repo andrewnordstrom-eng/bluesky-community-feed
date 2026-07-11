@@ -156,15 +156,15 @@ export function BlueskyOrderedFeed(props: BlueskyOrderedFeedProps) {
                           </div>
                         ) : null}
                         <div className="grid grid-cols-[1fr_1fr_1fr_auto] items-center gap-3 pt-3 text-[#6F869F]">
-                          <span className="inline-flex items-center gap-1.5 text-[13px]">
+                          <span className="inline-flex items-center gap-1.5 text-[13px]" aria-label={`${post.stats.replies} replies`}>
                             <MessageCircle className="h-[18px] w-[18px]" strokeWidth={1.8} aria-hidden="true" />
                             {post.stats.replies}
                           </span>
-                          <span className="inline-flex items-center gap-1.5 text-[13px]">
+                          <span className="inline-flex items-center gap-1.5 text-[13px]" aria-label={`${post.stats.reposts} reposts`}>
                             <Repeat2 className="h-[18px] w-[18px]" strokeWidth={1.8} aria-hidden="true" />
                             {post.stats.reposts}
                           </span>
-                          <span className="inline-flex items-center gap-1.5 text-[13px]">
+                          <span className="inline-flex items-center gap-1.5 text-[13px]" aria-label={`${post.stats.likes} likes`}>
                             <Heart className="h-[18px] w-[18px]" strokeWidth={1.8} aria-hidden="true" />
                             {post.stats.likes}
                           </span>

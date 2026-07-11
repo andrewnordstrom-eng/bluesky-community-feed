@@ -85,6 +85,7 @@ export interface ShadowDemoServiceDependencies {
 
 export interface CreateSessionRequest {
   communityId: ShadowDemoCommunityId;
+  clientNonce: string;
 }
 
 export interface CastVoteRequest {
@@ -135,7 +136,26 @@ export class ShadowDemoService {
     this.now = dependencies.now;
   }
 
+  private async replayCreatedSession(
+    clientNonce: string,
+    communityId: ShadowDemoCommunityId
+  ): Promise<ShadowDemoServiceResult<ShadowDemoSessionPayload> | null> {
+    const existingSessionId = await this.store.readSessionIdByClientNonce(clientNonce);
+    if (!existingSessionId) {
+      return null;
+    }
+    const replay = await this.getSession(existingSessionId);
+    if (replay.payload.session.community.id !== communityId) {
+      throw new DemoConflictError('Session creation nonce was already used for a different community');
+    }
+    return replay;
+  }
+
   async createSession(request: CreateSessionRequest): Promise<ShadowDemoServiceResult<ShadowDemoSessionPayload>> {
+    const existing = await this.replayCreatedSession(request.clientNonce, request.communityId);
+    if (existing) {
+      return existing;
+    }
     const now = this.now();
     const corpus = await this.loadCorpusForSession({
       communityId: request.communityId,
@@ -173,9 +193,14 @@ export class ShadowDemoService {
     const created = await this.store.createSession(
       state,
       ttlSecondsForState(state, now),
-      DEMO_MAX_ACTIVE_SESSIONS
+      DEMO_MAX_ACTIVE_SESSIONS,
+      request.clientNonce
     );
     if (!created) {
+      const replay = await this.replayCreatedSession(request.clientNonce, request.communityId);
+      if (replay) {
+        return replay;
+      }
       throw new DemoStoreCapacityError(
         `Shadow demo is at its ${DEMO_MAX_ACTIVE_SESSIONS}-session capacity; retry after an active session expires`
       );

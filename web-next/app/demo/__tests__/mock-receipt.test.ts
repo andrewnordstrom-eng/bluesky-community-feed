@@ -41,7 +41,28 @@ describe("mock receipt — frozen corpus only, honest math", () => {
         { epochId, postUri: "at://did:plc:not-in-corpus/app.bsky.feed.post/zzz" },
         signal(),
       ),
-    ).rejects.toThrow()
+    ).rejects.toThrow("not part of this demo session's frozen corpus")
+  })
+
+  it("rejects a receipt request for an epoch outside the session", async () => {
+    const { client, sessionId, advanced } = await driveFullFlow()
+    const postUri = publicOrder(advanced.payload.feedAfter)[0]
+
+    await expect(
+      client.getReceipt(sessionId, { epochId: "demo_epoch_unknown", postUri }, signal()),
+    ).rejects.toMatchObject({ kind: "stale_epoch" })
+  })
+
+  it("uses the specifically requested session epoch for receipt math", async () => {
+    const { client, sessionId, advanced } = await driveFullFlow()
+    const postUri = publicOrder(advanced.payload.feedBefore)[0]
+    const previousEpochId = advanced.payload.previousEpoch.id
+
+    const { payload } = await client.getReceipt(sessionId, { epochId: previousEpochId, postUri }, signal())
+
+    expect(payload.receipt.epochId).toBe(previousEpochId)
+    expect(payload.receipt.aggregate.weights).toEqual(advanced.payload.previousEpoch.weights)
+    expect(payload.receipt.previousRank).toBeNull()
   })
 
   it("refuses a receipt for a withheld (hidden) row", async () => {

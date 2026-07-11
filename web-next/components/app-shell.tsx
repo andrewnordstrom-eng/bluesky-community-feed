@@ -139,7 +139,11 @@ export function AppShell({ user = null, children }: AppShellProps) {
   }, [logout, logoutPending])
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
+    <div
+      className="min-h-screen flex flex-col bg-background"
+      inert={mobileMenuOpen ? true : undefined}
+      aria-hidden={mobileMenuOpen ? true : undefined}
+    >
       {/* ── Top bar ─────────────────────────────────────────────── */}
       <header className="sticky top-0 z-40 w-full border-b border-border bg-background/90 backdrop-blur-sm">
         {/* 3-column grid keeps the nav dead-center regardless of side widths. */}

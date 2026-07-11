@@ -10,6 +10,7 @@ describe("normalizePolicyWeight", () => {
     [1.2, 1],
     [Number.NaN, 0],
     [Number.POSITIVE_INFINITY, 0],
+    [Number.NEGATIVE_INFINITY, 0],
   ])("normalizes %s to %s", (value, expected) => {
     expect(normalizePolicyWeight(value)).toBe(expected)
   })

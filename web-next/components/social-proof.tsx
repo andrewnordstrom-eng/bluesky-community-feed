@@ -91,7 +91,7 @@ export function SocialProof() {
       <p className="mt-3 text-center text-xs font-medium text-foreground/50">
         Every ranked post shows its receipt &mdash;{" "}
         <Link href="/demo" className="text-primary hover:underline underline-offset-2">
-          inspect them in the read-only demo
+          inspect them in the no-login demo
         </Link>
         .
       </p>

@@ -293,6 +293,10 @@ function errorMessage(error: unknown): string {
   return String(error)
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
 function asString(value: unknown, field: string): string {
   if (typeof value === "string" && value.length > 0) {
     return value
@@ -400,6 +404,7 @@ function labelValuesFromLabels(labels: readonly AppViewLabel[] | undefined): rea
   }
 
   return labels
+    .filter(isRecord)
     .map((label) => label.val)
     .filter((value): value is string => typeof value === "string" && value.length > 0)
 }
@@ -492,12 +497,17 @@ export function normalizeAppViewFeed(response: AppViewFeedResponse): {
   readonly posts: readonly LiveDemoFeedPost[]
   readonly cursor: string | null
 } {
-  if (!Array.isArray(response.feed)) {
+  if (!isRecord(response) || !Array.isArray(response.feed)) {
     throw new LiveDemoDataError("Expected AppView feed response to include a feed array")
   }
 
   return {
-    posts: response.feed.map((item, index) => normalizeAppViewPost(item.post, index + 1)),
+    posts: response.feed.map((item, index) => {
+      if (!isRecord(item) || (item.post !== undefined && !isRecord(item.post))) {
+        throw new LiveDemoDataError(`Expected AppView feed item ${index + 1} to contain a post object`)
+      }
+      return normalizeAppViewPost(item.post as AppViewPostApi | undefined, index + 1)
+    }),
     cursor: asOptionalString(response.cursor),
   }
 }
@@ -547,9 +557,12 @@ export function topicBreakdownFromExplanation(explanation: PostExplanationRespon
 }
 
 function normalizeWeights(response: GovernanceWeightsResponse): LiveDemoWeights {
+  if (!isRecord(response)) {
+    throw new LiveDemoDataError("Expected governance weights response to be an object")
+  }
   const weights = response.weights
 
-  if (weights === undefined) {
+  if (!isRecord(weights)) {
     throw new LiveDemoDataError("Governance weights response is missing weights")
   }
 
@@ -569,35 +582,43 @@ function normalizeWeights(response: GovernanceWeightsResponse): LiveDemoWeights 
 }
 
 function normalizeStats(response: FeedStatsResponse): LiveDemoStats {
+  if (!isRecord(response)) {
+    throw new LiveDemoDataError("Expected transparency stats response to be an object")
+  }
+  const typedResponse = response as FeedStatsResponse
   return {
-    epochId: asNumber(response.epoch?.id, "epoch.id"),
-    totalPostsScored: asNumber(response.feed_stats?.total_posts_scored, "feed_stats.total_posts_scored"),
-    uniqueAuthors: asNumber(response.feed_stats?.unique_authors, "feed_stats.unique_authors"),
-    avgBridging: asNumber(response.feed_stats?.avg_bridging_score, "feed_stats.avg_bridging_score"),
-    avgEngagement: asNumber(response.feed_stats?.avg_engagement_score, "feed_stats.avg_engagement_score"),
-    medianBridging: asNumber(response.feed_stats?.median_bridging_score, "feed_stats.median_bridging_score"),
-    medianTotal: asNumber(response.feed_stats?.median_total_score, "feed_stats.median_total_score"),
-    votesThisEpoch: asNumber(response.governance?.votes_this_epoch, "governance.votes_this_epoch"),
+    epochId: asNumber(typedResponse.epoch?.id, "epoch.id"),
+    totalPostsScored: asNumber(typedResponse.feed_stats?.total_posts_scored, "feed_stats.total_posts_scored"),
+    uniqueAuthors: asNumber(typedResponse.feed_stats?.unique_authors, "feed_stats.unique_authors"),
+    avgBridging: asNumber(typedResponse.feed_stats?.avg_bridging_score, "feed_stats.avg_bridging_score"),
+    avgEngagement: asNumber(typedResponse.feed_stats?.avg_engagement_score, "feed_stats.avg_engagement_score"),
+    medianBridging: asNumber(typedResponse.feed_stats?.median_bridging_score, "feed_stats.median_bridging_score"),
+    medianTotal: asNumber(typedResponse.feed_stats?.median_total_score, "feed_stats.median_total_score"),
+    votesThisEpoch: asNumber(typedResponse.governance?.votes_this_epoch, "governance.votes_this_epoch"),
   }
 }
 
 function normalizeExplanation(response: PostExplanationResponse): LiveDemoExplanation {
+  if (!isRecord(response)) {
+    throw new LiveDemoDataError("Expected post explanation response to be an object")
+  }
+  const typedResponse = response as PostExplanationResponse
   return {
-    postUri: asString(response.post_uri, "post_uri"),
-    epochId: asNumber(response.epoch_id, "epoch_id"),
-    totalScore: asNumber(response.total_score, "total_score"),
-    rank: asNumber(response.rank, "rank"),
-    components: scoreComponentsFromExplanation(response),
+    postUri: asString(typedResponse.post_uri, "post_uri"),
+    epochId: asNumber(typedResponse.epoch_id, "epoch_id"),
+    totalScore: asNumber(typedResponse.total_score, "total_score"),
+    rank: asNumber(typedResponse.rank, "rank"),
+    components: scoreComponentsFromExplanation(typedResponse),
     counterfactual: {
-      pureEngagementRank: asNumber(response.counterfactual?.pure_engagement_rank, "counterfactual.pure_engagement_rank"),
+      pureEngagementRank: asNumber(typedResponse.counterfactual?.pure_engagement_rank, "counterfactual.pure_engagement_rank"),
       communityGovernedRank: asNumber(
-        response.counterfactual?.community_governed_rank,
+        typedResponse.counterfactual?.community_governed_rank,
         "counterfactual.community_governed_rank",
       ),
-      difference: asNumber(response.counterfactual?.difference, "counterfactual.difference"),
+      difference: asNumber(typedResponse.counterfactual?.difference, "counterfactual.difference"),
     },
-    scoredAt: asString(response.scored_at, "scored_at"),
-    topicBreakdown: topicBreakdownFromExplanation(response),
+    scoredAt: asString(typedResponse.scored_at, "scored_at"),
+    topicBreakdown: topicBreakdownFromExplanation(typedResponse),
   }
 }
 

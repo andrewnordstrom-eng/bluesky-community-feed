@@ -65,7 +65,10 @@ export function createHttpShadowDemoClient(): ShadowDemoClient {
     async createSession(request, signal) {
       const sessionEnvelope = await requestApi<ApiSessionPayload>(
         SHADOW_DEMO_ENDPOINTS.createSession,
-        { method: "POST", body: JSON.stringify({ communityId: request.communityId }) },
+        {
+          method: "POST",
+          body: JSON.stringify({ communityId: request.communityId, clientNonce: request.clientNonce }),
+        },
         signal,
         SHADOW_DEMO_CORPUS_REQUEST_TIMEOUT_MS,
         apiSessionEnvelopeSchema,
@@ -258,12 +261,17 @@ async function requestApi<TPayload>(
   }, timeoutMs)
 
   try {
-    const response = await fetch(apiUrl(path), {
-      ...init,
-      signal: controller.signal,
-      cache: "no-store",
-      headers: { "content-type": "application/json", ...init.headers },
-    })
+    let response: Response
+    try {
+      response = await fetch(apiUrl(path), {
+        ...init,
+        signal: controller.signal,
+        cache: "no-store",
+        headers: { "content-type": "application/json", ...init.headers },
+      })
+    } catch {
+      throw new Error("The shadow demo service is temporarily unavailable.")
+    }
     const body = await response.json().catch(() => null) as unknown
     if (!response.ok) {
       const message = body !== null && typeof body === "object" && "message" in body
@@ -532,7 +540,7 @@ function movementFor(delta: number | null): { delta: number; label: "new" | "sam
   return { delta, label: delta > 0 ? "up" : "down" }
 }
 
-function hiddenReason(reason: string): "no_unauthenticated" | "hide_label" | "adult_label" | "deleted_or_unavailable" | "missing_text" {
+export function hiddenReason(reason: string): "no_unauthenticated" | "hide_label" | "adult_label" | "deleted_or_unavailable" | "missing_text" {
   if (reason.startsWith("Hidden by Bluesky public-view label !no-unauthenticated")) return "no_unauthenticated"
   if (reason.startsWith("Hidden by Bluesky public-view label !hide")) return "hide_label"
   if (reason.startsWith("Hidden by Bluesky adult-content label ")) return "adult_label"
@@ -541,7 +549,7 @@ function hiddenReason(reason: string): "no_unauthenticated" | "hide_label" | "ad
     reason === "Post unavailable from Bluesky public AppView"
     || reason === "Post metadata unavailable from Bluesky public AppView"
   ) return "deleted_or_unavailable"
-  throw new Error("Shadow demo API returned an unsupported hidden-post reason.")
+  return "deleted_or_unavailable"
 }
 
 function mapReceipt(receipt: ApiReceiptPayload["receipt"], generatedAt: string): ShadowDemoReceipt {

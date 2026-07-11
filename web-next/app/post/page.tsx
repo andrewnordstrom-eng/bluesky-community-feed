@@ -14,6 +14,7 @@ import { Skeleton, EmptyState, ErrorCard } from "@/components/ui/state-kit"
 import { Button } from "@/components/ui/button"
 import { transparencyApi } from "@/lib/api/client"
 import { parseBlueskyUrlOrAtUri } from "@/lib/post-uri"
+import { hasCompleteScoreComponents } from "@/lib/post-explanation"
 import { SIGNAL_KEYS } from "@/lib/signals"
 
 /* ─── Signal metadata ──────────────────────────────────── */
@@ -299,6 +300,9 @@ function PostExplanationInner() {
   })
 
   const explanation = postQuery.data
+  const hasCompleteComponents = explanation
+    ? hasCompleteScoreComponents(explanation.components)
+    : false
 
   const derivedState: PageState = !uri
     ? "missing-uri"
@@ -309,7 +313,7 @@ function PostExplanationInner() {
           ? "null-explanation"
           : "error"
         : explanation
-          ? "loaded"
+          ? hasCompleteComponents ? "loaded" : "error"
           : "loading"
 
   // Dev-only override lets the state switcher below preview each chrome; in
@@ -329,7 +333,7 @@ function PostExplanationInner() {
   }
 
   /* Build component array for ScoreBreakdown (only when loaded) */
-  const scoreComponents: ScoreComponent[] = explanation
+  const scoreComponents: ScoreComponent[] = explanation && hasCompleteComponents
     ? SIGNAL_KEYS.map((key) => {
       const c = explanation.components[key]
       return {
@@ -343,7 +347,7 @@ function PostExplanationInner() {
     : []
 
   /* Build radar signals */
-  const radarSignals: RadarSignal[] = explanation
+  const radarSignals: RadarSignal[] = explanation && hasCompleteComponents
     ? Object.entries(explanation.components).map(([key, c]) => ({
         key,
         label: SIGNAL_META[key]?.label ?? key,

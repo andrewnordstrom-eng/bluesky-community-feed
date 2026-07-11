@@ -537,6 +537,14 @@ export function createMockShadowDemoClient(options: MockShadowDemoClientOptions 
     async getReceipt(sessionId: string, request: ShadowDemoReceiptRequest, signal: AbortSignal) {
       throwIfAborted(signal)
       const state = requireSession(sessionId)
+      const isPublished = state.publishedEpoch?.id === request.epochId
+      const isOpen = state.openEpoch.id === request.epochId
+      if (!isPublished && !isOpen) {
+        throw new ShadowDemoClientError("That epoch is not part of this demo session.", "stale_epoch")
+      }
+      const selectedEpoch = isPublished && state.publishedEpoch !== null
+        ? state.publishedEpoch
+        : state.openEpoch
       const entry = state.corpus.find((candidate) => candidate.post.uri === request.postUri)
       if (entry === undefined) {
         throw new ShadowDemoClientError("That post is not part of this demo session's frozen corpus.", "unknown_post")
@@ -544,18 +552,18 @@ export function createMockShadowDemoClient(options: MockShadowDemoClientOptions 
       if (entry.hidden) {
         throw new ShadowDemoClientError("This row is withheld from the public view and has no public receipt.", "unknown_post")
       }
-      const weights = appliedWeights(state)
+      const weights = selectedEpoch.weights
       const order = rankedIds(state.corpus, weights)
       const visibleRank = order.indexOf(entry.id) + 1
-      const previousRank = state.publishedEpoch ? (state.baselineRankById[entry.id] ?? null) : null
-      const { items } = rankCorpus(state.corpus, weights, state.publishedEpoch ? state.baselineRankById : null)
+      const previousRank = isPublished ? (state.baselineRankById[entry.id] ?? null) : null
+      const { items } = rankCorpus(state.corpus, weights, isPublished ? state.baselineRankById : null)
       const feedItem = items.find((item) => item.visibility === "public" && item.post.uri === request.postUri)
       const score = feedItem && feedItem.visibility === "public" ? feedItem.score : null
       if (score === null) {
         throw new ShadowDemoClientError("No score available for that post.", "unknown_post")
       }
 
-      const topicIntent = state.reviewerVote?.topicIntent ?? BASELINE_TOPIC_INTENT
+      const topicIntent = selectedEpoch.topicIntent
       const agentsOnlyWeights = state.agentVotes.length > 0
         ? trimmedVoterAverage(state.agentVotes.map((vote) => vote.weights))
         : BASELINE_WEIGHTS
@@ -574,9 +582,9 @@ export function createMockShadowDemoClient(options: MockShadowDemoClientOptions 
         aggregate: {
           weights,
           topicIntent,
-          voteSummary: state.publishedEpoch?.voteSummary ?? state.openEpoch.voteSummary,
+          voteSummary: selectedEpoch.voteSummary,
         },
-        reviewerBallotShare: state.reviewerVote === null ? 0 : 1 / (1 + state.agentVotes.length),
+        reviewerBallotShare: selectedEpoch.voteSummary.reviewerBallotShare,
         components: score.components,
         topicBreakdown,
         topicRelevanceFormula: {
@@ -610,7 +618,7 @@ export function createMockShadowDemoClient(options: MockShadowDemoClientOptions 
           postId: entry.id,
           visibleRank,
           currentWeights: weights,
-          priorWeights: BASELINE_WEIGHTS,
+          priorWeights: isPublished ? state.openEpoch.weights : BASELINE_WEIGHTS,
           agentsOnlyWeights,
         }),
         generatedAt: iso(),

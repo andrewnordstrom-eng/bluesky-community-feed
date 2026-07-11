@@ -6,6 +6,7 @@ import {
   demoIdempotencyKeyPrefix,
   demoLockKeyPrefix,
   demoSessionKeyPrefix,
+  demoSessionNonceKeyPrefix,
   demoSharedCorpusKeyPrefix,
   demoStagingKeyPrefix,
 } from '../src/demo/store.js';
@@ -20,6 +21,7 @@ const DEPLOY_FILE = new URL('../.github/workflows/deploy.yml', import.meta.url).
 describe('shadow demo isolation guards', () => {
   it('keeps Redis state inside the demo namespace', () => {
     expect(demoSessionKeyPrefix()).toBe('demo:session:');
+    expect(demoSessionNonceKeyPrefix()).toBe('demo:session-nonce:');
     expect(demoCorpusKeyPrefix()).toBe('demo:corpus:');
     expect(demoSharedCorpusKeyPrefix()).toBe('demo:corpus:current:');
     expect(demoIdempotencyKeyPrefix()).toBe('demo:idempotency:');

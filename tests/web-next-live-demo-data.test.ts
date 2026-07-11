@@ -178,6 +178,25 @@ describe('web-next live demo data helpers', () => {
     });
   });
 
+  it('rejects malformed AppView top-level and item shapes', () => {
+    expect(() => normalizeAppViewFeed(null as never)).toThrow(LiveDemoDataError);
+    expect(() => normalizeAppViewFeed({ feed: [null] } as never)).toThrow(LiveDemoDataError);
+    expect(() => normalizeAppViewFeed({ feed: [{ post: 'not-an-object' }] } as never)).toThrow(LiveDemoDataError);
+  });
+
+  it('selects no receipt post when every AppView row is hidden', () => {
+    const normalized = normalizeAppViewFeed({
+      feed: [{
+        post: {
+          author: { handle: 'hidden.bsky.social', labels: [{ val: '!no-unauthenticated' }] },
+          record: { text: 'Withheld text.' },
+        },
+      }],
+    });
+
+    expect(selectReceiptPost(normalized.posts)).toBeNull();
+  });
+
   it('does not expose upstream error bodies in public demo errors', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response('token=super-secret-and-stack-trace', {

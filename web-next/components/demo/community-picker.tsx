@@ -17,7 +17,9 @@ export function CommunityPicker({
 }) {
   // The demo runs on the single live community; the others are still previews.
   const activeId = SHADOW_DEMO_COMMUNITY_IDS.find((id) => !DEMO_COMMUNITIES[id].isPreview)
-  if (activeId === undefined) return null
+  if (activeId === undefined) {
+    throw new Error("Shadow demo requires one active community configuration.")
+  }
   const { community } = DEMO_COMMUNITIES[activeId]
 
   return (

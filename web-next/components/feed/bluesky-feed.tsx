@@ -97,15 +97,15 @@ export function BlueskyPostCard({
         <p className={`mt-0.5 leading-5 text-[#0B0F14] ${compact ? "text-[14px]" : "text-[15px]"}`}>{text}</p>
         {showActions && !compact ? (
           <div className="flex flex-wrap items-center gap-x-7 gap-y-1 pt-3 text-[13px] text-[#6F869F]">
-            {hasReplyCount ? <span className="inline-flex items-center gap-1.5 tabular-nums">
+            {hasReplyCount ? <span className="inline-flex items-center gap-1.5 tabular-nums" aria-label={`${formatCount(replyCount)} replies`}>
               <MessageCircle className="h-[18px] w-[18px]" strokeWidth={1.8} aria-hidden="true" />
               {formatCount(replyCount)}
             </span> : null}
-            {hasRepostCount ? <span className="inline-flex items-center gap-1.5 tabular-nums">
+            {hasRepostCount ? <span className="inline-flex items-center gap-1.5 tabular-nums" aria-label={`${formatCount(repostCount)} reposts`}>
               <Repeat2 className="h-[18px] w-[18px]" strokeWidth={1.8} aria-hidden="true" />
               {formatCount(repostCount)}
             </span> : null}
-            {hasLikeCount ? <span className="inline-flex items-center gap-1.5 tabular-nums">
+            {hasLikeCount ? <span className="inline-flex items-center gap-1.5 tabular-nums" aria-label={`${formatCount(likeCount)} likes`}>
               <Heart className="h-[18px] w-[18px]" strokeWidth={1.8} aria-hidden="true" />
               {formatCount(likeCount)}
             </span> : null}

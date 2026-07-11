@@ -20,12 +20,12 @@ const entries: readonly ChangelogEntry[] = [
   {
     date: "Snapshot",
     tag: "Live",
-    text: `The read-only demo keeps current snapshot metadata, timestamp, active epoch, and anonymized receipt rows together in one inspectable view.`,
+    text: `The no-login demo freezes a live-scored comparison corpus, applies isolated shadow governance, and keeps each ranking receipt inspectable.`,
   },
   {
     date: "Receipt",
     tag: "Proof",
-    text: `Rank #${LIVE_RANK_ONE_EXPLANATION.rank} keeps component weights, weighted scores, and counterfactual rank movement while raw identifiers stay redacted.`,
+    text: `Rank #${LIVE_RANK_ONE_EXPLANATION.rank} keeps component weights, weighted scores, provenance, and counterfactual rank movement in one receipt.`,
   },
   {
     date: "Epoch",

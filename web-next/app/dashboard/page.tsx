@@ -160,7 +160,7 @@ export default function DashboardPage() {
   const subscriberCount = currentEpoch?.subscriber_count
   const participation =
     voteCount != null && subscriberCount && subscriberCount > 0
-      ? Math.round((voteCount / subscriberCount) * 100)
+      ? Math.min(100, Math.round((voteCount / subscriberCount) * 100))
       : null
 
   const metrics = stats?.metrics
@@ -238,6 +238,12 @@ export default function DashboardPage() {
           <div className="rounded-2xl border border-border bg-card px-5 py-4">
             <Skeleton className="h-16 w-full" />
           </div>
+        ) : statsQuery.isError ? (
+          <ErrorCard
+            heading="Feed health unavailable"
+            body="We couldn't load the current feed and governance metrics."
+            onRetry={() => void statsQuery.refetch()}
+          />
         ) : stats && (participation != null || feed || metrics) ? (
           <section
             aria-label="Feed health"
