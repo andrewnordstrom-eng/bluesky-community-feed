@@ -1,0 +1,8 @@
+import '../web-next/app/demo/__tests__/demo-copy.test'
+import '../web-next/app/demo/__tests__/demo-request-coordinator.test'
+import '../web-next/app/demo/__tests__/http-client.test'
+import '../web-next/app/demo/__tests__/mock-client-phase-order.test'
+import '../web-next/app/demo/__tests__/mock-ranking.test'
+import '../web-next/app/demo/__tests__/mock-receipt.test'
+import '../web-next/app/demo/__tests__/topic-policy.test'
+import '../web-next/components/ui/__tests__/policy-bar.test'

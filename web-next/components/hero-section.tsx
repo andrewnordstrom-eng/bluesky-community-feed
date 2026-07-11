@@ -1,13 +1,13 @@
 import React from "react"
+import { ChevronDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
-import { LIVE_METRICS_SNAPSHOT } from "@/lib/live-metrics-snapshot"
 import { DemoCTA } from "@/components/landing-ctas"
 
 export function HeroSection() {
   return (
     <section
-      className="flex flex-col items-center text-center relative mx-auto overflow-hidden pt-14 pb-32 md:pt-16 md:pb-44 lg:pt-20 lg:pb-52 px-4 md:px-6
+      className="flex min-h-[88svh] flex-col items-center justify-center text-center relative mx-auto overflow-hidden pt-16 pb-24 md:pt-20 md:pb-28 px-4 md:px-6
          w-full"
     >
       {/* SVG Background — warm cream grid */}
@@ -122,51 +122,41 @@ export function HeroSection() {
         </svg>
       </div>
 
-      {/* Eyebrow — GitHub star badge */}
-      <a
-        href="https://github.com/andrewnordstrom-eng/bluesky-community-feed"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="relative z-10 mb-6 md:mb-7 inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-border bg-card/80 hover:bg-card transition-colors text-xs font-medium text-foreground/70 hover:text-foreground shadow-sm"
-      >
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-          <path d="M8 .25a7.75 7.75 0 1 0 0 15.5A7.75 7.75 0 0 0 8 .25ZM1.75 8a6.25 6.25 0 1 1 12.5 0A6.25 6.25 0 0 1 1.75 8Zm6.56-3.44a.75.75 0 0 0-1.06 1.06L8.44 6.81l-1.19 1.19a.75.75 0 1 0 1.06 1.06l1.75-1.75a.75.75 0 0 0 0-1.06L8.31 4.56Z" />
-        </svg>
-        <span>Open source on GitHub</span>
-        <span className="h-3.5 w-px bg-border mx-0.5" aria-hidden="true" />
-        <svg width="12" height="12" viewBox="0 0 16 16" fill="hsl(var(--primary))" aria-hidden="true">
-          <path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.75.75 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25Z" />
-        </svg>
-        <span className="font-mono text-foreground/60">View code</span>
-      </a>
+      <div className="relative z-10 mb-6 md:mb-7 inline-flex items-center gap-2 rounded-full border border-border bg-card/80 px-3.5 py-1.5 text-xs font-medium text-foreground/70 shadow-sm">
+        <span className="h-2 w-2 rounded-full bg-primary" aria-hidden="true" />
+        <span>Community-ranked Bluesky feed</span>
+      </div>
 
       {/* Hero copy */}
-      <div className="relative z-10 space-y-4 md:space-y-5 mb-7 md:mb-8 max-w-md md:max-w-[560px] lg:max-w-[680px] px-4">
+      <div className="relative z-10 space-y-4 md:space-y-5 mb-7 md:mb-8 max-w-md md:max-w-[620px] lg:max-w-[780px] px-4">
         <h1 className="text-foreground font-display text-3xl md:text-4xl lg:text-[62px] font-bold leading-tight lg:leading-[1.08] tracking-normal text-balance">
-          Your community.{" "}
-          <span className="text-primary">Your algorithm.</span>
+          Make Bluesky care about what{" "}
+          <span className="text-primary">your community cares about.</span>
         </h1>
         <p className="text-foreground/60 text-base md:text-base lg:text-lg font-medium leading-relaxed max-w-lg mx-auto">
-          Corgi is a Bluesky feed with no hidden algorithm. Your community votes on how posts rank, and anyone can see exactly why a post showed up.
+          Corgi lets a community tune what rises first, then shows the weights, scores, and receipts behind the order.
         </p>
       </div>
 
       {/* CTAs */}
       <div className="relative z-10 flex flex-col sm:flex-row items-center gap-3">
         <DemoCTA />
-        <Link href="#features-section">
-          <Button variant="ghost" className="text-foreground/70 hover:text-foreground px-5 py-3 rounded-full font-medium text-base">
+        <Button asChild variant="ghost" className="text-foreground/70 hover:text-foreground px-5 py-3 rounded-full font-medium text-base">
+          <Link href="/how-it-works">
             See how ranking works &rarr;
-          </Button>
-        </Link>
+          </Link>
+        </Button>
       </div>
       {/* Trust line */}
       <p className="relative z-10 mt-3 text-xs text-foreground/40 font-medium">
-        Read-only demo first &middot; account connection stays optional
+        No-login demo first &middot; connect Bluesky when ready &middot; inspectable ranking
       </p>
-      <p className="relative z-10 mt-2 text-xs text-foreground/40 font-medium">
-        Live snapshot, {LIVE_METRICS_SNAPSHOT.collectedAtLabel}: {LIVE_METRICS_SNAPSHOT.scoredPosts.toLocaleString("en-US")} scored posts &middot; {LIVE_METRICS_SNAPSHOT.uniqueAuthors.toLocaleString("en-US")} authors &middot; epoch {LIVE_METRICS_SNAPSHOT.epochId} active
-      </p>
+
+      {/* Scroll cue — invites the visitor down into the interactive demo. */}
+      <div className="pointer-events-none absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 flex-col items-center gap-1.5 text-foreground/45">
+        <span className="text-[10px] font-mono uppercase tracking-[0.22em]">See it in action</span>
+        <ChevronDown className="h-4 w-4 motion-safe:animate-bounce" aria-hidden="true" />
+      </div>
     </section>
   )
 }

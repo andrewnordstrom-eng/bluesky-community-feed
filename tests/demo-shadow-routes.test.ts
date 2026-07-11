@@ -56,6 +56,73 @@ describe('shadow demo routes', () => {
     await app.close();
   });
 
+  it('replays session creation when a client retries the same nonce', async () => {
+    const app = buildTestApp();
+    const loadCorpus = vi.fn(async () => demoCorpus());
+    const service = new ShadowDemoService({
+      store: new MemoryDemoStore(),
+      loadCorpus,
+      now: () => NOW,
+    });
+    registerShadowDemoRoutes(app, service, null);
+    const request = {
+      method: 'POST' as const,
+      url: '/api/demo/sessions',
+      payload: { communityId: 'open_science_builders', clientNonce: 'lost-response-retry' },
+    };
+
+    const first = await app.inject(request);
+    const replay = await app.inject(request);
+
+    expect(first.statusCode).toBe(200);
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json().payload.session.sessionId).toBe(first.json().payload.session.sessionId);
+    expect(loadCorpus).toHaveBeenCalledOnce();
+    await app.close();
+  });
+
+  it('requires a bounded client nonce for retry-safe session creation', async () => {
+    const app = buildTestApp();
+    registerShadowDemoRoutes(app, new ShadowDemoService({
+      store: new MemoryDemoStore(),
+      loadCorpus: async () => demoCorpus(),
+      now: () => NOW,
+    }), null);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/demo/sessions',
+      payload: { communityId: 'open_science_builders' },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().message).toContain('clientNonce: Required');
+    await app.close();
+  });
+
+  it('deduplicates concurrent creation requests carrying the same nonce', async () => {
+    const app = buildTestApp();
+    const loadCorpus = vi.fn(async () => demoCorpus());
+    registerShadowDemoRoutes(app, new ShadowDemoService({
+      store: new MemoryDemoStore(),
+      loadCorpus,
+      now: () => NOW,
+    }), null);
+    const request = {
+      method: 'POST' as const,
+      url: '/api/demo/sessions',
+      payload: { communityId: 'open_science_builders', clientNonce: 'concurrent-retry' },
+    };
+
+    const [first, second] = await Promise.all([app.inject(request), app.inject(request)]);
+
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    expect(second.json().payload.session.sessionId).toBe(first.json().payload.session.sessionId);
+    expect(loadCorpus).toHaveBeenCalledOnce();
+    await app.close();
+  });
+
   it('runs the reviewer vote, deterministic synthetic voters, epoch advance, feed, and receipt flow', async () => {
     const app = buildTestApp();
     const service = new ShadowDemoService({
@@ -68,7 +135,7 @@ describe('shadow demo routes', () => {
     const createResponse = await app.inject({
       method: 'POST',
       url: '/api/demo/sessions',
-      payload: { communityId: 'open_science_builders' },
+      payload: { communityId: 'open_science_builders', clientNonce: 'full-flow' },
     });
     expect(createResponse.statusCode).toBe(200);
     const createBody = createResponse.json() as ShadowDemoEnvelope<ShadowDemoSessionPayload>;
@@ -280,7 +347,7 @@ describe('shadow demo routes', () => {
     const createResponse = await app.inject({
       method: 'POST',
       url: '/api/demo/sessions',
-      payload: { communityId: 'open_science_builders' },
+      payload: { communityId: 'open_science_builders', clientNonce: 'receipt-rank-flow' },
     });
     const sessionId = createResponse.json().payload.session.sessionId;
     const feedResponse = await app.inject({
@@ -312,7 +379,7 @@ describe('shadow demo routes', () => {
     const createResponse = await app.inject({
       method: 'POST',
       url: '/api/demo/sessions',
-      payload: { communityId: 'open_science_builders' },
+      payload: { communityId: 'open_science_builders', clientNonce: 'epoch-limit-flow' },
     });
     const sessionId = createResponse.json().payload.session.sessionId;
     let currentEpochId = createResponse.json().payload.session.currentEpochId as string;
@@ -389,12 +456,12 @@ describe('shadow demo routes', () => {
       app.inject({
         method: 'POST',
         url: '/api/demo/sessions',
-        payload: { communityId: 'open_science_builders' },
+        payload: { communityId: 'open_science_builders', clientNonce: 'shared-corpus-first' },
       }),
       app.inject({
         method: 'POST',
         url: '/api/demo/sessions',
-        payload: { communityId: 'open_science_builders' },
+        payload: { communityId: 'open_science_builders', clientNonce: 'shared-corpus-second' },
       }),
     ]);
 
@@ -426,7 +493,7 @@ describe('shadow demo routes', () => {
     const response = await app.inject({
       method: 'POST',
       url: '/api/demo/sessions',
-      payload: { communityId: 'open_science_builders', refreshCorpus: true },
+      payload: { communityId: 'open_science_builders', clientNonce: 'invalid-refresh', refreshCorpus: true },
     });
     expect(response.statusCode).toBe(400);
     expect(response.json().message).toContain('Unrecognized key');
@@ -446,6 +513,7 @@ describe('shadow demo routes', () => {
     try {
       const sessionPromise = service.createSession({
         communityId: 'open_science_builders',
+        clientNonce: 'slow-build-session',
       });
       setTimeout(() => {
         void store.writeSharedCorpus('open_science_builders', demoCorpus(), 300);
@@ -479,6 +547,7 @@ describe('shadow demo routes', () => {
     try {
       const sessionPromise = service.createSession({
         communityId: 'open_science_builders',
+        clientNonce: 'stalled-build-session',
       });
       const conflict = expect(sessionPromise).rejects.toThrow(/corpus is warming/);
 
@@ -509,10 +578,12 @@ describe('shadow demo routes', () => {
     try {
       const firstSession = service.createSession({
         communityId: 'open_science_builders',
+        clientNonce: 'long-build-first',
       });
       await vi.advanceTimersByTimeAsync(16_000);
       const secondSession = service.createSession({
         communityId: 'open_science_builders',
+        clientNonce: 'long-build-second',
       });
       const secondConflict = expect(secondSession).rejects.toThrow(/corpus is warming/);
 
@@ -538,7 +609,7 @@ describe('shadow demo routes', () => {
     const createResponse = await app.inject({
       method: 'POST',
       url: '/api/demo/sessions',
-      payload: { communityId: 'open_science_builders' },
+      payload: { communityId: 'open_science_builders', clientNonce: 'idempotency-header-flow' },
     });
     const sessionId = createResponse.json().payload.session.sessionId;
     const epochId = createResponse.json().payload.session.currentEpochId;
@@ -577,7 +648,7 @@ describe('shadow demo routes', () => {
     const createResponse = await app.inject({
       method: 'POST',
       url: '/api/demo/sessions',
-      payload: { communityId: 'open_science_builders' },
+      payload: { communityId: 'open_science_builders', clientNonce: 'malformed-header-flow' },
     });
     const sessionId = createResponse.json().payload.session.sessionId;
     const epochId = createResponse.json().payload.session.currentEpochId;
@@ -615,7 +686,7 @@ describe('shadow demo routes', () => {
     const createResponse = await app.inject({
       method: 'POST',
       url: '/api/demo/sessions',
-      payload: { communityId: 'open_science_builders' },
+      payload: { communityId: 'open_science_builders', clientNonce: 'payload-limit-flow' },
     });
     const sessionId = createResponse.json().payload.session.sessionId;
     const epochId = createResponse.json().payload.session.currentEpochId;
@@ -640,7 +711,7 @@ describe('shadow demo routes', () => {
     const oversized = await app.inject({
       method: 'POST',
       url: '/api/demo/sessions',
-      payload: { communityId: 'open_science_builders', padding: 'x'.repeat(17 * 1024) },
+      payload: { communityId: 'open_science_builders', clientNonce: 'oversized-body', padding: 'x'.repeat(17 * 1024) },
     });
     expect(oversized.statusCode).toBe(413);
     await app.close();
@@ -659,14 +730,14 @@ describe('shadow demo routes', () => {
       const response = await app.inject({
         method: 'POST',
         url: '/api/demo/sessions',
-        payload: { communityId: 'open_science_builders' },
+        payload: { communityId: 'open_science_builders', clientNonce: `capacity-${index}` },
       });
       expect(response.statusCode).toBe(200);
     }
     const capped = await app.inject({
       method: 'POST',
       url: '/api/demo/sessions',
-      payload: { communityId: 'open_science_builders' },
+      payload: { communityId: 'open_science_builders', clientNonce: 'capacity-overflow' },
     });
     expect(capped.statusCode).toBe(503);
     expect(capped.headers['retry-after']).toBe('60');
@@ -690,7 +761,7 @@ describe('shadow demo routes', () => {
     const response = await app.inject({
       method: 'POST',
       url: '/api/demo/sessions',
-      payload: { communityId: 'open_science_builders' },
+      payload: { communityId: 'open_science_builders', clientNonce: 'unavailable-storage' },
     });
     expect(response.statusCode).toBe(503);
     expect(response.json().message).toContain('production Corgi feed is unaffected');
@@ -717,7 +788,7 @@ describe('shadow demo routes', () => {
     const response = await app.inject({
       method: 'POST',
       url: '/api/demo/sessions',
-      payload: { communityId: 'open_science_builders' },
+      payload: { communityId: 'open_science_builders', clientNonce: 'rate-limited' },
     });
 
     expect(response.statusCode).toBe(429);
@@ -751,7 +822,7 @@ describe('shadow demo routes', () => {
     const response = await app.inject({
       method: 'POST',
       url: '/api/demo/sessions',
-      payload: { communityId: 'open_science_builders' },
+      payload: { communityId: 'open_science_builders', clientNonce: 'rate-limit-storage' },
     });
 
     expect(response.statusCode).toBe(503);
@@ -771,7 +842,7 @@ describe('shadow demo routes', () => {
     const createResponse = await app.inject({
       method: 'POST',
       url: '/api/demo/sessions',
-      payload: { communityId: 'open_science_builders' },
+      payload: { communityId: 'open_science_builders', clientNonce: 'receipt-outside-flow' },
     });
     const sessionId = createResponse.json().payload.session.sessionId;
     const epochId = createResponse.json().payload.session.currentEpochId;

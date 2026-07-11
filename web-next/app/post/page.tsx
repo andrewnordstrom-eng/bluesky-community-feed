@@ -6,12 +6,16 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { useQuery } from "@tanstack/react-query"
 import axios from "axios"
 import { AppShell } from "@/components/app-shell"
+import { Container } from "@/components/ui/layout"
 import { ScoreBreakdown, type ScoreComponent } from "@/components/ui/score-breakdown"
 import { ScoreRadar, type RadarSignal } from "@/components/ui/score-radar"
-import { WeightBar } from "@/components/ui/weight-bar"
+import { PolicyBar, PolicyLegend } from "@/components/ui/policy-bar"
 import { Skeleton, EmptyState, ErrorCard } from "@/components/ui/state-kit"
 import { Button } from "@/components/ui/button"
 import { transparencyApi } from "@/lib/api/client"
+import { parseBlueskyUrlOrAtUri } from "@/lib/post-uri"
+import { hasCompleteScoreComponents } from "@/lib/post-explanation"
+import { SIGNAL_KEYS } from "@/lib/signals"
 
 /* ─── Signal metadata ──────────────────────────────────── */
 
@@ -272,6 +276,17 @@ function PostExplanationInner() {
   const searchParams = useSearchParams()
   const uri = searchParams.get("uri") ?? ""
   const [copied, setCopied] = useState(false)
+  const [inputUri, setInputUri] = useState("")
+  const [inputError, setInputError] = useState<string | null>(null)
+  const explain = () => {
+    try {
+      const normalized = parseBlueskyUrlOrAtUri(inputUri)
+      setInputError(null)
+      router.push(`/post?uri=${encodeURIComponent(normalized)}`)
+    } catch (error) {
+      setInputError(error instanceof Error ? error.message : "That post reference is not supported.")
+    }
+  }
 
   // Real explanation fetch. Disabled until a URI is present. A 404 from the
   // backend means the post has no score in the active round (or there is no
@@ -285,6 +300,9 @@ function PostExplanationInner() {
   })
 
   const explanation = postQuery.data
+  const hasCompleteComponents = explanation
+    ? hasCompleteScoreComponents(explanation.components)
+    : false
 
   const derivedState: PageState = !uri
     ? "missing-uri"
@@ -295,7 +313,7 @@ function PostExplanationInner() {
           ? "null-explanation"
           : "error"
         : explanation
-          ? "loaded"
+          ? hasCompleteComponents ? "loaded" : "error"
           : "loading"
 
   // Dev-only override lets the state switcher below preview each chrome; in
@@ -315,18 +333,21 @@ function PostExplanationInner() {
   }
 
   /* Build component array for ScoreBreakdown (only when loaded) */
-  const scoreComponents: ScoreComponent[] = explanation
-    ? Object.entries(explanation.components).map(([key, c]) => ({
+  const scoreComponents: ScoreComponent[] = explanation && hasCompleteComponents
+    ? SIGNAL_KEYS.map((key) => {
+      const c = explanation.components[key]
+      return {
         key,
         label: SIGNAL_META[key]?.label ?? key,
         raw_score: c.raw_score,
         weight: c.weight,
         weighted: c.weighted,
-      }))
+      }
+    })
     : []
 
   /* Build radar signals */
-  const radarSignals: RadarSignal[] = explanation
+  const radarSignals: RadarSignal[] = explanation && hasCompleteComponents
     ? Object.entries(explanation.components).map(([key, c]) => ({
         key,
         label: SIGNAL_META[key]?.label ?? key,
@@ -344,7 +365,7 @@ function PostExplanationInner() {
 
   return (
     <AppShell>
-      <div className="max-w-4xl mx-auto px-5 py-8 flex flex-col gap-6">
+      <Container width="stage" className="py-8 flex flex-col gap-6">
 
         {/* ── Back nav + URI header ──────────────────────── */}
         <div className="flex flex-col gap-3">
@@ -402,14 +423,46 @@ function PostExplanationInner() {
           )}
         </div>
 
-        {/* ── State: missing URI ─────────────────────────── */}
+        {/* ── State: missing URI — this IS the explain tool ─── */}
         {pageState === "missing-uri" && (
-          <div className="rounded-xl border border-border bg-card py-16">
-            <EmptyState
-              heading="No post URI provided"
-              body="Paste an AT-URI or Bluesky post URL into the Explain a ranking field on the overview page."
-              action={{ label: "Back to overview", onClick: () => router.push("/dashboard") }}
-            />
+          <div className="rounded-2xl border border-border bg-card p-6 sm:p-8">
+            <h2 className="font-display text-lg font-bold text-foreground">Explain a ranking</h2>
+            <p className="mt-2 max-w-xl text-sm leading-relaxed text-foreground/60">
+              Paste an AT-URI or Bluesky post URL to see how it was scored — which signals lifted it and which held it
+              back — whenever Corgi has a receipt for it.
+            </p>
+            <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-start">
+              <div className="min-w-0 flex-1">
+                <input
+                  type="text"
+                  value={inputUri}
+                  onChange={(e) => {
+                    setInputUri(e.target.value)
+                    setInputError(null)
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") explain()
+                  }}
+                  placeholder="at://did:plc:… or https://bsky.app/profile/did:plc:…"
+                  aria-label="Post AT-URI or Bluesky URL"
+                  aria-invalid={inputError !== null}
+                  aria-describedby={inputError ? "post-reference-error" : undefined}
+                  className="h-10 w-full min-w-0 rounded-lg border border-border bg-background px-3.5 font-mono text-sm text-foreground placeholder:text-foreground/45 transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+                {inputError ? (
+                  <p id="post-reference-error" role="alert" className="mt-2 text-xs leading-relaxed text-tongue-foreground">
+                    {inputError}
+                  </p>
+                ) : null}
+              </div>
+              <Button
+                disabled={!inputUri.trim()}
+                onClick={explain}
+                className="h-10 rounded-lg bg-primary px-5 text-sm text-primary-foreground shadow-[0_2px_8px_rgba(200,97,44,0.25)] transition-all hover:bg-primary-dark disabled:opacity-40"
+              >
+                Explain
+              </Button>
+            </div>
           </div>
         )}
 
@@ -548,15 +601,8 @@ function PostExplanationInner() {
 
             {/* Governance weights used */}
             <SectionCard title="Governance weights applied" annotation={`Round #${explanation.epoch_id}`}>
-              <div className="flex flex-col gap-4">
-                {Object.entries(explanation.governance_weights).map(([key, val]) => (
-                  <WeightBar
-                    key={key}
-                    label={SIGNAL_META[key]?.label ?? key}
-                    value={val}
-                  />
-                ))}
-              </div>
+              <PolicyBar weights={explanation.governance_weights} height={12} />
+              <PolicyLegend weights={explanation.governance_weights} className="mt-3" />
               <p className="text-xs text-foreground/40 italic mt-4 border-t border-border/50 pt-3">
                 These are the community-voted weights applied at the time this post was scored.
               </p>
@@ -607,7 +653,7 @@ function PostExplanationInner() {
           </>
         )}
 
-      </div>
+      </Container>
     </AppShell>
   )
 }

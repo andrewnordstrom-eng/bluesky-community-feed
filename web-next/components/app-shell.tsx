@@ -2,15 +2,17 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import Image from "next/image"
+import { BrandLink } from "@/components/brand-link"
 import { Button } from "@/components/ui/button"
 import { SignInDialog } from "./sign-in-dialog"
 import { useAuth } from "@/components/auth-provider"
 import { useQuery } from "@tanstack/react-query"
 import { adminApi } from "@/lib/api/admin"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { createPortal } from "react-dom"
 import { cn } from "@/lib/utils"
+import { CONTAINER_WIDTH, GUTTER } from "@/components/ui/layout"
+import { X } from "lucide-react"
 
 /** Legacy shape once passed in by pages. Live auth now drives the user area;
  *  the prop is retained only for compat (e.g. its optional `isAdmin` flag,
@@ -56,9 +58,11 @@ function AnimatedMenuIcon({ open }: { open: boolean }) {
 }
 
 const NAV_ITEMS = [
-  { label: "Overview",  href: "/dashboard" },
-  { label: "Vote",      href: "/vote" },
-  { label: "Ledger",    href: "/history" },
+  { label: "Overview",   href: "/dashboard" },
+  { label: "Vote",       href: "/vote" },
+  { label: "Proposals",  href: "/proposals" },
+  { label: "Ledger",     href: "/history" },
+  { label: "Settings",   href: "/settings" },
 ]
 
 export function AppShell({ user = null, children }: AppShellProps) {
@@ -66,6 +70,10 @@ export function AppShell({ user = null, children }: AppShellProps) {
   const { session, isAuthenticated, logout } = useAuth()
   const [signInOpen, setSignInOpen] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [logoutPending, setLogoutPending] = useState(false)
+  const [logoutError, setLogoutError] = useState<string | null>(null)
+  const mobileMenuButtonRef = useRef<HTMLButtonElement>(null)
+  const mobileMenuRef = useRef<HTMLDivElement>(null)
 
   // Prefer live auth state over the legacy `user` prop for the signed-in area.
   const authedUser = isAuthenticated && session ? { handle: session.handle, did: session.did } : null
@@ -99,31 +107,51 @@ export function AppShell({ user = null, children }: AppShellProps) {
     return () => { document.body.style.overflow = "" }
   }, [mobileMenuOpen, signInOpen])
 
+  useEffect(() => {
+    if (!mobileMenuOpen) return
+
+    mobileMenuRef.current?.querySelector<HTMLElement>("a, button")?.focus()
+
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return
+      event.preventDefault()
+      setMobileMenuOpen(false)
+      mobileMenuButtonRef.current?.focus()
+    }
+
+    document.addEventListener("keydown", closeOnEscape)
+    return () => document.removeEventListener("keydown", closeOnEscape)
+  }, [mobileMenuOpen])
+
+  const handleLogout = useCallback(async () => {
+    if (logoutPending) return
+
+    setLogoutPending(true)
+    setLogoutError(null)
+    try {
+      await logout()
+      setMobileMenuOpen(false)
+    } catch {
+      setLogoutError("Sign out failed. Your session is still active; please try again.")
+    } finally {
+      setLogoutPending(false)
+    }
+  }, [logout, logoutPending])
+
   return (
     <div className="min-h-screen flex flex-col bg-background">
       {/* ── Top bar ─────────────────────────────────────────────── */}
       <header className="sticky top-0 z-40 w-full border-b border-border bg-background/90 backdrop-blur-sm">
-        <div className="max-w-7xl mx-auto flex items-center justify-between h-14 px-5">
+        {/* 3-column grid keeps the nav dead-center regardless of side widths. */}
+        <div className={cn("mx-auto w-full grid grid-cols-[1fr_auto_1fr] items-center h-14", CONTAINER_WIDTH.content, GUTTER)}>
 
           {/* Brand mark */}
-          <Link
-            href="/dashboard"
-            aria-label="Corgi overview"
-            className="flex items-center gap-1.5 shrink-0"
-          >
-            <span className="font-display font-bold text-2xl text-foreground tracking-tight">Corgi</span>
-            <Image
-              src="/images/corgi-icon.svg"
-              alt=""
-              width={34}
-              height={24}
-              className="w-[34px] h-6 brightness-0"
-              aria-hidden="true"
-            />
-          </Link>
+          <div className="justify-self-start">
+            <BrandLink href="/dashboard" ariaLabel="Corgi dashboard" />
+          </div>
 
           {/* Primary nav */}
-          <nav className="hidden md:flex items-center gap-0.5" aria-label="Main navigation">
+          <nav className="hidden md:flex items-center gap-0.5 justify-self-center" aria-label="Main navigation">
             {NAV_ITEMS.map((item) => {
               const active = pathname === item.href || pathname.startsWith(item.href + "/")
               return (
@@ -157,7 +185,7 @@ export function AppShell({ user = null, children }: AppShellProps) {
           </nav>
 
           {/* Right side — auth state + hamburger */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 justify-self-end">
             {authedUser ? (
               /* Logged-in state */
               <div className="flex items-center gap-2">
@@ -167,10 +195,12 @@ export function AppShell({ user = null, children }: AppShellProps) {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => { logout().catch(() => {}) }}
+                  onClick={() => { void handleLogout() }}
+                  disabled={logoutPending}
+                  aria-busy={logoutPending}
                   className="hidden sm:flex text-foreground/55 hover:text-foreground text-xs"
                 >
-                  Sign out
+                  {logoutPending ? "Signing out..." : "Sign out"}
                 </Button>
               </div>
             ) : (
@@ -194,6 +224,7 @@ export function AppShell({ user = null, children }: AppShellProps) {
 
             {/* Hamburger button — mobile only */}
             <button
+              ref={mobileMenuButtonRef}
               onClick={() => setMobileMenuOpen((v) => !v)}
               aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
               aria-expanded={mobileMenuOpen}
@@ -209,7 +240,11 @@ export function AppShell({ user = null, children }: AppShellProps) {
       {/* ── Mobile nav portal ────────────────────────────────────── */}
       {typeof window !== "undefined" && mobileMenuOpen && createPortal(
         <div
+          ref={mobileMenuRef}
           id="app-mobile-menu"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Application navigation"
           className="fixed top-14 inset-x-0 bottom-0 z-40 md:hidden bg-background/95 supports-[backdrop-filter]:bg-background/80 backdrop-blur-lg border-t border-border flex flex-col overflow-hidden"
         >
           <div
@@ -255,11 +290,14 @@ export function AppShell({ user = null, children }: AppShellProps) {
                 <>
                   <span className="px-4 text-xs font-mono text-foreground/45">@{authedUser.handle}</span>
                   <button
-                    onClick={() => { setMobileMenuOpen(false); logout().catch(() => {}) }}
+                    onClick={() => { void handleLogout() }}
+                    disabled={logoutPending}
+                    aria-busy={logoutPending}
                     className="px-4 py-3 text-sm font-medium text-foreground/60 hover:text-foreground text-left rounded-xl hover:bg-accent/60 transition-colors"
                   >
-                    Sign out
+                    {logoutPending ? "Signing out..." : "Sign out"}
                   </button>
+                  {logoutError ? <p role="alert" className="px-4 text-sm text-destructive">{logoutError}</p> : null}
                 </>
               ) : (
                 <>
@@ -284,9 +322,30 @@ export function AppShell({ user = null, children }: AppShellProps) {
       )}
 
       {/* ── Page content ────────────────────────────────────────── */}
-      <main className="flex-1">
+      <main
+        className="flex-1"
+        inert={mobileMenuOpen ? true : undefined}
+        aria-hidden={mobileMenuOpen ? true : undefined}
+      >
         {children}
       </main>
+
+      {logoutError && !mobileMenuOpen ? (
+        <div
+          role="alert"
+          className="fixed bottom-4 right-4 z-50 flex max-w-sm items-start gap-3 rounded-lg border border-destructive/30 bg-background px-4 py-3 text-sm text-destructive shadow-lg"
+        >
+          <p>{logoutError}</p>
+          <button
+            type="button"
+            onClick={() => setLogoutError(null)}
+            aria-label="Dismiss sign-out error"
+            className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-destructive/70 hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive"
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </div>
+      ) : null}
 
       <SignInDialog open={signInOpen} onOpenChange={setSignInOpen} />
     </div>

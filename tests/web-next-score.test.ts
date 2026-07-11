@@ -29,11 +29,11 @@ describe('web-next score helpers', () => {
   });
 
   it('keeps homepage receipt score formatting on the shared helper', () => {
-    const bentoContent = readRepoFile('web-next/components/bento-section.tsx');
+    const modalityContent = readRepoFile('web-next/components/modality-preview.tsx');
     const dashboardContent = readRepoFile('web-next/components/dashboard-preview.tsx');
 
-    expect(bentoContent).not.toContain('function formatScore');
-    expect(bentoContent).toContain('formatSignedScore(LIVE_RANK_ONE_EXPLANATION.totalScore)');
+    expect(modalityContent).not.toContain('function formatScore');
+    expect(modalityContent).toContain('formatSignedScore(LIVE_RANK_ONE_EXPLANATION.totalScore)');
     expect(dashboardContent).not.toContain('totalScorePrefix');
     expect(dashboardContent).toContain('formatSignedScore(LIVE_RANK_ONE_EXPLANATION.totalScore)');
   });

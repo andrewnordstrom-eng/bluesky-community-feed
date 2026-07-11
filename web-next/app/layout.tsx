@@ -20,7 +20,7 @@ const _ibmPlexMono = IBM_Plex_Mono({
 export const metadata: Metadata = {
   title: "Corgi — Your community runs the feed.",
   description:
-    "Corgi is a Bluesky feed with no hidden algorithm. Your community votes on how posts rank, and anyone can see exactly why a post showed up.",
+    "Corgi is a community-governed Bluesky feed with inspectable ranking. Bluesky shows the ordered posts and Corgi shows the receipt.",
 }
 
 export default function RootLayout({
@@ -29,7 +29,10 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className="bg-background">
+    // suppressHydrationWarning: next-themes writes the theme class + color-scheme
+    // onto <html> on the client, which intentionally differs from SSR. Required by
+    // next-themes; shallow (one level), so real hydration bugs elsewhere still warn.
+    <html lang="en" className="bg-background" suppressHydrationWarning>
       <body
         className={`${_plusJakartaSans.variable} ${_inter.variable} ${_ibmPlexMono.variable} font-sans antialiased`}
       >

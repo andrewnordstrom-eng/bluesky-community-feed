@@ -2,22 +2,15 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
 import { useQuery } from "@tanstack/react-query"
 import { AppShell } from "@/components/app-shell"
-import { WeightBar } from "@/components/ui/weight-bar"
+import { Container } from "@/components/ui/layout"
+import { PolicyBar, PolicyLegend } from "@/components/ui/policy-bar"
 import { StatusChip } from "@/components/ui/status-chip"
-import { StatClusterSkeleton, WeightsSkeleton, EmptyState, ErrorCard, Skeleton } from "@/components/ui/state-kit"
+import { WeightsSkeleton, EmptyState, ErrorCard, Skeleton } from "@/components/ui/state-kit"
 import { Button } from "@/components/ui/button"
+import { SIGNAL_KEYS, SIGNAL_LABELS, type SignalKey } from "@/lib/signals"
 import { transparencyApi, weightsApi, type EpochResponse } from "@/lib/api/client"
-
-const WEIGHT_LABELS: Record<string, string> = {
-  recency: "Recency",
-  engagement: "Engagement",
-  bridging: "Bridging",
-  source_diversity: "Source diversity",
-  relevance: "Relevance",
-}
 
 /* ─── Round-diff derivation ────────────────────────────────
  * The API has no dedicated round-diff endpoint, so we derive it from the two
@@ -27,7 +20,9 @@ interface RoundDiff {
   current_round: number
   previous_round: number
   voter_count: number
-  weight_changes: { key: string; before: number; after: number; delta: number }[]
+  current_weights: EpochResponse["weights"]
+  previous_weights: EpochResponse["weights"]
+  weight_changes: { key: SignalKey; before: number; after: number; delta: number }[]
   keywords_added: { include: string[]; exclude: string[] }
   keywords_removed: { include: string[]; exclude: string[] }
 }
@@ -37,14 +32,13 @@ function deriveRoundDiff(epochs?: EpochResponse[]): RoundDiff | null {
   const sorted = [...epochs].sort((a, b) => b.id - a.id)
   const curr = sorted[0]
   const prev = sorted[1]
-  const keys = ["recency", "engagement", "bridging", "source_diversity", "relevance"] as const
-  const weight_changes = keys
+  const weight_changes = SIGNAL_KEYS
     .map((key) => {
       const before = prev.weights[key]
       const after = curr.weights[key]
       return { key, before, after, delta: after - before }
     })
-    .filter((wc) => Math.abs(wc.delta) > 0.001)
+    .filter((wc) => Math.abs(Math.round(wc.delta * 100)) >= 1)
 
   const currInc = curr.content_rules?.include_keywords ?? []
   const prevInc = prev.content_rules?.include_keywords ?? []
@@ -55,6 +49,8 @@ function deriveRoundDiff(epochs?: EpochResponse[]): RoundDiff | null {
     current_round: curr.id,
     previous_round: prev.id,
     voter_count: curr.vote_count,
+    current_weights: curr.weights,
+    previous_weights: prev.weights,
     weight_changes,
     keywords_added: {
       include: currInc.filter((w) => !prevInc.includes(w)),
@@ -67,69 +63,68 @@ function deriveRoundDiff(epochs?: EpochResponse[]): RoundDiff | null {
   }
 }
 
-/* ─── Sub-components ───────────────────────────────────── */
+/* ─── Small pieces ─────────────────────────────────────── */
 
-function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
-  return (
-    <div className="rounded-xl border border-border bg-card p-5 flex flex-col gap-1">
-      <span className="text-xs font-medium text-foreground/50 uppercase tracking-wide">{label}</span>
-      <span className="text-2xl font-mono font-bold text-foreground tabular-nums">{value}</span>
-      {sub && <span className="text-xs text-foreground/45 font-mono">{sub}</span>}
-    </div>
-  )
+function Eyebrow({ children }: { children: React.ReactNode }) {
+  return <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-foreground/45">{children}</p>
 }
 
 function DeltaChip({ delta }: { delta: number }) {
   const isPos = delta > 0
   return (
-    <span className={`inline-flex items-center gap-0.5 text-xs font-mono font-semibold px-1.5 py-0.5 rounded-md
-      ${isPos ? "bg-success/10 text-success" : "bg-tongue/15 text-tongue-foreground"}`}>
-      {isPos ? "+" : ""}{(delta * 100).toFixed(0)}pp
+    <span
+      className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 font-mono text-[11px] font-semibold tabular-nums ${
+        isPos ? "bg-success/10 text-success" : "bg-tongue/15 text-tongue-foreground"
+      }`}
+    >
+      {isPos ? "+" : "−"}
+      {Math.abs(Math.round(delta * 100))} pts
     </span>
   )
 }
 
-function KeywordChip({ word, variant }: { word: string; variant: "add" | "remove" }) {
+/** A content-rule change. Color encodes the rule TYPE (boost vs hide), not the
+ *  direction — a newly *excluded* keyword must never read as a green "+". A
+ *  rule that was dropped shows struck-through and neutral. */
+function KeywordChip({ word, rule, removed }: { word: string; rule: "include" | "exclude"; removed: boolean }) {
+  if (removed) {
+    return (
+      <span
+        className="inline-flex items-center rounded-full border border-border bg-background px-2.5 py-0.5 font-mono text-xs text-foreground/45 line-through"
+        title={`No longer ${rule === "include" ? "boosting" : "hiding"} “${word}”`}
+      >
+        {word}
+      </span>
+    )
+  }
+  const isInclude = rule === "include"
   return (
-    <span className={`inline-flex items-center gap-1 text-xs font-mono px-2.5 py-0.5 rounded-full border
-      ${variant === "add"
-        ? "bg-success/10 border-success/25 text-success"
-        : "bg-tongue/15 border-tongue/25 text-tongue-foreground line-through"
-      }`}>
-      {variant === "add" ? "+" : "−"}{word}
+    <span
+      className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 font-mono text-xs ${
+        isInclude ? "border-success/25 bg-success/10 text-success" : "border-tongue/25 bg-tongue/15 text-tongue-foreground"
+      }`}
+      title={`Now ${isInclude ? "boosting" : "hiding"} “${word}”`}
+    >
+      {isInclude ? "+" : "−"}
+      {word}
     </span>
   )
 }
 
-function SectionHeader({ label, action }: { label: string; action?: React.ReactNode }) {
+/** One number in the governance strip — quality/effect, never raw volume. */
+function MetricCell({ value, label, sub }: { value: string; label: string; sub?: string }) {
   return (
-    <div className="flex items-start justify-between gap-2 mb-4 flex-wrap">
-      <h2 className="text-sm font-semibold text-foreground/55 uppercase tracking-widest">{label}</h2>
-      {action && <div className="flex-shrink-0">{action}</div>}
+    <div className="flex flex-col">
+      <span className="font-display text-xl font-extrabold text-foreground tabular-nums">{value}</span>
+      <span className="text-[12px] text-foreground/55">{label}</span>
+      {sub && <span className="mt-0.5 text-[11px] text-foreground/45">{sub}</span>}
     </div>
   )
 }
-
-function ProofRow({ icon, text }: { icon: React.ReactNode; text: string }) {
-  return (
-    <div className="flex items-start gap-3">
-      <span className="mt-0.5 flex-shrink-0 text-primary">{icon}</span>
-      <p className="text-sm text-foreground/70 leading-relaxed">{text}</p>
-    </div>
-  )
-}
-
-const CheckIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-    <path d="M3 8l3.5 3.5 6.5-7" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"/>
-  </svg>
-)
 
 /* ─── Page ─────────────────────────────────────────────── */
 
 export default function DashboardPage() {
-  const router = useRouter()
-  const [explainUri, setExplainUri] = useState("")
   const [lastUpdated] = useState(() => new Date())
 
   const statsQuery = useQuery({
@@ -138,8 +133,8 @@ export default function DashboardPage() {
     retry: false,
   })
   const auditQuery = useQuery({
-    queryKey: ["transparency", "audit", 8],
-    queryFn: () => transparencyApi.getAuditLog({ limit: 8 }),
+    queryKey: ["transparency", "audit", 6],
+    queryFn: () => transparencyApi.getAuditLog({ limit: 6 }),
     retry: false,
   })
   const epochQuery = useQuery({
@@ -162,267 +157,266 @@ export default function DashboardPage() {
   const roundId = stats?.epoch.id ?? currentEpoch?.id
   const roundPhase = stats?.epoch.status ?? currentEpoch?.phase ?? currentEpoch?.status
   const voteCount = stats?.governance.votes_this_epoch ?? currentEpoch?.vote_count
+  const subscriberCount = currentEpoch?.subscriber_count
+  const participation =
+    voteCount != null && subscriberCount && subscriberCount > 0
+      ? Math.min(100, Math.round((voteCount / subscriberCount) * 100))
+      : null
+
+  const metrics = stats?.metrics
+  const feed = stats?.feed_stats
 
   return (
     <AppShell>
-      <div className="max-w-5xl mx-auto px-5 py-10 flex flex-col gap-10">
-
-        {/* ── Page header ──────────────────────────────────── */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-2.5">
-              <h1 className="font-display text-2xl font-bold text-foreground tracking-tight">
+      <Container as="main" width="stage" className="flex flex-col gap-10 py-10 md:py-12">
+        {/* ── Hero: the community weight mix, focal ──────────── */}
+        <section aria-label="Active community policy" className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="font-display text-2xl font-extrabold tracking-tight text-foreground md:text-3xl">
                 Transparency overview
               </h1>
               {roundPhase && <StatusChip phase={roundPhase} />}
             </div>
             <p className="text-sm text-foreground/55">
-              {roundId != null ? `Round #${roundId}` : "Round —"} · {voteCount ?? 0} votes ·{" "}
+              {roundId != null ? `Round #${roundId}` : "Round —"} · {voteCount ?? 0} community votes ·{" "}
               <span className="font-mono text-xs">
                 Updated {lastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
               </span>
             </p>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <Button asChild variant="outline" size="sm"
-              className="border-border text-foreground/70 hover:text-foreground hover:bg-biscuit text-xs rounded-full">
-              <Link href="/vote">Vote now</Link>
-            </Button>
-            <Button asChild size="sm"
-              className="bg-primary text-primary-foreground hover:bg-primary-dark text-xs rounded-full shadow-[0_2px_8px_rgba(200,97,44,0.3)] transition-all">
-              <a href="https://bsky.app" target="_blank" rel="noopener noreferrer">Live feed ↗</a>
-            </Button>
-          </div>
-        </div>
 
-        {/* ── Stat cluster ────────────────────────────────── */}
-        <section aria-label="Feed statistics">
-          {statsQuery.isLoading ? (
-            <StatClusterSkeleton />
-          ) : statsQuery.isError || !stats ? (
-            <ErrorCard heading="Overview unavailable" body="We couldn't load feed statistics." onRetry={() => statsQuery.refetch()} />
-          ) : (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <StatCard label="Posts scored" value={stats.feed_stats.total_posts_scored.toLocaleString()} sub={`Round #${stats.epoch.id}`} />
-              <StatCard label="Unique authors" value={stats.feed_stats.unique_authors.toLocaleString()} />
-              <StatCard label="Community votes" value={stats.governance.votes_this_epoch.toLocaleString()} sub="this round" />
-              <StatCard label="Median total score" value={stats.feed_stats.median_total_score.toFixed(2)} sub={`avg bridging ${stats.feed_stats.avg_bridging_score.toFixed(2)}`} />
+            <div className="mt-1">
+              {epochQuery.isLoading ? (
+                <WeightsSkeleton />
+              ) : epochQuery.isError || !currentEpoch ? (
+                <div className="rounded-2xl border border-dashed border-border bg-card/60 px-5 py-6 text-sm text-foreground/55">
+                  The active weight mix isn&rsquo;t available right now. It appears here once a governance round is live.
+                </div>
+              ) : (
+                <>
+                  <p className="mb-2.5 max-w-xl text-[15px] leading-relaxed text-foreground/60">
+                    Five signals decide the feed order. This is the mix the community&rsquo;s votes have settled on.
+                  </p>
+                  <PolicyBar weights={currentEpoch.weights} height={14} />
+                  <PolicyLegend weights={currentEpoch.weights} className="mt-3" />
+                </>
+              )}
             </div>
-          )}
+          </div>
+
+          {/* Get-involved card — mirrors the hero card on the public overview */}
+          <div className="flex flex-col justify-between gap-5 rounded-2xl border border-primary/20 bg-primary/[0.04] p-5">
+            <div>
+              <Eyebrow>Get involved</Eyebrow>
+              <p className="mt-2 text-sm leading-relaxed text-foreground/65">
+                The weights are set entirely by community votes. Cast or change yours before the round closes.
+              </p>
+            </div>
+            <div className="flex flex-col gap-2.5">
+              <Button
+                asChild
+                className="rounded-full bg-primary text-primary-foreground shadow-[0_2px_8px_rgba(200,97,44,0.25)] hover:bg-primary-dark"
+              >
+                <Link href="/vote">Vote now</Link>
+              </Button>
+              <a
+                href="https://bsky.app"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-md text-center text-[13px] font-semibold text-primary hover:text-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              >
+                See the live feed ↗
+              </a>
+            </div>
+          </div>
         </section>
 
-        {/* ── Feed health strip ────────────────────────────── */}
-        {stats?.metrics && (
-          <section aria-label="Feed health metrics">
-            <SectionHeader label="Feed health" />
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="rounded-xl border border-border bg-card p-5 flex flex-col gap-1">
-                <span className="text-xs text-foreground/50 uppercase tracking-wide font-medium">Author concentration</span>
-                <span className="text-xl font-mono font-bold text-foreground">{stats.metrics.author_gini != null ? stats.metrics.author_gini.toFixed(2) : "—"}</span>
-                <span className="text-xs text-foreground/45">Gini coefficient · lower = more diverse</span>
+        {/* ── Governance-forward numbers strip ───────────────
+             Quality + effect, not raw volume: participation, feed quality, and
+             how far the ranked feed diverges from naive baselines. */}
+        {statsQuery.isLoading ? (
+          <div className="rounded-2xl border border-border bg-card px-5 py-4">
+            <Skeleton className="h-16 w-full" />
+          </div>
+        ) : statsQuery.isError ? (
+          <ErrorCard
+            heading="Feed health unavailable"
+            body="We couldn't load the current feed and governance metrics."
+            onRetry={() => void statsQuery.refetch()}
+          />
+        ) : stats && (participation != null || feed || metrics) ? (
+          <section
+            aria-label="Feed health"
+            className="flex flex-col gap-4 rounded-2xl border border-border bg-card px-5 py-4 sm:flex-row sm:items-center sm:gap-8"
+          >
+            {participation != null && (
+              <div className="min-w-[200px] flex-shrink-0">
+                <div className="flex items-baseline justify-between">
+                  <span className="font-display text-2xl font-extrabold tabular-nums text-foreground">
+                    {voteCount}
+                    <span className="text-base font-semibold text-foreground/40"> / {subscriberCount}</span>
+                  </span>
+                  <span className="font-mono text-sm font-semibold text-primary">{participation}%</span>
+                </div>
+                <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-biscuit">
+                  <div className="h-full rounded-full bg-primary/70" style={{ width: `${participation}%` }} />
+                </div>
+                <p className="mt-1.5 text-[11px] text-foreground/45">members voted · each vote counts equally</p>
               </div>
-              <div className="rounded-xl border border-border bg-card p-5 flex flex-col gap-1">
-                <span className="text-xs text-foreground/50 uppercase tracking-wide font-medium">vs. Chronological</span>
-                <span className="text-xl font-mono font-bold text-foreground">{stats.metrics.vs_chronological_overlap != null ? `${(stats.metrics.vs_chronological_overlap * 100).toFixed(0)}%` : "—"}</span>
-                <span className="text-xs text-foreground/45">Overlap with time-only feed</span>
-              </div>
-              <div className="rounded-xl border border-border bg-card p-5 flex flex-col gap-1">
-                <span className="text-xs text-foreground/50 uppercase tracking-wide font-medium">vs. Engagement</span>
-                <span className="text-xl font-mono font-bold text-foreground">{stats.metrics.vs_engagement_overlap != null ? `${(stats.metrics.vs_engagement_overlap * 100).toFixed(0)}%` : "—"}</span>
-                <span className="text-xs text-foreground/45">Overlap with engagement-only feed</span>
-              </div>
+            )}
+            {participation != null && <div className="hidden w-px self-stretch bg-border/60 sm:block" />}
+            <div className="grid flex-1 grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3">
+              {feed && (
+                <MetricCell value={feed.median_total_score.toFixed(2)} label="Median feed score" sub="quality of ranked posts" />
+              )}
+              {metrics?.vs_chronological_overlap != null && (
+                <MetricCell
+                  value={`${Math.round(metrics.vs_chronological_overlap * 100)}%`}
+                  label="vs Chronological"
+                  sub="overlap with a time-only feed"
+                />
+              )}
+              {metrics?.author_gini != null && (
+                <MetricCell value={metrics.author_gini.toFixed(2)} label="Author spread" sub="Gini · lower = more voices" />
+              )}
             </div>
           </section>
-        )}
+        ) : null}
 
-        {/* ── Active weights ───────────────────────────────── */}
-        <section aria-label="Active community weights">
-          <SectionHeader label="Active weight mix" />
-          <div className="rounded-xl border border-border bg-card p-6">
-            {epochQuery.isLoading ? (
+        {/* ── Two light reads: what changed · recent ledger ─── */}
+        <section aria-label="Round changes and ledger" className="grid gap-8 lg:grid-cols-2">
+          {/* What changed this round */}
+          <div>
+            <div className="mb-3 flex items-baseline justify-between gap-2">
+              <Eyebrow>What changed this round</Eyebrow>
+              {diff && <span className="font-mono text-[11px] text-foreground/40">{diff.voter_count} voters</span>}
+            </div>
+            {epochsQuery.isLoading ? (
               <WeightsSkeleton />
-            ) : epochQuery.isError || !currentEpoch ? (
-              <EmptyState heading="Weights unavailable" body="Could not load the current weight mix." showCorgi={false} />
+            ) : epochsQuery.isError ? (
+              <ErrorCard
+                heading="Round history unavailable"
+                body="We couldn't load the rounds needed for this comparison."
+                onRetry={() => void epochsQuery.refetch()}
+              />
+            ) : !diff ? (
+              <EmptyState
+                heading="Nothing to compare yet"
+                body="Two governance rounds are needed to show what moved between them."
+                showCorgi={false}
+              />
+            ) : diff.weight_changes.length === 0 &&
+              diff.keywords_added.include.length === 0 &&
+              diff.keywords_added.exclude.length === 0 &&
+              diff.keywords_removed.include.length === 0 &&
+              diff.keywords_removed.exclude.length === 0 ? (
+              <EmptyState
+                heading="Held steady"
+                body={`Weights and content rules were unchanged from round #${diff.previous_round}.`}
+                showCorgi={false}
+              />
             ) : (
-              <div className="flex flex-col gap-5">
-                {Object.entries(currentEpoch.weights).map(([key, val]) => (
-                  <WeightBar key={key} label={WEIGHT_LABELS[key] ?? key} value={val} />
+              <div className="flex flex-col gap-4">
+                {/* before / after policy, as the same signature bar */}
+                <div className="flex flex-col gap-2.5">
+                  <div className="flex items-center gap-3">
+                    <span className="w-16 flex-shrink-0 font-mono text-[11px] text-foreground/45">Round {diff.previous_round}</span>
+                    <PolicyBar weights={diff.previous_weights} height={8} className="opacity-70" />
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="w-16 flex-shrink-0 font-mono text-[11px] font-semibold text-foreground/70">Round {diff.current_round}</span>
+                    <PolicyBar weights={diff.current_weights} height={8} />
+                  </div>
+                </div>
+                {diff.weight_changes.length > 0 && (
+                  <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                    {diff.weight_changes.map((wc) => (
+                      <span key={wc.key} className="inline-flex items-center gap-1.5 text-[12px]">
+                        <span className="text-foreground/60">{SIGNAL_LABELS[wc.key]}</span>
+                        <DeltaChip delta={wc.delta} />
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {(diff.keywords_added.include.length > 0 ||
+                  diff.keywords_added.exclude.length > 0 ||
+                  diff.keywords_removed.include.length > 0 ||
+                  diff.keywords_removed.exclude.length > 0) && (
+                  <div className="flex flex-wrap gap-2 border-t border-border/50 pt-3">
+                    {diff.keywords_added.include.map((w) => <KeywordChip key={`ai-${w}`} word={w} rule="include" removed={false} />)}
+                    {diff.keywords_added.exclude.map((w) => <KeywordChip key={`ae-${w}`} word={w} rule="exclude" removed={false} />)}
+                    {diff.keywords_removed.include.map((w) => <KeywordChip key={`ri-${w}`} word={w} rule="include" removed={true} />)}
+                    {diff.keywords_removed.exclude.map((w) => <KeywordChip key={`re-${w}`} word={w} rule="exclude" removed={true} />)}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Recent ledger */}
+          <div>
+            <div className="mb-3 flex items-baseline justify-between">
+              <Eyebrow>Recent ledger</Eyebrow>
+              <Link
+                href="/history"
+                className="rounded text-[12px] font-semibold text-primary hover:text-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              >
+                Full ledger →
+              </Link>
+            </div>
+            {auditQuery.isLoading ? (
+              <div className="flex flex-col gap-2" aria-busy="true">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="flex items-center justify-between gap-4 py-1.5">
+                    <Skeleton className="h-4 w-40" />
+                    <Skeleton className="h-3 w-16" />
+                  </div>
                 ))}
-                <p className="text-xs text-foreground/40 italic pt-1 border-t border-border/60">
-                  Set by {currentEpoch.vote_count} community votes · Round #{currentEpoch.id}
-                </p>
+              </div>
+            ) : auditQuery.isError ? (
+              <ErrorCard heading="Ledger unavailable" body="We couldn't load recent audit activity." onRetry={() => void auditQuery.refetch()} />
+            ) : entries.length === 0 ? (
+              <EmptyState heading="No ledger entries yet" body="Audit events appear here once governance activity begins." showCorgi={false} />
+            ) : (
+              <div className="divide-y divide-border/50">
+                {entries.map((entry) => {
+                  const date = new Date(entry.created_at)
+                  return (
+                    <div key={entry.id} className="flex items-center justify-between gap-4 py-2.5">
+                      <div className="flex min-w-0 items-center gap-2.5">
+                        <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-primary/50" aria-hidden="true" />
+                        <span className="truncate font-mono text-[13px] text-foreground/70">{entry.action}</span>
+                      </div>
+                      <div className="flex flex-shrink-0 items-center gap-3">
+                        <span className="hidden font-mono text-[11px] text-foreground/40 sm:block">Round #{entry.epoch_id}</span>
+                        <time
+                          dateTime={entry.created_at}
+                          className="font-mono text-[11px] text-foreground/45"
+                          title={date.toLocaleString()}
+                        >
+                          {date.toLocaleDateString([], { month: "short", day: "numeric" })}
+                        </time>
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
             )}
           </div>
         </section>
 
-        {/* ── What changed this round ──────────────────────── */}
-        <section aria-label="Round diff">
-          {epochsQuery.isLoading ? (
-            <>
-              <SectionHeader label="What changed" />
-              <div className="rounded-xl border border-border bg-card p-6">
-                <WeightsSkeleton />
-              </div>
-            </>
-          ) : !diff ? (
-            <>
-              <SectionHeader label="What changed" />
-              <EmptyState heading="Round comparison unavailable" body="We need at least two governance rounds to show what changed between them." showCorgi={false} />
-            </>
-          ) : diff.weight_changes.length === 0 && diff.keywords_added.include.length === 0 && diff.keywords_added.exclude.length === 0 && diff.keywords_removed.include.length === 0 && diff.keywords_removed.exclude.length === 0 ? (
-            <>
-              <SectionHeader
-                label={`What changed — round ${diff.previous_round} → ${diff.current_round}`}
-                action={<span className="text-xs font-mono text-foreground/40">{diff.voter_count} voters</span>}
-              />
-              <EmptyState heading="No changes this round" body="Weights and content rules stayed the same from the previous round." showCorgi={false} />
-            </>
-          ) : (
-            <>
-              <SectionHeader
-                label={`What changed — round ${diff.previous_round} → ${diff.current_round}`}
-                action={<span className="text-xs font-mono text-foreground/40">{diff.voter_count} voters</span>}
-              />
-              <div className="rounded-xl border border-border bg-card divide-y divide-border/60">
-                {diff.weight_changes.length > 0 && (
-                  <div className="p-5 flex flex-col gap-3">
-                    <p className="text-xs font-semibold text-foreground/50 uppercase tracking-wide">Weight changes</p>
-                    <div className="flex flex-col gap-3">
-                      {diff.weight_changes.map((wc) => (
-                        <div key={wc.key} className="flex items-center justify-between gap-2 sm:gap-4">
-                          <span className="text-sm font-medium text-foreground w-24 sm:w-36 flex-shrink-0">{WEIGHT_LABELS[wc.key] ?? wc.key}</span>
-                          <div className="flex items-center gap-2 flex-1">
-                            <span className="text-xs font-mono text-foreground/45 w-8 text-right">{(wc.before * 100).toFixed(0)}%</span>
-                            <div className="flex-1 h-1.5 rounded-full bg-biscuit overflow-hidden relative">
-                              <div className="absolute inset-y-0 left-0 rounded-full bg-foreground/20" style={{ width: `${wc.before * 100}%` }} />
-                              <div className="absolute inset-y-0 left-0 rounded-full bg-primary transition-all" style={{ width: `${wc.after * 100}%` }} />
-                            </div>
-                            <span className="text-xs font-mono text-foreground w-8">{(wc.after * 100).toFixed(0)}%</span>
-                          </div>
-                          <DeltaChip delta={wc.delta} />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {(diff.keywords_added.include.length > 0 || diff.keywords_added.exclude.length > 0 || diff.keywords_removed.include.length > 0 || diff.keywords_removed.exclude.length > 0) && (
-                  <div className="p-5 flex flex-col gap-3">
-                    <p className="text-xs font-semibold text-foreground/50 uppercase tracking-wide">Content rule changes</p>
-                    <div className="flex flex-wrap gap-2">
-                      {diff.keywords_added.include.map((w) => <KeywordChip key={`ai-${w}`} word={w} variant="add" />)}
-                      {diff.keywords_added.exclude.map((w) => <KeywordChip key={`ae-${w}`} word={w} variant="add" />)}
-                      {diff.keywords_removed.include.map((w) => <KeywordChip key={`ri-${w}`} word={w} variant="remove" />)}
-                      {diff.keywords_removed.exclude.map((w) => <KeywordChip key={`re-${w}`} word={w} variant="remove" />)}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </>
-          )}
-        </section>
-
-        {/* ── Explain a ranking ────────────────────────────── */}
-        <section aria-label="Explain a post ranking">
-          <SectionHeader label="Explain a ranking" />
-          <div className="rounded-xl border border-border bg-card p-6 flex flex-col gap-4">
-            <p className="text-sm text-foreground/60 leading-relaxed">
-              Paste an AT-URI or Bluesky post URL to see exactly how it was scored — which signals lifted it and which held it back.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-3">
-              <input
-                type="text"
-                value={explainUri}
-                onChange={(e) => setExplainUri(e.target.value)}
-                placeholder="at://did:plc:… or https://bsky.app/profile/…"
-                className="flex-1 min-w-0 h-10 rounded-lg border border-border bg-background px-3.5 text-sm font-mono
-                  text-foreground placeholder:text-foreground/35 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-colors"
-              />
-              <Button
-                disabled={!explainUri.trim()}
-                onClick={() => {
-                  const encoded = encodeURIComponent(explainUri.trim())
-                  router.push(`/post?uri=${encoded}`)
-                }}
-                className="bg-primary text-primary-foreground hover:bg-primary-dark rounded-lg px-5 text-sm disabled:opacity-40 transition-all shadow-[0_2px_8px_rgba(200,97,44,0.25)]"
-              >
-                Explain
-              </Button>
-            </div>
-          </div>
-        </section>
-
-        {/* ── Ledger preview ───────────────────────────────── */}
-        <section aria-label="Recent ledger activity">
-          <SectionHeader
-            label="Audit ledger"
-            action={
-              <Link href="/history" className="text-xs font-medium text-primary hover:text-primary-dark transition-colors">
-                Open full ledger →
-              </Link>
-            }
-          />
-          {auditQuery.isLoading ? (
-            <div className="rounded-xl border border-border bg-card divide-y divide-border/60 overflow-hidden" aria-busy="true">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="flex items-center justify-between gap-4 px-5 py-3">
-                  <Skeleton className="h-4 w-40" />
-                  <Skeleton className="h-3 w-16" />
-                </div>
-              ))}
-            </div>
-          ) : auditQuery.isError ? (
-            <ErrorCard heading="Ledger unavailable" body="We couldn't load recent audit activity." onRetry={() => auditQuery.refetch()} />
-          ) : entries.length === 0 ? (
-            <EmptyState heading="No ledger entries yet" body="Audit events will appear here once governance activity begins." showCorgi={false} />
-          ) : (
-            <div className="rounded-xl border border-border bg-card divide-y divide-border/60 overflow-hidden">
-              {entries.map((entry) => {
-                const date = new Date(entry.created_at)
-                return (
-                  <div key={entry.id} className="flex items-center justify-between gap-4 px-5 py-3 hover:bg-biscuit/30 transition-colors">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <span className="w-1.5 h-1.5 rounded-full bg-primary/50 flex-shrink-0" aria-hidden="true" />
-                      <span className="text-sm text-foreground/70 font-mono">{entry.action}</span>
-                    </div>
-                    <div className="flex items-center gap-3 flex-shrink-0">
-                      <span className="text-xs font-mono text-foreground/40 hidden sm:block">
-                        Round #{entry.epoch_id}
-                      </span>
-                      <time dateTime={entry.created_at} className="text-xs font-mono text-foreground/45" title={date.toLocaleString()}>
-                        {date.toLocaleDateString([], { month: "short", day: "numeric" })}
-                      </time>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </section>
-
-        {/* ── What Corgi exposes (proof card) ──────────────── */}
-        <section aria-label="What Corgi exposes">
-          <div className="rounded-xl border border-primary/20 bg-primary/5 p-6 flex flex-col gap-5">
-            <div className="flex flex-col gap-1">
-              <h2 className="font-display text-lg font-bold text-foreground">
-                <em className="not-italic text-primary">No black box.</em> Ever.
-              </h2>
-              <p className="text-sm text-foreground/60 leading-relaxed max-w-xl">
-                Every ranking decision Corgi makes is recorded. Here is exactly what is on public record.
-              </p>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <ProofRow icon={<CheckIcon />} text="All community votes, by round" />
-              <ProofRow icon={<CheckIcon />} text="The weight applied to every signal" />
-              <ProofRow icon={<CheckIcon />} text="Per-post score decomposition" />
-              <ProofRow icon={<CheckIcon />} text="Full epoch audit log" />
-              <ProofRow icon={<CheckIcon />} text="Keyword include/exclude rules" />
-              <ProofRow icon={<CheckIcon />} text="Counterfactual comparisons" />
-            </div>
-          </div>
-        </section>
-
-      </div>
+        {/* ── Check a specific post (quiet link to the explain tool) ── */}
+        <Link
+          href="/post"
+          className="group flex items-center justify-between gap-4 rounded-2xl border border-border bg-card/60 px-5 py-4 transition-colors hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        >
+          <span className="text-[13px] text-foreground/60">
+            Wondering why a specific post ranked where it did?{" "}
+            <span className="text-foreground/80">Look up its receipt — every signal, weighted.</span>
+          </span>
+          <span className="flex-shrink-0 text-[13px] font-semibold text-primary">Explain a ranking →</span>
+        </Link>
+      </Container>
     </AppShell>
   )
 }

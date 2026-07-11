@@ -1,6 +1,7 @@
 "use client"
 
-import { useRef, useCallback } from "react"
+import { useCallback, useId } from "react"
+import { SIGNAL_COLORS, type SignalKey } from "@/lib/signals"
 
 export interface SliderSignal {
   key: string
@@ -15,8 +16,13 @@ interface LinkedSliderProps {
   /** Which slider keys were touched in the last interaction (for delta badges) */
   lastMoved: string | null
   prevValues: Record<string, number>
+  /** Current community-aggregated weights (0–1 per key) — drawn as a marker on
+   *  each track so a voter can see how their draft compares to consensus. */
+  communityValues?: Record<string, number>
   disabled?: boolean
 }
+
+const signalColor = (key: string) => SIGNAL_COLORS[key as SignalKey] ?? "hsl(var(--primary))"
 
 /**
  * LinkedSlider — 5 signals that always sum to 100%.
@@ -28,8 +34,10 @@ export function LinkedSlider({
   onChange,
   lastMoved,
   prevValues,
+  communityValues,
   disabled = false,
 }: LinkedSliderProps) {
+  const descriptionIdPrefix = useId()
   const total = signals.reduce((s, sig) => s + sig.value, 0)
   const totalPct = Math.round(total * 100)
   const isValid = Math.abs(total - 1) < 0.001
@@ -67,6 +75,10 @@ export function LinkedSlider({
         const prev = prevValues[sig.key] ?? sig.value
         const delta = sig.key !== lastMoved ? sig.value - prev : 0
         const hasDelta = Math.abs(delta) > 0.005
+        const color = signalColor(sig.key)
+        const communityPct =
+          communityValues?.[sig.key] != null ? Math.round(communityValues[sig.key] * 100) : null
+        const communityDescriptionId = communityPct === null ? undefined : `${descriptionIdPrefix}-${sig.key}`
 
         return (
           <div key={sig.key} className="flex flex-col gap-2">
@@ -91,13 +103,26 @@ export function LinkedSlider({
               </div>
             </div>
 
-            {/* Track + thumb — proportionally matched */}
+            {/* Track + thumb — proportionally matched, in the signal's color */}
             <div className="relative flex items-center h-5">
               <div className="absolute inset-y-0 my-auto h-[10px] w-full rounded-full bg-biscuit" />
               <div
-                className="absolute inset-y-0 my-auto h-[10px] rounded-full bg-primary transition-all duration-200"
-                style={{ width: `${pct}%` }}
+                className="absolute inset-y-0 my-auto h-[10px] rounded-full transition-all duration-200"
+                style={{ width: `${pct}%`, backgroundColor: color }}
               />
+              {/* Community-average marker — vote relative to consensus */}
+              {communityPct != null && (
+                <div
+                  className="absolute inset-y-0 my-auto flex items-center"
+                  style={{ left: `calc(${communityPct}% - 1px)` }}
+                  aria-hidden="true"
+                >
+                  <span className="pointer-events-none h-[18px] w-0.5 rounded-full bg-foreground/45" />
+                </div>
+              )}
+              {communityDescriptionId ? (
+                <span id={communityDescriptionId} className="sr-only">Community average {communityPct}%</span>
+              ) : null}
               <input
                 type="range"
                 min={0}
@@ -109,14 +134,15 @@ export function LinkedSlider({
                 aria-valuenow={pct}
                 aria-valuemin={0}
                 aria-valuemax={100}
+                aria-describedby={communityDescriptionId}
                 onChange={(e) => rebalance(sig.key, Number(e.target.value) / 100)}
                 className="absolute inset-0 w-full opacity-0 cursor-pointer h-full disabled:cursor-not-allowed"
                 style={{ zIndex: 2 }}
               />
               {/* Thumb — slightly smaller than track height so it overlaps cleanly */}
               <div
-                className="absolute w-[18px] h-[18px] rounded-full bg-card border-[2.5px] border-primary shadow-sm pointer-events-none transition-all duration-200"
-                style={{ left: `calc(${pct}% - 9px)`, top: "50%", transform: "translateY(-50%)", zIndex: 1 }}
+                className="absolute w-[18px] h-[18px] rounded-full bg-card border-[2.5px] shadow-sm pointer-events-none transition-all duration-200"
+                style={{ left: `calc(${pct}% - 9px)`, top: "50%", transform: "translateY(-50%)", zIndex: 1, borderColor: color }}
                 aria-hidden="true"
               />
             </div>

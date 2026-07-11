@@ -3,13 +3,13 @@ import { DemoCTA, SignInCTA } from "@/components/landing-ctas"
 const steps = [
   {
     number: "01",
-    heading: "Explore the reviewer demo",
-    body: "Start with the read-only demo: live snapshot totals, anonymized receipt rows, and the ranking explanation without signing in.",
+    heading: "Explore the live demo",
+    body: "Cast a demo-only vote, watch the community policy aggregate, and inspect the reranked feed without signing in.",
   },
   {
     number: "02",
     heading: "Inspect how ranking works",
-    body: "Follow the weight, score, epoch, and receipt views before trusting the feed. The public path is built for review first.",
+    body: "Follow the weight, score, epoch, and receipt views before trusting the feed. The public path is built for curiosity first.",
   },
   {
     number: "03",
@@ -24,12 +24,12 @@ export function GetStartedSection() {
       <div className="flex flex-col md:flex-row md:items-start gap-6 md:gap-16 py-10 md:py-14">
         <div className="md:w-[40%] flex-shrink-0">
           <h2 className="text-foreground font-display text-2xl md:text-3xl lg:text-[2rem] font-bold leading-tight tracking-tight text-balance">
-            Start with the read-only demo.
+            Start with the interactive demo.
           </h2>
         </div>
         <div className="md:flex-1 md:pt-1">
           <p className="text-foreground/55 text-base leading-relaxed">
-            Inspect the live snapshot and receipt trail first. Account connection stays available for participation, but the reviewer path does not depend on it.
+            Vote, advance a shadow epoch, and inspect the receipt trail first. No Bluesky connection is required for the demo.
           </p>
         </div>
       </div>
@@ -56,7 +56,7 @@ export function GetStartedSection() {
       <div className="pb-14 md:pb-16 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
         <DemoCTA />
         <SignInCTA />
-        <p className="text-foreground/35 text-sm">No account needed for the reviewer demo.</p>
+        <p className="text-foreground/35 text-sm">No account needed for the live demo.</p>
       </div>
     </section>
   )

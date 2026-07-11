@@ -7,6 +7,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 - Public, rate-limited `/api/demo/*` shadow-governance sessions with production-sourced score components, deterministic synthetic voters, isolated Redis state, reranked feeds, and inspectable receipts.
+- Product-grade `web-next` landing, how-it-works, and no-login shadow-demo flows with shared Corgi/Bluesky presentation patterns, responsive product pages, and inspectable multi-epoch ranking receipts.
 - Topic scoring engine: winkNLP-based topic classification at ingestion time
 - Community topic weight voting (boost/penalize topics via governance)
 - Bluesky content label filtering (replaces keyword-based NSFW exclusion)

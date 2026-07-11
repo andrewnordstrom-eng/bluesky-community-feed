@@ -41,6 +41,7 @@ const TopicIntentSchema = z.object({
 
 const CreateSessionBodySchema = z.object({
   communityId: z.enum(SHADOW_DEMO_COMMUNITY_IDS).optional(),
+  clientNonce: IdempotencyKeySchema,
 }).strict();
 
 const SessionParamsSchema = z.object({
@@ -96,6 +97,7 @@ export function registerShadowDemoRoutes(
       const body = parseOrThrow(CreateSessionBodySchema, request.body ?? {});
       return service.createSession({
         communityId: body.communityId ?? 'open_science_builders',
+        clientNonce: body.clientNonce,
       });
     });
   });
@@ -202,7 +204,10 @@ function parseOrThrow<TSchema extends z.ZodTypeAny>(
 ): z.infer<TSchema> {
   const parsed = schema.safeParse(value);
   if (!parsed.success) {
-    throw new DemoValidationError(parsed.error.issues.map((issue) => issue.message).join('; '));
+    throw new DemoValidationError(parsed.error.issues.map((issue) => {
+      const path = issue.path.length > 0 ? issue.path.join('.') : 'request';
+      return `${path}: ${issue.message}`;
+    }).join('; '));
   }
   return parsed.data;
 }

@@ -4,21 +4,14 @@ import { useMemo, useState } from "react"
 import Link from "next/link"
 import { useQuery } from "@tanstack/react-query"
 import { AppShell } from "@/components/app-shell"
-import { WeightBar } from "@/components/ui/weight-bar"
-import { ScoreRadar, type RadarSignal } from "@/components/ui/score-radar"
+import { Container } from "@/components/ui/layout"
+import { PolicyBar, PolicyLegend } from "@/components/ui/policy-bar"
 import { StatusChip } from "@/components/ui/status-chip"
 import { WeightsSkeleton, EmptyState, ErrorCard, Skeleton } from "@/components/ui/state-kit"
+import { SIGNAL_COLORS, SIGNAL_LABELS, type SignalKey } from "@/lib/signals"
 import { transparencyApi, type EpochResponse, type AuditLogEntry } from "@/lib/api/client"
 
 /* ─── Constants ────────────────────────────────────────── */
-
-const WEIGHT_LABELS: Record<string, string> = {
-  recency: "Recency",
-  engagement: "Engagement",
-  bridging: "Bridging",
-  source_diversity: "Source diversity",
-  relevance: "Relevance",
-}
 
 const AUDIT_PAGE_SIZE = 25
 
@@ -160,7 +153,7 @@ function EpochCard({
             />
           </div>
           {/* Date */}
-          <time dateTime={epoch.created_at} className="text-[10px] font-mono text-foreground/35">
+          <time dateTime={epoch.created_at} className="text-[10px] font-mono text-foreground/45">
             {fmtDate(epoch.created_at)}
             {epoch.closed_at ? ` – ${fmtDate(epoch.closed_at)}` : " · active"}
           </time>
@@ -175,11 +168,13 @@ function WeightDiffRow({
   before,
   after,
   delta,
+  color,
 }: {
   label: string
   before: number
   after: number
   delta: number
+  color?: string
 }) {
   const isPos = delta > 0
   return (
@@ -189,15 +184,15 @@ function WeightDiffRow({
         <span className="text-xs font-mono text-foreground/40 w-7 text-right tabular-nums flex-shrink-0">
           {(before * 100).toFixed(0)}%
         </span>
-        {/* Before track */}
+        {/* Before track (muted) with the new weight in the signal's color */}
         <div className="flex-1 h-2 rounded-full bg-biscuit overflow-hidden relative">
           <div
             className="absolute inset-y-0 left-0 h-2 rounded-full bg-foreground/20 transition-all"
             style={{ width: `${before * 100}%` }}
           />
           <div
-            className="absolute inset-y-0 left-0 h-2 rounded-full bg-primary transition-all"
-            style={{ width: `${after * 100}%` }}
+            className="absolute inset-y-0 left-0 h-2 rounded-full transition-all"
+            style={{ width: `${after * 100}%`, backgroundColor: color ?? "hsl(var(--primary))" }}
           />
         </div>
         <span className="text-xs font-mono text-foreground w-7 tabular-nums flex-shrink-0">
@@ -277,7 +272,7 @@ function AuditRow({ entry }: { entry: AuditLogEntry }) {
           </span>
           <time
             dateTime={entry.created_at}
-            className="text-[10px] font-mono text-foreground/35"
+            className="text-[10px] font-mono text-foreground/45"
             title={fmtDate(entry.created_at, "long")}
           >
             {fmtRelative(entry.created_at)}
@@ -298,13 +293,6 @@ function DetailPanel({ epoch, epochAudit, auditWindowNote }: { epoch: EpochView;
     epoch.keywords_removed.include.length +
     epoch.keywords_removed.exclude.length > 0
 
-  const radarSignals: RadarSignal[] = Object.entries(epoch.weights).map(([key, w]) => ({
-    key,
-    label: WEIGHT_LABELS[key] ?? key,
-    post: w,
-    governance: w,
-  }))
-
   const participation = epoch.subscriber_count > 0 ? Math.round((epoch.vote_count / epoch.subscriber_count) * 100) : 0
 
   return (
@@ -323,7 +311,7 @@ function DetailPanel({ epoch, epochAudit, auditWindowNote }: { epoch: EpochView;
             {epoch.vote_count.toLocaleString()} votes of {epoch.subscriber_count.toLocaleString()} members
             {" · "}{participation}% participation
           </p>
-          <p className="text-xs font-mono text-foreground/35 mt-0.5">
+          <p className="text-xs font-mono text-foreground/45 mt-0.5">
             {fmtDate(epoch.created_at, "long")}
             {epoch.closed_at ? ` — ${fmtDate(epoch.closed_at, "long")}` : " · still open"}
           </p>
@@ -336,21 +324,13 @@ function DetailPanel({ epoch, epochAudit, auditWindowNote }: { epoch: EpochView;
         </Link>
       </div>
 
-      {/* ── Applied weights + radar ───────────────────────── */}
+      {/* ── Applied weights — the signature stacked bar ────── */}
       <section aria-label="Applied weights">
         <p className="text-[10px] font-mono text-foreground/40 uppercase tracking-widest mb-4">
           Applied weights
         </p>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="flex flex-col gap-4">
-            {Object.entries(epoch.weights).map(([key, val]) => (
-              <WeightBar key={key} label={WEIGHT_LABELS[key] ?? key} value={val} />
-            ))}
-          </div>
-          <div className="flex items-center justify-center">
-            <ScoreRadar signals={radarSignals} className="w-full max-w-xs" />
-          </div>
-        </div>
+        <PolicyBar weights={epoch.weights} height={14} />
+        <PolicyLegend weights={epoch.weights} className="mt-3" />
       </section>
 
       {/* ── Weight diff vs previous ───────────────────────── */}
@@ -373,10 +353,11 @@ function DetailPanel({ epoch, epochAudit, auditWindowNote }: { epoch: EpochView;
             {diffs.map((d) => (
               <WeightDiffRow
                 key={d.key}
-                label={WEIGHT_LABELS[d.key] ?? d.key}
+                label={SIGNAL_LABELS[d.key as SignalKey] ?? d.key}
                 before={d.before}
                 after={d.after}
                 delta={d.delta}
+                color={SIGNAL_COLORS[d.key as SignalKey]}
               />
             ))}
           </div>
@@ -493,7 +474,7 @@ export default function HistoryPage() {
 
   return (
     <AppShell>
-      <div className="max-w-6xl mx-auto px-5 py-10 flex flex-col gap-8">
+      <Container width="content" className="flex flex-col gap-8 py-10">
 
         {/* ── Page header ──────────────────────────────────── */}
         <div className="flex items-start justify-between gap-4">
@@ -591,7 +572,7 @@ export default function HistoryPage() {
             <p className="text-[10px] font-mono text-foreground/40 uppercase tracking-widest">
               Full audit log · {auditEntries.length} of {auditTotal} entries
             </p>
-            <span className="text-xs text-foreground/35 font-mono">
+            <span className="text-xs text-foreground/45 font-mono">
               Showing {auditEntries.length} most recent
             </span>
           </div>
@@ -648,7 +629,7 @@ export default function HistoryPage() {
           )}
         </section>
 
-      </div>
+      </Container>
     </AppShell>
   )
 }

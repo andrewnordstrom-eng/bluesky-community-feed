@@ -43,7 +43,7 @@ export function DashboardPreview() {
         <div className="pt-4">
           <div className="flex items-center justify-between mb-3 gap-2">
             <h3 className="text-foreground text-sm font-semibold">Score breakdown</h3>
-            <span className="text-foreground/40 text-xs font-mono hidden sm:block">weighted by community vote</span>
+            <span className="text-foreground/40 text-xs font-mono hidden sm:block">weighted by active policy</span>
           </div>
           <div className="flex flex-col gap-3">
             {signals.map((sig) => (

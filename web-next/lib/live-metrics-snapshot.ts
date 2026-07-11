@@ -59,9 +59,9 @@ export const LIVE_RANK_ONE_COMPONENTS = [
 ] as const satisfies readonly LiveScoreComponent[]
 
 export const LIVE_RANK_ONE_EXPLANATION = {
-  receiptId: "production-receipt-rank-1",
-  authorLabel: "Production receipt 001",
-  text: "Public post text redacted; score structure preserved from the production receipt.",
+  receiptId: "anonymized-live-receipt-rank-1",
+  authorLabel: "Anonymized receipt 001",
+  text: "Post text redacted; score structure preserved from a live Corgi receipt.",
   epochId: LIVE_METRICS_SNAPSHOT.epochId,
   totalScore: 0.8486208006784361,
   rank: 1,
@@ -76,26 +76,26 @@ export const LIVE_RANK_ONE_EXPLANATION = {
 export const LIVE_FEED_POSTS = [
   {
     rank: 1,
-    author: "Production receipt 001",
+    author: "Anonymized receipt 001",
     score: 0.8486208006784361,
-    text: "Public post text redacted; score structure preserved from the production receipt.",
+    text: "Post text redacted; score structure preserved from a live Corgi receipt.",
   },
   {
     rank: 2,
-    author: "Production receipt 002",
+    author: "Anonymized receipt 002",
     score: 0.8447181456756023,
-    text: "Public post text redacted; receipt categorized around AI terminology and LLMs.",
+    text: "Post text redacted; receipt categorized around AI terminology and LLMs.",
   },
   {
     rank: 3,
-    author: "Production receipt 003",
+    author: "Anonymized receipt 003",
     score: 0.8447074117364842,
-    text: "Public post text redacted; receipt categorized around generative AI adoption.",
+    text: "Post text redacted; receipt categorized around generative AI adoption.",
   },
   {
     rank: 4,
-    author: "Production receipt 004",
+    author: "Anonymized receipt 004",
     score: 0.8442263537240301,
-    text: "Public post text redacted; receipt categorized around generative AI in games.",
+    text: "Post text redacted; receipt categorized around generative AI in games.",
   },
 ] as const satisfies readonly LiveFeedPostPreview[]

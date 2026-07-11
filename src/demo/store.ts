@@ -200,7 +200,13 @@ export interface DemoSessionMutation<TPayload> {
 
 export interface DemoStore {
   readSession(sessionId: string): Promise<ShadowDemoSessionState | null>;
-  createSession(session: ShadowDemoSessionState, ttlSeconds: number, maxActiveSessions: number): Promise<boolean>;
+  readSessionIdByClientNonce(clientNonce: string): Promise<string | null>;
+  createSession(
+    session: ShadowDemoSessionState,
+    ttlSeconds: number,
+    maxActiveSessions: number,
+    clientNonce: string
+  ): Promise<boolean>;
   commitSessionMutation<TPayload>(mutation: DemoSessionMutation<TPayload>): Promise<boolean>;
   readIdempotency<TPayload>(sessionId: string, key: string): Promise<IdempotencyRecord<TPayload> | null>;
   readSharedCorpus(communityId: ShadowDemoCommunityId): Promise<ShadowDemoCorpus | null>;
@@ -243,10 +249,17 @@ export class RedisDemoStore implements DemoStore {
     return { ...header, corpus };
   }
 
+  async readSessionIdByClientNonce(clientNonce: string): Promise<string | null> {
+    return this.runRedisCommand('read session creation nonce', () =>
+      this.redis.get(sessionNonceKey(clientNonce))
+    );
+  }
+
   async createSession(
     session: ShadowDemoSessionState,
     ttlSeconds: number,
-    maxActiveSessions: number
+    maxActiveSessions: number,
+    clientNonce: string
   ): Promise<boolean> {
     const serialized = serializeSession(session);
     const reserved = await this.reserveSessionSlot(session, maxActiveSessions);
@@ -263,19 +276,22 @@ export class RedisDemoStore implements DemoStore {
         { key: stagedCorpusKey, value: serialized.corpus },
       ]);
       result = await this.runRedisCommand('create bounded session', () => this.redis.eval(
-        `if redis.call('zscore', KEYS[5], ARGV[2]) == false then return -1 end
+        `if redis.call('exists', KEYS[6]) == 1 then return 2 end
+         if redis.call('zscore', KEYS[5], ARGV[2]) == false then return -1 end
          if redis.call('exists', KEYS[1]) == 0 or redis.call('exists', KEYS[2]) == 0 then return -1 end
          redis.call('rename', KEYS[1], KEYS[3])
          redis.call('rename', KEYS[2], KEYS[4])
          redis.call('expire', KEYS[3], ARGV[1])
          redis.call('expire', KEYS[4], ARGV[1])
+         redis.call('setex', KEYS[6], ARGV[1], ARGV[2])
          return 1`,
-        5,
+        6,
         stagedHeaderKey,
         stagedCorpusKey,
         sessionKey(session.sessionId),
         corpusKey(session.corpusId),
         activeSessionsKey(),
+        sessionNonceKey(clientNonce),
         ttlSeconds,
         session.sessionId
       ));
@@ -498,6 +514,7 @@ export class RedisDemoStore implements DemoStore {
 
 export class MemoryDemoStore implements DemoStore {
   private readonly sessions = new Map<string, ShadowDemoSessionState>();
+  private readonly sessionIdsByClientNonce = new Map<string, string>();
   private readonly idempotency = new Map<string, IdempotencyRecord<unknown>>();
   private readonly sharedCorpus = new Map<ShadowDemoCommunityId, ShadowDemoCorpus>();
   private readonly locks = new Map<string, string>();
@@ -506,22 +523,36 @@ export class MemoryDemoStore implements DemoStore {
     return this.sessions.get(sessionId) ?? null;
   }
 
+  async readSessionIdByClientNonce(clientNonce: string): Promise<string | null> {
+    return this.sessionIdsByClientNonce.get(clientNonce) ?? null;
+  }
+
   async createSession(
     session: ShadowDemoSessionState,
     _ttlSeconds: number,
-    maxActiveSessions: number
+    maxActiveSessions: number,
+    clientNonce: string
   ): Promise<boolean> {
     const now = new Date(session.createdAt).getTime();
     for (const [sessionId, candidate] of this.sessions.entries()) {
       if (new Date(candidate.expiresAt).getTime() <= now) {
         this.sessions.delete(sessionId);
+        for (const [nonce, mappedSessionId] of this.sessionIdsByClientNonce.entries()) {
+          if (mappedSessionId === sessionId) {
+            this.sessionIdsByClientNonce.delete(nonce);
+          }
+        }
       }
+    }
+    if (this.sessionIdsByClientNonce.has(clientNonce)) {
+      return false;
     }
     if (this.sessions.size >= maxActiveSessions) {
       return false;
     }
     serializeSession(session);
     this.sessions.set(session.sessionId, JSON.parse(JSON.stringify(session)) as ShadowDemoSessionState);
+    this.sessionIdsByClientNonce.set(clientNonce, session.sessionId);
     return true;
   }
 
@@ -684,6 +715,10 @@ export function demoSessionKeyPrefix(): string {
   return 'demo:session:';
 }
 
+export function demoSessionNonceKeyPrefix(): string {
+  return 'demo:session-nonce:';
+}
+
 export function demoCorpusKeyPrefix(): string {
   return 'demo:corpus:';
 }
@@ -706,6 +741,10 @@ export function demoStagingKeyPrefix(): string {
 
 function sessionKey(sessionId: string): string {
   return `${demoSessionKeyPrefix()}${sessionId}`;
+}
+
+function sessionNonceKey(clientNonce: string): string {
+  return `${demoSessionNonceKeyPrefix()}${clientNonce}`;
 }
 
 function corpusKey(corpusId: string): string {

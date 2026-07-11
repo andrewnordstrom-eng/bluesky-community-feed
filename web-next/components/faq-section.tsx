@@ -1,7 +1,6 @@
 "use client"
 
-import type React from "react"
-import { useState } from "react"
+import { useId, useState } from "react"
 import { ChevronDown } from "lucide-react"
 import { AnimatePresence, motion } from "framer-motion"
 
@@ -9,17 +8,22 @@ const faqData = [
   {
     question: "What is Corgi and who is it for?",
     answer:
-      "Corgi is a Bluesky feed where your community decides how posts get ranked. Members vote on the weights and those votes become the live algorithm for the next epoch. It's for Bluesky communities who are tired of feeds that do whatever they want without explaining why.",
+      "Corgi is a Bluesky feed where a community can decide how posts get ranked. The no-login demo lets you set shadow ranking weights, combine them with scripted community ballots, and inspect why the isolated order changed. It's for Bluesky communities that want more local context and less generic viral drift.",
   },
   {
-    question: "What does 'no black box' actually mean?",
+    question: "What does inspectable ranking actually mean?",
     answer:
-      "It means every ranking decision is stored and fully broken down. You can open any post and see exactly which signals pushed it up or held it back, using the weights your community voted for. Nothing is hidden behind a proprietary model.",
+      "It means each ranked post has a score breakdown on Corgi. Bluesky shows the feed in Corgi-ranked order; Corgi's site shows which ranking factors pushed a post up or held it back, using the active community policy.",
+  },
+  {
+    question: "Does Bluesky show the rank explanation inline?",
+    answer:
+      "Not in the standard Bluesky UI. Corgi sends Bluesky an ordered feed, so posts appear in that ranked order. The rank labels, scores, receipts, and why-ranked explanations live on Corgi's site.",
   },
   {
     question: "How does voting on the weights work?",
     answer:
-      "At the start of each epoch, members vote on how much each signal matters: things like recency, reply depth, whether you follow the author, or a post's quality score. When the epoch ends, those votes set the new weights and the feed reranks accordingly. The full history is always in the audit log.",
+      "When a voting round is active, members choose how much each ranking factor should matter: recency, engagement, bridging (posts that connect subgroups), source diversity, and topic relevance. When the round ends, the aggregate weights become the next feed policy and the feed reranks accordingly. The full history stays inspectable.",
   },
   {
     question: "Is Corgi secure? Does it need my Bluesky password?",
@@ -29,12 +33,12 @@ const faqData = [
   {
     question: "What is an epoch?",
     answer:
-      "An epoch is one voting cycle. Your community sets how long it lasts. During that time, votes are collected, and when it ends the new weights go live. Every epoch's weights are saved so you can always see how the algorithm has changed.",
+      "An epoch is one saved feed policy from a voting round. Your community sets how long rounds last. When a round closes, the new weights go live, and every epoch's weights are saved so you can always see how the ranking policy changed.",
   },
   {
     question: "Can researchers use Corgi's data?",
     answer:
-      "Yes. You can export your feed data as structured JSON that includes the full score breakdown, epoch weights, and vote records. It's designed to drop straight into analysis tools without extra cleanup.",
+      "Yes, with the right consent and access controls. Admins and researchers can export anonymized, consented data that includes score breakdowns, epoch weights, and aggregate vote records.",
   },
 ]
 
@@ -46,36 +50,26 @@ interface FAQItemProps {
 }
 
 const FAQItem = ({ question, answer, isOpen, onToggle }: FAQItemProps) => {
-  const handleClick = (e: React.MouseEvent) => {
-    e.preventDefault()
-    onToggle()
-  }
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault()
-      onToggle()
-    }
-  }
+  const answerId = useId()
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      aria-expanded={isOpen}
-      className="w-full bg-card shadow-[0_2px_6px_rgba(46,38,32,0.06)] overflow-hidden rounded-xl border border-border transition-colors duration-200 cursor-pointer hover:border-primary/30"
-      onClick={handleClick}
-      onKeyDown={handleKeyDown}
-    >
-      <div className="w-full px-6 py-5 pr-5 flex justify-between items-center gap-5 text-left">
-        <div className="flex-1 text-foreground text-[0.9375rem] font-semibold leading-6 break-words">{question}</div>
-        <div className="flex justify-center items-center flex-shrink-0">
-          <ChevronDown
-            className={`w-5 h-5 text-foreground/40 transition-transform duration-300 ease-out ${isOpen ? "rotate-180" : "rotate-0"}`}
-          />
-        </div>
-      </div>
+    <div className="w-full bg-card shadow-[0_2px_6px_rgba(46,38,32,0.06)] overflow-hidden rounded-xl border border-border transition-colors duration-200 hover:border-primary/30">
+      <button
+        type="button"
+        aria-expanded={isOpen}
+        aria-controls={answerId}
+        onClick={onToggle}
+        className="w-full px-6 py-5 pr-5 flex justify-between items-center gap-5 text-left rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+      >
+        <span className="flex-1 text-foreground text-[0.9375rem] font-semibold leading-6 break-words">{question}</span>
+        <ChevronDown
+          aria-hidden="true"
+          className={`w-5 h-5 flex-shrink-0 text-foreground/50 transition-transform duration-300 ease-out ${isOpen ? "rotate-180" : "rotate-0"}`}
+        />
+      </button>
       <AnimatePresence initial={false}>
         {isOpen && (
           <motion.div
+            id={answerId}
             key="content"
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
@@ -105,7 +99,7 @@ export function FAQSection() {
     setOpenItems(newOpenItems)
   }
   return (
-    <section id="faq-section" className="w-full py-14 md:py-20 px-5 relative flex flex-col justify-center items-center">
+    <section id="faq-section" className="w-full scroll-mt-24 py-14 md:scroll-mt-28 md:py-20 px-5 relative flex flex-col justify-center items-center">
       <div className="w-[300px] h-[400px] absolute top-[100px] left-1/2 -translate-x-1/2 origin-top-left rotate-[-33deg] bg-primary/[0.08] blur-[100px] z-0 pointer-events-none" />
       <div className="self-stretch pb-8 md:pb-12 flex flex-col justify-center items-center gap-4 relative z-10">
         <div className="flex flex-col justify-start items-center gap-3">
@@ -113,7 +107,7 @@ export function FAQSection() {
             Frequently asked questions
           </h2>
           <p className="text-center text-foreground/50 text-sm font-normal leading-relaxed max-w-sm">
-            Everything you need to know about how Corgi works and why there&apos;s no black box.
+            Everything you need to know about how Corgi ranks the feed and shows its work.
           </p>
         </div>
       </div>

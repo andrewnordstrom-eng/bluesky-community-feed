@@ -1,30 +1,40 @@
-import { DemoCTA, SignInCTA } from "@/components/landing-ctas"
+import Link from "next/link"
+import { DemoCTA } from "@/components/landing-ctas"
 
+// Full-bleed dark band — the page's one deliberate contrast moment before the
+// (cream) footer. SignInCTA isn't reused here because its ghost styling is dark
+// text; on this dark band the secondary action needs light styling.
 export function CTASection() {
   return (
-    <section className="w-full pt-10 md:pt-16 pb-12 md:pb-20 px-5 relative flex flex-col justify-center items-center overflow-visible">
-      {/* Warm ginger glow */}
-      <div className="absolute inset-0 top-0 flex items-start justify-center pointer-events-none">
-        <div className="w-[700px] h-[400px] rounded-full bg-primary/10 blur-[120px] mt-8" />
+    <section className="relative w-full overflow-hidden bg-foreground px-5 py-20 md:py-28">
+      {/* Warm ginger glow for depth on the dark band */}
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+        <div className="h-[420px] w-[820px] rounded-full bg-primary/25 blur-[130px]" />
       </div>
 
-      <div className="relative z-10 flex flex-col justify-start items-center gap-8 max-w-3xl mx-auto text-center">
-        <div className="flex flex-col justify-start items-center gap-4">
-          <h2 className="text-foreground font-display text-4xl md:text-5xl lg:text-[64px] font-bold leading-tight tracking-tight text-balance">
+      <div className="relative z-10 mx-auto flex max-w-2xl flex-col items-center gap-8 text-center">
+        <div className="flex flex-col items-center gap-4">
+          <h2 className="font-display text-4xl font-bold leading-tight tracking-tight text-background text-balance md:text-5xl lg:text-[60px] lg:leading-[1.05]">
             Inspect the feed before you trust it.
           </h2>
-          <p className="text-foreground/50 text-base md:text-lg font-medium leading-relaxed max-w-xl">
-            Start with the read-only demo, inspect the live snapshot, then connect a Bluesky app password only when you are ready to participate.
+          <p className="max-w-xl text-base font-medium leading-relaxed text-background/70 md:text-lg">
+            Start with the no-login demo, change an isolated shadow policy, then connect a Bluesky app password only when
+            you&rsquo;re ready to participate.
           </p>
         </div>
 
-        <div className="flex flex-col sm:flex-row items-center gap-3">
+        <div className="flex flex-col items-center gap-3 sm:flex-row">
           <DemoCTA className="px-8" />
-          <SignInCTA className="px-6" />
+          <Link
+            href="/sign-in"
+            className="rounded-full border border-background/25 px-6 py-3 text-base font-medium text-background/80 transition-colors hover:border-background/50 hover:text-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-background/50 focus-visible:ring-offset-2 focus-visible:ring-offset-foreground"
+          >
+            Sign in
+          </Link>
         </div>
 
-        <p className="text-xs text-foreground/30 font-medium">
-          Snapshot-first &middot; App-password sign-in &middot; No hidden algorithm
+        <p className="text-xs font-medium text-background/50">
+          Interactive shadow demo &middot; app-password sign-in &middot; inspectable ranking
         </p>
       </div>
     </section>

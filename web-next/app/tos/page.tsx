@@ -72,7 +72,7 @@ const SECTIONS = [
         <UL>
           <LI>The aggregated weights applied in each governance round.</LI>
           <LI>The full audit log of operator actions (weight overrides, topic changes, keyword changes, round lifecycle events).</LI>
-          <LI>Per-post score breakdowns (why any post ranked as it did).</LI>
+          <LI>Per-post score breakdowns (why any Corgi-scored post ranked as it did).</LI>
         </UL>
         <P>Individual vote data is never exposed. Audit log entries for operator actions include the actor&rsquo;s DID.</P>
       </>

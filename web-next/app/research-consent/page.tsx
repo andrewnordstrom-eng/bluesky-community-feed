@@ -60,7 +60,7 @@ function StepDot({ label, done, active }: { label: string; done?: boolean; activ
           ${done ? "bg-success" : active ? "bg-primary" : "bg-border"}`}
         aria-hidden="true"
       />
-      <span className={`text-[10px] font-mono ${active ? "text-foreground/70" : "text-foreground/35"}`}>
+      <span className={`text-[10px] font-mono ${active ? "text-foreground/70" : "text-foreground/45"}`}>
         {label}
       </span>
     </div>

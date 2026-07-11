@@ -124,7 +124,7 @@ export function TopicSlider({ topic, value, onChange, disabled = false }: TopicS
       </div>
 
       {/* Labels + community marker label */}
-      <div className="flex items-center justify-between text-[10px] text-foreground/35 font-mono select-none">
+      <div className="flex items-center justify-between text-[10px] text-foreground/45 font-mono select-none">
         <span className="text-tongue-foreground/60">Reduce</span>
         <span className="flex items-center gap-1">
           <span className="w-0.5 h-2.5 rounded-full bg-foreground/20 inline-block" />
