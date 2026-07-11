@@ -63,16 +63,28 @@ const SHADOW_DEMO_CORPUS_REQUEST_TIMEOUT_MS = 30_000
 export function createHttpShadowDemoClient(): ShadowDemoClient {
   return {
     async createSession(request, signal) {
-      const sessionEnvelope = await requestApi<ApiSessionPayload>(
-        SHADOW_DEMO_ENDPOINTS.createSession,
-        {
-          method: "POST",
-          body: JSON.stringify({ communityId: request.communityId, clientNonce: request.clientNonce }),
-        },
-        signal,
-        SHADOW_DEMO_CORPUS_REQUEST_TIMEOUT_MS,
-        apiSessionEnvelopeSchema,
-      )
+      let sessionEnvelope: ApiEnvelope<ApiSessionPayload>
+      try {
+        sessionEnvelope = await requestApi<ApiSessionPayload>(
+          SHADOW_DEMO_ENDPOINTS.createSession,
+          {
+            method: "POST",
+            body: JSON.stringify({ communityId: request.communityId, clientNonce: request.clientNonce }),
+          },
+          signal,
+          SHADOW_DEMO_CORPUS_REQUEST_TIMEOUT_MS,
+          apiSessionEnvelopeSchema,
+        )
+      } catch (error) {
+        if (!isLegacyClientNonceRejection(error)) throw error
+        sessionEnvelope = await requestApi<ApiSessionPayload>(
+          SHADOW_DEMO_ENDPOINTS.createSession,
+          { method: "POST", body: JSON.stringify({ communityId: request.communityId }) },
+          signal,
+          SHADOW_DEMO_CORPUS_REQUEST_TIMEOUT_MS,
+          apiSessionEnvelopeSchema,
+        )
+      }
       return sessionResponseEnvelope(sessionEnvelope, request.scenarioId, request.mode, signal)
     },
 
@@ -215,6 +227,11 @@ export function createHttpShadowDemoClient(): ShadowDemoClient {
       } satisfies ShadowDemoReceiptResponse)
     },
   }
+}
+
+function isLegacyClientNonceRejection(error: unknown): boolean {
+  return error instanceof Error
+    && /Unrecognized key\(s\).*clientNonce/i.test(error.message)
 }
 
 async function sessionResponseEnvelope(

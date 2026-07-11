@@ -100,6 +100,36 @@ describe("HTTP shadow demo client", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
+  it("bridges only the explicit pre-nonce server rejection during rollout", async () => {
+    const bodies: unknown[] = []
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const path = requestPath(input)
+      if (path === "/api/demo/sessions") {
+        bodies.push(JSON.parse(String(init?.body)))
+        if (bodies.length === 1) {
+          return new Response(JSON.stringify({ message: "Unrecognized key(s) in object: 'clientNonce'" }), {
+            status: 400,
+            headers: { "content-type": "application/json" },
+          })
+        }
+        return jsonEnvelope(sessionPayload("created", "epoch-1", [epoch("epoch-1", 1, BASE_WEIGHTS, 0)]))
+      }
+      if (path.startsWith(`/api/demo/sessions/${SESSION_ID}/feed`)) return jsonEnvelope(feedPayload("epoch-1", [1, 2]))
+      return new Response(null, { status: 404 })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    await createHttpShadowDemoClient().createSession(
+      { communityId: "open_science_builders", scenarioId: "guided_default", clientNonce: "rollout-nonce", mode: "guided" },
+      new AbortController().signal,
+    )
+
+    expect(bodies).toEqual([
+      { communityId: "open_science_builders", clientNonce: "rollout-nonce" },
+      { communityId: "open_science_builders" },
+    ])
+  })
+
   it("maps the full 24-voter electorate and production-faithful trimmed aggregate", async () => {
     const votes = syntheticVotes("epoch-1")
     vi.stubGlobal("fetch", vi.fn(async () => jsonEnvelope(sessionPayload(

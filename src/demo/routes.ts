@@ -41,7 +41,7 @@ const TopicIntentSchema = z.object({
 
 const CreateSessionBodySchema = z.object({
   communityId: z.enum(SHADOW_DEMO_COMMUNITY_IDS).optional(),
-  clientNonce: IdempotencyKeySchema,
+  clientNonce: IdempotencyKeySchema.optional(),
 }).strict();
 
 const SessionParamsSchema = z.object({
@@ -97,7 +97,9 @@ export function registerShadowDemoRoutes(
       const body = parseOrThrow(CreateSessionBodySchema, request.body ?? {});
       return service.createSession({
         communityId: body.communityId ?? 'open_science_builders',
-        clientNonce: body.clientNonce,
+        // Transitional clients predate retry-safe creation. New clients always
+        // send a nonce; keep old cached bundles functional through rollout.
+        clientNonce: body.clientNonce ?? randomUUID(),
       });
     });
   });
