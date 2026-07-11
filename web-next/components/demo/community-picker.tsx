@@ -1,7 +1,7 @@
 "use client"
 
 import { ArrowRight } from "lucide-react"
-import { SHADOW_DEMO_COMMUNITY_IDS, type ShadowDemoCommunityId } from "@/app/demo/shadow-demo-contract"
+import { SHADOW_DEMO_COMMUNITY_IDS, type ShadowDemoCommunityId } from "@/app/demo/shadow-demo-view-model"
 import { DEMO_COMMUNITIES } from "@/app/demo/shadow-demo-fixtures"
 import { STEP_PANELS } from "@/app/demo/shadow-demo-copy"
 

@@ -3,6 +3,7 @@ import type { ShadowDemoScoreComponent } from "../web-next/app/demo/shadow-demo-
 import {
   buildReceiptDisplayMath,
   formatReceiptScore,
+  tryBuildReceiptDisplayMath,
 } from "../web-next/lib/receipt-display-math"
 
 describe("receipt display math", () => {
@@ -24,9 +25,17 @@ describe("receipt display math", () => {
     expect(formatReceiptScore(display.totalScore)).toBe(formatReceiptScore(displayedSum))
   })
 
-  it.each([Number.NaN, Number.POSITIVE_INFINITY])("rejects non-finite receipt values: %s", (value) => {
-    expect(() => buildReceiptDisplayMath([
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])("rejects non-finite receipt values: %s", (value) => {
+    const components: ShadowDemoScoreComponent[] = [
       { key: "recency", label: "Recency", rawScore: value, weight: 1, contribution: value },
-    ])).toThrow(/must be finite/i)
+    ]
+    expect(() => buildReceiptDisplayMath(components)).toThrow(/must be finite/i)
+    expect(tryBuildReceiptDisplayMath(components)).toBeNull()
+  })
+
+  it("returns a zero total for an empty component list", () => {
+    const display = buildReceiptDisplayMath([])
+    expect(display.components).toEqual([])
+    expect(display.totalScore).toBe(0)
   })
 })

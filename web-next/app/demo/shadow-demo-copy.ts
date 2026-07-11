@@ -9,7 +9,7 @@ export const HERO = {
   eyebrow: "Interactive demo",
   title: "Watch a community re-rank its own feed.",
   subtitle:
-    "Propose a policy for Open Science Builders, simulate 24 persistent community voters, advance an epoch, and inspect how the same live-scored posts move.",
+    "Propose a policy for Open Science Builders, combine it with 24 scripted deterministic voter archetypes, and inspect how the same live public posts move.",
 } as const
 
 export interface FlowStepCopy {
@@ -19,7 +19,7 @@ export interface FlowStepCopy {
 }
 
 export const FLOW_STEPS: readonly FlowStepCopy[] = [
-  { key: "session", label: "Session", hint: "Freeze a corpus" },
+  { key: "session", label: "Session", hint: "Freeze a comparison corpus" },
   { key: "vote", label: "Your vote", hint: "Pick a policy" },
   { key: "agents", label: "Community", hint: "24 voters weigh in" },
   { key: "epoch", label: "Advance epoch", hint: "Apply the policy" },
@@ -30,7 +30,7 @@ export const FLOW_STEPS: readonly FlowStepCopy[] = [
 export const STEP_PANELS = {
   community: {
     heading: "Meet the community",
-    body: "Open Science Builders spans research, data science, software development, and open source. Start a session to freeze a live-scored public corpus and test a policy against it.",
+    body: "Open Science Builders spans research, data science, software development, and open source. Start a session to freeze a comparison corpus of live public posts and test a policy against it.",
     cta: "Start a demo session",
   },
   vote: {
@@ -40,7 +40,9 @@ export const STEP_PANELS = {
   },
   agents: {
     heading: "Let the community weigh in",
-    body: "Twenty-four persistent synthetic voters represent five stakeholder blocs. Their preferences carry history, respond within bounds to your proposal, and replay exactly from the same inputs.",
+    body: "Twenty-four scripted deterministic voter archetypes represent five stakeholder blocs. Their preferences carry history, respond within bounds to your proposal, and replay exactly from the same inputs.",
+    readyHeading: "Twenty-four community voters are ready",
+    readyBody: "Five scripted blocs balance stable preferences, prior-policy inertia, and a bounded response to your proposal. The run is deterministic and replayable.",
     cta: "Simulate 24 voters",
   },
   epoch: {
@@ -63,9 +65,9 @@ export const STEP_PANELS = {
 export const DISCLOSURE = {
   // Must clearly state isolation from production governance.
   production:
-    "Demo votes and epochs stay in an isolated shadow namespace. They never enter production governance, audit logs, research exports, or the public Corgi feed.",
+    "Demo votes and epochs run in an isolated shadow governance namespace. They never enter production governance, audit logs, research exports, or the public Corgi feed.",
   posts:
-    "The primary path uses public Bluesky posts with Corgi score decompositions, frozen for this session so policy changes remain comparable. A labeled fixture appears only if live corpus loading degrades.",
+    "The primary path uses live public Bluesky posts with Corgi score decompositions, held as a frozen comparison corpus so policy changes remain attributable. A labeled fixture appears only if live corpus loading degrades.",
   // Keeps the Bluesky-vs-Corgi boundary honest without claiming native rendering.
   annotations:
     "Rank badges, scores, and receipts are Corgi annotations shown on Corgi's site, not native Bluesky UI. Bluesky renders the ordered posts; Corgi shows why.",
@@ -73,7 +75,8 @@ export const DISCLOSURE = {
 
 export const LABELS = {
   previewBadge: "Coming soon",
-  corpusFrozen: "Live-scored snapshot · frozen for this session",
+  corpusFrozen: "Live public posts · frozen comparison corpus",
+  corpusFallback: "Illustrative fallback · frozen comparison corpus",
   reset: "Start over",
   reviewerVoter: "You (reviewer)",
   withheldRow: "Withheld from the public view",
@@ -87,7 +90,7 @@ export function allDemoCopyStrings(): readonly string[] {
     out.push(step.label, step.hint)
   }
   for (const panel of Object.values(STEP_PANELS)) {
-    out.push(panel.heading, panel.body, panel.cta)
+    out.push(...Object.values(panel))
   }
   out.push(DISCLOSURE.production, DISCLOSURE.posts, DISCLOSURE.annotations)
   out.push(...Object.values(LABELS))

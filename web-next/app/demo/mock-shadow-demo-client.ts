@@ -12,13 +12,11 @@
 // reranking the frozen corpus — so feedBefore/feedAfter is the reorder.
 
 import {
-  SHADOW_DEMO_CONTRACT_VERSION,
   type AdvanceShadowDemoEpochRequest,
   type AdvanceShadowDemoEpochResponse,
   type CastShadowDemoVoteRequest,
   type CastShadowDemoVoteResponse,
   type CreateShadowDemoSessionRequest,
-  type RefreshShadowDemoCorpusRequest,
   type RunShadowDemoAgentsRequest,
   type RunShadowDemoAgentsResponse,
   type ShadowDemoAction,
@@ -36,7 +34,8 @@ import {
   type ShadowDemoVote,
   type ShadowDemoWarning,
   type ShadowDemoWeights,
-} from "./shadow-demo-contract"
+} from "./shadow-demo-view-model"
+import { CONTRACT_VERSION } from "./shadow-demo-api-schemas"
 import {
   BASELINE_TOPIC_INTENT,
   BASELINE_WEIGHTS,
@@ -94,7 +93,6 @@ const CAPABILITIES = {
   canCastReviewerVote: true,
   canRunAgents: true,
   canAdvanceEpoch: true,
-  canRefreshCorpus: true,
   canOpenNativeBlueskyFeed: false,
   canMutateNativeBlueskyFeed: false,
 } as const
@@ -133,7 +131,7 @@ export function createMockShadowDemoClient(options: MockShadowDemoClientOptions 
 
   function envelope<T>(sessionId: string | null, payload: T, warnings: readonly ShadowDemoWarning[] = []): ShadowDemoEnvelope<T> {
     return {
-      contractVersion: SHADOW_DEMO_CONTRACT_VERSION,
+      contractVersion: CONTRACT_VERSION,
       requestId: nextId("req"),
       generatedAt: iso(),
       sessionId,
@@ -167,6 +165,12 @@ export function createMockShadowDemoClient(options: MockShadowDemoClientOptions 
       rankingSource: "fixture_posts_shadow_weights",
       generatedAt: iso(),
       items,
+      corpusProvenance: state.session.corpusProvenance,
+      aggregate: {
+        weights,
+        topicIntent: state.publishedEpoch?.topicIntent ?? state.openEpoch.topicIntent,
+        voteSummary: state.publishedEpoch?.voteSummary ?? state.openEpoch.voteSummary,
+      },
       corpusHealth: {
         status: "fallback",
         candidatePostCount: state.corpus.length,
@@ -239,13 +243,14 @@ export function createMockShadowDemoClient(options: MockShadowDemoClientOptions 
         status: "open",
         label: "Baseline policy",
         weights: BASELINE_WEIGHTS,
+        topicIntent: BASELINE_TOPIC_INTENT,
         voteSummary: {
           reviewerVotes: 0,
           agentVotes: 0,
           totalVotes: 0,
           aggregateMethod: "trimmed_mean_no_trim_under_10",
           trimCount: 0,
-          reviewerInfluenceShare: 0,
+          reviewerBallotShare: 0,
         },
         startedAt: iso(),
         closedAt: null,
@@ -259,6 +264,7 @@ export function createMockShadowDemoClient(options: MockShadowDemoClientOptions 
         phase: "corpus_ready",
         communityId: request.communityId,
         scenarioId: request.scenarioId,
+        mode: request.mode,
         seed: `seed_${request.communityId}_${request.scenarioId}_${request.clientNonce}`,
         createdAt: iso(),
         expiresAt: new Date(now() + 30 * 60_000).toISOString(),
@@ -267,6 +273,17 @@ export function createMockShadowDemoClient(options: MockShadowDemoClientOptions 
         maxEpochs: 10,
         isolation: ISOLATION,
         capabilities: CAPABILITIES,
+        corpusProvenance: {
+          mode: "production_sourced_session_frozen",
+          label: "Live-scored snapshot",
+          description: "Illustrative fallback frozen for deterministic mock verification.",
+          corpusId: `demo_corpus_${sessionId}`,
+          productionEpochId: 0,
+          sampledAt: CORPUS_COLLECTED_AT,
+          windowHours: 72,
+          topicScoreThreshold: 0.5,
+          eligiblePostCount: fixture.corpus.length,
+        },
       }
       const state: SessionState = {
         session,
@@ -288,11 +305,6 @@ export function createMockShadowDemoClient(options: MockShadowDemoClientOptions 
       throwIfAborted(signal)
       const state = requireSession(sessionId)
       return envelope(sessionId, sessionResponse(state))
-    },
-
-    async refreshCorpus(request: RefreshShadowDemoCorpusRequest, signal: AbortSignal) {
-      throwIfAborted(signal)
-      return client.createSession(request, signal)
     },
 
     async castVote(sessionId: string, request: CastShadowDemoVoteRequest, signal: AbortSignal) {
@@ -317,7 +329,7 @@ export function createMockShadowDemoClient(options: MockShadowDemoClientOptions 
             totalVotes: 0,
             aggregateMethod: "trimmed_mean_no_trim_under_10",
             trimCount: 0,
-            reviewerInfluenceShare: 0,
+            reviewerBallotShare: 0,
           },
         }
         state.publishedEpoch = null
@@ -351,7 +363,7 @@ export function createMockShadowDemoClient(options: MockShadowDemoClientOptions 
           ...state.openEpoch.voteSummary,
           reviewerVotes: 1,
           totalVotes: 1 + state.agentVotes.length,
-          reviewerInfluenceShare: 1 / (1 + state.agentVotes.length),
+          reviewerBallotShare: 1 / (1 + state.agentVotes.length),
         },
       }
       advanceSequence(state, "reviewer_vote_cast")
@@ -404,7 +416,7 @@ export function createMockShadowDemoClient(options: MockShadowDemoClientOptions 
           totalVotes: 1 + agentVotes.length,
           aggregateMethod: "trimmed_mean_no_trim_under_10",
           trimCount: 2,
-          reviewerInfluenceShare: 1 / (1 + agentVotes.length),
+          reviewerBallotShare: 1 / (1 + agentVotes.length),
         },
       }
       advanceSequence(state, "agent_votes_cast")
@@ -460,13 +472,14 @@ export function createMockShadowDemoClient(options: MockShadowDemoClientOptions 
         status: "published",
         label: "Community-aggregated policy",
         weights: aggregate,
+        topicIntent: state.reviewerVote.topicIntent,
         voteSummary: {
           reviewerVotes: 1,
           agentVotes: state.agentVotes.length,
           totalVotes: 1 + state.agentVotes.length,
           aggregateMethod: "trimmed_mean_no_trim_under_10",
           trimCount: 2,
-          reviewerInfluenceShare: 1 / (1 + state.agentVotes.length),
+          reviewerBallotShare: 1 / (1 + state.agentVotes.length),
         },
         startedAt: iso(),
         closedAt: null,
@@ -546,6 +559,10 @@ export function createMockShadowDemoClient(options: MockShadowDemoClientOptions 
       const agentsOnlyWeights = state.agentVotes.length > 0
         ? trimmedVoterAverage(state.agentVotes.map((vote) => vote.weights))
         : BASELINE_WEIGHTS
+      const topicBreakdown = topicBreakdownFor(entry, state.fixture.topics, topicIntent)
+      const weightedSum = topicBreakdown.reduce((sum, topic) => sum + topic.contribution, 0)
+      const signalSum = topicBreakdown.reduce((sum, topic) => sum + topic.postScore, 0)
+      const baseRelevance = signalSum > 0 ? weightedSum / signalSum : entry.rawScores.relevance
 
       const receipt: ShadowDemoReceipt = {
         postUri: entry.post.uri,
@@ -553,8 +570,41 @@ export function createMockShadowDemoClient(options: MockShadowDemoClientOptions 
         visibleRank,
         previousRank,
         totalScore: score.total,
+        scoredAt: iso(),
+        aggregate: {
+          weights,
+          topicIntent,
+          voteSummary: state.publishedEpoch?.voteSummary ?? state.openEpoch.voteSummary,
+        },
+        reviewerBallotShare: state.reviewerVote === null ? 0 : 1 / (1 + state.agentVotes.length),
         components: score.components,
-        topicBreakdown: topicBreakdownFor(entry, state.fixture.topics, topicIntent),
+        topicBreakdown,
+        topicRelevanceFormula: {
+          formulaApplied: true,
+          defaultTopicWeight: 0.5,
+          confidenceThreshold: 0.6,
+          weightedSum,
+          signalSum,
+          baseRelevance,
+          confidenceMultiplier: 1,
+          effectiveRelevance: baseRelevance,
+          usedDefaultWeight: false,
+          terms: topicBreakdown.map((topic) => ({
+            topic: topic.slug,
+            postScore: topic.postScore,
+            communityWeight: topic.communityWeight,
+            weightedTerm: topic.contribution,
+            usedDefaultWeight: false,
+          })),
+        },
+        provenance: {
+          ...state.session.corpusProvenance,
+          shadowEpochId: request.epochId,
+          postInclusionReasons: {
+            matchedTopics: Object.entries(entry.topicAffinity).map(([topic, value]) => ({ topic, score: value ?? 0 })),
+            matchedTerms: [],
+          },
+        },
         counterfactuals: buildCounterfactuals({
           corpus: state.corpus,
           postId: entry.id,

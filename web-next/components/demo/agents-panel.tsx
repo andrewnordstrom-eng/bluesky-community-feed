@@ -7,9 +7,10 @@ import {
   type ShadowDemoAggregate,
   type ShadowDemoVote,
   type ShadowDemoWeights,
-} from "@/app/demo/shadow-demo-contract"
+} from "@/app/demo/shadow-demo-view-model"
 import { SIGNAL_COLORS, SIGNAL_LABELS, formatPercent, normalizeWeights } from "@/app/demo/shadow-demo-fixtures"
 import { STEP_PANELS } from "@/app/demo/shadow-demo-copy"
+import { TopicPolicy } from "./topic-policy"
 import { WeightBars } from "./weight-bars"
 
 const FOCUS =
@@ -80,10 +81,10 @@ export function AgentsPanel({
         <div className="mt-4 rounded-2xl border border-border bg-biscuit/25 px-4 py-3">
           <p className="flex items-center gap-2 text-sm font-semibold text-foreground">
             <Users className="h-4 w-4 text-primary/70" aria-hidden="true" />
-            Twenty-four community voters are ready
+            {STEP_PANELS.agents.readyHeading}
           </p>
           <p className="mt-1 text-xs leading-relaxed text-foreground/55">
-            Five persistent blocs balance stable preferences, prior-policy inertia, and a bounded response to your proposal. The run is deterministic and replayable.
+            {STEP_PANELS.agents.readyBody}
           </p>
         </div>
         <button
@@ -120,8 +121,11 @@ export function AgentsPanel({
         <div className="mt-3">
           <WeightBars weights={aggregate.weights} />
         </div>
+        <div className="mt-4 border-t border-primary/15 pt-4">
+          <TopicPolicy topicIntent={aggregate.topicIntent} label="Aggregated topic priorities" />
+        </div>
         <p className="mt-3 text-xs leading-relaxed text-foreground/55">
-          Your ballot is 1 of {aggregate.voteSummary.totalVotes}. Synthetic voters are isolated to this session and never enter production governance.
+          Your ballot is 1 of {aggregate.voteSummary.totalVotes}. That describes ballot count, not causal influence: the scripted ballots respond partly to your proposal. All demo ballots stay isolated from production governance.
         </p>
       </div> : null}
 

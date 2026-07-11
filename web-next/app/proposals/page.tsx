@@ -45,7 +45,7 @@ export default function ProposalsPage() {
   })
 
   const current = currentQuery.data
-  const past = (historyQuery.data?.epochs ?? []).filter((e) => e.id !== current?.id)
+  const past = (historyQuery.data?.epochs ?? []).filter((epoch) => epoch.closed_at != null && epoch.id !== current?.id)
 
   return (
     <AppShell>

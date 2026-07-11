@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { createPortal } from "react-dom"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
@@ -59,6 +59,8 @@ export function Header() {
   const pathname = usePathname()
   const [signInOpen, setSignInOpen] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
+  const mobileMenuButtonRef = useRef<HTMLButtonElement>(null)
+  const mobileMenuRef = useRef<HTMLDivElement>(null)
   const scrolled = useScroll(10)
   const isDemoPage = pathname === "/demo" || pathname.startsWith("/demo/")
 
@@ -69,15 +71,26 @@ export function Header() {
     { name: "FAQ", href: "/#faq-section" },
   ]
 
-  // Close on scroll past threshold (feels natural)
-  useEffect(() => {
-    if (scrolled && mobileOpen) setMobileOpen(false)
-  }, [scrolled, mobileOpen])
-
   // Body scroll lock
   useEffect(() => {
     document.body.style.overflow = mobileOpen ? "hidden" : ""
     return () => { document.body.style.overflow = "" }
+  }, [mobileOpen])
+
+  useEffect(() => {
+    if (!mobileOpen) return
+
+    mobileMenuRef.current?.querySelector<HTMLElement>("a, button")?.focus()
+
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return
+      event.preventDefault()
+      setMobileOpen(false)
+      mobileMenuButtonRef.current?.focus()
+    }
+
+    document.addEventListener("keydown", closeOnEscape)
+    return () => document.removeEventListener("keydown", closeOnEscape)
   }, [mobileOpen])
 
   const handleNavClick = () => {
@@ -147,6 +160,7 @@ export function Header() {
 
             {/* Mobile hamburger */}
             <button
+              ref={mobileMenuButtonRef}
               onClick={() => setMobileOpen((v) => !v)}
               aria-label={mobileOpen ? "Close menu" : "Open menu"}
               aria-expanded={mobileOpen}
@@ -162,7 +176,11 @@ export function Header() {
       {/* Mobile menu portal */}
       {typeof window !== "undefined" && mobileOpen && createPortal(
         <div
+          ref={mobileMenuRef}
           id="landing-mobile-menu"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Main navigation"
           className="fixed top-14 inset-x-0 bottom-0 z-40 md:hidden bg-background/95 supports-[backdrop-filter]:bg-background/80 backdrop-blur-lg border-t border-border flex flex-col overflow-hidden"
         >
           <div

@@ -1,7 +1,7 @@
 // Shared helper: drive the mock client through the full guided flow.
 // Not a *.test.* file, so Vitest does not collect it as a suite.
 
-import type { ShadowDemoFeed, ShadowDemoPublicFeedItem } from "../shadow-demo-contract"
+import type { ShadowDemoFeed, ShadowDemoPublicFeedItem } from "../shadow-demo-view-model"
 import { createMockShadowDemoClient } from "../mock-shadow-demo-client"
 import { getPresetById } from "../shadow-demo-fixtures"
 

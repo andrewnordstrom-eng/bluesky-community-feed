@@ -1,14 +1,11 @@
 "use client"
 
-import { ArrowDown, ArrowRight, ArrowUp, Minus } from "lucide-react"
-import type { ShadowDemoCounterfactual, ShadowDemoReceipt } from "@/app/demo/shadow-demo-contract"
+import Link from "next/link"
+import { ArrowDown, ArrowRight, ArrowUp, ExternalLink, Minus, RotateCcw } from "lucide-react"
+import type { ShadowDemoCounterfactual, ShadowDemoReceipt } from "@/app/demo/shadow-demo-view-model"
 import { SIGNAL_COLORS, formatPercent, formatScore } from "@/app/demo/shadow-demo-fixtures"
 import { DISCLOSURE } from "@/app/demo/shadow-demo-copy"
-import {
-  buildReceiptDisplayMath,
-  formatReceiptPercent,
-  formatReceiptScore,
-} from "@/lib/receipt-display-math"
+import { formatReceiptPercent, formatReceiptScore, tryBuildReceiptDisplayMathWithServerTotal } from "@/lib/receipt-display-math"
 
 function DeltaChip({ delta }: { readonly delta: number | null }) {
   if (delta === null || delta === 0) {
@@ -36,7 +33,10 @@ function DeltaChip({ delta }: { readonly delta: number | null }) {
 function CounterfactualRow({ item }: { readonly item: ShadowDemoCounterfactual }) {
   return (
     <div className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-background px-4 py-2.5">
-      <span className="min-w-0 text-sm font-medium text-foreground/75">{item.label}</span>
+      <span className="min-w-0">
+        <span className="block text-sm font-medium text-foreground/75">{item.label}</span>
+        <span className="mt-0.5 block text-[11px] leading-relaxed text-foreground/55">{item.description}</span>
+      </span>
       <span className="flex flex-shrink-0 items-center gap-2">
         <span className="font-mono text-sm font-semibold text-foreground">{item.rank === null ? "—" : `#${item.rank}`}</span>
         <DeltaChip delta={item.deltaFromVisibleRank} />
@@ -49,19 +49,28 @@ export function ReceiptPanel({
   receipt,
   authorDisplayName,
   postText,
+  bskyUrl,
   onAnotherEpoch,
+  onRestart,
   currentEpoch,
+  guidedEpochs,
   maxEpochs,
+  freePlayEnabled,
 }: {
   readonly receipt: ShadowDemoReceipt
   readonly authorDisplayName: string
   readonly postText: string
+  readonly bskyUrl: string
   readonly onAnotherEpoch: (() => void) | null
+  readonly onRestart: () => void
   readonly currentEpoch: number
+  readonly guidedEpochs: number
   readonly maxEpochs: number
+  readonly freePlayEnabled: boolean
 }) {
   const topTopics = receipt.topicBreakdown.slice(0, 3)
-  const displayMath = buildReceiptDisplayMath(receipt.components)
+  const displayMath = tryBuildReceiptDisplayMathWithServerTotal(receipt.components, receipt.totalScore)
+  const formula = receipt.topicRelevanceFormula
 
   return (
     <aside className="flex h-full flex-col rounded-[1.5rem] border border-primary/20 bg-card shadow-[0_18px_50px_rgba(46,38,32,0.08)]">
@@ -75,7 +84,7 @@ export function ReceiptPanel({
             </p>
           </div>
           <span className="rounded-full border border-primary/20 bg-primary/10 px-3 py-1 font-mono text-xs font-semibold text-primary">
-            {formatReceiptScore(displayMath.totalScore)}
+            {displayMath ? formatReceiptScore(displayMath.serverTotalScore) : "Score unavailable"}
           </span>
         </div>
         {receipt.previousRank !== null ? (
@@ -92,11 +101,26 @@ export function ReceiptPanel({
       <div className="flex flex-1 flex-col gap-3 px-5 py-5">
         <div className="rounded-xl border border-primary/15 bg-primary/[0.055] px-4 py-3">
           <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-primary/65">Receipt math</p>
-          <p className="mt-1 text-sm font-semibold text-foreground">Raw signal × community weight = contribution</p>
-          <p className="mt-1 text-[11px] text-foreground/45">Values use four-decimal display precision; the score is their displayed sum.</p>
+          {displayMath ? (
+            <>
+              <p className="mt-1 text-sm font-semibold text-foreground">Raw signal × community weight = contribution</p>
+              <p className="mt-1 text-[11px] text-foreground/55">
+                Server receipt total {formatReceiptScore(displayMath.serverTotalScore)} · displayed component sum {formatReceiptScore(displayMath.totalScore)}
+              </p>
+              {displayMath.roundingResidual !== 0 ? (
+                <p className="mt-1 text-[11px] text-foreground/55">
+                  Display rounding residual {formatReceiptScore(displayMath.roundingResidual)}
+                </p>
+              ) : null}
+            </>
+          ) : (
+            <p className="mt-1 text-sm leading-relaxed text-foreground/65" role="status">
+              Receipt math is unavailable for this post. The rest of the frozen demo remains usable.
+            </p>
+          )}
         </div>
 
-        {displayMath.components.map((component) => (
+        {displayMath?.components.map((component) => (
           <div
             key={component.key}
             className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-xl border border-border/70 bg-background px-4 py-2.5"
@@ -114,7 +138,7 @@ export function ReceiptPanel({
 
         {topTopics.length > 0 ? (
           <div className="mt-1">
-            <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-foreground/45">Topic match</p>
+            <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-foreground/50">Topic weighting inputs</p>
             <div className="mt-2 flex flex-col gap-1.5">
               {topTopics.map((topic) => (
                 <div key={topic.slug} className="flex items-center justify-between gap-3 text-sm">
@@ -126,8 +150,66 @@ export function ReceiptPanel({
                 </div>
               ))}
             </div>
+            <div className="mt-3 border-t border-border/70 pt-3 text-xs leading-relaxed text-foreground/65">
+              {formula.formulaApplied && formula.weightedSum !== null && formula.signalSum !== null ? (
+                <>
+                  <p className="font-mono">
+                    weighted sum {formatScore(formula.weightedSum)} ÷ signal sum {formatScore(formula.signalSum)} = normalized relevance {formatScore(formula.baseRelevance)}
+                  </p>
+                  <p className="mt-1 font-mono">
+                    {formatScore(formula.baseRelevance)} × confidence {formatScore(formula.confidenceMultiplier)} = effective relevance {formatScore(formula.effectiveRelevance)}
+                  </p>
+                </>
+              ) : (
+                <p className="font-mono">
+                  Default topic weight {formatPercent(formula.defaultTopicWeight)} · effective relevance {formatScore(formula.effectiveRelevance)}
+                </p>
+              )}
+              <p className="mt-1">
+                Confidence threshold {formatScore(formula.confidenceThreshold)}{formula.usedDefaultWeight ? " · a default topic weight was used" : " · all displayed terms use the returned community policy"}.
+              </p>
+            </div>
           </div>
         ) : null}
+
+        <div className="mt-1 border-t border-border/70 pt-4">
+          <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-foreground/50">Receipt provenance</p>
+          <dl className="mt-2 grid gap-x-4 gap-y-2 text-xs sm:grid-cols-2">
+            <div>
+              <dt className="text-foreground/50">AT URI</dt>
+              <dd className="mt-0.5 break-all font-mono text-foreground/75">{receipt.postUri}</dd>
+            </div>
+            <div>
+              <dt className="text-foreground/50">Corpus ID</dt>
+              <dd className="mt-0.5 break-all font-mono text-foreground/75">{receipt.provenance.corpusId}</dd>
+            </div>
+            <div>
+              <dt className="text-foreground/50">Production epoch</dt>
+              <dd className="mt-0.5 font-mono text-foreground/75">{receipt.provenance.productionEpochId}</dd>
+            </div>
+            <div>
+              <dt className="text-foreground/50">Shadow epoch</dt>
+              <dd className="mt-0.5 break-all font-mono text-foreground/75">{receipt.provenance.shadowEpochId}</dd>
+            </div>
+            <div>
+              <dt className="text-foreground/50">Snapshot sampled</dt>
+              <dd className="mt-0.5 font-mono text-foreground/75">{new Date(receipt.provenance.sampledAt).toLocaleString()}</dd>
+            </div>
+            <div>
+              <dt className="text-foreground/50">Scored</dt>
+              <dd className="mt-0.5 font-mono text-foreground/75">{new Date(receipt.scoredAt).toLocaleString()}</dd>
+            </div>
+          </dl>
+          <p className="mt-3 text-xs leading-relaxed text-foreground/65">
+            Your direct ballot is {formatPercent(receipt.reviewerBallotShare)} of the 25-ballot aggregate. This is ballot share, not causal influence, because scripted ballots respond partly to the proposal.
+          </p>
+          <p className="mt-2 text-xs leading-relaxed text-foreground/65">
+            Included for {receipt.provenance.postInclusionReasons.matchedTopics.map((item) => `${item.topic} ${formatScore(item.score)}`).join(", ") || "the Open Science policy"}
+            {receipt.provenance.postInclusionReasons.matchedTerms.length > 0
+              ? `; matched terms: ${receipt.provenance.postInclusionReasons.matchedTerms.join(", ")}.`
+              : "."}
+          </p>
+        </div>
 
         <div className="mt-1">
           <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-foreground/45">Counterfactuals</p>
@@ -146,12 +228,24 @@ export function ReceiptPanel({
             onClick={onAnotherEpoch}
             className="mb-3 inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
           >
-            Run another epoch
+            {currentEpoch >= guidedEpochs && !freePlayEnabled ? "Continue in free play" : "Run another epoch"}
             <ArrowRight className="h-4 w-4" aria-hidden="true" />
           </button>
         ) : null}
-        <p className="mb-2 text-[11px] font-mono text-foreground/45">Epoch {currentEpoch} of {maxEpochs} maximum</p>
+        <p className="mb-2 text-[11px] font-mono text-foreground/50">
+          Epoch {currentEpoch} · guided through {guidedEpochs} · {maxEpochs} maximum
+        </p>
         <p className="text-xs leading-relaxed text-foreground/55">{DISCLOSURE.annotations}</p>
+        <div className="mt-4 flex flex-wrap gap-x-4 gap-y-2 border-t border-border/70 pt-4 text-xs font-semibold">
+          <a href={bskyUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-primary hover:text-primary-dark">
+            Source post <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+          </a>
+          <Link href="/docs" className="text-primary hover:text-primary-dark">Methodology</Link>
+          <Link href="/how-it-works" className="text-primary hover:text-primary-dark">How it works</Link>
+          <button type="button" onClick={onRestart} className="inline-flex items-center gap-1.5 text-primary hover:text-primary-dark">
+            <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" /> Another session
+          </button>
+        </div>
       </div>
     </aside>
   )

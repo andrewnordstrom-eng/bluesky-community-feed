@@ -1,8 +1,10 @@
 import { SIGNAL_LABELS } from "@/lib/signals"
+import type { ZodType } from "zod"
 import {
-  SHADOW_DEMO_CONTRACT_VERSION,
   SHADOW_DEMO_ENDPOINTS,
   SHADOW_DEMO_SIGNAL_KEYS,
+} from "./shadow-demo-contract"
+import {
   type AdvanceShadowDemoEpochRequest,
   type AdvanceShadowDemoEpochResponse,
   type CastShadowDemoVoteRequest,
@@ -33,181 +35,27 @@ import {
   type ShadowDemoVote,
   type ShadowDemoWarning,
   type ShadowDemoWeights,
-} from "./shadow-demo-contract"
+} from "./shadow-demo-view-model"
+import {
+  CONTRACT_VERSION,
+  apiFeedEnvelopeSchema,
+  apiReceiptEnvelopeSchema,
+  apiSessionEnvelopeSchema,
+  type ApiEnvelope,
+  type ApiFeedPayload,
+  type ApiReceiptPayload,
+  type ApiSessionPayload,
+} from "./shadow-demo-api-schemas"
 
-interface ApiWarning {
-  readonly code: string
-  readonly message: string
-  readonly severity: "info" | "warning" | "degraded"
-}
-
-interface ApiEnvelope<TPayload> {
-  readonly contractVersion: typeof SHADOW_DEMO_CONTRACT_VERSION
-  readonly requestId: string
-  readonly generatedAt: string
-  readonly sessionId: string | null
-  readonly payload: TPayload
-  readonly warnings: readonly ApiWarning[]
-}
-
-interface ApiTopicIntent {
-  readonly topicWeights: Readonly<Record<string, number>>
-}
-
-interface ApiVoteSummary {
-  readonly aggregateMethod: "trimmed_mean_no_trim_under_10"
-  readonly voteCount: number
-  readonly trimCount: number
-  readonly weights: ShadowDemoWeights
-  readonly topicIntent: ApiTopicIntent
-}
-
-interface ApiEpoch {
-  readonly id: string
-  readonly sequence: number
-  readonly label: string
-  readonly status: "open" | "advanced"
-  readonly createdAt: string
-  readonly advancedAt: string | null
-  readonly decidedByEpochId: string | null
-  readonly aggregate: ApiVoteSummary
-}
-
-interface ApiVoteBase {
-  readonly id: string
-  readonly epochId: string
-  readonly label: string
-  readonly weights: ShadowDemoWeights
-  readonly topicIntent: ApiTopicIntent
-  readonly createdAt: string
-}
-
-interface ApiReviewerVote extends ApiVoteBase {
-  readonly actorType: "reviewer"
-  readonly actorId: "reviewer"
-  readonly blocId?: never
-}
-
-interface ApiSyntheticVote extends ApiVoteBase {
-  readonly actorType: "synthetic_voter"
-  readonly actorId: `synthetic-${ShadowDemoAgentId}-${number}`
-  readonly blocId: ShadowDemoAgentId
-}
-
-type ApiVote = ApiReviewerVote | ApiSyntheticVote
-
-interface ApiCorpusHealth {
-  readonly status: "live" | "degraded"
-  readonly source: "production_scores_appview" | "fixture_fallback"
-  readonly candidatePosts72h: number
-  readonly publicScoredPosts: number
-  readonly uniqueAuthors72h: number
-  readonly bridgePostShare: number
-  readonly topAuthorConcentration: number
-  readonly sampledAt: string
-}
-
-interface ApiCommunity {
-  readonly id: ShadowDemoCommunityId
-  readonly name: string
-  readonly status: "live_shadow" | "degraded"
-  readonly description: string
-  readonly liveFeedReady: boolean
-}
-
-interface ApiVoterProfile {
-  readonly id: ShadowDemoAgentId
-  readonly label: string
-  readonly voterCount: number
-  readonly baseWeights: ShadowDemoWeights
-  readonly baseTopicWeights: Readonly<Record<string, number>>
-  readonly reviewerBlend: number
-  readonly policyInertia: number
-}
-
-interface ApiSessionPayload {
-  readonly session: {
-    readonly sessionId: string
-    readonly community: ApiCommunity
-    readonly phase: "created" | "reviewer_voted" | "synthetic_voters_ran" | "epoch_advanced"
-    readonly currentEpochId: string
-    readonly expiresAt: string
-    readonly corpusHealth: ApiCorpusHealth
-    readonly epochs: readonly ApiEpoch[]
-    readonly pendingAggregate: ApiVoteSummary | null
-    readonly voteCount: number
-    readonly guidedEpochs: number
-    readonly maxEpochs: number
-    readonly syntheticVoterCount: number
-    readonly totalDemoVoters: number
-    readonly voterProfiles: readonly ApiVoterProfile[]
-    readonly votes: readonly ApiVote[]
-  }
-}
-
-interface ApiPublicPost {
-  readonly kind: "public_post"
-  readonly uri: string
-  readonly cid: string
-  readonly authorHandle: string
-  readonly authorDisplayName: string
-  readonly authorAvatar: string | null
-  readonly text: string
-  readonly likeCount: number
-  readonly repostCount: number
-  readonly replyCount: number
-  readonly quoteCount: number
-  readonly indexedAt: string
-  readonly bskyUrl: string
-}
-
-interface ApiHiddenPost {
-  readonly kind: "hidden_post"
-  readonly reason: string
-}
-
-interface ApiRankedPost {
-  readonly rank: number
-  readonly previousRank: number | null
-  readonly movement: number | null
-  readonly score: number | null
-  readonly weightedComponents: Readonly<Record<ShadowDemoSignalKey, number>> | null
-  readonly rawScores: Readonly<Record<ShadowDemoSignalKey, number>> | null
-  readonly post: ApiPublicPost | ApiHiddenPost
-}
-
-interface ApiFeedPayload {
-  readonly epochId: string
-  readonly corpusId: string
-  readonly communityId: ShadowDemoCommunityId
-  readonly corpusHealth: ApiCorpusHealth
-  readonly aggregate: ApiVoteSummary
-  readonly posts: readonly ApiRankedPost[]
-}
-
-interface ApiReceiptPayload {
-  readonly receipt: {
-    readonly type: "shadow_demo_receipt"
-    readonly epochId: string
-    readonly postUri: string
-    readonly visibleRank: number
-    readonly previousRank: number | null
-    readonly score: number
-    readonly aggregate: ApiVoteSummary
-    readonly components: readonly {
-      readonly signal: ShadowDemoSignalKey
-      readonly rawScore: number
-      readonly weight: number
-      readonly contribution: number
-    }[]
-    readonly topicSignals: readonly { readonly topic: string; readonly postScore: number }[]
-    readonly counterfactuals: readonly {
-      readonly label: "previous_epoch" | "engagement_only" | "without_reviewer_vote"
-      readonly rank: number
-      readonly deltaFromVisible: number
-    }[]
-  }
-}
+type ApiSession = ApiSessionPayload["session"]
+type ApiEpoch = ApiSession["epochs"][number]
+type ApiVote = ApiSession["votes"][number]
+type ApiVoteSummary = ApiEpoch["aggregate"]
+type ApiVoterProfile = ApiSession["voterProfiles"][number]
+type ApiCommunity = ApiSession["community"]
+type ApiCorpusHealth = ApiSession["corpusHealth"]
+type ApiRankedPost = ApiFeedPayload["posts"][number]
+type ApiWarning = ApiEnvelope<unknown>["warnings"][number]
 
 const SHADOW_DEMO_REQUEST_TIMEOUT_MS = 10_000
 const SHADOW_DEMO_CORPUS_REQUEST_TIMEOUT_MS = 30_000
@@ -217,36 +65,28 @@ export function createHttpShadowDemoClient(): ShadowDemoClient {
     async createSession(request, signal) {
       const sessionEnvelope = await requestApi<ApiSessionPayload>(
         SHADOW_DEMO_ENDPOINTS.createSession,
-        { method: "POST", body: JSON.stringify({ communityId: request.communityId, refreshCorpus: false }) },
+        { method: "POST", body: JSON.stringify({ communityId: request.communityId }) },
         signal,
         SHADOW_DEMO_CORPUS_REQUEST_TIMEOUT_MS,
+        apiSessionEnvelopeSchema,
       )
-      return sessionResponseEnvelope(sessionEnvelope, request.scenarioId, signal)
+      return sessionResponseEnvelope(sessionEnvelope, request.scenarioId, request.mode, signal)
     },
 
     async getSession(sessionId, signal) {
       const sessionEnvelope = await requestApi<ApiSessionPayload>(
-        SHADOW_DEMO_ENDPOINTS.session(sessionId),
+        sessionPath(sessionId),
         { method: "GET" },
         signal,
         SHADOW_DEMO_REQUEST_TIMEOUT_MS,
+        apiSessionEnvelopeSchema,
       )
-      return sessionResponseEnvelope(sessionEnvelope, "guided_default", signal)
-    },
-
-    async refreshCorpus(request, signal) {
-      const sessionEnvelope = await requestApi<ApiSessionPayload>(
-        SHADOW_DEMO_ENDPOINTS.refreshCorpus,
-        { method: "POST", body: JSON.stringify({ communityId: request.communityId, refreshCorpus: true }) },
-        signal,
-        SHADOW_DEMO_CORPUS_REQUEST_TIMEOUT_MS,
-      )
-      return sessionResponseEnvelope(sessionEnvelope, request.scenarioId, signal)
+      return sessionResponseEnvelope(sessionEnvelope, "guided_default", "guided", signal)
     },
 
     async castVote(sessionId, request, signal) {
       const envelope = await requestApi<ApiSessionPayload>(
-        SHADOW_DEMO_ENDPOINTS.castVote(sessionId),
+        mutationPath(sessionId, "votes"),
         {
           method: "POST",
           body: JSON.stringify({
@@ -258,6 +98,7 @@ export function createHttpShadowDemoClient(): ShadowDemoClient {
         },
         signal,
         SHADOW_DEMO_REQUEST_TIMEOUT_MS,
+        apiSessionEnvelopeSchema,
       )
       const apiSession = envelope.payload.session
       const reviewerVote = [...apiSession.votes]
@@ -267,7 +108,7 @@ export function createHttpShadowDemoClient(): ShadowDemoClient {
         throw new Error("The shadow demo accepted the vote but did not return the reviewer vote.")
       }
       return mapEnvelope(envelope, {
-        session: mapSession(apiSession, "guided_default"),
+        session: mapSession(apiSession, "guided_default", "guided"),
         reviewerVote: mapVote(reviewerVote),
         currentEpoch: mapEpoch(requiredEpoch(apiSession, request.baseEpochId)),
         nextRecommendedAction: "run_agent_votes",
@@ -276,20 +117,21 @@ export function createHttpShadowDemoClient(): ShadowDemoClient {
 
     async runAgents(sessionId, request, signal) {
       const envelope = await requestApi<ApiSessionPayload>(
-        SHADOW_DEMO_ENDPOINTS.runAgents(sessionId),
+        mutationPath(sessionId, "agents/run"),
         {
           method: "POST",
           body: JSON.stringify({ idempotencyKey: request.idempotencyKey, baseEpochId: request.baseEpochId }),
         },
         signal,
         SHADOW_DEMO_REQUEST_TIMEOUT_MS,
+        apiSessionEnvelopeSchema,
       )
       const apiSession = envelope.payload.session
       if (apiSession.pendingAggregate === null) {
         throw new Error("Synthetic voters ran without returning a pending aggregate policy.")
       }
       return mapEnvelope(envelope, {
-        session: mapSession(apiSession, "guided_default"),
+        session: mapSession(apiSession, "guided_default", "guided"),
         agents: apiSession.voterProfiles.map(mapAgent),
         agentVotes: apiSession.votes
           .filter((vote) => vote.epochId === request.baseEpochId && vote.actorType === "synthetic_voter")
@@ -306,15 +148,17 @@ export function createHttpShadowDemoClient(): ShadowDemoClient {
         { method: "GET" },
         signal,
         SHADOW_DEMO_REQUEST_TIMEOUT_MS,
+        apiFeedEnvelopeSchema,
       )
       const envelope = await requestApi<ApiSessionPayload>(
-        SHADOW_DEMO_ENDPOINTS.advanceEpoch(sessionId),
+        mutationPath(sessionId, "epochs/advance"),
         {
           method: "POST",
           body: JSON.stringify({ idempotencyKey: request.idempotencyKey, fromEpochId: request.fromEpochId }),
         },
         signal,
         SHADOW_DEMO_REQUEST_TIMEOUT_MS,
+        apiSessionEnvelopeSchema,
       )
       const apiSession = envelope.payload.session
       const feedAfterEnvelope = await requestApi<ApiFeedPayload>(
@@ -322,9 +166,10 @@ export function createHttpShadowDemoClient(): ShadowDemoClient {
         { method: "GET" },
         signal,
         SHADOW_DEMO_REQUEST_TIMEOUT_MS,
+        apiFeedEnvelopeSchema,
       )
       return mapEnvelope(envelope, {
-        session: mapSession(apiSession, "guided_default"),
+        session: mapSession(apiSession, "guided_default", "guided"),
         previousEpoch: mapEpoch(requiredEpoch(apiSession, request.fromEpochId)),
         currentEpoch: mapEpoch(requiredEpoch(apiSession, apiSession.currentEpochId)),
         feedBefore: mapFeed(feedBeforeEnvelope.payload, feedBeforeEnvelope.generatedAt),
@@ -339,6 +184,7 @@ export function createHttpShadowDemoClient(): ShadowDemoClient {
         { method: "GET" },
         signal,
         SHADOW_DEMO_REQUEST_TIMEOUT_MS,
+        apiFeedEnvelopeSchema,
       )
       return mapEnvelope(envelope, mapFeed(envelope.payload, envelope.generatedAt))
     },
@@ -350,16 +196,18 @@ export function createHttpShadowDemoClient(): ShadowDemoClient {
           { method: "GET" },
           signal,
           SHADOW_DEMO_REQUEST_TIMEOUT_MS,
+          apiReceiptEnvelopeSchema,
         ),
         requestApi<ApiSessionPayload>(
-          SHADOW_DEMO_ENDPOINTS.session(sessionId),
+          sessionPath(sessionId),
           { method: "GET" },
           signal,
           SHADOW_DEMO_REQUEST_TIMEOUT_MS,
+          apiSessionEnvelopeSchema,
         ),
       ])
       return mapEnvelope(receiptEnvelope, {
-        session: mapSession(sessionEnvelope.payload.session, "guided_default"),
+        session: mapSession(sessionEnvelope.payload.session, "guided_default", "guided"),
         receipt: mapReceipt(receiptEnvelope.payload.receipt, receiptEnvelope.generatedAt),
       } satisfies ShadowDemoReceiptResponse)
     },
@@ -369,6 +217,7 @@ export function createHttpShadowDemoClient(): ShadowDemoClient {
 async function sessionResponseEnvelope(
   envelope: ApiEnvelope<ApiSessionPayload>,
   scenarioId: string,
+  mode: "guided" | "free_play",
   signal: AbortSignal,
 ): Promise<ShadowDemoEnvelope<ShadowDemoSessionResponse>> {
   const apiSession = envelope.payload.session
@@ -377,11 +226,12 @@ async function sessionResponseEnvelope(
     { method: "GET" },
     signal,
     SHADOW_DEMO_REQUEST_TIMEOUT_MS,
+    apiFeedEnvelopeSchema,
   )
   const currentEpochIndex = apiSession.epochs.findIndex((epoch) => epoch.id === apiSession.currentEpochId)
   const previousEpoch = currentEpochIndex > 0 ? apiSession.epochs[currentEpochIndex - 1] : null
   return mapEnvelope(envelope, {
-    session: mapSession(apiSession, scenarioId),
+    session: mapSession(apiSession, scenarioId, mode),
     community: mapCommunity(apiSession.community, apiSession.corpusHealth),
     currentEpoch: mapEpoch(requiredEpoch(apiSession, apiSession.currentEpochId)),
     previousEpoch: previousEpoch === null ? null : mapEpoch(previousEpoch),
@@ -395,6 +245,7 @@ async function requestApi<TPayload>(
   init: RequestInit,
   signal: AbortSignal,
   timeoutMs: number,
+  schema: ZodType<ApiEnvelope<TPayload>>,
 ): Promise<ApiEnvelope<TPayload>> {
   const controller = new AbortController()
   let timedOut = false
@@ -420,16 +271,11 @@ async function requestApi<TPayload>(
         : `Shadow demo request failed with HTTP ${response.status}`
       throw new Error(message)
     }
-    if (body === null || typeof body !== "object" || !("contractVersion" in body)) {
+    const parsed = schema.safeParse(body)
+    if (!parsed.success) {
       throw new Error("Shadow demo API returned an invalid response envelope.")
     }
-    const envelope = body as ApiEnvelope<TPayload>
-    if (envelope.contractVersion !== SHADOW_DEMO_CONTRACT_VERSION) {
-      throw new Error(
-        `Shadow demo contract mismatch: expected ${SHADOW_DEMO_CONTRACT_VERSION}, received ${String(envelope.contractVersion)}`,
-      )
-    }
-    return envelope
+    return parsed.data
   } catch (error) {
     if (timedOut) {
       throw new Error(`Shadow demo request timed out after ${timeoutMs}ms`)
@@ -449,7 +295,7 @@ function mapEnvelope<TApiPayload, TViewPayload>(
   payload: TViewPayload,
 ): ShadowDemoEnvelope<TViewPayload> {
   return {
-    contractVersion: SHADOW_DEMO_CONTRACT_VERSION,
+    contractVersion: CONTRACT_VERSION,
     requestId: envelope.requestId,
     generatedAt: envelope.generatedAt,
     sessionId: envelope.sessionId,
@@ -466,13 +312,18 @@ function mapWarning(warning: ApiWarning): ShadowDemoWarning {
   }
 }
 
-function mapSession(api: ApiSessionPayload["session"], scenarioId: string): ShadowDemoSession {
+function mapSession(
+  api: ApiSession,
+  scenarioId: string,
+  mode: "guided" | "free_play",
+): ShadowDemoSession {
   const firstEpoch = api.epochs[0]
   return {
     id: api.sessionId,
     phase: mapPhase(api.phase),
     communityId: api.community.id,
     scenarioId,
+    mode,
     seed: "server-seeded-replayable-electorate",
     createdAt: firstEpoch?.createdAt ?? api.expiresAt,
     expiresAt: api.expiresAt,
@@ -491,10 +342,10 @@ function mapSession(api: ApiSessionPayload["session"], scenarioId: string): Shad
       canCastReviewerVote: api.phase === "created" || api.phase === "reviewer_voted" || api.phase === "epoch_advanced",
       canRunAgents: api.phase === "reviewer_voted",
       canAdvanceEpoch: api.phase === "synthetic_voters_ran" && api.epochs.length < api.maxEpochs,
-      canRefreshCorpus: true,
       canOpenNativeBlueskyFeed: false,
       canMutateNativeBlueskyFeed: false,
     },
+    corpusProvenance: api.corpusProvenance,
   }
 }
 
@@ -527,13 +378,14 @@ function mapEpoch(epoch: ApiEpoch): ShadowDemoEpoch {
     status: epoch.status === "open" ? "open" : "closed",
     label: epoch.label,
     weights: epoch.aggregate.weights,
+    topicIntent: mapTopicIntent(epoch.aggregate.topicIntent),
     voteSummary: {
       reviewerVotes: totalVotes > 0 ? 1 : 0,
       agentVotes: Math.max(0, totalVotes - 1),
       totalVotes,
       aggregateMethod: "trimmed_mean_no_trim_under_10",
       trimCount: epoch.aggregate.trimCount,
-      reviewerInfluenceShare: totalVotes > 0 ? 1 / totalVotes : 0,
+      reviewerBallotShare: totalVotes > 0 ? 1 / totalVotes : 0,
     },
     startedAt: epoch.createdAt,
     closedAt: epoch.advancedAt,
@@ -550,7 +402,7 @@ function mapAggregate(summary: ApiVoteSummary): ShadowDemoAggregate {
       totalVotes: summary.voteCount,
       aggregateMethod: summary.aggregateMethod,
       trimCount: summary.trimCount,
-      reviewerInfluenceShare: summary.voteCount > 0 ? 1 / summary.voteCount : 0,
+      reviewerBallotShare: summary.voteCount > 0 ? 1 / summary.voteCount : 0,
     },
   }
 }
@@ -559,7 +411,7 @@ function mapAgent(profile: ApiVoterProfile): ShadowDemoAgent {
   return {
     id: profile.id,
     name: profile.label,
-    role: `${profile.voterCount} persistent synthetic voters in this community bloc.`,
+    role: `${profile.voterCount} scripted deterministic voter archetypes in this community bloc.`,
     deterministicSeed: `server:${profile.id}`,
     voteRationale: `Stable bloc preferences, ${Math.round(profile.policyInertia * 100)}% prior-policy inertia, and ${Math.round(profile.reviewerBlend * 100)}% bounded response to your proposal.`,
     voterCount: profile.voterCount,
@@ -578,12 +430,12 @@ function mapVote(vote: ApiVote): ShadowDemoVote {
     voterLabel: vote.label,
     weights: vote.weights,
     topicIntent: mapTopicIntent(vote.topicIntent),
-    rationale: vote.blocId === undefined ? "Your demo-only policy proposal." : `Deterministic ${vote.blocId} voter.`,
+    rationale: vote.actorType === "reviewer" ? "Your demo-only policy proposal." : `Deterministic ${vote.blocId} voter.`,
     castAt: vote.createdAt,
   }
 }
 
-function mapTopicIntent(intent: ApiTopicIntent): ShadowDemoTopicIntent {
+function mapTopicIntent(intent: ShadowDemoTopicIntent): ShadowDemoTopicIntent {
   return { topicWeights: intent.topicWeights }
 }
 
@@ -598,6 +450,8 @@ function mapFeed(payload: ApiFeedPayload, generatedAt: string): ShadowDemoFeed {
       : "fixture_posts_shadow_weights",
     generatedAt,
     items,
+    corpusProvenance: payload.corpusProvenance,
+    aggregate: mapAggregate(payload.aggregate),
     corpusHealth: {
       status: payload.corpusHealth.status === "live" ? "live" : "fallback",
       candidatePostCount: payload.corpusHealth.candidatePosts72h,
@@ -646,11 +500,13 @@ function mapFeedItem(post: ApiRankedPost, weights: ShadowDemoWeights): ShadowDem
       uri: post.post.uri,
       cid: post.post.cid,
       bskyUrl: post.post.bskyUrl,
+      authorDid: post.post.authorDid,
       authorHandle: post.post.authorHandle,
       authorDisplayName: post.post.authorDisplayName,
       authorAvatar: post.post.authorAvatar,
       text: post.post.text,
       indexedAt: post.post.indexedAt,
+      createdAt: post.post.createdAt,
       likeCount: post.post.likeCount,
       repostCount: post.post.repostCount,
       replyCount: post.post.replyCount,
@@ -677,12 +533,15 @@ function movementFor(delta: number | null): { delta: number; label: "new" | "sam
 }
 
 function hiddenReason(reason: string): "no_unauthenticated" | "hide_label" | "adult_label" | "deleted_or_unavailable" | "missing_text" {
-  const normalized = reason.toLowerCase()
-  if (normalized.includes("no-unauthenticated")) return "no_unauthenticated"
-  if (normalized.includes("!hide") || normalized.includes("hide label")) return "hide_label"
-  if (normalized.includes("adult")) return "adult_label"
-  if (normalized.includes("text")) return "missing_text"
-  return "deleted_or_unavailable"
+  if (reason.startsWith("Hidden by Bluesky public-view label !no-unauthenticated")) return "no_unauthenticated"
+  if (reason.startsWith("Hidden by Bluesky public-view label !hide")) return "hide_label"
+  if (reason.startsWith("Hidden by Bluesky adult-content label ")) return "adult_label"
+  if (reason === "Post text unavailable from Bluesky public AppView") return "missing_text"
+  if (
+    reason === "Post unavailable from Bluesky public AppView"
+    || reason === "Post metadata unavailable from Bluesky public AppView"
+  ) return "deleted_or_unavailable"
+  throw new Error("Shadow demo API returned an unsupported hidden-post reason.")
 }
 
 function mapReceipt(receipt: ApiReceiptPayload["receipt"], generatedAt: string): ShadowDemoReceipt {
@@ -692,6 +551,9 @@ function mapReceipt(receipt: ApiReceiptPayload["receipt"], generatedAt: string):
     visibleRank: receipt.visibleRank,
     previousRank: receipt.previousRank,
     totalScore: receipt.score,
+    scoredAt: receipt.scoredAt,
+    aggregate: mapAggregate(receipt.aggregate),
+    reviewerBallotShare: receipt.reviewerBallotShare,
     components: receipt.components.map((component) => ({
       key: component.signal,
       label: SIGNAL_LABELS[component.signal],
@@ -699,19 +561,15 @@ function mapReceipt(receipt: ApiReceiptPayload["receipt"], generatedAt: string):
       weight: component.weight,
       contribution: component.contribution,
     })),
-    topicBreakdown: receipt.topicSignals.map((topic) => {
-      const communityWeight = receipt.aggregate.topicIntent.topicWeights[topic.topic]
-      if (communityWeight === undefined) {
-        throw new Error(`Shadow demo receipt omitted topic weight ${topic.topic}.`)
-      }
-      return {
-        slug: topic.topic,
-        label: topicLabel(topic.topic),
-        postScore: topic.postScore,
-        communityWeight,
-        contribution: topic.postScore * communityWeight,
-      }
-    }),
+    topicBreakdown: receipt.topicRelevanceFormula.terms.map((term) => ({
+      slug: term.topic,
+      label: topicLabel(term.topic),
+      postScore: term.postScore,
+      communityWeight: term.communityWeight,
+      contribution: term.weightedTerm,
+    })),
+    topicRelevanceFormula: receipt.topicRelevanceFormula,
+    provenance: receipt.provenance,
     counterfactuals: receipt.counterfactuals.map(mapCounterfactual),
     generatedAt,
     explanationKind: "shadow_demo_receipt",
@@ -724,15 +582,15 @@ function mapCounterfactual(item: ApiReceiptPayload["receipt"]["counterfactuals"]
     ? "Prior epoch"
     : item.label === "engagement_only"
       ? "Engagement-only ranking"
-      : "Without your vote"
-  return { id, label, rank: item.rank, deltaFromVisibleRank: item.deltaFromVisible }
+      : "Direct reviewer ballot removed"
+  return { id, label, description: item.description, rank: item.rank, deltaFromVisibleRank: item.deltaFromVisible }
 }
 
 function topicLabel(slug: string): string {
   return slug.split("-").map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`).join(" ")
 }
 
-function requiredEpoch(session: ApiSessionPayload["session"], epochId: string): ApiEpoch {
+function requiredEpoch(session: ApiSession, epochId: string): ApiEpoch {
   const epoch = session.epochs.find((candidate) => candidate.id === epochId)
   if (epoch === undefined) throw new Error(`Shadow demo response omitted epoch ${epochId}.`)
   return epoch
@@ -740,12 +598,20 @@ function requiredEpoch(session: ApiSessionPayload["session"], epochId: string): 
 
 function feedPath(sessionId: string, epochId: string, limit: number): string {
   const query = new URLSearchParams({ epochId, limit: String(limit) })
-  return `${SHADOW_DEMO_ENDPOINTS.feed(sessionId)}?${query.toString()}`
+  return `${sessionPath(sessionId)}/feed?${query.toString()}`
 }
 
 function receiptPath(sessionId: string, request: ShadowDemoReceiptRequest): string {
   const query = new URLSearchParams({ epochId: request.epochId, postUri: request.postUri })
-  return `${SHADOW_DEMO_ENDPOINTS.receipt(sessionId)}?${query.toString()}`
+  return `${sessionPath(sessionId)}/receipts?${query.toString()}`
+}
+
+function sessionPath(sessionId: string): string {
+  return `${SHADOW_DEMO_ENDPOINTS.createSession}/${encodeURIComponent(sessionId)}`
+}
+
+function mutationPath(sessionId: string, suffix: "votes" | "agents/run" | "epochs/advance"): string {
+  return `${sessionPath(sessionId)}/${suffix}`
 }
 
 function apiUrl(path: string): string {

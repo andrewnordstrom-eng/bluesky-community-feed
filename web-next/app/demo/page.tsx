@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion"
-import { AlertCircle, RotateCcw } from "lucide-react"
+import { AlertCircle, FileSearch, ListOrdered, RotateCcw } from "lucide-react"
 import { Header } from "@/components/header"
 import { FooterSection } from "@/components/footer-section"
 import { Container } from "@/components/ui/layout"
@@ -31,7 +31,7 @@ import type {
   ShadowDemoTopicIntent,
   ShadowDemoVote,
   ShadowDemoWeights,
-} from "./shadow-demo-contract"
+} from "./shadow-demo-view-model"
 
 function uid(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -71,19 +71,32 @@ export default function DemoPage() {
   const [pendingAggregate, setPendingAggregate] = useState<ShadowDemoAggregate | null>(null)
   const [selectedUri, setSelectedUri] = useState<string | null>(null)
   const [receipt, setReceipt] = useState<ShadowDemoReceipt | null>(null)
+  const [mobileView, setMobileView] = useState<"feed" | "receipt">("feed")
+  const [freePlayEnabled, setFreePlayEnabled] = useState(false)
+  const [startingNextEpoch, setStartingNextEpoch] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const requestCoordinator = useRef(new DemoRequestCoordinator())
+  const panelRef = useRef<HTMLDivElement>(null)
 
   const client = getDemoClient()
   const reduceMotion = useReducedMotion() ?? false
-  const phase = session?.phase ?? null
+  const phase = startingNextEpoch ? "corpus_ready" : (session?.phase ?? null)
   const feed = feedAfter ?? baselineFeed
   const reranked = phase === "reranked" || phase === "epoch_transitioned"
 
   useEffect(() => () => requestCoordinator.current.cancel(), [])
 
-  async function run(action: (request: DemoRequestContext) => Promise<void>): Promise<void> {
+  useEffect(() => {
+    if (session !== null) {
+      panelRef.current?.focus({ preventScroll: false })
+    }
+  }, [phase, session])
+
+  async function run(
+    action: (request: DemoRequestContext) => Promise<void>,
+    recoverSessionId: string | null,
+  ): Promise<void> {
     const request = requestCoordinator.current.start()
     setBusy(true)
     setError(null)
@@ -91,12 +104,39 @@ export default function DemoPage() {
       await action(request)
     } catch (cause) {
       if (request.isCurrent()) {
-        setError(cause instanceof Error ? cause.message : "Something went wrong in the demo.")
+        if (recoverSessionId !== null) {
+          try {
+            await recoverSession(recoverSessionId, request)
+            if (request.isCurrent()) {
+              setError("The connection was interrupted, so Corgi refreshed this session before you continue.")
+            }
+          } catch {
+            if (request.isCurrent()) {
+              setError(cause instanceof Error ? cause.message : "Something went wrong in the demo.")
+            }
+          }
+        } else {
+          setError(cause instanceof Error ? cause.message : "Something went wrong in the demo.")
+        }
       }
     } finally {
       if (request.isCurrent()) {
         setBusy(false)
       }
+    }
+  }
+
+  async function recoverSession(sessionId: string, request: DemoRequestContext): Promise<void> {
+    const { payload } = await client.getSession(sessionId, request.signal)
+    if (!request.isCurrent()) return
+    setSession(payload.session)
+    setCommunity(payload.community)
+    setOpenEpochId(payload.currentEpoch.id)
+    if (payload.session.phase === "reranked" || payload.session.phase === "epoch_transitioned") {
+      setFeedAfter(payload.feed)
+      setPublishedEpoch(payload.currentEpoch)
+    } else {
+      setBaselineFeed(payload.feed)
     }
   }
 
@@ -107,6 +147,7 @@ export default function DemoPage() {
     setPendingAggregate(null)
     setSelectedUri(null)
     setReceipt(null)
+    setMobileView("feed")
   }
 
   function handleStart(communityId: ShadowDemoCommunityId): void {
@@ -122,9 +163,11 @@ export default function DemoPage() {
       setCommunity(payload.community)
       setOpenEpochId(payload.currentEpoch.id)
       setBaselineFeed(payload.feed)
+      setStartingNextEpoch(false)
       clearRoundState()
       setPublishedEpoch(null)
-    })
+      setFreePlayEnabled(false)
+    }, null)
   }
 
   function handleVote(weights: ShadowDemoWeights, topicIntent: ShadowDemoTopicIntent): void {
@@ -141,7 +184,8 @@ export default function DemoPage() {
         return
       }
       setSession(payload.session)
-    })
+      setStartingNextEpoch(false)
+    }, session.id)
   }
 
   function handleRunAgents(): void {
@@ -161,7 +205,7 @@ export default function DemoPage() {
       setAgentVotes(payload.agentVotes)
       setPendingAggregate(payload.pendingAggregate)
       setSession(payload.session)
-    })
+    }, session.id)
   }
 
   function handleAdvance(): void {
@@ -185,7 +229,7 @@ export default function DemoPage() {
       if (top) {
         await loadReceipt(session.id, payload.currentEpoch.id, top.post.uri, request)
       }
-    })
+    }, session.id)
   }
 
   async function loadReceipt(
@@ -195,9 +239,14 @@ export default function DemoPage() {
     request: DemoRequestContext,
   ): Promise<void> {
     setSelectedUri(postUri)
+    setReceipt(null)
+    setMobileView("receipt")
     const { payload } = await client.getReceipt(sessionId, { epochId, postUri }, request.signal)
     if (!request.isCurrent()) {
       return
+    }
+    if (payload.receipt.postUri !== postUri || payload.receipt.epochId !== epochId) {
+      throw new Error("Corgi refused a receipt that did not match the selected post and epoch.")
     }
     setReceipt(payload.receipt)
   }
@@ -206,7 +255,7 @@ export default function DemoPage() {
     if (!reranked || session === null || publishedEpoch === null) {
       return
     }
-    void run((request) => loadReceipt(session.id, publishedEpoch.id, postUri, request))
+    void run((request) => loadReceipt(session.id, publishedEpoch.id, postUri, request), null)
   }
 
   function handleReset(): void {
@@ -217,6 +266,8 @@ export default function DemoPage() {
     setOpenEpochId(null)
     setPublishedEpoch(null)
     setBaselineFeed(null)
+    setStartingNextEpoch(false)
+    setFreePlayEnabled(false)
     clearRoundState()
     setError(null)
   }
@@ -225,7 +276,10 @@ export default function DemoPage() {
     if (session === null || feedAfter === null || publishedEpoch === null) {
       return
     }
-    setSession({ ...session, phase: "corpus_ready" })
+    setStartingNextEpoch(true)
+    if (publishedEpoch.sequence >= session.guidedEpochs) {
+      setFreePlayEnabled(true)
+    }
     setBaselineFeed(feedAfter)
     clearRoundState()
   }
@@ -265,14 +319,20 @@ export default function DemoPage() {
           receipt={receipt}
           authorDisplayName={selectedItem.post.authorDisplayName}
           postText={selectedItem.post.text}
+          bskyUrl={selectedItem.post.bskyUrl}
           onAnotherEpoch={publishedEpoch.sequence < session.maxEpochs ? handleAnotherEpoch : null}
+          onRestart={handleReset}
           currentEpoch={publishedEpoch.sequence}
+          guidedEpochs={session.guidedEpochs}
           maxEpochs={session.maxEpochs}
+          freePlayEnabled={freePlayEnabled}
         />
       ) : (
         <div className="rounded-[1.5rem] border border-border bg-card px-5 py-6">
           <h2 className="font-display text-xl font-bold text-foreground">{STEP_PANELS.reorder.heading}</h2>
-          <p className="mt-2 text-sm leading-relaxed text-foreground/60">{STEP_PANELS.reorder.body}</p>
+          <p className="mt-2 text-sm leading-relaxed text-foreground/60">
+            {selectedUri !== null && busy ? "Loading the matching post receipt…" : STEP_PANELS.reorder.body}
+          </p>
         </div>
       )
     ) : null
@@ -308,6 +368,10 @@ export default function DemoPage() {
           </div>
         ) : null}
 
+        <p className="sr-only" aria-live="polite">
+          {busy ? "Updating the shadow demo." : session === null ? "Choose a community to begin." : `Demo phase: ${phase}.`}
+        </p>
+
         <div className="mt-7">
           <AnimatePresence mode="wait" initial={false}>
             {session === null || feed === null || community === null ? (
@@ -329,14 +393,37 @@ export default function DemoPage() {
                 transition={{ duration: 0.3, ease: "easeOut" }}
                 className="grid gap-6 xl:grid-cols-[minmax(0,1.05fr)_minmax(360px,0.85fr)]"
               >
-                <div className="flex flex-col gap-3">
+                {reranked ? (
+                  <div className="order-1 grid grid-cols-2 rounded-lg border border-border bg-biscuit/25 p-1 xl:hidden">
+                    <button
+                      type="button"
+                      onClick={() => setMobileView("feed")}
+                      aria-pressed={mobileView === "feed"}
+                      className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${mobileView === "feed" ? "bg-background text-foreground shadow-sm" : "text-foreground/60"}`}
+                    >
+                      <ListOrdered className="h-4 w-4" aria-hidden="true" />
+                      Ranked feed
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMobileView("receipt")}
+                      aria-pressed={mobileView === "receipt"}
+                      className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${mobileView === "receipt" ? "bg-background text-foreground shadow-sm" : "text-foreground/60"}`}
+                    >
+                      <FileSearch className="h-4 w-4" aria-hidden="true" />
+                      Receipt
+                    </button>
+                  </div>
+                ) : null}
+
+                <div className={`order-2 flex flex-col gap-3 xl:order-1 ${reranked && mobileView === "receipt" ? "hidden xl:flex" : ""}`}>
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <h2 className="text-lg font-bold text-foreground">{community.name}</h2>
                       <p className="text-xs text-foreground/55">
                         {feed.rankingSource === "live_public_posts_shadow_weights"
                           ? LABELS.corpusFrozen
-                          : "Illustrative fallback · frozen for this session"}
+                          : LABELS.corpusFallback}
                       </p>
                     </div>
                     <p className="text-[11px] font-mono text-foreground/45">
@@ -359,8 +446,8 @@ export default function DemoPage() {
                 {/* Grid item stretches to the feed's height; the inner wrapper
                     sticks, so the short vote/agents panels follow the scroll
                     instead of stranding a void beside the tall feed. */}
-                <div>
-                  <div className="xl:sticky xl:top-24">
+                <div className={`order-1 xl:order-2 ${reranked && mobileView === "feed" ? "hidden xl:block" : ""}`}>
+                  <div ref={panelRef} tabIndex={-1} className="focus:outline-none xl:sticky xl:top-24">
                     <AnimatePresence mode="wait" initial={false}>
                       <motion.div
                         key={panelKey}

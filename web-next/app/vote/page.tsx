@@ -378,7 +378,7 @@ function VoteWorkbench({ epoch, myVote, topics, contentRules, isAuthenticated, o
                   <PolicyBar weights={myWeights} height={12} />
                   <PolicyLegend weights={myWeights} />
                   <p className="text-xs text-foreground/40 italic pt-1">
-                    {myVote
+                    {seedVote
                       ? "Ballot locked — your submitted vote for this round is shown above."
                       : "Ballot locked — no vote was submitted; the community weights are shown above."}
                   </p>

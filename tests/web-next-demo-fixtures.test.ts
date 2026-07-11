@@ -296,7 +296,7 @@ describe('web-next demo receipt fixtures', () => {
     // shadow-demo-copy.ts (single source, asserted below).
     expect(content).toContain('<DemoDisclosure');
     const copy = readFixtureFile(path.join(WEB_NEXT_ROOT, 'app', 'demo', 'shadow-demo-copy.ts'));
-    expect(copy).toMatch(/isolated shadow namespace/i);
+    expect(copy).toMatch(/isolated shadow governance namespace/i);
     expect(copy).toMatch(/not native bluesky/i);
     expect(copy).toMatch(/public Corgi feed/i);
   });

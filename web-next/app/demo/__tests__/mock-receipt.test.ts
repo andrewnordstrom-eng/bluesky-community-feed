@@ -28,7 +28,7 @@ describe("mock receipt — frozen corpus only, honest math", () => {
     const ids = receipt.counterfactuals.map((c) => c.id)
     expect(ids).toContain("prior_epoch")
     expect(ids).toContain("engagement_only")
-    expect(ids).toContain("without_reviewer_vote")
+    expect(ids).toContain("direct_reviewer_ballot_removed")
   })
 
   it("rejects a post URI outside the frozen corpus", async () => {

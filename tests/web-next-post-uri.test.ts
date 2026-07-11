@@ -14,6 +14,22 @@ describe("Bluesky post reference parsing", () => {
     ).toBe(atUri)
   })
 
+  it("enforces the AT Protocol DID and record-key length boundaries", () => {
+    const didAtLimit = `did:plc:${"a".repeat(2040)}`
+    const didOverLimit = `did:plc:${"a".repeat(2041)}`
+    const rkeyAtLimit = "r".repeat(512)
+    const rkeyOverLimit = "r".repeat(513)
+
+    expect(parseBlueskyUrlOrAtUri(`at://${didAtLimit}/app.bsky.feed.post/valid`)).toBe(
+      `at://${didAtLimit}/app.bsky.feed.post/valid`,
+    )
+    expect(parseBlueskyUrlOrAtUri(`at://did:plc:valid/app.bsky.feed.post/${rkeyAtLimit}`)).toBe(
+      `at://did:plc:valid/app.bsky.feed.post/${rkeyAtLimit}`,
+    )
+    expect(() => parseBlueskyUrlOrAtUri(`at://${didOverLimit}/app.bsky.feed.post/valid`)).toThrow()
+    expect(() => parseBlueskyUrlOrAtUri(`at://did:plc:valid/app.bsky.feed.post/${rkeyOverLimit}`)).toThrow()
+  })
+
   it.each([
     "",
     "not a URL",

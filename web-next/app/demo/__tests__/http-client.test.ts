@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { createHttpShadowDemoClient } from "../http-shadow-demo-client"
-import { SHADOW_DEMO_CONTRACT_VERSION, type ShadowDemoWeights } from "../shadow-demo-contract"
+import { type ShadowDemoWeights } from "../shadow-demo-contract"
+import { CONTRACT_VERSION } from "../shadow-demo-api-schemas"
 
 const NOW = "2026-07-10T05:00:00.000Z"
 const SESSION_ID = "demo-http-contract"
@@ -136,7 +137,61 @@ describe("HTTP shadow demo client", () => {
     await expect(createHttpShadowDemoClient().createSession(
       { communityId: "open_science_builders", scenarioId: "guided_default", clientNonce: "nonce", mode: "guided" },
       new AbortController().signal,
-    )).rejects.toThrow(`expected ${SHADOW_DEMO_CONTRACT_VERSION}`)
+    )).rejects.toThrow("invalid response envelope")
+  })
+
+  it("sanitizes non-JSON server failures and rejects malformed success envelopes", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("secret upstream stack", {
+      status: 503,
+      statusText: "Service Unavailable",
+    })))
+
+    const failedRequest = createHttpShadowDemoClient().createSession(
+      { communityId: "open_science_builders", scenarioId: "guided_default", clientNonce: "nonce", mode: "guided" },
+      new AbortController().signal,
+    )
+    await expect(failedRequest).rejects.toThrow("HTTP 503")
+    await expect(failedRequest).rejects.not.toThrow("secret upstream stack")
+
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("not-json", { status: 200 })))
+    await expect(createHttpShadowDemoClient().createSession(
+      { communityId: "open_science_builders", scenarioId: "guided_default", clientNonce: "nonce", mode: "guided" },
+      new AbortController().signal,
+    )).rejects.toThrow("invalid response envelope")
+  })
+
+  it("rejects malformed provenance timestamps before they reach receipt and corpus UI", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      contractVersion: CONTRACT_VERSION,
+      requestId: "request-bad-timestamp",
+      generatedAt: "not-a-timestamp",
+      sessionId: SESSION_ID,
+      payload: sessionPayload("created", "epoch-1", [epoch("epoch-1", 1, BASE_WEIGHTS, 0)]),
+      warnings: [],
+    }), { status: 200, headers: { "content-type": "application/json" } })))
+
+    await expect(createHttpShadowDemoClient().createSession(
+      { communityId: "open_science_builders", scenarioId: "guided_default", clientNonce: "nonce", mode: "guided" },
+      new AbortController().signal,
+    )).rejects.toThrow("invalid response envelope")
+  })
+
+  it("honors caller cancellation independently of the internal timeout", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (_input: string | URL | Request, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true })
+      }),
+    ))
+    const controller = new AbortController()
+    const request = createHttpShadowDemoClient().getFeed(
+      SESSION_ID,
+      { epochId: "epoch-1", limit: 12 },
+      controller.signal,
+    )
+
+    controller.abort(new Error("stale demo request"))
+
+    await expect(request).rejects.toThrow("stale demo request")
   })
 
   it("times out a backend request that never completes", async () => {
@@ -154,6 +209,27 @@ describe("HTTP shadow demo client", () => {
     )
     const rejection = expect(request).rejects.toThrow("timed out after 10000ms")
     await vi.advanceTimersByTimeAsync(10_000)
+
+    await rejection
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it("allows a cold corpus session longer than ordinary demo requests", async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal("fetch", vi.fn(async (_input: string | URL | Request, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true })
+      }),
+    ))
+
+    const request = createHttpShadowDemoClient().createSession(
+      { communityId: "open_science_builders", scenarioId: "guided_default", clientNonce: "nonce", mode: "guided" },
+      new AbortController().signal,
+    )
+    const rejection = expect(request).rejects.toThrow("timed out after 30000ms")
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(vi.getTimerCount()).toBe(1)
+    await vi.advanceTimersByTimeAsync(20_000)
 
     await rejection
     expect(vi.getTimerCount()).toBe(0)
@@ -200,7 +276,7 @@ function requestPath(input: string | URL | Request): string {
 
 function jsonEnvelope(payload: unknown): Response {
   return new Response(JSON.stringify({
-    contractVersion: SHADOW_DEMO_CONTRACT_VERSION,
+    contractVersion: CONTRACT_VERSION,
     requestId: "request-http-contract",
     generatedAt: NOW,
     sessionId: SESSION_ID,
@@ -237,6 +313,7 @@ function sessionPayload(
       maxEpochs: 10,
       syntheticVoterCount: 24,
       totalDemoVoters: 25,
+      corpusProvenance: corpusProvenance(),
       voterProfiles: voterProfiles(),
       votes,
     },
@@ -293,6 +370,20 @@ function corpusHealth(): unknown {
   }
 }
 
+function corpusProvenance(): unknown {
+  return {
+    mode: "production_sourced_session_frozen",
+    label: "Live-scored snapshot",
+    description: "Live-scored snapshot, frozen for this demo run so rank movement is attributable to policy changes.",
+    corpusId: "corpus-open-science",
+    productionEpochId: 7,
+    sampledAt: NOW,
+    windowHours: 72,
+    topicScoreThreshold: 0.5,
+    eligiblePostCount: 80,
+  }
+}
+
 function voterProfiles(): readonly unknown[] {
   const profiles = [
     ["research_practitioner", "Research Practitioners", 5],
@@ -335,6 +426,7 @@ function feedPayload(epochId: string, previousRanks: readonly number[]): unknown
     corpusId: "corpus-open-science",
     communityId: "open_science_builders",
     corpusHealth: corpusHealth(),
+    corpusProvenance: corpusProvenance(),
     aggregate: aggregate(epochId === "epoch-1" ? BASE_WEIGHTS : NEXT_WEIGHTS, epochId === "epoch-1" ? 0 : 25, epochId === "epoch-1" ? 0 : 2),
     posts: previousRanks.map((previousRank, index) => ({
       rank: index + 1,
@@ -359,6 +451,7 @@ function feedPayload(epochId: string, previousRanks: readonly number[]): unknown
         kind: "public_post",
         uri: `at://did:plc:test/app.bsky.feed.post/${index + 1}`,
         cid: `cid-${index + 1}`,
+        authorDid: `did:plc:researcher${index + 1}`,
         authorHandle: `researcher${index + 1}.bsky.social`,
         authorDisplayName: `Researcher ${index + 1}`,
         authorAvatar: null,
@@ -368,6 +461,7 @@ function feedPayload(epochId: string, previousRanks: readonly number[]): unknown
         replyCount: 1,
         quoteCount: 0,
         indexedAt: NOW,
+        createdAt: NOW,
         bskyUrl: `https://bsky.app/profile/researcher${index + 1}.bsky.social/post/${index + 1}`,
       },
     })),

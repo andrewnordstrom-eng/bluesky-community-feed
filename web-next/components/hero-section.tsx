@@ -141,15 +141,15 @@ export function HeroSection() {
       {/* CTAs */}
       <div className="relative z-10 flex flex-col sm:flex-row items-center gap-3">
         <DemoCTA />
-        <Link href="/how-it-works">
-          <Button variant="ghost" className="text-foreground/70 hover:text-foreground px-5 py-3 rounded-full font-medium text-base">
+        <Button asChild variant="ghost" className="text-foreground/70 hover:text-foreground px-5 py-3 rounded-full font-medium text-base">
+          <Link href="/how-it-works">
             See how ranking works &rarr;
-          </Button>
-        </Link>
+          </Link>
+        </Button>
       </div>
       {/* Trust line */}
       <p className="relative z-10 mt-3 text-xs text-foreground/40 font-medium">
-        Read-only demo first &middot; connect Bluesky when ready &middot; inspectable ranking
+        No-login demo first &middot; connect Bluesky when ready &middot; inspectable ranking
       </p>
 
       {/* Scroll cue — invites the visitor down into the interactive demo. */}

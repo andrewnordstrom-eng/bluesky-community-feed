@@ -1,18 +1,26 @@
 "use client"
 
 import { motion, useReducedMotion } from "framer-motion"
-import { EyeOff } from "lucide-react"
+import { ExternalLink, EyeOff, ScanSearch } from "lucide-react"
 import type {
   ShadowDemoFeed,
   ShadowDemoHiddenFeedItem,
   ShadowDemoPublicFeedItem,
   ShadowDemoRankMovement,
   ShadowDemoScoreComponent,
-} from "@/app/demo/shadow-demo-contract"
+} from "@/app/demo/shadow-demo-view-model"
 import { SIGNAL_COLORS, formatRelativeTime } from "@/app/demo/shadow-demo-fixtures"
 import { LABELS } from "@/app/demo/shadow-demo-copy"
 import { BlueskyFeedFrame, BlueskyPostCard, RANK_COL_CLASS } from "@/components/feed/bluesky-feed"
 import { CorgiRankBadge, type RankMovementDir, type RankSignal } from "@/components/feed/corgi-rank-badge"
+
+const HIDDEN_REASON_COPY: Readonly<Record<ShadowDemoHiddenFeedItem["hiddenReason"], string>> = {
+  no_unauthenticated: "Unavailable in logged-out Bluesky views",
+  hide_label: "Withheld by a moderation label",
+  adult_label: "Withheld by Bluesky's public-view policy",
+  deleted_or_unavailable: "Deleted or unavailable",
+  missing_text: "Post text unavailable",
+}
 
 function toBadgeMovement(movement: ShadowDemoRankMovement): { dir: RankMovementDir; delta: number } {
   const dir: RankMovementDir =
@@ -58,13 +66,7 @@ function PublicRow({
         selected ? "relative z-10 shadow-[0_10px_30px_rgba(200,97,44,0.16)] ring-2 ring-inset ring-primary/70" : ""
       }`}
     >
-      <button
-        type="button"
-        onClick={() => onSelect(post.uri)}
-        disabled={!selectable}
-        aria-pressed={selected}
-        className="w-full text-left transition-colors enabled:hover:bg-[#F8FAFC] disabled:cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/60"
-      >
+      <div className="min-w-0">
         <BlueskyPostCard
           authorDisplayName={post.authorDisplayName}
           authorHandle={post.authorHandle}
@@ -75,7 +77,28 @@ function PublicRow({
           repostCount={post.repostCount}
           likeCount={post.likeCount}
         />
-      </button>
+        <div className="flex flex-wrap items-center gap-2 border-t border-[#E8EDF3] bg-[#FAFBFC] px-4 py-2.5">
+          <button
+            type="button"
+            onClick={() => onSelect(post.uri)}
+            disabled={!selectable}
+            aria-pressed={selected}
+            className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-white px-3 py-1.5 text-xs font-semibold text-primary transition-colors enabled:hover:border-primary/45 enabled:hover:bg-primary/[0.04] disabled:cursor-not-allowed disabled:border-[#D9E3EE] disabled:text-[#6F869F] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+          >
+            <ScanSearch className="h-3.5 w-3.5" aria-hidden="true" />
+            {selectable ? "Inspect ranking" : "Inspect after voting"}
+          </button>
+          <a
+            href={post.bskyUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold text-[#42576C] transition-colors hover:bg-[#EDF3F8] hover:text-[#0B0F14] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0085FF]/60"
+          >
+            Open on Bluesky
+            <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+          </a>
+        </div>
+      </div>
       <div className="flex items-center justify-center border-l border-border/60 bg-biscuit/25 px-2">
         <CorgiRankBadge
           rank={item.rank}
@@ -105,7 +128,7 @@ function HiddenRow({ item, reduceMotion }: { readonly item: ShadowDemoHiddenFeed
         </span>
         <span className="min-w-0">
           <span className="block text-sm font-semibold text-[#42576C]">{LABELS.withheldRow}</span>
-          <span className="mt-0.5 block text-xs text-[#6F869F]">Withheld by a moderation label</span>
+          <span className="mt-0.5 block text-xs text-[#6F869F]">{HIDDEN_REASON_COPY[item.hiddenReason]}</span>
         </span>
       </div>
       <div className="flex items-center justify-center border-l border-border/60 bg-biscuit/25 px-2">

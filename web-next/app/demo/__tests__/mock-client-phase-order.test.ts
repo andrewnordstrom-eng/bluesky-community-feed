@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { SHADOW_DEMO_CONTRACT_VERSION } from "../shadow-demo-contract"
+import { CONTRACT_VERSION } from "../shadow-demo-api-schemas"
 import { createMockShadowDemoClient } from "../mock-shadow-demo-client"
 import { getPresetById } from "../shadow-demo-fixtures"
 import { driveFullFlow } from "./_flow"
@@ -11,7 +11,7 @@ describe("mock client — phase order + nextRecommendedAction", () => {
   it("walks created→corpus_ready→reviewer_vote_cast→agent_votes_cast→reranked", async () => {
     const { created, voted, agentsRun, advanced } = await driveFullFlow()
 
-    expect(created.contractVersion).toBe(SHADOW_DEMO_CONTRACT_VERSION)
+    expect(created.contractVersion).toBe(CONTRACT_VERSION)
     expect(created.payload.session.phase).toBe("corpus_ready")
     expect(created.payload.nextRecommendedAction).toBe("cast_reviewer_vote")
 
@@ -209,7 +209,6 @@ describe("mock client — phase order + nextRecommendedAction", () => {
 
     const cancelledCalls = [
       client.getSession(sessionId, aborted),
-      client.refreshCorpus(createRequest, aborted),
       client.castVote(sessionId, {
         idempotencyKey: "cancelled-vote",
         baseEpochId: epochId,
@@ -266,7 +265,7 @@ describe("mock client — phase order + nextRecommendedAction", () => {
       agentVotes: 0,
       totalVotes: 1,
       trimCount: 0,
-      reviewerInfluenceShare: 1,
+      reviewerBallotShare: 1,
     })
     expect(secondAgents.payload.agentVotes).toHaveLength(24)
     expect(secondAdvance.payload.currentEpoch.sequence).toBe(3)

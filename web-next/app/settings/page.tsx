@@ -50,6 +50,16 @@ function formatDate(value: string | null | undefined): string {
 export default function SettingsPage() {
   const { isAuthenticated, isLoading, session, logout } = useAuth()
   const [signInOpen, setSignInOpen] = useState(false)
+  const [logoutError, setLogoutError] = useState<string | null>(null)
+
+  const handleLogout = async (): Promise<void> => {
+    setLogoutError(null)
+    try {
+      await logout()
+    } catch {
+      setLogoutError("Sign out failed. Check your connection and try again.")
+    }
+  }
 
   const consentQuery = useQuery({
     queryKey: ["research-consent"],
@@ -170,13 +180,14 @@ export default function SettingsPage() {
         <div className="flex items-center justify-between gap-4 pt-2">
           <p className="text-xs text-foreground/50">Signed in as {session?.handle ? `@${session.handle}` : "your account"}.</p>
           <Button
-            onClick={() => void logout()}
+            onClick={() => void handleLogout()}
             variant="outline"
             className="border-border text-foreground/70 hover:text-foreground hover:bg-biscuit/50 rounded-full px-5 text-sm"
           >
             Sign out
           </Button>
         </div>
+        {logoutError ? <p role="alert" className="text-right text-xs text-destructive">{logoutError}</p> : null}
       </Container>
     )
   }

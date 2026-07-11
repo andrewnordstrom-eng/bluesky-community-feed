@@ -6,7 +6,7 @@ import {
   SHADOW_DEMO_SIGNAL_KEYS,
   type ShadowDemoTopicIntent,
   type ShadowDemoWeights,
-} from "@/app/demo/shadow-demo-contract"
+} from "@/app/demo/shadow-demo-view-model"
 import {
   DEMO_VOTE_PRESETS,
   SIGNAL_COLORS,
@@ -15,6 +15,7 @@ import {
   normalizeWeights,
 } from "@/app/demo/shadow-demo-fixtures"
 import { STEP_PANELS } from "@/app/demo/shadow-demo-copy"
+import { TopicPolicy } from "./topic-policy"
 import { WeightBars } from "./weight-bars"
 
 const FOCUS =
@@ -94,6 +95,10 @@ export function VotePanel({
         </div>
         <div className="mt-3">
           <WeightBars weights={previewWeights} />
+        </div>
+
+        <div className="mt-4 border-t border-border/60 pt-4">
+          <TopicPolicy topicIntent={preset.topicIntent} label="Topic priorities" />
         </div>
 
         {showSliders ? (

@@ -8,10 +8,11 @@ import { SignInDialog } from "./sign-in-dialog"
 import { useAuth } from "@/components/auth-provider"
 import { useQuery } from "@tanstack/react-query"
 import { adminApi } from "@/lib/api/admin"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { createPortal } from "react-dom"
 import { cn } from "@/lib/utils"
 import { CONTAINER_WIDTH, GUTTER } from "@/components/ui/layout"
+import { X } from "lucide-react"
 
 /** Legacy shape once passed in by pages. Live auth now drives the user area;
  *  the prop is retained only for compat (e.g. its optional `isAdmin` flag,
@@ -69,6 +70,10 @@ export function AppShell({ user = null, children }: AppShellProps) {
   const { session, isAuthenticated, logout } = useAuth()
   const [signInOpen, setSignInOpen] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [logoutPending, setLogoutPending] = useState(false)
+  const [logoutError, setLogoutError] = useState<string | null>(null)
+  const mobileMenuButtonRef = useRef<HTMLButtonElement>(null)
+  const mobileMenuRef = useRef<HTMLDivElement>(null)
 
   // Prefer live auth state over the legacy `user` prop for the signed-in area.
   const authedUser = isAuthenticated && session ? { handle: session.handle, did: session.did } : null
@@ -101,6 +106,37 @@ export function AppShell({ user = null, children }: AppShellProps) {
     document.body.style.overflow = shouldLock ? "hidden" : ""
     return () => { document.body.style.overflow = "" }
   }, [mobileMenuOpen, signInOpen])
+
+  useEffect(() => {
+    if (!mobileMenuOpen) return
+
+    mobileMenuRef.current?.querySelector<HTMLElement>("a, button")?.focus()
+
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return
+      event.preventDefault()
+      setMobileMenuOpen(false)
+      mobileMenuButtonRef.current?.focus()
+    }
+
+    document.addEventListener("keydown", closeOnEscape)
+    return () => document.removeEventListener("keydown", closeOnEscape)
+  }, [mobileMenuOpen])
+
+  const handleLogout = useCallback(async () => {
+    if (logoutPending) return
+
+    setLogoutPending(true)
+    setLogoutError(null)
+    try {
+      await logout()
+      setMobileMenuOpen(false)
+    } catch {
+      setLogoutError("Sign out failed. Your session is still active; please try again.")
+    } finally {
+      setLogoutPending(false)
+    }
+  }, [logout, logoutPending])
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
@@ -159,10 +195,12 @@ export function AppShell({ user = null, children }: AppShellProps) {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => { logout().catch(() => {}) }}
+                  onClick={() => { void handleLogout() }}
+                  disabled={logoutPending}
+                  aria-busy={logoutPending}
                   className="hidden sm:flex text-foreground/55 hover:text-foreground text-xs"
                 >
-                  Sign out
+                  {logoutPending ? "Signing out..." : "Sign out"}
                 </Button>
               </div>
             ) : (
@@ -186,6 +224,7 @@ export function AppShell({ user = null, children }: AppShellProps) {
 
             {/* Hamburger button — mobile only */}
             <button
+              ref={mobileMenuButtonRef}
               onClick={() => setMobileMenuOpen((v) => !v)}
               aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
               aria-expanded={mobileMenuOpen}
@@ -201,7 +240,11 @@ export function AppShell({ user = null, children }: AppShellProps) {
       {/* ── Mobile nav portal ────────────────────────────────────── */}
       {typeof window !== "undefined" && mobileMenuOpen && createPortal(
         <div
+          ref={mobileMenuRef}
           id="app-mobile-menu"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Application navigation"
           className="fixed top-14 inset-x-0 bottom-0 z-40 md:hidden bg-background/95 supports-[backdrop-filter]:bg-background/80 backdrop-blur-lg border-t border-border flex flex-col overflow-hidden"
         >
           <div
@@ -247,11 +290,14 @@ export function AppShell({ user = null, children }: AppShellProps) {
                 <>
                   <span className="px-4 text-xs font-mono text-foreground/45">@{authedUser.handle}</span>
                   <button
-                    onClick={() => { setMobileMenuOpen(false); logout().catch(() => {}) }}
+                    onClick={() => { void handleLogout() }}
+                    disabled={logoutPending}
+                    aria-busy={logoutPending}
                     className="px-4 py-3 text-sm font-medium text-foreground/60 hover:text-foreground text-left rounded-xl hover:bg-accent/60 transition-colors"
                   >
-                    Sign out
+                    {logoutPending ? "Signing out..." : "Sign out"}
                   </button>
+                  {logoutError ? <p role="alert" className="px-4 text-sm text-destructive">{logoutError}</p> : null}
                 </>
               ) : (
                 <>
@@ -279,6 +325,23 @@ export function AppShell({ user = null, children }: AppShellProps) {
       <main className="flex-1">
         {children}
       </main>
+
+      {logoutError && !mobileMenuOpen ? (
+        <div
+          role="alert"
+          className="fixed bottom-4 right-4 z-50 flex max-w-sm items-start gap-3 rounded-lg border border-destructive/30 bg-background px-4 py-3 text-sm text-destructive shadow-lg"
+        >
+          <p>{logoutError}</p>
+          <button
+            type="button"
+            onClick={() => setLogoutError(null)}
+            aria-label="Dismiss sign-out error"
+            className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-destructive/70 hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive"
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </div>
+      ) : null}
 
       <SignInDialog open={signInOpen} onOpenChange={setSignInOpen} />
     </div>

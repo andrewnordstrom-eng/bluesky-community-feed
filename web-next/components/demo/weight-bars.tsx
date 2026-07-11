@@ -1,7 +1,7 @@
 "use client"
 
 import { motion, useReducedMotion } from "framer-motion"
-import { SHADOW_DEMO_SIGNAL_KEYS, type ShadowDemoWeights } from "@/app/demo/shadow-demo-contract"
+import { SHADOW_DEMO_SIGNAL_KEYS, type ShadowDemoWeights } from "@/app/demo/shadow-demo-view-model"
 import { SIGNAL_COLORS, SIGNAL_LABELS, formatPercent } from "@/app/demo/shadow-demo-fixtures"
 
 /** The five-signal weight display used across the demo (aggregate policy, votes). */
@@ -24,7 +24,7 @@ export function WeightBars({
               className="h-full rounded-full"
               style={{ backgroundColor: SIGNAL_COLORS[key] }}
               initial={false}
-              animate={{ width: formatPercent(weights[key]) }}
+              animate={{ width: `${weights[key] * 100}%` }}
               transition={shouldReduce ? { duration: 0 } : { duration: 0.3, ease: "easeOut" }}
             />
           </div>

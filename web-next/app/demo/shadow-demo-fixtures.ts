@@ -26,7 +26,7 @@ import {
   type ShadowDemoTopicContribution,
   type ShadowDemoTopicIntent,
   type ShadowDemoWeights,
-} from "./shadow-demo-contract"
+} from "./shadow-demo-view-model"
 
 // ---------------------------------------------------------------------------
 // Labels
@@ -88,11 +88,13 @@ function makePost(
     uri: `at://did:plc:corgidemo${id.toLowerCase()}/app.bsky.feed.post/${id}`,
     cid: `bafyreidemo${id.toLowerCase()}`,
     bskyUrl: `https://bsky.app/profile/${authorHandle}/post/${id}`,
+    authorDid: `did:plc:corgidemo${id.toLowerCase()}`,
     authorHandle,
     authorDisplayName,
     authorAvatar: AVATARS[authorHandle] ?? null,
     text,
     indexedAt: minutesBefore(CORPUS_COLLECTED_AT, minutesAgo),
+    createdAt: minutesBefore(CORPUS_COLLECTED_AT, minutesAgo),
     likeCount: counts.like,
     repostCount: counts.repost,
     replyCount: counts.reply,
@@ -625,18 +627,21 @@ export function buildCounterfactuals(context: CounterfactualContext): readonly S
     {
       id: "prior_epoch",
       label: "Prior epoch (before your vote)",
+      description: "The same frozen comparison corpus under the previous shadow policy.",
       rank: priorRank,
       deltaFromVisibleRank: priorRank - context.visibleRank,
     },
     {
       id: "engagement_only",
       label: "Engagement-only ranking",
+      description: "The same post if engagement were the only ranking signal.",
       rank: engagementRank,
       deltaFromVisibleRank: engagementRank - context.visibleRank,
     },
     {
-      id: "without_reviewer_vote",
-      label: "Without your vote (agents only)",
+      id: "direct_reviewer_ballot_removed",
+      label: "Direct reviewer ballot removed",
+      description: "Removes only the direct reviewer ballot while holding the scripted ballots fixed.",
       rank: withoutReviewerRank,
       deltaFromVisibleRank: withoutReviewerRank - context.visibleRank,
     },
