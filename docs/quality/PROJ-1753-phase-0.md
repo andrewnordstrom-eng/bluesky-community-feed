@@ -30,7 +30,7 @@ The two failed ordinary loads in each desktop browser displayed only the warm pa
 | `/how-it-works/` | 138,140 bytes | inline bootstrap allowed; `no-cache` | inline bootstrap blocked; `public, max-age=0` |
 | `/start/` | 49,961 bytes | inline bootstrap allowed; `no-cache` | inline bootstrap blocked; `public, max-age=0` |
 
-The successful responses contain `script-src 'self' 'unsafe-inline'`. Conditional requests with the returned ETag receive `304 Not Modified` with `script-src 'self'`. In `src/feed/server.ts`, the static-export override currently depends on a `text/html` response content type; a 304 has no content type, so the stricter global policy remains.
+At the July 11, 2026 receipt time, successful responses contained `script-src 'self' 'unsafe-inline'`, while conditional requests with the returned ETag received `304 Not Modified` with `script-src 'self'`. Before the Phase 1 implementation, the static-export override in `src/feed/server.ts` depended on a `text/html` response content type; a 304 had no content type, so the stricter global policy remained.
 
 ## Monitoring disposition
 
@@ -46,7 +46,7 @@ npm --prefix web-next run smoke:production
 
 The Playwright smoke checks all four routes in 1440 by 1000 desktop Chrome and a 390 by 900 mobile Chrome profile. For each route it verifies the initial render, ordinary revalidation, cache-bypassing refresh, browser errors, response size, and 200/304 CSP and cache-policy parity.
 
-The smoke is expected to fail against the current production release. That failure is the Phase 0 release gate, not a flaky-test exception.
+Before Phase 1 deployment, the smoke was expected to fail against the July 11, 2026 production release. That failure was the Phase 0 release gate, not a flaky-test exception.
 
 ## Phase 1 response-header fix verification
 
@@ -58,9 +58,9 @@ Verification before deployment:
 - Root TypeScript build: passed.
 - `web-next` lint and production build: passed.
 - Credential-free local Fastify server plus the complete desktop/mobile Playwright matrix: 2/2 projects passed.
-- Live production matrix: remains red on all four routes and both viewports, as expected before deployment.
+- Before Phase 1 deployment, the live production matrix remained red on all four routes and both viewports, as expected.
 
-The local pass and live failure demonstrate that the guard detects the deployed defect and accepts the proposed response-header correction. Production reliability remains gated until the fix is reviewed, merged, deployed, and the live matrix turns green.
+At receipt time, the local pass and live failure demonstrated that the guard detected the deployed defect and accepted the proposed response-header correction. Production reliability remained gated until the fix could be reviewed, merged, deployed, and verified by a green live matrix.
 
 ## Remaining physical-device probe
 

@@ -21,17 +21,24 @@ function acceptsHtml(request: FastifyRequest): boolean {
     .some((mediaRange) => mediaRange.trim().split(';', 1)[0].toLowerCase() === 'text/html') ?? false;
 }
 
+function targetsHtmlDocument(request: FastifyRequest): boolean {
+  const pathname = request.url.split('?', 1)[0] ?? '';
+  const lastSegment = pathname.slice(pathname.lastIndexOf('/') + 1);
+  return lastSegment === '' || !lastSegment.includes('.') || lastSegment.endsWith('.html');
+}
+
 export function applyStaticExportResponseHeaders(
   request: FastifyRequest,
   reply: FastifyReply,
 ): void {
   if (request.url.startsWith('/_next/static/')) {
     reply.header('cache-control', 'public, max-age=31536000, immutable');
+    return;
   }
 
   const contentType = reply.getHeader('content-type');
   const isHtmlResponse = typeof contentType === 'string' && contentType.startsWith('text/html');
-  const isRevalidatedHtml = reply.statusCode === 304 && acceptsHtml(request);
+  const isRevalidatedHtml = reply.statusCode === 304 && acceptsHtml(request) && targetsHtmlDocument(request);
   if (isHtmlResponse || isRevalidatedHtml) {
     reply.header('cache-control', 'no-cache');
     reply.header('content-security-policy', STATIC_EXPORT_HTML_CSP);

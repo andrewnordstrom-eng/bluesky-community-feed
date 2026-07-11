@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Fastify from 'fastify';
@@ -29,6 +29,9 @@ describe('static-export response headers', () => {
       '<!doctype html><html><body><main>Corgi</main><script>self.__next_f=[]</script></body></html>',
       'utf8',
     );
+    await mkdir(join(webDistDir, '_next', 'static'), { recursive: true });
+    await writeFile(join(webDistDir, '_next', 'static', 'app.js'), 'console.log("Corgi");', 'utf8');
+    await writeFile(join(webDistDir, 'data.json'), '{"name":"Corgi"}', 'utf8');
 
     const app = Fastify({ logger: false });
     await app.register(helmet, {
@@ -74,6 +77,49 @@ describe('static-export response headers', () => {
       expect(conditional.statusCode).toBe(304);
       expect(conditional.headers['content-security-policy']).toContain(HTML_SCRIPT_POLICY);
       expect(conditional.headers['cache-control']).toBe('no-cache');
+
+      const staticAsset = await app.inject({
+        method: 'GET',
+        url: '/_next/static/app.js',
+      });
+      expect(staticAsset.statusCode).toBe(200);
+      expect(staticAsset.headers.etag).toBeTypeOf('string');
+
+      const revalidatedStaticAsset = await app.inject({
+        method: 'GET',
+        url: '/_next/static/app.js',
+        headers: {
+          accept: HTML_ACCEPT,
+          'if-none-match': staticAsset.headers.etag as string,
+        },
+      });
+      expect(revalidatedStaticAsset.statusCode).toBe(304);
+      expect(revalidatedStaticAsset.headers['cache-control']).toBe('public, max-age=31536000, immutable');
+      expect(revalidatedStaticAsset.headers['content-security-policy']).not.toContain(HTML_SCRIPT_POLICY);
+
+      const jsonAsset = await app.inject({
+        method: 'GET',
+        url: '/data.json',
+      });
+      expect(jsonAsset.statusCode).toBe(200);
+      expect(jsonAsset.headers.etag).toBeTypeOf('string');
+
+      for (const accept of [undefined, HTML_ACCEPT]) {
+        const headers: Record<string, string> = {
+          'if-none-match': jsonAsset.headers.etag as string,
+        };
+        if (accept !== undefined) {
+          headers.accept = accept;
+        }
+        const revalidatedJsonAsset = await app.inject({
+          method: 'GET',
+          url: '/data.json',
+          headers,
+        });
+        expect(revalidatedJsonAsset.statusCode).toBe(304);
+        expect(revalidatedJsonAsset.headers['cache-control']).not.toBe('no-cache');
+        expect(revalidatedJsonAsset.headers['content-security-policy']).not.toContain(HTML_SCRIPT_POLICY);
+      }
     } finally {
       await app.close();
     }
