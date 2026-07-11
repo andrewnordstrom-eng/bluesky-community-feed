@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { Header } from "@/components/header"
 import { HeroSection } from "@/components/hero-section"
 import { ReplayTeaser } from "@/components/replay-teaser"
@@ -36,7 +37,11 @@ export default function LandingPage() {
               <p className="mx-auto mt-4 max-w-[620px] text-base leading-relaxed text-foreground/60">
                 Meet <span className="font-semibold text-foreground">Birders Who Code</span>, a sample community of
                 developers who bird. Choose how they rank posts and watch this illustrative preview reorder here, with
-                the Corgi score behind every move. Then use the live shadow demo to verify the full flow.
+                the Corgi score behind every move. Then use the{" "}
+                <Link href="/demo" className="font-semibold text-primary underline decoration-primary/35 underline-offset-4 hover:decoration-primary">
+                  live shadow demo
+                </Link>{" "}
+                to verify the full flow.
               </p>
             </div>
             <div className="flex justify-center">

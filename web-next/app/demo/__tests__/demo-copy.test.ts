@@ -5,10 +5,13 @@ const mutationAction = String.raw`\b(change|changes|changed|update|updates|updat
 const productionTarget = String.raw`\b(production|real|live)\b[^.]{0,24}\b(feed|governance)\b`
 
 function containsMutationOverclaim(value: string): boolean {
-  const negation = /\b(never|not|does not|doesn['’]?t|do not|don['’]?t|cannot|can['’]?t)\b[^.]{0,50}\b(change|update|mutate|affect|write)/i
+  const negation = new RegExp(
+    String.raw`\b(?:never|not|does not|doesn['’]?t|do not|don['’]?t|cannot|can['’]?t)\b[^,.;!?]{0,50}${mutationAction}`,
+    "i",
+  )
   const forward = new RegExp(`${mutationAction}[^.]{0,48}${productionTarget}`, "i")
   const reversed = new RegExp(`${productionTarget}[^.]{0,48}${mutationAction}`, "i")
-  return value.split(/[.!?;]+/).some((claim) => !negation.test(claim) && (forward.test(claim) || reversed.test(claim)))
+  return value.split(/[,!?;.]+/).some((claim) => !negation.test(claim) && (forward.test(claim) || reversed.test(claim)))
 }
 
 function containsNativeUiOverclaim(value: string): boolean {
@@ -57,6 +60,9 @@ describe("demo copy — honest boundaries", () => {
     expect(containsMutationOverclaim("The production feed is changed by your vote."), "reversed wording").toBe(true)
     expect(containsMutationOverclaim("We never touch production governance. This changes the production feed."), "scoped negation").toBe(true)
     expect(containsMutationOverclaim("This demo doesn’t change the production feed."), "curly apostrophe negation").toBe(false)
+    expect(containsMutationOverclaim("This demo never changes the production feed."), "inflected negation").toBe(false)
+    expect(containsMutationOverclaim("This demo doesn’t write to production governance."), "write negation").toBe(false)
+    expect(containsMutationOverclaim("This demo doesn’t change ranking, but it changes the production feed."), "comma-scoped negation").toBe(true)
     expect(["This changes ranking.", "Production feed details."].some(containsMutationOverclaim)).toBe(false)
   })
 

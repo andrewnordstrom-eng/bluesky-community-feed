@@ -87,7 +87,7 @@ export function Header() {
 
     mobileMenuRef.current?.querySelector<HTMLElement>("a, button")?.focus()
 
-    const background = [headerRef.current, ...Array.from(document.querySelectorAll<HTMLElement>("main"))]
+    const background = [headerRef.current, ...Array.from(document.querySelectorAll<HTMLElement>("main, footer"))]
       .filter((element): element is HTMLElement => element !== null)
     const priorState = background.map((element) => ({
       element,

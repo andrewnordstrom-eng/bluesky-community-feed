@@ -16,7 +16,7 @@ describe('web-next homepage anchors', () => {
 
     expect(pageContent).not.toContain('id="faq-section"');
     expect((faqContent.match(/id="faq-section"/g) ?? [])).toHaveLength(1);
-    expect(faqContent).toMatch(/id="faq-section"[^>]*scroll-mt-24[^>]*md:scroll-mt-28/s);
+    expect(faqContent).toMatch(/<[^>]*id="faq-section"(?=[^>]*scroll-mt-24)(?=[^>]*md:scroll-mt-28)[^>]*>/s);
   });
 
   it('keeps the footer history link pointed at the history route', () => {
@@ -49,7 +49,8 @@ describe('web-next homepage anchors', () => {
     const pageContent = readRepoFile('web-next/app/page.tsx');
 
     expect(pageContent).toContain('illustrative preview reorder here');
-    expect(pageContent).toContain('live shadow demo to verify the full flow');
+    expect(pageContent).toMatch(/<Link href="\/demo"[^>]*>\s*live shadow demo\s*<\/Link>/s);
+    expect(pageContent).toContain('to verify the full flow');
     expect(pageContent).not.toContain('same feed reorders in Bluesky');
   });
 
