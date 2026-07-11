@@ -27,6 +27,13 @@ const TOPIC_INTENT = {
     "open-source": 0.75,
   },
 }
+const PRODUCTION_TOPIC_INTENT = {
+  topicWeights: {
+    ...TOPIC_INTENT.topicWeights,
+    music: 0.1,
+    "decentralized-social": 0.9,
+  },
+}
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -56,6 +63,10 @@ describe("HTTP shadow demo client", () => {
     expect(response.payload.feed.corpusHealth.candidatePostCount).toBe(84_831)
     expect(response.payload.feed.corpusHealth.publicScoredPostCount).toBe(80)
     expect(response.payload.feed.corpusHealth.displayedPublicPostCount).toBe(2)
+    expect(response.payload.currentEpoch.topicIntent.topicWeights).toMatchObject({
+      music: 0.1,
+      "decentralized-social": 0.9,
+    })
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
@@ -353,7 +364,7 @@ function aggregate(weights: ShadowDemoWeights, voteCount: number, trimCount: num
     voteCount,
     trimCount,
     weights,
-    topicIntent: TOPIC_INTENT,
+    topicIntent: PRODUCTION_TOPIC_INTENT,
   }
 }
 

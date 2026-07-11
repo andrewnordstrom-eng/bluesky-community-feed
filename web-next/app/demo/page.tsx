@@ -88,10 +88,15 @@ export default function DemoPage() {
   useEffect(() => () => requestCoordinator.current.cancel(), [])
 
   useEffect(() => {
-    if (session !== null) {
-      panelRef.current?.focus({ preventScroll: false })
-    }
-  }, [phase, session])
+    const panel = panelRef.current
+    if (session === null || panel === null) return
+
+    panel.focus({ preventScroll: true })
+    panel.scrollIntoView({
+      behavior: reduceMotion ? "auto" : "smooth",
+      block: "start",
+    })
+  }, [phase, reduceMotion, session])
 
   async function run(
     action: (request: DemoRequestContext) => Promise<void>,
@@ -447,7 +452,7 @@ export default function DemoPage() {
                     sticks, so the short vote/agents panels follow the scroll
                     instead of stranding a void beside the tall feed. */}
                 <div className={`order-1 xl:order-2 ${reranked && mobileView === "feed" ? "hidden xl:block" : ""}`}>
-                  <div ref={panelRef} tabIndex={-1} className="focus:outline-none xl:sticky xl:top-24">
+                  <div ref={panelRef} tabIndex={-1} className="scroll-mt-20 focus:outline-none xl:sticky xl:top-24">
                     <AnimatePresence mode="wait" initial={false}>
                       <motion.div
                         key={panelKey}

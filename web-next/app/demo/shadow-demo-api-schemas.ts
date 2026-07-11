@@ -31,13 +31,16 @@ export const apiWeightsSchema = z.object({
   relevance: unitNumber,
 }).strict()
 
+const apiTopicWeightsSchema = z.record(z.string().min(1).max(64), unitNumber)
+  .refine((weights) => Object.keys(weights).length <= 64, {
+    message: "Topic policy exceeds the supported 64-key response bound",
+  })
+  .refine((weights) => topicKeySchema.options.every((key) => weights[key] !== undefined), {
+    message: "Topic policy omitted a required Open Science control",
+  })
+
 export const apiTopicIntentSchema = z.object({
-  topicWeights: z.object({
-    "science-research": unitNumber,
-    "data-science": unitNumber,
-    "software-development": unitNumber,
-    "open-source": unitNumber,
-  }).strict(),
+  topicWeights: apiTopicWeightsSchema,
 }).strict()
 
 const warningSchema = z.object({
