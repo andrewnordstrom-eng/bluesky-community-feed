@@ -1,8 +1,12 @@
-import type { ShadowDemoTopicIntent } from './types.js';
+import {
+  SHADOW_DEMO_TOPIC_KEYS,
+  type ShadowDemoTopicIntent,
+  type ShadowDemoTopicKey,
+} from './types.js';
 import { aggregateRowsWithTrimmedMean } from '../governance/aggregation-math.js';
 
-const MAX_TOPIC_COUNT = 32;
-const TOPIC_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const MAX_TOPIC_IDENTIFIER_LENGTH = 64;
+const ALLOWED_TOPICS = new Set<ShadowDemoTopicKey>(SHADOW_DEMO_TOPIC_KEYS);
 
 export function validateShadowTopicIntent(value: unknown): ShadowDemoTopicIntent {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -14,14 +18,14 @@ export function validateShadowTopicIntent(value: unknown): ShadowDemoTopicIntent
   }
 
   const entries = Object.entries(topicWeightsValue as Record<string, unknown>);
-  if (entries.length > MAX_TOPIC_COUNT) {
-    throw new Error(`Shadow demo topic intent supports at most ${MAX_TOPIC_COUNT} topics`);
+  if (entries.length > SHADOW_DEMO_TOPIC_KEYS.length) {
+    throw new Error(`Shadow demo topic intent supports at most ${SHADOW_DEMO_TOPIC_KEYS.length} topics`);
   }
 
   const topicWeights: Record<string, number> = {};
   for (const [slug, rawWeight] of entries) {
-    if (!TOPIC_SLUG_PATTERN.test(slug)) {
-      throw new Error(`Shadow demo topic slug is invalid: ${slug}`);
+    if (slug.length > MAX_TOPIC_IDENTIFIER_LENGTH || !ALLOWED_TOPICS.has(slug as ShadowDemoTopicKey)) {
+      throw new Error(`Shadow demo topic is not allowed: ${slug}`);
     }
     if (typeof rawWeight !== 'number' || !Number.isFinite(rawWeight)) {
       throw new Error(`Shadow demo topic weight ${slug} must be finite`);

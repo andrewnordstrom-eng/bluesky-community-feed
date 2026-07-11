@@ -1,50 +1,70 @@
 import type { Redis } from 'ioredis';
 import { describe, expect, it, vi } from 'vitest';
-import { DemoStoreCorruptionError, RedisDemoStore } from '../src/demo/store.js';
+import {
+  DEMO_MAX_SESSION_BYTES,
+  DEMO_MAX_IDEMPOTENCY_BYTES,
+  DemoStoreCapacityError,
+  DemoStoreCorruptionError,
+  DemoStoreUnavailableError,
+  RedisDemoStore,
+  MemoryDemoStore,
+} from '../src/demo/store.js';
 import type { ShadowDemoSessionState } from '../src/demo/types.js';
 
 describe('Redis shadow demo store', () => {
-  it('writes the frozen corpus once and stores only a corpus reference in the session', async () => {
-    const exists = vi.fn().mockResolvedValue(0);
+  it('creates the frozen corpus and bounded session in one Redis script', async () => {
+    const evalCommand = vi.fn().mockResolvedValueOnce(1).mockResolvedValueOnce(1);
     const setex = vi.fn().mockResolvedValue('OK');
-    const redis = { exists, setex } as unknown as Redis;
+    const redis = { eval: evalCommand, setex } as unknown as Redis;
     const store = new RedisDemoStore(redis);
     const session = storedSession();
 
-    await store.writeSession(session, 120);
+    await expect(store.createSession(session, 120, 50)).resolves.toBe(true);
 
-    expect(exists).toHaveBeenCalledWith('demo:corpus:demo-store-corpus');
-    expect(setex).toHaveBeenNthCalledWith(
+    expect(evalCommand).toHaveBeenCalledTimes(2);
+    expect(evalCommand.mock.calls[0]).toEqual(expect.arrayContaining([
       1,
-      'demo:corpus:demo-store-corpus',
-      120,
-      JSON.stringify(session.corpus)
-    );
-    const { corpus: _corpus, ...sessionHeader } = session;
-    expect(setex).toHaveBeenNthCalledWith(
-      2,
+      'demo:sessions:active',
+    ]));
+    expect(evalCommand.mock.calls[1]).toEqual(expect.arrayContaining([
+      5,
       'demo:session:demo-store-session',
-      120,
-      JSON.stringify(sessionHeader)
-    );
+      'demo:corpus:demo-store-corpus',
+      'demo:sessions:active',
+    ]));
+    expect(setex).toHaveBeenCalledTimes(2);
   });
 
-  it('reuses an existing corpus blob without rewriting its bytes', async () => {
-    const exists = vi.fn().mockResolvedValue(1);
-    const expire = vi.fn().mockResolvedValue(1);
+  it('commits session state and idempotency only while the lock token still owns the mutation', async () => {
+    const evalCommand = vi.fn().mockResolvedValueOnce(1).mockResolvedValueOnce(0);
     const setex = vi.fn().mockResolvedValue('OK');
-    const redis = { exists, expire, setex } as unknown as Redis;
+    const del = vi.fn().mockResolvedValue(1);
+    const redis = { eval: evalCommand, setex, del } as unknown as Redis;
     const store = new RedisDemoStore(redis);
+    const mutation = {
+      session: storedSession(),
+      ttlSeconds: 120,
+      lockToken: 'owner-token',
+      idempotencyKey: 'vote-1',
+      idempotencyRecord: {
+        requestHash: 'hash',
+        response: { ok: true },
+        createdAt: '2026-07-10T00:00:00.000Z',
+      },
+    };
 
-    await store.writeSession(storedSession(), 120);
+    await expect(store.commitSessionMutation(mutation)).resolves.toBe(true);
+    await expect(store.commitSessionMutation(mutation)).resolves.toBe(false);
 
-    expect(expire).toHaveBeenCalledWith('demo:corpus:demo-store-corpus', 120);
-    expect(setex).toHaveBeenCalledTimes(1);
-    expect(setex).toHaveBeenCalledWith(
+    expect(evalCommand.mock.calls[0]).toEqual(expect.arrayContaining([
+      6,
+      'demo:lock:demo-store-session',
       'demo:session:demo-store-session',
-      120,
-      expect.not.stringContaining('"items"')
-    );
+      'demo:corpus:demo-store-corpus',
+      'demo:idempotency:demo-store-session:vote-1',
+      'owner-token',
+    ]));
+    expect(setex).toHaveBeenCalledTimes(4);
   });
 
   it('returns null only for missing records and raises explicit corruption errors', async () => {
@@ -59,17 +79,246 @@ describe('Redis shadow demo store', () => {
     await expect(store.readSession('partial')).rejects.toBeInstanceOf(DemoStoreCorruptionError);
   });
 
-  it('surfaces a failed session write without leaving a second corpus key', async () => {
-    const exists = vi.fn().mockResolvedValue(1);
-    const expire = vi.fn().mockResolvedValue(1);
-    const setex = vi.fn().mockRejectedValue(new Error('session write failed'));
-    const redis = { exists, expire, setex } as unknown as Redis;
+  it('connects a cold lazy client before issuing its first store command', async () => {
+    let redisStatus = 'wait';
+    const connect = vi.fn(async () => {
+      redisStatus = 'ready';
+    });
+    const redisState = {
+      get status(): string {
+        return redisStatus;
+      },
+      get: vi.fn().mockResolvedValue(null),
+      connect,
+    };
+    const store = new RedisDemoStore(redisState as unknown as Redis);
+
+    await expect(store.readSession('cold-start')).resolves.toBeNull();
+    expect(connect).toHaveBeenCalledOnce();
+    expect(redisState.get).toHaveBeenCalledOnce();
+  });
+
+  it('surfaces Redis command failures as demo-only unavailability', async () => {
+    const evalCommand = vi.fn().mockRejectedValue(new Error('OOM command not allowed'));
+    const redis = { eval: evalCommand } as unknown as Redis;
     const store = new RedisDemoStore(redis);
 
-    await expect(store.writeSession(storedSession(), 120)).rejects.toThrow(
-      'session write failed'
+    await expect(store.createSession(storedSession(), 120, 50)).rejects.toBeInstanceOf(
+      DemoStoreUnavailableError
     );
+  });
+
+  it('does not run the authoritative publish script when noeviction rejects staging', async () => {
+    const evalCommand = vi.fn().mockResolvedValue(1);
+    const setex = vi.fn()
+      .mockResolvedValueOnce('OK')
+      .mockRejectedValueOnce(new Error('OOM command not allowed'));
+    const del = vi.fn().mockResolvedValue(1);
+    const zrem = vi.fn().mockResolvedValue(1);
+    const store = new RedisDemoStore({ eval: evalCommand, setex, del, zrem } as unknown as Redis);
+
+    await expect(store.createSession(storedSession(), 120, 50)).rejects.toBeInstanceOf(
+      DemoStoreUnavailableError
+    );
+    expect(evalCommand).toHaveBeenCalledTimes(1);
+    expect(del).toHaveBeenCalledWith(expect.stringMatching(/^demo:staging:.*:session$/));
+    expect(zrem).toHaveBeenCalledWith('demo:sessions:active', 'demo-store-session');
+  });
+
+  it('releases the active-session reservation when the first staging write fails', async () => {
+    const evalCommand = vi.fn().mockResolvedValue(1);
+    const setex = vi.fn().mockRejectedValueOnce(new Error('OOM command not allowed'));
+    const del = vi.fn().mockResolvedValue(0);
+    const zrem = vi.fn().mockResolvedValue(1);
+    const store = new RedisDemoStore({ eval: evalCommand, setex, del, zrem } as unknown as Redis);
+
+    await expect(store.createSession(storedSession(), 120, 50)).rejects.toBeInstanceOf(
+      DemoStoreUnavailableError
+    );
+    expect(evalCommand).toHaveBeenCalledTimes(1);
+    expect(setex).toHaveBeenCalledOnce();
+    expect(zrem).toHaveBeenCalledWith('demo:sessions:active', 'demo-store-session');
+  });
+
+  it('cleans staged session records when the authoritative create script fails', async () => {
+    const evalCommand = vi.fn()
+      .mockResolvedValueOnce(1)
+      .mockRejectedValueOnce(new Error('connection dropped before eval'));
+    const setex = vi.fn().mockResolvedValue('OK');
+    const del = vi.fn().mockResolvedValue(2);
+    const zrem = vi.fn().mockResolvedValue(1);
+    const store = new RedisDemoStore({ eval: evalCommand, setex, del, zrem } as unknown as Redis);
+
+    await expect(store.createSession(storedSession(), 120, 50)).rejects.toBeInstanceOf(
+      DemoStoreUnavailableError
+    );
+    expect(del).toHaveBeenCalledWith(
+      expect.stringMatching(/^demo:staging:.*:session$/),
+      expect.stringMatching(/^demo:staging:.*:corpus$/)
+    );
+    expect(zrem).toHaveBeenCalledWith('demo:sessions:active', 'demo-store-session');
+  });
+
+  it('cleans staged mutation records when the authoritative commit script fails', async () => {
+    const evalCommand = vi.fn().mockRejectedValue(new Error('connection dropped before eval'));
+    const setex = vi.fn().mockResolvedValue('OK');
+    const del = vi.fn().mockResolvedValue(2);
+    const store = new RedisDemoStore({ eval: evalCommand, setex, del } as unknown as Redis);
+
+    await expect(store.commitSessionMutation({
+      session: storedSession(),
+      ttlSeconds: 120,
+      lockToken: 'owner-token',
+      idempotencyKey: 'vote-1',
+      idempotencyRecord: {
+        requestHash: 'hash',
+        response: { ok: true },
+        createdAt: '2026-07-10T00:00:00.000Z',
+      },
+    })).rejects.toBeInstanceOf(DemoStoreUnavailableError);
+    expect(del).toHaveBeenCalledWith(
+      expect.stringMatching(/^demo:staging:.*:session$/),
+      expect.stringMatching(/^demo:staging:.*:idempotency$/)
+    );
+  });
+
+  it('does not stage a session when the active-session reservation is full', async () => {
+    const evalCommand = vi.fn().mockResolvedValue(0);
+    const setex = vi.fn();
+    const store = new RedisDemoStore({ eval: evalCommand, setex } as unknown as Redis);
+
+    await expect(store.createSession(storedSession(), 120, 50)).resolves.toBe(false);
+    expect(setex).not.toHaveBeenCalled();
+    expect(evalCommand).toHaveBeenCalledOnce();
+  });
+
+  it('cleans reservations when staged create records expire before publication', async () => {
+    const evalCommand = vi.fn().mockResolvedValueOnce(1).mockResolvedValueOnce(-1);
+    const setex = vi.fn().mockResolvedValue('OK');
+    const del = vi.fn().mockResolvedValue(2);
+    const zrem = vi.fn().mockResolvedValue(1);
+    const store = new RedisDemoStore({ eval: evalCommand, setex, del, zrem } as unknown as Redis);
+
+    await expect(store.createSession(storedSession(), 120, 50)).rejects.toBeInstanceOf(
+      DemoStoreUnavailableError
+    );
+    expect(del).toHaveBeenCalled();
+    expect(zrem).toHaveBeenCalledWith('demo:sessions:active', 'demo-store-session');
+  });
+
+  it('cleans staged mutation records that expire before publication', async () => {
+    const evalCommand = vi.fn().mockResolvedValue(-1);
+    const setex = vi.fn().mockResolvedValue('OK');
+    const del = vi.fn().mockResolvedValue(1);
+    const store = new RedisDemoStore({ eval: evalCommand, setex, del } as unknown as Redis);
+
+    await expect(store.commitSessionMutation({
+      session: storedSession(),
+      ttlSeconds: 120,
+      lockToken: 'owner-token',
+      idempotencyKey: null,
+      idempotencyRecord: null,
+    })).rejects.toBeInstanceOf(DemoStoreUnavailableError);
+    expect(del).toHaveBeenCalledWith(expect.stringMatching(/^demo:staging:.*:session$/));
+  });
+
+  it('rejects oversized session state before issuing a Redis command', async () => {
+    const evalCommand = vi.fn();
+    const store = new RedisDemoStore({ eval: evalCommand } as unknown as Redis);
+    const session = storedSession();
+    session.warnings = [{
+      code: 'oversized',
+      message: 'x'.repeat(DEMO_MAX_SESSION_BYTES + 1),
+      severity: 'degraded',
+    }];
+
+    await expect(store.createSession(session, 120, 50)).rejects.toBeInstanceOf(
+      DemoStoreCapacityError
+    );
+    expect(evalCommand).not.toHaveBeenCalled();
+  });
+
+  it('rejects oversized idempotency records before issuing a Redis command', async () => {
+    const evalCommand = vi.fn();
+    const store = new RedisDemoStore({ eval: evalCommand } as unknown as Redis);
+
+    await expect(store.commitSessionMutation({
+      session: storedSession(),
+      ttlSeconds: 120,
+      lockToken: 'owner-token',
+      idempotencyKey: 'vote-1',
+      idempotencyRecord: {
+        requestHash: 'hash',
+        response: { blob: 'x'.repeat(DEMO_MAX_IDEMPOTENCY_BYTES + 1) },
+        createdAt: '2026-07-10T00:00:00.000Z',
+      },
+    })).rejects.toBeInstanceOf(DemoStoreCapacityError);
+    expect(evalCommand).not.toHaveBeenCalled();
+  });
+
+  it('skips idempotency publication when a key has no record', async () => {
+    const evalCommand = vi.fn().mockResolvedValue(1);
+    const setex = vi.fn().mockResolvedValue('OK');
+    const store = new RedisDemoStore({ eval: evalCommand, setex } as unknown as Redis);
+
+    await expect(store.commitSessionMutation({
+      session: storedSession(),
+      ttlSeconds: 120,
+      lockToken: 'owner-token',
+      idempotencyKey: 'missing-record',
+      idempotencyRecord: null,
+    })).resolves.toBe(true);
     expect(setex).toHaveBeenCalledTimes(1);
+    expect(evalCommand.mock.calls[0].at(-1)).toBe('0');
+  });
+
+  it('allows only the current lock owner to commit concurrent session state', async () => {
+    const store = new MemoryDemoStore();
+    const session = storedSession();
+    await expect(store.createSession(session, 120, 50)).resolves.toBe(true);
+    await expect(store.acquireSessionLock(session.sessionId, 'writer-a', 15_000)).resolves.toBe(true);
+    await expect(store.acquireSessionLock(session.sessionId, 'writer-b', 15_000)).resolves.toBe(false);
+    const nextState = { ...session, phase: 'reviewer_voted' as const };
+
+    await expect(store.commitSessionMutation({
+      session: nextState,
+      ttlSeconds: 120,
+      lockToken: 'writer-b',
+      idempotencyKey: null,
+      idempotencyRecord: null,
+    })).resolves.toBe(false);
+    await expect(store.readSession(session.sessionId)).resolves.toMatchObject({ phase: 'created' });
+
+    await expect(store.commitSessionMutation({
+      session: nextState,
+      ttlSeconds: 120,
+      lockToken: 'writer-a',
+      idempotencyKey: null,
+      idempotencyRecord: null,
+    })).resolves.toBe(true);
+    await expect(store.readSession(session.sessionId)).resolves.toMatchObject({ phase: 'reviewer_voted' });
+  });
+
+  it('enforces memory-store capacity while evicting expired sessions', async () => {
+    const store = new MemoryDemoStore();
+    const first = storedSession();
+    first.expiresAt = '2026-07-10T00:01:00.000Z';
+    await expect(store.createSession(first, 120, 1)).resolves.toBe(true);
+
+    const blocked = storedSession();
+    blocked.sessionId = 'demo-store-blocked';
+    blocked.corpusId = 'demo-store-blocked-corpus';
+    blocked.corpus.corpusId = blocked.corpusId;
+    blocked.createdAt = '2026-07-10T00:00:30.000Z';
+    await expect(store.createSession(blocked, 120, 1)).resolves.toBe(false);
+
+    const replacement = storedSession();
+    replacement.sessionId = 'demo-store-replacement';
+    replacement.corpusId = 'demo-store-replacement-corpus';
+    replacement.corpus.corpusId = replacement.corpusId;
+    replacement.createdAt = '2026-07-10T00:02:00.000Z';
+    await expect(store.createSession(replacement, 120, 1)).resolves.toBe(true);
+    await expect(store.readSession(first.sessionId)).resolves.toBeNull();
   });
 
   it('hydrates a stored session header from its frozen corpus record', async () => {

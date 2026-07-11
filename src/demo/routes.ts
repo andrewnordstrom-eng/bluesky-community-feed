@@ -5,6 +5,8 @@ import { logger } from '../lib/logger.js';
 import {
   SHADOW_DEMO_COMMUNITY_IDS,
   SHADOW_DEMO_CONTRACT_VERSION,
+  SHADOW_DEMO_SESSION_TTL_SECONDS,
+  SHADOW_DEMO_TOPIC_KEYS,
   type ShadowDemoEnvelope,
 } from './types.js';
 import {
@@ -14,8 +16,16 @@ import {
   ShadowDemoService,
   createDefaultShadowDemoService,
 } from './service.js';
+import { DemoStoreCapacityError, DemoStoreUnavailableError } from './store.js';
+import {
+  DemoRateLimitError,
+  type DemoRateLimitGuard,
+  type DemoRateLimitKind,
+} from './rate-limit.js';
 
-const IdempotencyKeySchema = z.string().min(1).max(128).regex(/^[A-Za-z0-9:_-]+$/);
+const IdempotencyKeySchema = z.string().min(1).max(64).regex(/^[A-Za-z0-9:_-]+$/);
+const DEMO_MUTATION_BODY_LIMIT_BYTES = 16 * 1024;
+const DEMO_CAPACITY_RETRY_AFTER_SECONDS = Math.min(60, SHADOW_DEMO_SESSION_TTL_SECONDS);
 
 const WeightSchema = z.object({
   recency: z.number().min(0).finite(),
@@ -26,16 +36,15 @@ const WeightSchema = z.object({
 }).strict();
 
 const TopicIntentSchema = z.object({
-  topicWeights: z.record(z.number().min(0).max(1)),
+  topicWeights: z.record(z.enum(SHADOW_DEMO_TOPIC_KEYS), z.number().min(0).max(1)),
 }).strict();
 
 const CreateSessionBodySchema = z.object({
   communityId: z.enum(SHADOW_DEMO_COMMUNITY_IDS).optional(),
-  refreshCorpus: z.boolean().optional(),
 }).strict();
 
 const SessionParamsSchema = z.object({
-  sessionId: z.string().min(1).max(128),
+  sessionId: z.string().min(1).max(64),
 }).strict();
 
 const VoteBodySchema = z.object({
@@ -57,7 +66,7 @@ const AdvanceBodySchema = z.object({
 
 const FeedQuerySchema = z.object({
   epochId: z.string().min(1).max(64).optional(),
-  limit: z.coerce.number().int().min(1).max(100).optional(),
+  limit: z.coerce.number().int().min(1).max(12).optional(),
 }).strict();
 
 const ReceiptQuerySchema = z.object({
@@ -67,29 +76,44 @@ const ReceiptQuerySchema = z.object({
 
 export function registerShadowDemoRoutes(
   app: FastifyInstance,
-  serviceOverride: ShadowDemoService | null
+  serviceOverride: ShadowDemoService | null,
+  rateLimitGuard: DemoRateLimitGuard | null
 ): void {
   const service = serviceOverride ?? createDefaultShadowDemoService();
 
-  app.post('/api/demo/sessions', { schema: { tags: ['Demo'] } }, async (request, reply) => {
+  if (rateLimitGuard) {
+    app.addHook('onClose', async () => {
+      await rateLimitGuard.close();
+    });
+  }
+
+  app.post('/api/demo/sessions', {
+    bodyLimit: DEMO_MUTATION_BODY_LIMIT_BYTES,
+    schema: { tags: ['Demo'] },
+  }, async (request, reply) => {
     return handleShadowDemoRequest(request, reply, async () => {
+      await applyRateLimit(rateLimitGuard, 'session_create', request.ip);
       const body = parseOrThrow(CreateSessionBodySchema, request.body ?? {});
       return service.createSession({
         communityId: body.communityId ?? 'open_science_builders',
-        refreshCorpus: body.refreshCorpus ?? false,
       });
     });
   });
 
   app.get('/api/demo/sessions/:sessionId', { schema: { tags: ['Demo'] } }, async (request, reply) => {
     return handleShadowDemoRequest(request, reply, async () => {
+      await applyRateLimit(rateLimitGuard, 'read', request.ip);
       const params = parseOrThrow(SessionParamsSchema, request.params);
       return service.getSession(params.sessionId);
     });
   });
 
-  app.post('/api/demo/sessions/:sessionId/votes', { schema: { tags: ['Demo'] } }, async (request, reply) => {
+  app.post('/api/demo/sessions/:sessionId/votes', {
+    bodyLimit: DEMO_MUTATION_BODY_LIMIT_BYTES,
+    schema: { tags: ['Demo'] },
+  }, async (request, reply) => {
     return handleShadowDemoRequest(request, reply, async () => {
+      await applyRateLimit(rateLimitGuard, 'mutation', request.ip);
       const params = parseOrThrow(SessionParamsSchema, request.params);
       const body = parseOrThrow(VoteBodySchema, request.body ?? {});
       return service.castVote({
@@ -102,8 +126,12 @@ export function registerShadowDemoRoutes(
     });
   });
 
-  app.post('/api/demo/sessions/:sessionId/agents/run', { schema: { tags: ['Demo'] } }, async (request, reply) => {
+  app.post('/api/demo/sessions/:sessionId/agents/run', {
+    bodyLimit: DEMO_MUTATION_BODY_LIMIT_BYTES,
+    schema: { tags: ['Demo'] },
+  }, async (request, reply) => {
     return handleShadowDemoRequest(request, reply, async () => {
+      await applyRateLimit(rateLimitGuard, 'mutation', request.ip);
       const params = parseOrThrow(SessionParamsSchema, request.params);
       const body = parseOrThrow(SyntheticVotersBodySchema, request.body ?? {});
       return service.runSyntheticVoters({
@@ -114,8 +142,12 @@ export function registerShadowDemoRoutes(
     });
   });
 
-  app.post('/api/demo/sessions/:sessionId/epochs/advance', { schema: { tags: ['Demo'] } }, async (request, reply) => {
+  app.post('/api/demo/sessions/:sessionId/epochs/advance', {
+    bodyLimit: DEMO_MUTATION_BODY_LIMIT_BYTES,
+    schema: { tags: ['Demo'] },
+  }, async (request, reply) => {
     return handleShadowDemoRequest(request, reply, async () => {
+      await applyRateLimit(rateLimitGuard, 'mutation', request.ip);
       const params = parseOrThrow(SessionParamsSchema, request.params);
       const body = parseOrThrow(AdvanceBodySchema, request.body ?? {});
       return service.advanceEpoch({
@@ -128,9 +160,10 @@ export function registerShadowDemoRoutes(
 
   app.get('/api/demo/sessions/:sessionId/feed', { schema: { tags: ['Demo'] } }, async (request, reply) => {
     return handleShadowDemoRequest(request, reply, async () => {
+      await applyRateLimit(rateLimitGuard, 'read', request.ip);
       const params = parseOrThrow(SessionParamsSchema, request.params);
       const query = parseOrThrow(FeedQuerySchema, request.query);
-      const limit = query.limit ?? 25;
+      const limit = query.limit ?? 12;
       return service.getFeed({
         sessionId: params.sessionId,
         epochId: query.epochId ?? null,
@@ -141,6 +174,7 @@ export function registerShadowDemoRoutes(
 
   app.get('/api/demo/sessions/:sessionId/receipts', { schema: { tags: ['Demo'] } }, async (request, reply) => {
     return handleShadowDemoRequest(request, reply, async () => {
+      await applyRateLimit(rateLimitGuard, 'read', request.ip);
       const params = parseOrThrow(SessionParamsSchema, request.params);
       const query = parseOrThrow(ReceiptQuerySchema, request.query);
       return service.getReceipt({
@@ -150,6 +184,16 @@ export function registerShadowDemoRoutes(
       });
     });
   });
+}
+
+async function applyRateLimit(
+  guard: DemoRateLimitGuard | null,
+  kind: DemoRateLimitKind,
+  identifier: string
+): Promise<void> {
+  if (guard) {
+    await guard.check(kind, identifier);
+  }
 }
 
 function parseOrThrow<TSchema extends z.ZodTypeAny>(
@@ -214,6 +258,11 @@ async function handleShadowDemoRequest<TPayload>(
     const error = err instanceof Error ? err : new Error(String(err));
     const correlationId = request.correlationId ?? randomUUID();
     const status = shadowDemoErrorStatus(error);
+    if (error instanceof DemoRateLimitError) {
+      reply.header('retry-after', String(error.retryAfterSeconds));
+    } else if (error instanceof DemoStoreCapacityError) {
+      reply.header('retry-after', String(DEMO_CAPACITY_RETRY_AFTER_SECONDS));
+    }
     if (status >= 500) {
       logger.error({ err: error, correlationId }, 'Unexpected shadow demo request failure');
     }
@@ -231,6 +280,12 @@ export function shadowDemoErrorStatus(error: Error): number {
   if (error instanceof DemoConflictError) {
     return 409;
   }
+  if (error instanceof DemoRateLimitError) {
+    return 429;
+  }
+  if (error instanceof DemoStoreCapacityError || error instanceof DemoStoreUnavailableError) {
+    return 503;
+  }
   return 500;
 }
 
@@ -238,15 +293,35 @@ export function shadowDemoErrorBody(error: Error, correlationId: string): {
   error: string;
   message: string;
   correlationId: string;
+  retryAfterSeconds?: number;
 } {
+  if (error instanceof DemoRateLimitError) {
+    return {
+      error: error.name,
+      message: error.message,
+      correlationId,
+      retryAfterSeconds: error.retryAfterSeconds,
+    };
+  }
   if (
     error instanceof DemoValidationError ||
     error instanceof DemoNotFoundError ||
-    error instanceof DemoConflictError
+    error instanceof DemoConflictError ||
+    error instanceof DemoStoreCapacityError
   ) {
     return {
       error: error.name,
       message: error.message,
+      correlationId,
+      ...(error instanceof DemoStoreCapacityError
+        ? { retryAfterSeconds: DEMO_CAPACITY_RETRY_AFTER_SECONDS }
+        : {}),
+    };
+  }
+  if (error instanceof DemoStoreUnavailableError) {
+    return {
+      error: error.name,
+      message: 'The isolated shadow demo is temporarily unavailable. The production Corgi feed is unaffected.',
       correlationId,
     };
   }

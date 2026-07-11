@@ -10,7 +10,7 @@ and blocked claims live in the lab journal above.
 
 ## Current Evidence
 
-- Shadow reviewer demo contract: implemented PROJ-1431 backend routes and web contract for production-sourced, session-frozen shadow sessions; final deploy-parity `npm run verify` passed with 118 Vitest files / 1,065 tests plus root, SDK, CLI, legacy web, and Next static builds. The integrated HTTP client and test adapter pass 6 demo files / 26 frontend tests and completed a same-origin two-epoch browser run at desktop, tablet, and mobile widths with no console errors or horizontal overflow. The v2 electorate uses one reviewer plus 24 deterministic, history-aware synthetic voters and exercises 25-voter trimmed-mean receipt math. Redis records are validated through nested corpus/vote/epoch shapes, corpus-build leases renew during slow hydration, and malformed public AppView data fails closed. A 2026-07-10 read-only production query found 84,831 active-epoch scored Open Science Builders candidates from 46,652 authors over 72 hours, including 2,274 cross-topic posts. This supports the live-scored shadow corpus; it does not claim a published native Bluesky feed or real-human electorate validity.
+- Shadow reviewer demo contract: PROJ-1692 implements and locally verifies `2026-07-10.shadow-demo.v3` with production-sourced, session-frozen corpora; 25-ballot/two-trim aggregate provenance; exact topic-relevance receipt math; bounded ownership-checked Redis publication; dedicated demo Redis and rate-limit storage; and strict Open Science eligibility. The final production-config `npm run verify` passed 120 Vitest files / 1,143 tests plus root, SDK, CLI, legacy web, and Next static builds. A two-Redis no-eviction proof reached OOM with zero evictions while a production sentinel remained unchanged. This is local contract evidence, not production deployment proof, a published native Bluesky feed, empirical voter-archetype validity, or confirmation that the current reviewer UI is wired to v3.
 - Birders feed readiness substrate: added disabled/private `birders_who_code` registry/materializer support, namespaced Redis feed keys, read-only scout command, and feed-rkey dispatch while preserving public `community-gov` behavior. Focused local verification passed for 5 Birders/feed files / 50 tests, and full `npm run verify` passed with 117 default Vitest files / 1045 tests plus root/web builds. A 2026-07-10 production read-only scout over the 72-hour active-epoch scored window found broad OR supply of 22,449 candidate posts (7,483/day), 12,935 authors (4,311.67/day), 1,649 strong bridge/high-relevance posts (549.67/day), and 3.44% top-author concentration; the stricter `bird_and_bridge` split found 162 posts (54/day), 136 authors (45.33/day), and 4.67 strict strong posts/day. This supports continued disabled-materializer work, not immediate public feed publication.
 - Full local verification gate: `npm run verify` passed on current `origin/main` base after refreshing `web` and `web-next` lockfile installs; this included root TypeScript build, 97 files / 840 Vitest tests, CLI build, MCP-local skip check, SDK build, SDK fixture, Vite lint/build, and Next static build.
 - Default regression suite: 97 files / 840 tests passed on current `origin/main` base with non-production dummy config and local IPC/loopback access.
@@ -54,6 +54,18 @@ and blocked claims live in the lab journal above.
 - Dry-run verification passed for all four lab runners; dry-runs prove CLI/artifact wiring only.
 
 ## Provenance
+
+### PROJ-1692 Shadow Demo v3
+
+- Branch: `dev/PROJ-1692-recsys-harden-shadow-demo-v3-before-reviewer-ui-ships`.
+- Verified implementation head: `17c88dac73de86189d1731cb9fa74ef582dac0ea` (the pre-review head that produced the quantitative receipts above).
+- Contract/lab record: `docs/lab/demo-shadow-governance-contract.md`; implementation journal: `docs/dev-journal.md`, entry `2026-07-10 #04`.
+- Corpus/session inputs: deterministic route/store fixtures and production-shaped environment values for the full gate; the no-eviction proof used separate local production-sentinel and demo Redis instances and did not claim a mature live Open Science corpus.
+- Full verification: production-config `npm run verify`, 120 Vitest files / 1,143 tests, plus root, SDK, CLI, legacy web, and Next static builds.
+- Isolation verification: a 2 MB `noeviction` demo Redis accepted 13 writes of 64 KiB before OOM, reported 0 evictions and 2,045,280 bytes used, while a sentinel in the separate production Redis remained unchanged.
+- Scope boundary: local contract and isolation evidence only; production deployment, reviewer UI v3 wiring, native Bluesky feed publication, and empirical voter-archetype validity were not claimed by this receipt.
+
+### PROJ-1551 Validation Campaign
 
 - Branch: `dev/PROJ-1551-corgi-validation`.
 - Checkout base: `f2310a036cb668a9e7419ee8419a2cbe44dc9920` plus the uncommitted PROJ-1551 validation diff.

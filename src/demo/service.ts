@@ -1,7 +1,13 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { DEMO_COMMUNITIES, createDefaultCorpusLoader } from './corpus.js';
 import { createSyntheticVoterVotes, getShadowDemoVoterProfiles } from './synthetic-voters.js';
-import { createRedisDemoStore, type DemoStore } from './store.js';
+import {
+  DEMO_MAX_ACTIVE_SESSIONS,
+  DemoStoreCapacityError,
+  createRedisDemoStore,
+  type DemoStore,
+  type IdempotencyRecord,
+} from './store.js';
 import {
   SHADOW_DEMO_CORPUS_PROVENANCE,
   SHADOW_DEMO_GUIDED_EPOCHS,
@@ -29,12 +35,13 @@ import {
 import {
   aggregateShadowVotes,
   engagementOnlyWeights,
+  explainTopicRelevance,
   scoreFromRawWeights,
   validateShadowWeights,
 } from './weights.js';
 import { cloneShadowTopicIntent, validateShadowTopicIntent } from './topic-intent.js';
 
-const LOCK_TTL_MS = 5000;
+const LOCK_TTL_MS = 15000;
 const CORPUS_BUILD_LOCK_TTL_MS = 15000;
 const CORPUS_BUILD_LOCK_RENEW_INTERVAL_MS = 5000;
 const CORPUS_BUILD_WAIT_INTERVAL_MS = 100;
@@ -78,7 +85,6 @@ export interface ShadowDemoServiceDependencies {
 
 export interface CreateSessionRequest {
   communityId: ShadowDemoCommunityId;
-  refreshCorpus: boolean;
 }
 
 export interface CastVoteRequest {
@@ -113,6 +119,11 @@ export interface GetReceiptRequest {
   postUri: string;
 }
 
+interface PendingSessionMutation<TPayload> {
+  state: ShadowDemoSessionState;
+  response: TPayload;
+}
+
 export class ShadowDemoService {
   private readonly store: DemoStore;
   private readonly loadCorpus: ShadowDemoServiceDependencies['loadCorpus'];
@@ -129,16 +140,20 @@ export class ShadowDemoService {
     const corpus = await this.loadCorpusForSession({
       communityId: request.communityId,
       now,
-      refreshCorpus: request.refreshCorpus,
     });
     const sessionId = `demo-${randomUUID()}`;
     const firstEpoch = createEpoch({
       sequence: 1,
-      weights: corpus.baseWeights,
-      topicIntent: corpus.baseTopicIntent,
       createdAt: now.toISOString(),
       label: 'Baseline policy',
       decidedByEpochId: null,
+      aggregate: {
+        aggregateMethod: 'trimmed_mean_no_trim_under_10',
+        voteCount: 0,
+        trimCount: 0,
+        weights: corpus.baseWeights,
+        topicIntent: cloneShadowTopicIntent(corpus.baseTopicIntent),
+      },
     });
     const state: ShadowDemoSessionState = {
       sessionId,
@@ -155,7 +170,16 @@ export class ShadowDemoService {
       warnings: corpus.warnings,
     };
 
-    await this.store.writeSession(state, ttlSecondsForState(state, now));
+    const created = await this.store.createSession(
+      state,
+      ttlSecondsForState(state, now),
+      DEMO_MAX_ACTIVE_SESSIONS
+    );
+    if (!created) {
+      throw new DemoStoreCapacityError(
+        `Shadow demo is at its ${DEMO_MAX_ACTIVE_SESSIONS}-session capacity; retry after an active session expires`
+      );
+    }
     return {
       sessionId,
       payload: sessionPayload(state),
@@ -173,7 +197,7 @@ export class ShadowDemoService {
   }
 
   async castVote(request: CastVoteRequest): Promise<ShadowDemoServiceResult<ShadowDemoSessionPayload>> {
-    const operation = async (): Promise<ShadowDemoServiceResult<ShadowDemoSessionPayload>> => {
+    const operation = async (): Promise<PendingSessionMutation<ShadowDemoServiceResult<ShadowDemoSessionPayload>>> => {
       const state = await this.readRequiredSession(request.sessionId);
       assertCurrentEpoch(state, request.baseEpochId);
       assertPhaseForReviewerVote(state);
@@ -199,11 +223,13 @@ export class ShadowDemoService {
         phase: 'reviewer_voted',
         votes: nextVotes,
       };
-      await this.store.writeSession(nextState, ttlSecondsForState(nextState, this.now()));
       return {
-        sessionId: nextState.sessionId,
-        payload: sessionPayload(nextState),
-        warnings: nextState.warnings,
+        state: nextState,
+        response: {
+          sessionId: nextState.sessionId,
+          payload: sessionPayload(nextState),
+          warnings: nextState.warnings,
+        },
       };
     };
 
@@ -218,7 +244,7 @@ export class ShadowDemoService {
   async runSyntheticVoters(
     request: RunSyntheticVotersRequest
   ): Promise<ShadowDemoServiceResult<ShadowDemoSessionPayload>> {
-    const operation = async (): Promise<ShadowDemoServiceResult<ShadowDemoSessionPayload>> => {
+    const operation = async (): Promise<PendingSessionMutation<ShadowDemoServiceResult<ShadowDemoSessionPayload>>> => {
       const state = await this.readRequiredSession(request.sessionId);
       assertCurrentEpoch(state, request.baseEpochId);
       if (state.phase !== 'reviewer_voted') {
@@ -248,11 +274,13 @@ export class ShadowDemoService {
         phase: 'synthetic_voters_ran',
         votes: nextVotes,
       };
-      await this.store.writeSession(nextState, ttlSecondsForState(nextState, this.now()));
       return {
-        sessionId: nextState.sessionId,
-        payload: sessionPayload(nextState),
-        warnings: nextState.warnings,
+        state: nextState,
+        response: {
+          sessionId: nextState.sessionId,
+          payload: sessionPayload(nextState),
+          warnings: nextState.warnings,
+        },
       };
     };
 
@@ -265,7 +293,7 @@ export class ShadowDemoService {
   }
 
   async advanceEpoch(request: AdvanceEpochRequest): Promise<ShadowDemoServiceResult<ShadowDemoSessionPayload>> {
-    const operation = async (): Promise<ShadowDemoServiceResult<ShadowDemoSessionPayload>> => {
+    const operation = async (): Promise<PendingSessionMutation<ShadowDemoServiceResult<ShadowDemoSessionPayload>>> => {
       const state = await this.readRequiredSession(request.sessionId);
       assertCurrentEpoch(state, request.fromEpochId);
       const currentEpoch = currentEpochOf(state);
@@ -288,11 +316,10 @@ export class ShadowDemoService {
       };
       const nextEpoch = createEpoch({
         sequence: currentEpoch.sequence + 1,
-        weights: nextAggregate.weights,
-        topicIntent: nextAggregate.topicIntent,
         createdAt: now,
         label: `Shadow epoch ${currentEpoch.sequence + 1}`,
         decidedByEpochId: currentEpoch.id,
+        aggregate: nextAggregate,
       });
       const nextState: ShadowDemoSessionState = {
         ...state,
@@ -300,11 +327,13 @@ export class ShadowDemoService {
         currentEpochId: nextEpoch.id,
         epochs: state.epochs.map((epoch) => (epoch.id === currentEpoch.id ? advancedEpoch : epoch)).concat(nextEpoch),
       };
-      await this.store.writeSession(nextState, ttlSecondsForState(nextState, this.now()));
       return {
-        sessionId: nextState.sessionId,
-        payload: sessionPayload(nextState),
-        warnings: nextState.warnings,
+        state: nextState,
+        response: {
+          sessionId: nextState.sessionId,
+          payload: sessionPayload(nextState),
+          warnings: nextState.warnings,
+        },
       };
     };
 
@@ -333,6 +362,7 @@ export class ShadowDemoService {
         corpusId: state.corpusId,
         communityId: state.communityId,
         corpusHealth: state.corpus.health,
+        corpusProvenance: corpusProvenanceFor(state),
         aggregate: epoch.aggregate,
         posts,
       },
@@ -380,12 +410,22 @@ export class ShadowDemoService {
           score: rankedPost.score,
           scoredAt: item.scoredAt,
           aggregate: epoch.aggregate,
+          reviewerBallotShare: reviewerBallotShareFor(state, epoch),
           components: receiptContributions(
             item,
             epoch.aggregate.weights,
             epoch.aggregate.topicIntent
           ),
-          topicSignals: topicSignals(item, epoch.aggregate.topicIntent),
+          topicRelevanceFormula: explainTopicRelevance(
+            item.rawScores.relevance,
+            item.topicVector,
+            epoch.aggregate.topicIntent
+          ),
+          provenance: {
+            ...corpusProvenanceFor(state),
+            shadowEpochId: epoch.id,
+            postInclusionReasons: item.inclusionReasons,
+          },
           counterfactuals: counterfactualsForReceipt({
             state,
             item,
@@ -409,9 +449,8 @@ export class ShadowDemoService {
   private async loadCorpusForSession(options: {
     communityId: ShadowDemoCommunityId;
     now: Date;
-    refreshCorpus: boolean;
   }): Promise<ShadowDemoCorpus> {
-    const cached = options.refreshCorpus ? null : await this.store.readSharedCorpus(options.communityId);
+    const cached = await this.store.readSharedCorpus(options.communityId);
     if (cached) {
       return cloneCorpusForSession({
         corpus: cached,
@@ -427,11 +466,6 @@ export class ShadowDemoService {
       CORPUS_BUILD_LOCK_TTL_MS
     );
     if (!acquired) {
-      if (options.refreshCorpus) {
-        throw new DemoConflictError(
-          `Shadow demo corpus refresh is already running for ${options.communityId}; retry shortly`
-        );
-      }
       const waited = await this.waitForSharedCorpus(options.communityId);
       if (waited) {
         return cloneCorpusForSession({
@@ -516,58 +550,56 @@ export class ShadowDemoService {
     return null;
   }
 
-  private async withSessionLock<TPayload>(
-    sessionId: string,
-    operation: () => Promise<TPayload>
-  ): Promise<TPayload> {
-    const token = randomUUID();
-    const acquired = await this.store.acquireSessionLock(sessionId, token, LOCK_TTL_MS);
-    if (!acquired) {
-      throw new DemoConflictError(`Shadow demo session is busy: ${sessionId}`);
-    }
-    try {
-      return await operation();
-    } finally {
-      await this.store.releaseSessionLock(sessionId, token);
-    }
-  }
-
   private async runIdempotent<TPayload>(options: {
     sessionId: string;
     idempotencyKey: string | null;
     requestPayload: unknown;
-    operation: () => Promise<TPayload>;
+    operation: () => Promise<PendingSessionMutation<TPayload>>;
   }): Promise<TPayload> {
-    return this.withSessionLock(options.sessionId, async () => {
-      if (!options.idempotencyKey) {
-        return options.operation();
-      }
-
+    const token = randomUUID();
+    const acquired = await this.store.acquireSessionLock(options.sessionId, token, LOCK_TTL_MS);
+    if (!acquired) {
+      throw new DemoConflictError(`Shadow demo session is busy: ${options.sessionId}`);
+    }
+    try {
       const requestHash = hashPayload(options.requestPayload);
-      const existing = await this.store.readIdempotency<TPayload>(
-        options.sessionId,
-        options.idempotencyKey
-      );
-      if (existing) {
-        if (existing.requestHash !== requestHash) {
-          throw new DemoConflictError(`Idempotency key reused with a different payload: ${options.idempotencyKey}`);
+      if (options.idempotencyKey) {
+        const existing = await this.store.readIdempotency<TPayload>(
+          options.sessionId,
+          options.idempotencyKey
+        );
+        if (existing) {
+          if (existing.requestHash !== requestHash) {
+            throw new DemoConflictError(`Idempotency key reused with a different payload: ${options.idempotencyKey}`);
+          }
+          return existing.response;
         }
-        return existing.response;
       }
 
-      const response = await options.operation();
-      await this.store.writeIdempotency(
-        options.sessionId,
-        options.idempotencyKey,
-        {
+      const mutation = await options.operation();
+      const idempotencyRecord: IdempotencyRecord<TPayload> | null = options.idempotencyKey
+        ? {
           requestHash,
-          response,
+          response: mutation.response,
           createdAt: this.now().toISOString(),
-        },
-        await idempotencyTtlSecondsForSession(this.store, options.sessionId, this.now())
-      );
-      return response;
-    });
+        }
+        : null;
+      const committed = await this.store.commitSessionMutation({
+        session: mutation.state,
+        ttlSeconds: ttlSecondsForState(mutation.state, this.now()),
+        lockToken: token,
+        idempotencyKey: options.idempotencyKey,
+        idempotencyRecord,
+      });
+      if (!committed) {
+        throw new DemoConflictError(
+          `Shadow demo mutation ownership expired for ${options.sessionId}; refresh the session before retrying`
+        );
+      }
+      return mutation.response;
+    } finally {
+      await this.store.releaseSessionLock(options.sessionId, token);
+    }
   }
 }
 
@@ -595,11 +627,31 @@ function sessionPayload(state: ShadowDemoSessionState): ShadowDemoSessionPayload
       maxEpochs: SHADOW_DEMO_MAX_EPOCHS_PER_SESSION,
       syntheticVoterCount: SHADOW_DEMO_SYNTHETIC_VOTER_COUNT,
       totalDemoVoters: SHADOW_DEMO_TOTAL_DEMO_VOTERS,
-      corpusProvenance: SHADOW_DEMO_CORPUS_PROVENANCE,
+      corpusProvenance: corpusProvenanceFor(state),
       voterProfiles: getShadowDemoVoterProfiles(),
       votes: state.votes,
     },
   };
+}
+
+function corpusProvenanceFor(state: ShadowDemoSessionState): ShadowDemoSessionPayload['session']['corpusProvenance'] {
+  return {
+    ...SHADOW_DEMO_CORPUS_PROVENANCE,
+    corpusId: state.corpusId,
+    productionEpochId: state.corpus.baseProductionEpochId,
+    sampledAt: state.corpus.health.sampledAt,
+    eligiblePostCount: state.corpus.health.candidatePosts72h,
+  };
+}
+
+function reviewerBallotShareFor(state: ShadowDemoSessionState, epoch: ShadowDemoEpoch): number {
+  if (!epoch.decidedByEpochId || epoch.aggregate.voteCount === 0) {
+    return 0;
+  }
+  const hasReviewerBallot = state.votes.some(
+    (vote) => vote.epochId === epoch.decidedByEpochId && vote.actorType === 'reviewer'
+  );
+  return hasReviewerBallot ? 1 / epoch.aggregate.voteCount : 0;
 }
 
 function cloneCorpusForSession(options: {
@@ -622,15 +674,6 @@ function ttlSecondsForState(state: ShadowDemoSessionState, now: Date): number {
   return Math.max(1, Math.ceil(ttlMs / 1000));
 }
 
-async function idempotencyTtlSecondsForSession(
-  store: DemoStore,
-  sessionId: string,
-  now: Date
-): Promise<number> {
-  const state = await store.readSession(sessionId);
-  return state ? ttlSecondsForState(state, now) : SHADOW_DEMO_SESSION_TTL_SECONDS;
-}
-
 async function delay(ms: number): Promise<void> {
   await new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -639,11 +682,10 @@ async function delay(ms: number): Promise<void> {
 
 function createEpoch(options: {
   sequence: number;
-  weights: ShadowDemoWeights;
-  topicIntent: ShadowDemoTopicIntent;
   createdAt: string;
   label: string;
   decidedByEpochId: string | null;
+  aggregate: ShadowDemoEpoch['aggregate'];
 }): ShadowDemoEpoch {
   return {
     id: `shadow-epoch-${options.sequence}`,
@@ -654,11 +696,9 @@ function createEpoch(options: {
     advancedAt: null,
     decidedByEpochId: options.decidedByEpochId,
     aggregate: {
-      aggregateMethod: 'trimmed_mean_no_trim_under_10',
-      voteCount: 0,
-      trimCount: 0,
-      weights: options.weights,
-      topicIntent: cloneShadowTopicIntent(options.topicIntent),
+      ...options.aggregate,
+      weights: { ...options.aggregate.weights },
+      topicIntent: cloneShadowTopicIntent(options.aggregate.topicIntent),
     },
   };
 }
@@ -821,21 +861,6 @@ function receiptContributions(
   }));
 }
 
-function topicSignals(
-  item: ShadowDemoCorpusItem,
-  topicIntent: ShadowDemoTopicIntent
-): Array<{ topic: string; postScore: number }> {
-  return Object.entries(item.topicVector)
-    .filter(([topic, value]) =>
-      Object.hasOwn(topicIntent.topicWeights, topic) &&
-      typeof value === 'number' &&
-      Number.isFinite(value)
-    )
-    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
-    .slice(0, 5)
-    .map(([topic, postScore]) => ({ topic, postScore }));
-}
-
 function counterfactualsForReceipt(options: {
   state: ShadowDemoSessionState;
   item: ShadowDemoCorpusItem;
@@ -845,10 +870,11 @@ function counterfactualsForReceipt(options: {
   const previousEpoch = previousEpochFor(options.state, options.epoch);
   const previousWeights = previousEpoch?.aggregate.weights ?? options.state.corpus.baseWeights;
   const previousTopicIntent = previousEpoch?.aggregate.topicIntent ?? options.state.corpus.baseTopicIntent;
-  const withoutReviewer = aggregateWithoutReviewerVote(options.state, options.epoch);
+  const directReviewerBallotRemoved = aggregateWithoutReviewerVote(options.state, options.epoch);
   return [
     counterfactualForWeights({
       label: 'previous_epoch',
+      description: 'Rank under the policy applied in the prior shadow epoch.',
       state: options.state,
       item: options.item,
       weights: previousWeights,
@@ -857,6 +883,7 @@ function counterfactualsForReceipt(options: {
     }),
     counterfactualForWeights({
       label: 'engagement_only',
+      description: 'Rank if engagement were the only ranking signal.',
       state: options.state,
       item: options.item,
       weights: engagementOnlyWeights(),
@@ -864,11 +891,12 @@ function counterfactualsForReceipt(options: {
       visibleRank: options.visibleRank,
     }),
     counterfactualForWeights({
-      label: 'without_reviewer_vote',
+      label: 'direct_reviewer_ballot_removed',
+      description: 'Direct reviewer ballot removed while all 24 scripted deterministic ballots are held fixed.',
       state: options.state,
       item: options.item,
-      weights: withoutReviewer.weights,
-      topicIntent: withoutReviewer.topicIntent,
+      weights: directReviewerBallotRemoved.weights,
+      topicIntent: directReviewerBallotRemoved.topicIntent,
       visibleRank: options.visibleRank,
     }),
   ];
@@ -892,6 +920,7 @@ function aggregateWithoutReviewerVote(
 
 function counterfactualForWeights(options: {
   label: ShadowDemoCounterfactual['label'];
+  description: string;
   state: ShadowDemoSessionState;
   item: ShadowDemoCorpusItem;
   weights: ShadowDemoWeights;
@@ -906,6 +935,7 @@ function counterfactualForWeights(options: {
   );
   return {
     label: options.label,
+    description: options.description,
     rank,
     deltaFromVisible: rank - options.visibleRank,
   };

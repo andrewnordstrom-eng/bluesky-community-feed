@@ -7,9 +7,14 @@ import {
   demoLockKeyPrefix,
   demoSessionKeyPrefix,
   demoSharedCorpusKeyPrefix,
+  demoStagingKeyPrefix,
 } from '../src/demo/store.js';
+import { demoRateLimitKeyPrefix } from '../src/demo/rate-limit.js';
 
 const DEMO_SRC_DIR = new URL('../src/demo', import.meta.url).pathname;
+const COMPOSE_FILE = new URL('../docker-compose.prod.yml', import.meta.url).pathname;
+const SERVER_FILE = new URL('../src/feed/server.ts', import.meta.url).pathname;
+const DEPLOY_FILE = new URL('../.github/workflows/deploy.yml', import.meta.url).pathname;
 
 describe('shadow demo isolation guards', () => {
   it('keeps Redis state inside the demo namespace', () => {
@@ -18,6 +23,8 @@ describe('shadow demo isolation guards', () => {
     expect(demoSharedCorpusKeyPrefix()).toBe('demo:corpus:current:');
     expect(demoIdempotencyKeyPrefix()).toBe('demo:idempotency:');
     expect(demoLockKeyPrefix()).toBe('demo:lock:');
+    expect(demoStagingKeyPrefix()).toBe('demo:staging:');
+    expect(demoRateLimitKeyPrefix()).toBe('demo:rate-limit:');
   });
 
   it('does not import production mutation or scoring pipeline entry points', () => {
@@ -39,6 +46,38 @@ describe('shadow demo isolation guards', () => {
     expect(source).not.toContain('feed:current');
     expect(source).not.toContain('feed:current_snapshot_id');
     expect(source).not.toMatch(/\bresearch_exports?\b/i);
+  });
+
+  it('uses a dedicated bounded no-eviction Redis without persistence', () => {
+    const compose = readFileSync(COMPOSE_FILE, 'utf8');
+    const store = readFileSync(new URL('../src/demo/store.ts', import.meta.url), 'utf8');
+    const server = readFileSync(SERVER_FILE, 'utf8');
+    const deploy = readFileSync(DEPLOY_FILE, 'utf8');
+
+    expect(store).toContain('process.env.DEMO_REDIS_URL');
+    expect(compose).toContain('demo-redis:');
+    expect(compose).toContain('127.0.0.1:6381:6379');
+    expect(compose).toContain('--maxmemory 64mb');
+    expect(compose).toContain('--maxmemory-policy noeviction');
+    expect(compose).toContain('--save ""');
+    expect(compose).toContain('--appendonly no');
+    expect(compose).toContain('mem_limit: 96m');
+    expect(server).toContain("routeOptions.url.startsWith('/api/demo/')");
+    expect(server).toContain('rateLimit: false');
+    expect(server).toContain('redisUrl: config.DEMO_REDIS_URL');
+    expect(server).toContain('identifierHashSecret: config.DEMO_RATE_LIMIT_HASH_SECRET');
+    expect(server).not.toContain('identifierHashSecret: config.EXPORT_ANONYMIZATION_SALT');
+    expect(deploy).toContain('http://localhost:3001/api/demo/sessions');
+    expect(deploy).toContain('PRODUCTION_KEY_EXISTS');
+    expect(deploy).toContain('DEMO_KEY_EXISTS');
+    expect(deploy).toContain('DEMO_POLICY');
+    expect(deploy).toContain(`DEMO_KEY="${demoSessionKeyPrefix()}\${DEMO_SESSION_ID}"`);
+
+    const demoCompose = compose.split('demo-redis:')[1];
+    const maxmemoryMatch = demoCompose?.match(/--maxmemory\s+(\d+)mb/);
+    expect(maxmemoryMatch).toBeDefined();
+    const maxmemoryBytes = Number(maxmemoryMatch?.[1]) * 1024 * 1024;
+    expect(deploy).toContain(`[ "$DEMO_MAXMEMORY" != "${maxmemoryBytes}" ]`);
   });
 });
 

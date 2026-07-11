@@ -89,6 +89,20 @@ services:
       timeout: 5s
       retries: 5
 
+  demo-redis:
+    image: redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
+    container_name: bluesky-feed-demo-redis
+    command: redis-server --maxmemory 64mb --maxmemory-policy noeviction --save "" --appendonly no
+    ports:
+      - "127.0.0.1:6381:6379"
+    mem_limit: 96m
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
   bluesky_postgres_data:
   bluesky_redis_data:

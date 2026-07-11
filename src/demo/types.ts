@@ -1,4 +1,4 @@
-export const SHADOW_DEMO_CONTRACT_VERSION = '2026-07-10.shadow-demo.v2' as const;
+export const SHADOW_DEMO_CONTRACT_VERSION = '2026-07-10.shadow-demo.v3' as const;
 
 export const SHADOW_DEMO_SIGNAL_KEYS = [
   'recency',
@@ -15,6 +15,15 @@ export type ShadowDemoWeights = Record<ShadowDemoSignalKey, number>;
 export interface ShadowDemoTopicIntent {
   topicWeights: Record<string, number>;
 }
+
+export const SHADOW_DEMO_TOPIC_KEYS = [
+  'science-research',
+  'data-science',
+  'software-development',
+  'open-source',
+] as const;
+
+export type ShadowDemoTopicKey = (typeof SHADOW_DEMO_TOPIC_KEYS)[number];
 
 export const SHADOW_DEMO_INTERNAL_SIGNAL_KEYS = [
   'recency',
@@ -60,6 +69,8 @@ export const SHADOW_DEMO_CORPUS_PROVENANCE = {
   label: 'Live-scored snapshot',
   description:
     'Live-scored snapshot, frozen for this demo run so rank movement is attributable to policy changes.',
+  windowHours: 72,
+  topicScoreThreshold: 0.5,
 } as const;
 
 export const SHADOW_DEMO_PHASES = [
@@ -105,6 +116,26 @@ export interface ShadowDemoCorpusHealth {
   sampledAt: string;
 }
 
+export interface ShadowDemoCorpusProvenance {
+  mode: typeof SHADOW_DEMO_CORPUS_PROVENANCE.mode;
+  label: typeof SHADOW_DEMO_CORPUS_PROVENANCE.label;
+  description: typeof SHADOW_DEMO_CORPUS_PROVENANCE.description;
+  corpusId: string;
+  productionEpochId: number;
+  sampledAt: string;
+  windowHours: typeof SHADOW_DEMO_CORPUS_PROVENANCE.windowHours;
+  topicScoreThreshold: typeof SHADOW_DEMO_CORPUS_PROVENANCE.topicScoreThreshold;
+  eligiblePostCount: number;
+}
+
+export interface ShadowDemoCorpusInclusionReason {
+  matchedTopics: Array<{
+    topic: ShadowDemoTopicKey;
+    score: number;
+  }>;
+  matchedTerms: string[];
+}
+
 export interface ShadowDemoPublicPost {
   kind: 'public_post';
   uri: string;
@@ -148,6 +179,7 @@ export interface ShadowDemoCorpusItem {
   productionEpochId: number;
   scoredAt: string;
   componentDetails: Record<string, unknown> | null;
+  inclusionReasons: ShadowDemoCorpusInclusionReason;
   displayPost: ShadowDemoDisplayPost;
 }
 
@@ -236,7 +268,7 @@ export interface ShadowDemoSessionPayload {
     maxEpochs: typeof SHADOW_DEMO_MAX_EPOCHS_PER_SESSION;
     syntheticVoterCount: typeof SHADOW_DEMO_SYNTHETIC_VOTER_COUNT;
     totalDemoVoters: typeof SHADOW_DEMO_TOTAL_DEMO_VOTERS;
-    corpusProvenance: typeof SHADOW_DEMO_CORPUS_PROVENANCE;
+    corpusProvenance: ShadowDemoCorpusProvenance;
     voterProfiles: Array<{
       id: ShadowDemoVoterBlocId;
       label: string;
@@ -265,6 +297,7 @@ export interface ShadowDemoFeedPayload {
   corpusId: string;
   communityId: ShadowDemoCommunityId;
   corpusHealth: ShadowDemoCorpusHealth;
+  corpusProvenance: ShadowDemoCorpusProvenance;
   aggregate: ShadowDemoVoteSummary;
   posts: ShadowDemoRankedPost[];
 }
@@ -277,9 +310,31 @@ export interface ShadowDemoReceiptContribution {
 }
 
 export interface ShadowDemoCounterfactual {
-  label: 'previous_epoch' | 'engagement_only' | 'without_reviewer_vote';
+  label: 'previous_epoch' | 'engagement_only' | 'direct_reviewer_ballot_removed';
+  description: string;
   rank: number;
   deltaFromVisible: number;
+}
+
+export interface ShadowDemoTopicRelevanceTerm {
+  topic: string;
+  postScore: number;
+  communityWeight: number;
+  weightedTerm: number;
+  usedDefaultWeight: boolean;
+}
+
+export interface ShadowDemoTopicRelevanceFormula {
+  formulaApplied: boolean;
+  defaultTopicWeight: number;
+  confidenceThreshold: number;
+  weightedSum: number | null;
+  signalSum: number | null;
+  baseRelevance: number;
+  confidenceMultiplier: number;
+  effectiveRelevance: number;
+  usedDefaultWeight: boolean;
+  terms: ShadowDemoTopicRelevanceTerm[];
 }
 
 export interface ShadowDemoReceiptPayload {
@@ -292,11 +347,13 @@ export interface ShadowDemoReceiptPayload {
     score: number;
     scoredAt: string;
     aggregate: ShadowDemoVoteSummary;
+    reviewerBallotShare: number;
     components: ShadowDemoReceiptContribution[];
-    topicSignals: Array<{
-      topic: string;
-      postScore: number;
-    }>;
+    topicRelevanceFormula: ShadowDemoTopicRelevanceFormula;
+    provenance: ShadowDemoCorpusProvenance & {
+      shadowEpochId: string;
+      postInclusionReasons: ShadowDemoCorpusInclusionReason;
+    };
     counterfactuals: ShadowDemoCounterfactual[];
   };
 }

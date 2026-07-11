@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const INSECURE_EXPORT_SALT_DEFAULT = 'dev-salt-not-for-prod';
+const INSECURE_DEMO_RATE_LIMIT_HASH_SECRET_DEFAULT = 'dev-demo-rate-limit-secret-not-for-prod';
 
 /**
  * Zod schema for boolean env vars that correctly handles the string "false".
@@ -43,6 +44,8 @@ export const ConfigSchema = z.object({
 
   // Redis
   REDIS_URL: z.string().startsWith('redis://'),
+  DEMO_REDIS_URL: z.string().startsWith('redis://').default('redis://127.0.0.1:6381'),
+  DEMO_RATE_LIMIT_HASH_SECRET: z.string().min(16).default(INSECURE_DEMO_RATE_LIMIT_HASH_SECRET_DEFAULT),
   REDIS_COMMAND_TIMEOUT_MS: z.coerce.number().int().min(100).default(5_000),
 
   // Feed requester JWT verification
@@ -249,8 +252,53 @@ export const ConfigSchema = z.object({
       message: 'EXPORT_ANONYMIZATION_SALT should be at least 32 characters in production.',
     });
   }
+
+  if (!cfg.RATE_LIMIT_ENABLED) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['RATE_LIMIT_ENABLED'],
+      message: 'RATE_LIMIT_ENABLED must remain enabled in production.',
+    });
+  }
+
+  if (redisInstanceAuthority(cfg.DEMO_REDIS_URL) === redisInstanceAuthority(cfg.REDIS_URL)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['DEMO_REDIS_URL'],
+      message: 'DEMO_REDIS_URL must not equal REDIS_URL in production; demo state must remain isolated.',
+    });
+  }
+
+  if (cfg.DEMO_RATE_LIMIT_HASH_SECRET === INSECURE_DEMO_RATE_LIMIT_HASH_SECRET_DEFAULT) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['DEMO_RATE_LIMIT_HASH_SECRET'],
+      message: 'DEMO_RATE_LIMIT_HASH_SECRET must be explicitly set in production.',
+    });
+  }
+
+  if (cfg.DEMO_RATE_LIMIT_HASH_SECRET.length < 32) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['DEMO_RATE_LIMIT_HASH_SECRET'],
+      message: 'DEMO_RATE_LIMIT_HASH_SECRET should be at least 32 characters in production.',
+    });
+  }
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
 
 export const config = ConfigSchema.parse(process.env);
+
+function redisInstanceAuthority(value: string): string {
+  try {
+    const parsed = new URL(value);
+    const hostname = parsed.hostname.toLowerCase();
+    const canonicalHost = new Set(['localhost', '127.0.0.1', '::1', '[::1]']).has(hostname)
+      ? 'loopback'
+      : hostname;
+    return `${canonicalHost}:${parsed.port || '6379'}`;
+  } catch {
+    return value;
+  }
+}

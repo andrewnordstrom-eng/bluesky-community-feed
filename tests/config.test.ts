@@ -10,10 +10,12 @@ const baseEnv: Record<string, string> = {
   JETSTREAM_COLLECTIONS: 'app.bsky.feed.post',
   DATABASE_URL: 'postgresql://postgres:postgres@127.0.0.1:5432/corgi_dummy_test',
   REDIS_URL: 'redis://127.0.0.1:6379',
+  DEMO_RATE_LIMIT_HASH_SECRET: 'demo-rate-limit-secret-1234567890',
   BSKY_IDENTIFIER: 'sim-harness.test',
   BSKY_APP_PASSWORD: 'sim-harness-not-a-real-password',
   NODE_ENV: 'test',
 };
+const PRODUCTION_SALT_32 = '12345678901234567890123456789012';
 
 describe('ConfigSchema', () => {
   it('accepts a positive integer FEED_MAX_POSTS value', () => {
@@ -39,6 +41,95 @@ describe('ConfigSchema', () => {
 
     expect(parsed.FEED_MAX_POSTS).toBe(1000);
     expect(parsed.REDIS_COMMAND_TIMEOUT_MS).toBe(5000);
+    expect(parsed.DEMO_REDIS_URL).toBe('redis://127.0.0.1:6381');
+  });
+
+  it.each(['true', undefined])('accepts enabled or default production rate limiting (%s)', (value) => {
+    const environment = {
+      ...baseEnv,
+      NODE_ENV: 'production',
+      EXPORT_ANONYMIZATION_SALT: PRODUCTION_SALT_32,
+      ...(value === undefined ? {} : { RATE_LIMIT_ENABLED: value }),
+    };
+
+    expect(ConfigSchema.parse(environment).RATE_LIMIT_ENABLED).toBe(true);
+  });
+
+  it.each(['false', '0', 'invalid', ''])('rejects disabled production rate limiting (%s)', (value) => {
+    expect(() => ConfigSchema.parse({
+      ...baseEnv,
+      NODE_ENV: 'production',
+      RATE_LIMIT_ENABLED: value,
+      EXPORT_ANONYMIZATION_SALT: PRODUCTION_SALT_32,
+    })).toThrow(/RATE_LIMIT_ENABLED must remain enabled in production/);
+  });
+
+  it('enforces the production anonymization salt boundary', () => {
+    expect(() => ConfigSchema.parse({
+      ...baseEnv,
+      NODE_ENV: 'production',
+      EXPORT_ANONYMIZATION_SALT: '1'.repeat(31),
+    })).toThrow(/at least 32 characters/);
+    expect(ConfigSchema.parse({
+      ...baseEnv,
+      NODE_ENV: 'production',
+      EXPORT_ANONYMIZATION_SALT: PRODUCTION_SALT_32,
+    }).EXPORT_ANONYMIZATION_SALT).toBe(PRODUCTION_SALT_32);
+  });
+
+  it('rejects a production demo Redis endpoint that equals production Redis', () => {
+    expect(() => ConfigSchema.parse({
+      ...baseEnv,
+      NODE_ENV: 'production',
+      DEMO_REDIS_URL: baseEnv.REDIS_URL,
+      EXPORT_ANONYMIZATION_SALT: PRODUCTION_SALT_32,
+    })).toThrow(/DEMO_REDIS_URL must not equal REDIS_URL/);
+    expect(() => ConfigSchema.parse({
+      ...baseEnv,
+      NODE_ENV: 'production',
+      DEMO_REDIS_URL: 'redis://different-credentials@127.0.0.1/9',
+      EXPORT_ANONYMIZATION_SALT: PRODUCTION_SALT_32,
+    })).toThrow(/DEMO_REDIS_URL must not equal REDIS_URL/);
+    expect(() => ConfigSchema.parse({
+      ...baseEnv,
+      NODE_ENV: 'production',
+      REDIS_URL: 'redis://127.0.0.1:6379',
+      DEMO_REDIS_URL: 'redis://localhost',
+      EXPORT_ANONYMIZATION_SALT: PRODUCTION_SALT_32,
+    })).toThrow(/DEMO_REDIS_URL must not equal REDIS_URL/);
+    expect(() => ConfigSchema.parse({
+      ...baseEnv,
+      NODE_ENV: 'production',
+      REDIS_URL: 'redis://[::1]:6379',
+      DEMO_REDIS_URL: 'redis://127.0.0.1',
+      EXPORT_ANONYMIZATION_SALT: PRODUCTION_SALT_32,
+    })).toThrow(/DEMO_REDIS_URL must not equal REDIS_URL/);
+  });
+
+  it('requires an independent production demo rate-limit HMAC key', () => {
+    expect(() => ConfigSchema.parse({
+      ...baseEnv,
+      NODE_ENV: 'production',
+      DEMO_RATE_LIMIT_HASH_SECRET: 'dev-demo-rate-limit-secret-not-for-prod',
+      EXPORT_ANONYMIZATION_SALT: PRODUCTION_SALT_32,
+    })).toThrow(/must be explicitly set in production/);
+    expect(() => ConfigSchema.parse({
+      ...baseEnv,
+      NODE_ENV: 'production',
+      DEMO_RATE_LIMIT_HASH_SECRET: '1'.repeat(31),
+      EXPORT_ANONYMIZATION_SALT: PRODUCTION_SALT_32,
+    })).toThrow(/at least 32 characters/);
+  });
+
+  it('keeps production-only hardening scoped out of development', () => {
+    const parsed = ConfigSchema.parse({
+      ...baseEnv,
+      NODE_ENV: 'development',
+      RATE_LIMIT_ENABLED: 'false',
+      EXPORT_ANONYMIZATION_SALT: 'short-development-salt',
+    });
+
+    expect(parsed.RATE_LIMIT_ENABLED).toBe(false);
   });
 
   it.each(['abc', ''])('rejects non-numeric FEED_MAX_POSTS=%s', (feedMaxPosts) => {

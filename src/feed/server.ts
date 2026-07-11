@@ -13,6 +13,7 @@ import { config } from '../config.js';
 import { registerDescribeGenerator } from './routes/describe-generator.js';
 import { registerWellKnown } from './routes/well-known.js';
 import { registerFeedSkeleton } from './routes/feed-skeleton.js';
+import { isPayloadTooLargeError } from './error-classification.js';
 import { registerSendInteractions } from './routes/send-interactions.js';
 import { registerGovernanceRoutes } from '../governance/server.js';
 import { registerTransparencyRoutes } from '../transparency/server.js';
@@ -28,6 +29,10 @@ import { redis } from '../db/redis.js';
 import { getAuthenticatedDid } from '../governance/auth.js';
 import { requireAdmin } from '../auth/admin.js';
 import type { ShadowDemoService } from '../demo/service.js';
+import {
+  createRedisDemoRateLimitGuard,
+  type DemoRateLimitGuard,
+} from '../demo/rate-limit.js';
 import { buildRouteRateLimitConfig } from './rate-limit-config.js';
 
 // Extend FastifyRequest to include correlationId
@@ -123,7 +128,7 @@ export async function createServer(options?: CreateServerOptions) {
         { name: 'Auth', description: 'Bluesky authentication for governance actions' },
         { name: 'Topics', description: 'Topic catalog and topic weight voting' },
         { name: 'Transparency', description: 'Score explanations, feed stats, and audit logs' },
-        { name: 'Demo', description: 'Public shadow demo sessions and read-only reviewer walkthroughs' },
+        { name: 'Demo', description: 'Public, isolated shadow-governance sessions for the reviewer walkthrough' },
         { name: 'Admin', description: 'Admin-only endpoints (requires BOT_ADMIN_DIDS)' },
         { name: 'Export', description: 'Research data export (anonymized, admin-only)' },
         { name: 'Health', description: 'Server health checks and liveness probes' },
@@ -177,6 +182,10 @@ export async function createServer(options?: CreateServerOptions) {
     };
 
     app.addHook('onRoute', (routeOptions) => {
+      if (routeOptions.url.startsWith('/api/demo/')) {
+        routeOptions.config = { ...routeOptions.config, rateLimit: false };
+        return;
+      }
       const rateLimitConfig = buildRouteRateLimitConfig(
         routeOptions.url,
         routeOptions.method,
@@ -242,7 +251,28 @@ export async function createServer(options?: CreateServerOptions) {
   registerTransparencyRoutes(app);
 
   // Register public shadow demo routes
-  registerShadowDemoRoutes(app, options?.shadowDemoService ?? null);
+  const shadowDemoRateLimitGuard: DemoRateLimitGuard | null = config.RATE_LIMIT_ENABLED
+    ? createRedisDemoRateLimitGuard({
+      redisUrl: config.DEMO_REDIS_URL,
+      commandTimeoutMs: config.REDIS_COMMAND_TIMEOUT_MS,
+      identifierHashSecret: config.DEMO_RATE_LIMIT_HASH_SECRET,
+      policies: {
+        session_create: {
+          max: config.RATE_LIMIT_LOGIN_MAX,
+          windowMs: config.RATE_LIMIT_LOGIN_WINDOW_MS,
+        },
+        mutation: {
+          max: config.RATE_LIMIT_VOTE_MAX,
+          windowMs: config.RATE_LIMIT_VOTE_WINDOW_MS,
+        },
+        read: {
+          max: config.RATE_LIMIT_INTERACTIONS_MAX,
+          windowMs: config.RATE_LIMIT_INTERACTIONS_WINDOW_MS,
+        },
+      },
+    })
+    : null;
+  registerShadowDemoRoutes(app, options?.shadowDemoService ?? null, shadowDemoRateLimitGuard);
 
   // Register debug routes
   registerDebugRoutes(app);
@@ -356,6 +386,15 @@ export async function createServer(options?: CreateServerOptions) {
       message: string;
       retryAfterSeconds: number;
     }>;
+
+    if (isPayloadTooLargeError(error)) {
+      logger.warn({ correlationId }, 'Request body exceeded the configured limit');
+      return reply.status(413).send({
+        error: 'PayloadTooLarge',
+        message: 'Request body exceeds the configured limit.',
+        correlationId,
+      });
+    }
 
     if (
       rateLimitError.statusCode === 429 ||

@@ -7,6 +7,7 @@ import {
   type ShadowDemoSignalKey,
   type ShadowDemoVoteSummary,
   type ShadowDemoTopicIntent,
+  type ShadowDemoTopicRelevanceFormula,
   type ShadowDemoWeights,
 } from './types.js';
 import { aggregateRowsWithTrimmedMean } from '../governance/aggregation-math.js';
@@ -14,6 +15,8 @@ import { scoreTopicVectorRelevance } from '../scoring/components/relevance.js';
 import { aggregateShadowTopicIntents } from './topic-intent.js';
 
 const SUM_TOLERANCE = 0.000001;
+const DEFAULT_TOPIC_WEIGHT = 0.2;
+const TOPIC_CONFIDENCE_THRESHOLD = 0.5;
 
 const INTERNAL_TO_WIRE: Record<ShadowDemoInternalSignalKey, ShadowDemoSignalKey> = {
   recency: 'recency',
@@ -138,6 +141,81 @@ export function scoreFromRawWeights(
     score: roundScore(score),
     weightedComponents,
     effectiveRawScores,
+  };
+}
+
+export function explainTopicRelevance(
+  storedRelevance: number,
+  topicVector: Record<string, number>,
+  topicIntent: ShadowDemoTopicIntent
+): ShadowDemoTopicRelevanceFormula {
+  if (Object.keys(topicIntent.topicWeights).length === 0) {
+    return {
+      formulaApplied: false,
+      defaultTopicWeight: DEFAULT_TOPIC_WEIGHT,
+      confidenceThreshold: TOPIC_CONFIDENCE_THRESHOLD,
+      weightedSum: null,
+      signalSum: null,
+      baseRelevance: roundScore(storedRelevance),
+      confidenceMultiplier: 1,
+      effectiveRelevance: roundScore(storedRelevance),
+      usedDefaultWeight: false,
+      terms: [],
+    };
+  }
+
+  const rawTerms = Object.entries(topicVector)
+    .filter(([, postScore]) => Number.isFinite(postScore))
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([topic, postScore]) => {
+      const configuredWeight = topicIntent.topicWeights[topic];
+      const hasConfiguredWeight = typeof configuredWeight === 'number' && Number.isFinite(configuredWeight);
+      const communityWeight = hasConfiguredWeight ? configuredWeight : DEFAULT_TOPIC_WEIGHT;
+      return {
+        topic,
+        postScore,
+        communityWeight,
+        weightedTerm: postScore * communityWeight,
+        usedDefaultWeight: !hasConfiguredWeight,
+      };
+    });
+  const weightedSum = rawTerms.reduce((sum, term) => sum + term.weightedTerm, 0);
+  const signalSum = rawTerms.reduce((sum, term) => sum + term.postScore, 0);
+  const terms = rawTerms.map((term) => ({
+    ...term,
+    postScore: roundScore(term.postScore),
+    communityWeight: roundScore(term.communityWeight),
+    weightedTerm: roundScore(term.weightedTerm),
+  }));
+  if (signalSum === 0) {
+    return {
+      formulaApplied: true,
+      defaultTopicWeight: DEFAULT_TOPIC_WEIGHT,
+      confidenceThreshold: TOPIC_CONFIDENCE_THRESHOLD,
+      weightedSum: 0,
+      signalSum: 0,
+      baseRelevance: DEFAULT_TOPIC_WEIGHT,
+      confidenceMultiplier: 1,
+      effectiveRelevance: DEFAULT_TOPIC_WEIGHT,
+      usedDefaultWeight: terms.some((term) => term.usedDefaultWeight),
+      terms,
+    };
+  }
+
+  const baseRelevance = weightedSum / signalSum;
+  const confidenceMultiplier = Math.min(1, signalSum / TOPIC_CONFIDENCE_THRESHOLD);
+  const effectiveRelevance = Math.max(0, Math.min(1, baseRelevance * confidenceMultiplier));
+  return {
+    formulaApplied: true,
+    defaultTopicWeight: DEFAULT_TOPIC_WEIGHT,
+    confidenceThreshold: TOPIC_CONFIDENCE_THRESHOLD,
+    weightedSum: roundScore(weightedSum),
+    signalSum: roundScore(signalSum),
+    baseRelevance: roundScore(baseRelevance),
+    confidenceMultiplier: roundScore(confidenceMultiplier),
+    effectiveRelevance: roundScore(effectiveRelevance),
+    usedDefaultWeight: terms.some((term) => term.usedDefaultWeight),
+    terms,
   };
 }
 
