@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Redis } from 'ioredis';
 import { z, type ZodTypeAny } from 'zod';
 import { logger } from '../lib/logger.js';
@@ -5,6 +6,7 @@ import {
   SHADOW_DEMO_COMMUNITY_IDS,
   SHADOW_DEMO_PHASES,
   SHADOW_DEMO_SIGNAL_KEYS,
+  SHADOW_DEMO_TOPIC_KEYS,
   SHADOW_DEMO_VOTER_BLOC_IDS,
   type ShadowDemoCommunityId,
   type ShadowDemoCorpus,
@@ -62,6 +64,13 @@ const StoredCorpusItemSchema = z.object({
   productionEpochId: z.number().int(),
   scoredAt: z.string().min(1),
   componentDetails: z.record(z.unknown()).nullable(),
+  inclusionReasons: z.object({
+    matchedTopics: z.array(z.object({
+      topic: z.enum(SHADOW_DEMO_TOPIC_KEYS),
+      score: z.number().finite(),
+    })),
+    matchedTerms: z.array(z.string().min(1).max(64)),
+  }),
   displayPost: StoredDisplayPostSchema,
 });
 
@@ -156,22 +165,44 @@ export class DemoStoreCorruptionError extends Error {
   }
 }
 
+export class DemoStoreUnavailableError extends Error {
+  constructor(operation: string, detail: string) {
+    super(`Shadow demo storage unavailable during ${operation}: ${detail}`);
+    this.name = 'DemoStoreUnavailableError';
+  }
+}
+
+export class DemoStoreCapacityError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DemoStoreCapacityError';
+  }
+}
+
+export const DEMO_MAX_SESSION_BYTES = 1024 * 1024;
+export const DEMO_MAX_IDEMPOTENCY_BYTES = 256 * 1024;
+export const DEMO_MAX_ACTIVE_SESSIONS = 50;
+const DEMO_STAGING_TTL_SECONDS = 30;
+
 export interface IdempotencyRecord<TPayload> {
   requestHash: string;
   response: TPayload;
   createdAt: string;
 }
 
+export interface DemoSessionMutation<TPayload> {
+  session: ShadowDemoSessionState;
+  ttlSeconds: number;
+  lockToken: string;
+  idempotencyKey: string | null;
+  idempotencyRecord: IdempotencyRecord<TPayload> | null;
+}
+
 export interface DemoStore {
   readSession(sessionId: string): Promise<ShadowDemoSessionState | null>;
-  writeSession(session: ShadowDemoSessionState, ttlSeconds: number): Promise<void>;
+  createSession(session: ShadowDemoSessionState, ttlSeconds: number, maxActiveSessions: number): Promise<boolean>;
+  commitSessionMutation<TPayload>(mutation: DemoSessionMutation<TPayload>): Promise<boolean>;
   readIdempotency<TPayload>(sessionId: string, key: string): Promise<IdempotencyRecord<TPayload> | null>;
-  writeIdempotency<TPayload>(
-    sessionId: string,
-    key: string,
-    record: IdempotencyRecord<TPayload>,
-    ttlSeconds: number
-  ): Promise<void>;
   readSharedCorpus(communityId: ShadowDemoCommunityId): Promise<ShadowDemoCorpus | null>;
   writeSharedCorpus(communityId: ShadowDemoCommunityId, corpus: ShadowDemoCorpus, ttlSeconds: number): Promise<void>;
   acquireCorpusBuildLock(communityId: ShadowDemoCommunityId, token: string, ttlMs: number): Promise<boolean>;
@@ -183,6 +214,7 @@ export interface DemoStore {
 
 export class RedisDemoStore implements DemoStore {
   private readonly redis: Redis;
+  private connectionPromise: Promise<void> | null = null;
 
   constructor(redis: Redis) {
     this.redis = redis;
@@ -190,7 +222,7 @@ export class RedisDemoStore implements DemoStore {
 
   async readSession(sessionId: string): Promise<ShadowDemoSessionState | null> {
     const key = sessionKey(sessionId);
-    const raw = await this.redis.get(key);
+    const raw = await this.runRedisCommand('read session header', () => this.redis.get(key));
     if (!raw) {
       return null;
     }
@@ -200,7 +232,7 @@ export class RedisDemoStore implements DemoStore {
       key
     );
     const storedCorpusKey = corpusKey(header.corpusId);
-    const rawCorpus = await this.redis.get(storedCorpusKey);
+    const rawCorpus = await this.runRedisCommand('read session corpus', () => this.redis.get(storedCorpusKey));
     if (!rawCorpus) {
       throw new DemoStoreCorruptionError(
         key,
@@ -211,41 +243,121 @@ export class RedisDemoStore implements DemoStore {
     return { ...header, corpus };
   }
 
-  async writeSession(session: ShadowDemoSessionState, ttlSeconds: number): Promise<void> {
-    const storedCorpusKey = corpusKey(session.corpusId);
-    const corpusExists = await this.redis.exists(storedCorpusKey);
-    if (corpusExists === 0) {
-      await this.redis.setex(storedCorpusKey, ttlSeconds, JSON.stringify(session.corpus));
-    } else {
-      const refreshed = await this.redis.expire(storedCorpusKey, ttlSeconds);
-      if (refreshed === 0) {
-        await this.redis.setex(storedCorpusKey, ttlSeconds, JSON.stringify(session.corpus));
-      }
+  async createSession(
+    session: ShadowDemoSessionState,
+    ttlSeconds: number,
+    maxActiveSessions: number
+  ): Promise<boolean> {
+    const serialized = serializeSession(session);
+    const reserved = await this.reserveSessionSlot(session, maxActiveSessions);
+    if (!reserved) {
+      return false;
     }
-    const { corpus: _corpus, ...sessionHeader } = session;
-    await this.redis.setex(sessionKey(session.sessionId), ttlSeconds, JSON.stringify(sessionHeader));
+    const stagingToken = randomUUID();
+    const stagedHeaderKey = stagingKey(stagingToken, 'session');
+    const stagedCorpusKey = stagingKey(stagingToken, 'corpus');
+    let result: unknown;
+    try {
+      await this.stageRecords([
+        { key: stagedHeaderKey, value: serialized.header },
+        { key: stagedCorpusKey, value: serialized.corpus },
+      ]);
+      result = await this.runRedisCommand('create bounded session', () => this.redis.eval(
+        `if redis.call('zscore', KEYS[5], ARGV[2]) == false then return -1 end
+         if redis.call('exists', KEYS[1]) == 0 or redis.call('exists', KEYS[2]) == 0 then return -1 end
+         redis.call('rename', KEYS[1], KEYS[3])
+         redis.call('rename', KEYS[2], KEYS[4])
+         redis.call('expire', KEYS[3], ARGV[1])
+         redis.call('expire', KEYS[4], ARGV[1])
+         return 1`,
+        5,
+        stagedHeaderKey,
+        stagedCorpusKey,
+        sessionKey(session.sessionId),
+        corpusKey(session.corpusId),
+        activeSessionsKey(),
+        ttlSeconds,
+        session.sessionId
+      ));
+    } catch (err) {
+      await this.discardStaging([stagedHeaderKey, stagedCorpusKey]);
+      await this.discardSessionReservation(session.sessionId);
+      throw err;
+    }
+    if (result !== 1) {
+      await this.discardStaging([stagedHeaderKey, stagedCorpusKey]);
+      await this.discardSessionReservation(session.sessionId);
+    }
+    if (result === -1) {
+      throw new DemoStoreUnavailableError('create bounded session', 'staged session records expired before commit');
+    }
+    return result === 1;
+  }
+
+  async commitSessionMutation<TPayload>(mutation: DemoSessionMutation<TPayload>): Promise<boolean> {
+    const serialized = serializeSession(mutation.session);
+    const idempotency = serializeIdempotency(mutation.idempotencyRecord);
+    const stagingToken = randomUUID();
+    const stagedHeaderKey = stagingKey(stagingToken, 'session');
+    const stagedIdempotencyKey = stagingKey(stagingToken, 'idempotency');
+    const authoritativeIdempotencyKey = mutation.idempotencyKey
+      ? idempotencyKey(mutation.session.sessionId, mutation.idempotencyKey)
+      : idempotencyPlaceholderKey(mutation.session.sessionId);
+    const stageIdempotency = Boolean(mutation.idempotencyKey && idempotency);
+    const stagedRecords = [{ key: stagedHeaderKey, value: serialized.header }];
+    if (stageIdempotency && idempotency) {
+      stagedRecords.push({ key: stagedIdempotencyKey, value: idempotency });
+    }
+    await this.stageRecords(stagedRecords);
+    let result: unknown;
+    try {
+      result = await this.runRedisCommand('commit session mutation', () => this.redis.eval(
+      `if redis.call('get', KEYS[1]) ~= ARGV[1] then return 0 end
+       if redis.call('exists', KEYS[2]) == 0 or redis.call('exists', KEYS[6]) == 0 then return -1 end
+       if ARGV[3] == '1' and redis.call('exists', KEYS[4]) == 0 then return -1 end
+       redis.call('rename', KEYS[2], KEYS[3])
+       redis.call('expire', KEYS[3], ARGV[2])
+       redis.call('expire', KEYS[6], ARGV[2])
+       if ARGV[3] == '1' then
+         redis.call('rename', KEYS[4], KEYS[5])
+         redis.call('expire', KEYS[5], ARGV[2])
+       end
+       return 1`,
+      6,
+      lockKey(mutation.session.sessionId),
+      stagedHeaderKey,
+      sessionKey(mutation.session.sessionId),
+      stagedIdempotencyKey,
+      authoritativeIdempotencyKey,
+      corpusKey(mutation.session.corpusId),
+      mutation.lockToken,
+      mutation.ttlSeconds,
+        stageIdempotency ? '1' : '0'
+      ));
+    } catch (err) {
+      await this.discardStaging(stagedRecords.map((record) => record.key));
+      throw err;
+    }
+    if (result !== 1) {
+      await this.discardStaging(stagedRecords.map((record) => record.key));
+    }
+    if (result === -1) {
+      throw new DemoStoreUnavailableError('commit session mutation', 'staged mutation records expired before commit');
+    }
+    return result === 1;
   }
 
   async readIdempotency<TPayload>(sessionId: string, key: string): Promise<IdempotencyRecord<TPayload> | null> {
     const redisKey = idempotencyKey(sessionId, key);
-    const raw = await this.redis.get(redisKey);
+    const raw = await this.runRedisCommand('read idempotency record', () => this.redis.get(redisKey));
     return raw
       ? parseStoredRecord<IdempotencyRecord<TPayload>>(StoredIdempotencySchema, raw, redisKey)
       : null;
   }
 
-  async writeIdempotency<TPayload>(
-    sessionId: string,
-    key: string,
-    record: IdempotencyRecord<TPayload>,
-    ttlSeconds: number
-  ): Promise<void> {
-    await this.redis.setex(idempotencyKey(sessionId, key), ttlSeconds, JSON.stringify(record));
-  }
-
   async readSharedCorpus(communityId: ShadowDemoCommunityId): Promise<ShadowDemoCorpus | null> {
     const key = sharedCorpusKey(communityId);
-    const raw = await this.redis.get(key);
+    const raw = await this.runRedisCommand('read shared corpus', () => this.redis.get(key));
     return raw ? parseStoredRecord<ShadowDemoCorpus>(StoredCorpusSchema, raw, key) : null;
   }
 
@@ -254,11 +366,15 @@ export class RedisDemoStore implements DemoStore {
     corpus: ShadowDemoCorpus,
     ttlSeconds: number
   ): Promise<void> {
-    await this.redis.setex(sharedCorpusKey(communityId), ttlSeconds, JSON.stringify(corpus));
+    await this.runRedisCommand('write shared corpus', () =>
+      this.redis.setex(sharedCorpusKey(communityId), ttlSeconds, JSON.stringify(corpus))
+    );
   }
 
   async acquireCorpusBuildLock(communityId: ShadowDemoCommunityId, token: string, ttlMs: number): Promise<boolean> {
-    const result = await this.redis.set(corpusBuildLockKey(communityId), token, 'PX', ttlMs, 'NX');
+    const result = await this.runRedisCommand('acquire corpus build lock', () =>
+      this.redis.set(corpusBuildLockKey(communityId), token, 'PX', ttlMs, 'NX')
+    );
     return result === 'OK';
   }
 
@@ -267,37 +383,116 @@ export class RedisDemoStore implements DemoStore {
     token: string,
     ttlMs: number
   ): Promise<boolean> {
-    const renewed = await this.redis.eval(
+    const renewed = await this.runRedisCommand('renew corpus build lock', () => this.redis.eval(
       "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('pexpire', KEYS[1], ARGV[2]) else return 0 end",
       1,
       corpusBuildLockKey(communityId),
       token,
       ttlMs
-    );
+    ));
     return renewed === 1;
   }
 
   async releaseCorpusBuildLock(communityId: ShadowDemoCommunityId, token: string): Promise<void> {
-    await this.redis.eval(
+    await this.runRedisCommand('release corpus build lock', () => this.redis.eval(
       "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
       1,
       corpusBuildLockKey(communityId),
       token
-    );
+    ));
   }
 
   async acquireSessionLock(sessionId: string, token: string, ttlMs: number): Promise<boolean> {
-    const result = await this.redis.set(lockKey(sessionId), token, 'PX', ttlMs, 'NX');
+    const result = await this.runRedisCommand('acquire session lock', () =>
+      this.redis.set(lockKey(sessionId), token, 'PX', ttlMs, 'NX')
+    );
     return result === 'OK';
   }
 
   async releaseSessionLock(sessionId: string, token: string): Promise<void> {
-    await this.redis.eval(
+    await this.runRedisCommand('release session lock', () => this.redis.eval(
       "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
       1,
       lockKey(sessionId),
       token
-    );
+    ));
+  }
+
+  private async runRedisCommand<TValue>(operation: string, command: () => Promise<TValue>): Promise<TValue> {
+    try {
+      await this.connectIfNeeded();
+      return await command();
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      throw new DemoStoreUnavailableError(operation, detail);
+    }
+  }
+
+  private async connectIfNeeded(): Promise<void> {
+    if (this.connectionPromise) {
+      await this.connectionPromise;
+      return;
+    }
+    if (this.redis.status !== 'wait') {
+      return;
+    }
+    this.connectionPromise = this.redis.connect().finally(() => {
+      this.connectionPromise = null;
+    });
+    await this.connectionPromise;
+  }
+
+  private async stageRecords(records: Array<{ key: string; value: string }>): Promise<void> {
+    const staged: string[] = [];
+    try {
+      for (const record of records) {
+        await this.runRedisCommand('stage session mutation', () =>
+          this.redis.setex(record.key, DEMO_STAGING_TTL_SECONDS, record.value)
+        );
+        staged.push(record.key);
+      }
+    } catch (err) {
+      await this.discardStaging(staged);
+      throw err;
+    }
+  }
+
+  private async reserveSessionSlot(
+    session: ShadowDemoSessionState,
+    maxActiveSessions: number
+  ): Promise<boolean> {
+    const result = await this.runRedisCommand('reserve active session slot', () => this.redis.eval(
+      `redis.call('zremrangebyscore', KEYS[1], '-inf', ARGV[1])
+       if redis.call('zcard', KEYS[1]) >= tonumber(ARGV[2]) then return 0 end
+       redis.call('zadd', KEYS[1], ARGV[3], ARGV[4])
+       return 1`,
+      1,
+      activeSessionsKey(),
+      Date.now(),
+      maxActiveSessions,
+      new Date(session.expiresAt).getTime(),
+      session.sessionId
+    ));
+    return result === 1;
+  }
+
+  private async discardSessionReservation(sessionId: string): Promise<void> {
+    try {
+      await this.redis.zrem(activeSessionsKey(), sessionId);
+    } catch (err) {
+      logger.warn({ err, sessionId }, 'Failed to remove shadow demo session reservation');
+    }
+  }
+
+  private async discardStaging(keys: string[]): Promise<void> {
+    if (keys.length === 0) {
+      return;
+    }
+    try {
+      await this.redis.del(...keys);
+    } catch (err) {
+      logger.warn({ err, keyCount: keys.length }, 'Failed to remove short-lived shadow demo staging keys');
+    }
   }
 }
 
@@ -311,21 +506,46 @@ export class MemoryDemoStore implements DemoStore {
     return this.sessions.get(sessionId) ?? null;
   }
 
-  async writeSession(session: ShadowDemoSessionState, _ttlSeconds: number): Promise<void> {
+  async createSession(
+    session: ShadowDemoSessionState,
+    _ttlSeconds: number,
+    maxActiveSessions: number
+  ): Promise<boolean> {
+    const now = new Date(session.createdAt).getTime();
+    for (const [sessionId, candidate] of this.sessions.entries()) {
+      if (new Date(candidate.expiresAt).getTime() <= now) {
+        this.sessions.delete(sessionId);
+      }
+    }
+    if (this.sessions.size >= maxActiveSessions) {
+      return false;
+    }
+    serializeSession(session);
     this.sessions.set(session.sessionId, JSON.parse(JSON.stringify(session)) as ShadowDemoSessionState);
+    return true;
+  }
+
+  async commitSessionMutation<TPayload>(mutation: DemoSessionMutation<TPayload>): Promise<boolean> {
+    if (this.locks.get(lockKey(mutation.session.sessionId)) !== mutation.lockToken) {
+      return false;
+    }
+    serializeSession(mutation.session);
+    serializeIdempotency(mutation.idempotencyRecord);
+    this.sessions.set(
+      mutation.session.sessionId,
+      JSON.parse(JSON.stringify(mutation.session)) as ShadowDemoSessionState
+    );
+    if (mutation.idempotencyKey && mutation.idempotencyRecord) {
+      this.idempotency.set(
+        idempotencyKey(mutation.session.sessionId, mutation.idempotencyKey),
+        JSON.parse(JSON.stringify(mutation.idempotencyRecord)) as IdempotencyRecord<unknown>
+      );
+    }
+    return true;
   }
 
   async readIdempotency<TPayload>(sessionId: string, key: string): Promise<IdempotencyRecord<TPayload> | null> {
     return (this.idempotency.get(idempotencyKey(sessionId, key)) as IdempotencyRecord<TPayload> | undefined) ?? null;
-  }
-
-  async writeIdempotency<TPayload>(
-    sessionId: string,
-    key: string,
-    record: IdempotencyRecord<TPayload>,
-    _ttlSeconds: number
-  ): Promise<void> {
-    this.idempotency.set(idempotencyKey(sessionId, key), record as IdempotencyRecord<unknown>);
   }
 
   async readSharedCorpus(communityId: ShadowDemoCommunityId): Promise<ShadowDemoCorpus | null> {
@@ -383,7 +603,9 @@ export class MemoryDemoStore implements DemoStore {
 
 export function createRedisDemoStore(): DemoStore {
   const redis = new Redis(redisUrlFromEnv(), {
-    maxRetriesPerRequest: 3,
+    lazyConnect: true,
+    enableOfflineQueue: false,
+    maxRetriesPerRequest: 1,
     commandTimeout: redisCommandTimeoutFromEnv(),
     retryStrategy(times: number) {
       return Math.min(times * 50, 2000);
@@ -414,11 +636,36 @@ function parseStoredRecord<TRecord>(schema: ZodTypeAny, raw: string, key: string
 }
 
 function redisUrlFromEnv(): string {
-  const redisUrl = process.env.REDIS_URL;
+  const redisUrl = process.env.DEMO_REDIS_URL ?? 'redis://127.0.0.1:6381';
   if (!redisUrl || !redisUrl.startsWith('redis://')) {
-    throw new Error('Shadow demo Redis store requires REDIS_URL with redis:// scheme');
+    throw new Error('Shadow demo Redis store requires DEMO_REDIS_URL with redis:// scheme');
   }
   return redisUrl;
+}
+
+function serializeSession(session: ShadowDemoSessionState): { header: string; corpus: string } {
+  const full = JSON.stringify(session);
+  assertSerializedSize('session state', full, DEMO_MAX_SESSION_BYTES);
+  const { corpus, ...header } = session;
+  return { header: JSON.stringify(header), corpus: JSON.stringify(corpus) };
+}
+
+function serializeIdempotency<TPayload>(record: IdempotencyRecord<TPayload> | null): string | null {
+  if (!record) {
+    return null;
+  }
+  const serialized = JSON.stringify(record);
+  assertSerializedSize('idempotency record', serialized, DEMO_MAX_IDEMPOTENCY_BYTES);
+  return serialized;
+}
+
+function assertSerializedSize(label: string, serialized: string, maximumBytes: number): void {
+  const bytes = Buffer.byteLength(serialized, 'utf8');
+  if (bytes > maximumBytes) {
+    throw new DemoStoreCapacityError(
+      `Shadow demo ${label} exceeds ${maximumBytes} bytes; received ${bytes} bytes`
+    );
+  }
 }
 
 function redisCommandTimeoutFromEnv(): number {
@@ -453,6 +700,10 @@ export function demoSharedCorpusKeyPrefix(): string {
   return 'demo:corpus:current:';
 }
 
+export function demoStagingKeyPrefix(): string {
+  return 'demo:staging:';
+}
+
 function sessionKey(sessionId: string): string {
   return `${demoSessionKeyPrefix()}${sessionId}`;
 }
@@ -467,6 +718,18 @@ function sharedCorpusKey(communityId: ShadowDemoCommunityId): string {
 
 function idempotencyKey(sessionId: string, key: string): string {
   return `${demoIdempotencyKeyPrefix()}${sessionId}:${key}`;
+}
+
+function idempotencyPlaceholderKey(sessionId: string): string {
+  return `${demoIdempotencyKeyPrefix()}${sessionId}:none`;
+}
+
+function activeSessionsKey(): string {
+  return 'demo:sessions:active';
+}
+
+function stagingKey(token: string, kind: 'session' | 'corpus' | 'idempotency'): string {
+  return `${demoStagingKeyPrefix()}${token}:${kind}`;
 }
 
 function lockKey(sessionId: string): string {

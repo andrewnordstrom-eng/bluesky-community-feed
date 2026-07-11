@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   aggregateShadowVotes,
+  explainTopicRelevance,
   scoreFromRawWeights,
   validateShadowWeights,
 } from '../src/demo/weights.js';
+import { scoreTopicVectorRelevance } from '../src/scoring/components/relevance.js';
 import {
   SHADOW_DEMO_SYNTHETIC_VOTER_COUNT,
   SHADOW_DEMO_TOTAL_DEMO_VOTERS,
@@ -267,5 +269,87 @@ describe('shadow demo weight math', () => {
 
     expect(scored.score).toBeCloseTo(0.735, 6);
     expect(contributionSum).toBeCloseTo(scored.score, 6);
+  });
+
+  it('reconstructs the production topic relevance formula exactly', () => {
+    const topicVector = {
+      'science-research': 0.42,
+      'open-source': 0.18,
+      politics: 0.1,
+    };
+    const formula = explainTopicRelevance(0.31, topicVector, TOPIC_INTENT);
+    const productionValue = scoreTopicVectorRelevance(topicVector, TOPIC_INTENT.topicWeights);
+
+    expect(formula.formulaApplied).toBe(true);
+    expect(formula.weightedSum).toBeCloseTo(0.542, 6);
+    expect(formula.signalSum).toBeCloseTo(0.7, 6);
+    expect(formula.confidenceMultiplier).toBe(1);
+    expect(formula.effectiveRelevance).toBeCloseTo(0.774286, 6);
+    expect(formula.effectiveRelevance).toBeCloseTo(productionValue, 6);
+    expect(formula.terms.find((term) => term.topic === 'politics')).toMatchObject({
+      communityWeight: 0.2,
+      usedDefaultWeight: true,
+    });
+  });
+
+  it('explains stored, zero-signal, confidence-damped, and explicit-zero relevance cases', () => {
+    expect(explainTopicRelevance(0.31, {}, TOPIC_INTENT)).toMatchObject({
+      formulaApplied: false,
+      weightedSum: null,
+      signalSum: null,
+      effectiveRelevance: 0.31,
+    });
+    expect(explainTopicRelevance(0.31, { 'science-research': 0 }, TOPIC_INTENT)).toMatchObject({
+      formulaApplied: true,
+      weightedSum: 0,
+      signalSum: 0,
+      effectiveRelevance: 0.2,
+    });
+    expect(explainTopicRelevance(
+      0.31,
+      { 'science-research': 0.25 },
+      { topicWeights: { 'science-research': 0.8 } }
+    )).toMatchObject({
+      baseRelevance: 0.8,
+      confidenceMultiplier: 0.5,
+      effectiveRelevance: 0.4,
+    });
+    expect(explainTopicRelevance(
+      0.31,
+      { 'science-research': 0.5 },
+      { topicWeights: { 'science-research': 0 } }
+    )).toMatchObject({
+      baseRelevance: 0,
+      confidenceMultiplier: 1,
+      effectiveRelevance: 0,
+      usedDefaultWeight: false,
+    });
+  });
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+    'keeps production and receipt relevance finite for non-finite topic signal %s',
+    (invalidSignal) => {
+      const topicVector = { 'science-research': invalidSignal };
+      const production = scoreTopicVectorRelevance(topicVector, TOPIC_INTENT.topicWeights);
+      const explanation = explainTopicRelevance(0.31, topicVector, TOPIC_INTENT);
+
+      expect(production).toBe(0.2);
+      expect(explanation).toMatchObject({
+        weightedSum: 0,
+        signalSum: 0,
+        effectiveRelevance: production,
+      });
+    }
+  );
+
+  it('treats a non-finite community topic weight as the neutral default in both paths', () => {
+    const topicVector = { 'science-research': 0.5 };
+    const topicIntent = { topicWeights: { 'science-research': Number.NaN } };
+    const production = scoreTopicVectorRelevance(topicVector, topicIntent.topicWeights);
+    const explanation = explainTopicRelevance(0.31, topicVector, topicIntent);
+
+    expect(production).toBe(0.2);
+    expect(explanation.effectiveRelevance).toBe(production);
+    expect(explanation.usedDefaultWeight).toBe(true);
   });
 });

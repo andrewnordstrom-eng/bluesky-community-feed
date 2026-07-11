@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 import swagger from '@fastify/swagger';
 import { ShadowDemoService } from '../src/demo/service.js';
 import { MemoryDemoStore } from '../src/demo/store.js';
+import { DemoStoreUnavailableError } from '../src/demo/store.js';
 import { registerShadowDemoRoutes } from '../src/demo/routes.js';
+import { DemoRateLimitError, type DemoRateLimitGuard } from '../src/demo/rate-limit.js';
 import type {
   ShadowDemoCorpus,
   ShadowDemoEnvelope,
@@ -31,7 +33,7 @@ describe('shadow demo routes', () => {
       loadCorpus: async () => demoCorpus(),
       now: () => NOW,
     });
-    registerShadowDemoRoutes(app, service);
+    registerShadowDemoRoutes(app, service, null);
     await app.ready();
 
     const specification = app.swagger() as {
@@ -50,7 +52,7 @@ describe('shadow demo routes', () => {
       loadCorpus: async () => demoCorpus(),
       now: () => NOW,
     });
-    registerShadowDemoRoutes(app, service);
+    registerShadowDemoRoutes(app, service, null);
 
     const createResponse = await app.inject({
       method: 'POST',
@@ -189,11 +191,19 @@ describe('shadow demo routes', () => {
     expect(receipt.counterfactuals.map((entry: { label: string }) => entry.label)).toEqual([
       'previous_epoch',
       'engagement_only',
-      'without_reviewer_vote',
+      'direct_reviewer_ballot_removed',
     ]);
-    for (const topic of receipt.topicSignals as Array<{ topic: string }>) {
-      expect(Object.hasOwn(receipt.aggregate.topicIntent.topicWeights, topic.topic)).toBe(true);
-    }
+    expect(receipt.aggregate).toMatchObject({ voteCount: 25, trimCount: 2 });
+    expect(receipt.reviewerBallotShare).toBe(1 / 25);
+    expect(receipt.topicRelevanceFormula.effectiveRelevance).toBeCloseTo(
+      receipt.components.find((component: { signal: string }) => component.signal === 'relevance').rawScore,
+      6
+    );
+    expect(receipt.provenance).toMatchObject({
+      corpusId: createBody.payload.session.corpusProvenance.corpusId,
+      productionEpochId: 2,
+      shadowEpochId: nextEpochId,
+    });
 
     const staleVoteResponse = await app.inject({
       method: 'POST',
@@ -254,7 +264,7 @@ describe('shadow demo routes', () => {
       }),
       now: () => NOW,
     });
-    registerShadowDemoRoutes(app, service);
+    registerShadowDemoRoutes(app, service, null);
 
     const createResponse = await app.inject({
       method: 'POST',
@@ -286,7 +296,7 @@ describe('shadow demo routes', () => {
       loadCorpus: async () => demoCorpus(),
       now: () => NOW,
     });
-    registerShadowDemoRoutes(app, service);
+    registerShadowDemoRoutes(app, service, null);
 
     const createResponse = await app.inject({
       method: 'POST',
@@ -361,7 +371,7 @@ describe('shadow demo routes', () => {
       },
       now: () => NOW,
     });
-    registerShadowDemoRoutes(app, service);
+    registerShadowDemoRoutes(app, service, null);
 
     const firstResponse = await app.inject({
       method: 'POST',
@@ -382,88 +392,22 @@ describe('shadow demo routes', () => {
     await app.close();
   });
 
-  it('refreshes the live corpus only by creating a new frozen session boundary', async () => {
+  it('rejects public corpus refresh controls', async () => {
     const app = buildTestApp();
-    let loadCount = 0;
     const service = new ShadowDemoService({
       store: new MemoryDemoStore(),
-      loadCorpus: async () => {
-        loadCount += 1;
-        if (loadCount === 1) {
-          return demoCorpus();
-        }
-        return {
-          ...demoCorpus(),
-          items: [
-            item({
-              index: 1,
-              text: 'Refreshed candidate now leads the live-scored snapshot.',
-              rawScores: {
-                recency: 0.9,
-                engagement: 1,
-                bridging: 0.8,
-                source_diversity: 0.8,
-                relevance: 0.9,
-              },
-            }),
-            ...demoCorpus().items.slice(1),
-          ],
-        };
-      },
-      now: () => NOW,
-    });
-    registerShadowDemoRoutes(app, service);
-
-    const firstResponse = await app.inject({
-      method: 'POST',
-      url: '/api/demo/sessions',
-      payload: { communityId: 'open_science_builders' },
-    });
-    const firstSessionId = firstResponse.json().payload.session.sessionId;
-
-    const refreshedResponse = await app.inject({
-      method: 'POST',
-      url: '/api/demo/sessions',
-      payload: { communityId: 'open_science_builders', refreshCorpus: true },
-    });
-    const refreshedSessionId = refreshedResponse.json().payload.session.sessionId;
-
-    const firstFeedResponse = await app.inject({
-      method: 'GET',
-      url: `/api/demo/sessions/${firstSessionId}/feed?limit=1`,
-    });
-    const refreshedFeedResponse = await app.inject({
-      method: 'GET',
-      url: `/api/demo/sessions/${refreshedSessionId}/feed?limit=1`,
-    });
-
-    expect(loadCount).toBe(2);
-    expect(firstFeedResponse.json().payload.posts[0].post.uri).toBe('at://did:plc:demo2/app.bsky.feed.post/two');
-    expect(refreshedFeedResponse.json().payload.posts[0].post.uri).toBe('at://did:plc:demo1/app.bsky.feed.post/one');
-
-    await app.close();
-  });
-
-  it('rejects a refresh immediately when another corpus refresh owns the build lock', async () => {
-    const app = buildTestApp();
-    const store = new MemoryDemoStore();
-    await store.acquireCorpusBuildLock('open_science_builders', 'held-refresh', 15_000);
-    const service = new ShadowDemoService({
-      store,
       loadCorpus: async () => demoCorpus(),
       now: () => NOW,
     });
-    registerShadowDemoRoutes(app, service);
+    registerShadowDemoRoutes(app, service, null);
 
     const response = await app.inject({
       method: 'POST',
       url: '/api/demo/sessions',
       payload: { communityId: 'open_science_builders', refreshCorpus: true },
     });
-
-    expect(response.statusCode).toBe(409);
-    expect(response.json().message).toContain('refresh is already running');
-    await store.releaseCorpusBuildLock('open_science_builders', 'held-refresh');
+    expect(response.statusCode).toBe(400);
+    expect(response.json().message).toContain('Unrecognized key');
     await app.close();
   });
 
@@ -480,7 +424,6 @@ describe('shadow demo routes', () => {
     try {
       const sessionPromise = service.createSession({
         communityId: 'open_science_builders',
-        refreshCorpus: false,
       });
       setTimeout(() => {
         void store.writeSharedCorpus('open_science_builders', demoCorpus(), 300);
@@ -514,7 +457,6 @@ describe('shadow demo routes', () => {
     try {
       const sessionPromise = service.createSession({
         communityId: 'open_science_builders',
-        refreshCorpus: false,
       });
       const conflict = expect(sessionPromise).rejects.toThrow(/corpus is warming/);
 
@@ -545,12 +487,10 @@ describe('shadow demo routes', () => {
     try {
       const firstSession = service.createSession({
         communityId: 'open_science_builders',
-        refreshCorpus: false,
       });
       await vi.advanceTimersByTimeAsync(16_000);
       const secondSession = service.createSession({
         communityId: 'open_science_builders',
-        refreshCorpus: false,
       });
       const secondConflict = expect(secondSession).rejects.toThrow(/corpus is warming/);
 
@@ -572,7 +512,7 @@ describe('shadow demo routes', () => {
       loadCorpus: async () => demoCorpus(),
       now: () => NOW,
     });
-    registerShadowDemoRoutes(app, service);
+    registerShadowDemoRoutes(app, service, null);
     const createResponse = await app.inject({
       method: 'POST',
       url: '/api/demo/sessions',
@@ -600,6 +540,242 @@ describe('shadow demo routes', () => {
 
     expect(response.statusCode).toBe(400);
     expect(response.json().message).toContain('idempotency-key header is malformed');
+    await app.close();
+  });
+
+  it('returns a recoverable conflict when another mutation owns the session lock', async () => {
+    const app = buildTestApp();
+    const store = new MemoryDemoStore();
+    const service = new ShadowDemoService({
+      store,
+      loadCorpus: async () => demoCorpus(),
+      now: () => NOW,
+    });
+    registerShadowDemoRoutes(app, service, null);
+    const createResponse = await app.inject({
+      method: 'POST',
+      url: '/api/demo/sessions',
+      payload: { communityId: 'open_science_builders' },
+    });
+    const sessionId = createResponse.json().payload.session.sessionId;
+    const epochId = createResponse.json().payload.session.currentEpochId;
+    vi.spyOn(store, 'acquireSessionLock').mockResolvedValueOnce(false);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/demo/sessions/${sessionId}/votes`,
+      payload: {
+        baseEpochId: epochId,
+        weights: {
+          recency: 0.2,
+          engagement: 0.2,
+          bridging: 0.2,
+          source_diversity: 0.2,
+          relevance: 0.2,
+        },
+        topicIntent: { topicWeights: {} },
+      },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json().message).toContain(`session is busy: ${sessionId}`);
+    await app.close();
+  });
+
+  it('rejects non-Open-Science topic keys and oversized mutation bodies', async () => {
+    const app = buildTestApp();
+    const service = new ShadowDemoService({
+      store: new MemoryDemoStore(),
+      loadCorpus: async () => demoCorpus(),
+      now: () => NOW,
+    });
+    registerShadowDemoRoutes(app, service, null);
+    const createResponse = await app.inject({
+      method: 'POST',
+      url: '/api/demo/sessions',
+      payload: { communityId: 'open_science_builders' },
+    });
+    const sessionId = createResponse.json().payload.session.sessionId;
+    const epochId = createResponse.json().payload.session.currentEpochId;
+
+    const invalidTopic = await app.inject({
+      method: 'POST',
+      url: `/api/demo/sessions/${sessionId}/votes`,
+      payload: {
+        baseEpochId: epochId,
+        weights: {
+          recency: 0.2,
+          engagement: 0.2,
+          bridging: 0.2,
+          source_diversity: 0.2,
+          relevance: 0.2,
+        },
+        topicIntent: { topicWeights: { politics: 1 } },
+      },
+    });
+    expect(invalidTopic.statusCode).toBe(400);
+
+    const oversized = await app.inject({
+      method: 'POST',
+      url: '/api/demo/sessions',
+      payload: { communityId: 'open_science_builders', padding: 'x'.repeat(17 * 1024) },
+    });
+    expect(oversized.statusCode).toBe(413);
+    await app.close();
+  });
+
+  it('caps anonymous active sessions at fifty', async () => {
+    const app = buildTestApp();
+    const service = new ShadowDemoService({
+      store: new MemoryDemoStore(),
+      loadCorpus: async () => demoCorpus(),
+      now: () => NOW,
+    });
+    registerShadowDemoRoutes(app, service, null);
+
+    for (let index = 0; index < 50; index += 1) {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/demo/sessions',
+        payload: { communityId: 'open_science_builders' },
+      });
+      expect(response.statusCode).toBe(200);
+    }
+    const capped = await app.inject({
+      method: 'POST',
+      url: '/api/demo/sessions',
+      payload: { communityId: 'open_science_builders' },
+    });
+    expect(capped.statusCode).toBe(503);
+    expect(capped.json().message).toContain('50-session capacity');
+    await app.close();
+  });
+
+  it('fails only the demo route when isolated storage is unavailable', async () => {
+    const app = buildTestApp();
+    const store = new MemoryDemoStore();
+    vi.spyOn(store, 'readSharedCorpus').mockRejectedValue(
+      new DemoStoreUnavailableError('read shared corpus', 'connection refused')
+    );
+    registerShadowDemoRoutes(app, new ShadowDemoService({
+      store,
+      loadCorpus: async () => demoCorpus(),
+      now: () => NOW,
+    }), null);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/demo/sessions',
+      payload: { communityId: 'open_science_builders' },
+    });
+    expect(response.statusCode).toBe(503);
+    expect(response.json().message).toContain('production Corgi feed is unaffected');
+    await app.close();
+  });
+
+  it('enforces the isolated demo limiter and returns Retry-After without invoking the service', async () => {
+    const app = buildTestApp();
+    const service = new ShadowDemoService({
+      store: new MemoryDemoStore(),
+      loadCorpus: vi.fn(async () => demoCorpus()),
+      now: () => NOW,
+    });
+    const createSession = vi.spyOn(service, 'createSession');
+    const close = vi.fn(async () => undefined);
+    const guard: DemoRateLimitGuard = {
+      check: vi.fn(async () => {
+        throw new DemoRateLimitError(7);
+      }),
+      close,
+    };
+    registerShadowDemoRoutes(app, service, guard);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/demo/sessions',
+      payload: { communityId: 'open_science_builders' },
+    });
+
+    expect(response.statusCode).toBe(429);
+    expect(response.headers['retry-after']).toBe('7');
+    expect(response.json()).toMatchObject({
+      error: 'DemoRateLimitError',
+      retryAfterSeconds: 7,
+    });
+    expect(guard.check).toHaveBeenCalledWith('session_create', '127.0.0.1');
+    expect(createSession).not.toHaveBeenCalled();
+    await app.close();
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it('fails closed with 503 when noeviction rejects an isolated rate-limit write', async () => {
+    const app = buildTestApp();
+    const service = new ShadowDemoService({
+      store: new MemoryDemoStore(),
+      loadCorpus: vi.fn(async () => demoCorpus()),
+      now: () => NOW,
+    });
+    const createSession = vi.spyOn(service, 'createSession');
+    const guard: DemoRateLimitGuard = {
+      check: vi.fn(async () => {
+        throw new DemoStoreUnavailableError('apply demo rate limit', 'OOM command not allowed');
+      }),
+      close: vi.fn(async () => undefined),
+    };
+    registerShadowDemoRoutes(app, service, guard);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/demo/sessions',
+      payload: { communityId: 'open_science_builders' },
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.json().message).toContain('production Corgi feed is unaffected');
+    expect(createSession).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it('does not publish computed mutation state after lock ownership is lost', async () => {
+    const app = buildTestApp();
+    const store = new MemoryDemoStore();
+    registerShadowDemoRoutes(app, new ShadowDemoService({
+      store,
+      loadCorpus: async () => demoCorpus(),
+      now: () => NOW,
+    }), null);
+    const createResponse = await app.inject({
+      method: 'POST',
+      url: '/api/demo/sessions',
+      payload: { communityId: 'open_science_builders' },
+    });
+    const sessionId = createResponse.json().payload.session.sessionId;
+    const epochId = createResponse.json().payload.session.currentEpochId;
+    vi.spyOn(store, 'commitSessionMutation').mockResolvedValueOnce(false);
+
+    const voteResponse = await app.inject({
+      method: 'POST',
+      url: `/api/demo/sessions/${sessionId}/votes`,
+      payload: {
+        baseEpochId: epochId,
+        weights: {
+          recency: 0.2,
+          engagement: 0.2,
+          bridging: 0.2,
+          source_diversity: 0.2,
+          relevance: 0.2,
+        },
+        topicIntent: { topicWeights: { 'science-research': 0.8 } },
+      },
+    });
+    expect(voteResponse.statusCode).toBe(409);
+
+    const recovered = await app.inject({
+      method: 'GET',
+      url: `/api/demo/sessions/${sessionId}`,
+    });
+    expect(recovered.statusCode).toBe(200);
+    expect(recovered.json().payload.session).toMatchObject({ phase: 'created', voteCount: 0 });
     await app.close();
   });
 });
@@ -736,6 +912,10 @@ function item(options: {
     productionEpochId: 2,
     scoredAt: NOW.toISOString(),
     componentDetails: null,
+    inclusionReasons: {
+      matchedTopics: [{ topic: 'science-research', score: options.rawScores.relevance }],
+      matchedTerms: ['research'],
+    },
     displayPost: {
       kind: 'public_post',
       uri,

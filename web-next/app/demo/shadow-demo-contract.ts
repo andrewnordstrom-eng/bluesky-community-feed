@@ -1,4 +1,4 @@
-export const SHADOW_DEMO_CONTRACT_VERSION = '2026-07-10.shadow-demo.v2' as const;
+export const SHADOW_DEMO_CONTRACT_VERSION = '2026-07-10.shadow-demo.v3' as const;
 
 export const SHADOW_DEMO_SIGNAL_KEYS = [
   'recency',
@@ -15,6 +15,15 @@ export type ShadowDemoWeights = Record<ShadowDemoSignalKey, number>;
 export interface ShadowDemoTopicIntent {
   topicWeights: Record<string, number>;
 }
+
+export const SHADOW_DEMO_TOPIC_KEYS = [
+  'science-research',
+  'data-science',
+  'software-development',
+  'open-source',
+] as const;
+
+export type ShadowDemoTopicKey = (typeof SHADOW_DEMO_TOPIC_KEYS)[number];
 
 export type ShadowDemoRawScores = Record<ShadowDemoSignalKey, number>;
 
@@ -63,6 +72,8 @@ export const SHADOW_DEMO_CORPUS_PROVENANCE = {
   label: 'Live-scored snapshot',
   description:
     'Live-scored snapshot, frozen for this demo run so rank movement is attributable to policy changes.',
+  windowHours: 72,
+  topicScoreThreshold: 0.5,
 } as const;
 
 export const SHADOW_DEMO_ISOLATION_CONTRACT = {
@@ -71,7 +82,16 @@ export const SHADOW_DEMO_ISOLATION_CONTRACT = {
   productionAuditLogMutates: false,
   researchExportsMutate: false,
   stateBackend: 'redis_only_demo_namespace',
-  redisPrefixes: ['demo:session:', 'demo:corpus:', 'demo:corpus:current:', 'demo:idempotency:', 'demo:lock:'],
+  redisPrefixes: [
+    'demo:session:',
+    'demo:sessions:',
+    'demo:corpus:',
+    'demo:corpus:current:',
+    'demo:idempotency:',
+    'demo:lock:',
+    'demo:staging:',
+    'demo:rate-limit:',
+  ],
   liveShadowCommunities: ['open_science_builders'],
 } as const;
 
@@ -107,6 +127,23 @@ export interface ShadowDemoCorpusHealth {
   bridgePostShare: number;
   topAuthorConcentration: number;
   sampledAt: string;
+}
+
+export interface ShadowDemoCorpusProvenance {
+  mode: typeof SHADOW_DEMO_CORPUS_PROVENANCE.mode;
+  label: typeof SHADOW_DEMO_CORPUS_PROVENANCE.label;
+  description: typeof SHADOW_DEMO_CORPUS_PROVENANCE.description;
+  corpusId: string;
+  productionEpochId: number;
+  sampledAt: string;
+  windowHours: typeof SHADOW_DEMO_CORPUS_PROVENANCE.windowHours;
+  topicScoreThreshold: typeof SHADOW_DEMO_CORPUS_PROVENANCE.topicScoreThreshold;
+  eligiblePostCount: number;
+}
+
+export interface ShadowDemoCorpusInclusionReason {
+  matchedTopics: Array<{ topic: ShadowDemoTopicKey; score: number }>;
+  matchedTerms: string[];
 }
 
 export interface ShadowDemoVoteSummary {
@@ -166,7 +203,7 @@ export interface ShadowDemoSessionPayload {
     maxEpochs: typeof SHADOW_DEMO_MAX_EPOCHS_PER_SESSION;
     syntheticVoterCount: typeof SHADOW_DEMO_SYNTHETIC_VOTER_COUNT;
     totalDemoVoters: typeof SHADOW_DEMO_TOTAL_DEMO_VOTERS;
-    corpusProvenance: typeof SHADOW_DEMO_CORPUS_PROVENANCE;
+    corpusProvenance: ShadowDemoCorpusProvenance;
     voterProfiles: Array<{
       id: ShadowDemoVoterBlocId;
       label: string;
@@ -220,6 +257,7 @@ export interface ShadowDemoFeedPayload {
   corpusId: string;
   communityId: ShadowDemoCommunityId;
   corpusHealth: ShadowDemoCorpusHealth;
+  corpusProvenance: ShadowDemoCorpusProvenance;
   aggregate: ShadowDemoVoteSummary;
   posts: ShadowDemoRankedPost[];
 }
@@ -234,18 +272,38 @@ export interface ShadowDemoReceiptPayload {
     score: number;
     scoredAt: string;
     aggregate: ShadowDemoVoteSummary;
+    reviewerBallotShare: number;
     components: Array<{
       signal: ShadowDemoSignalKey;
       rawScore: number;
       weight: number;
       contribution: number;
     }>;
-    topicSignals: Array<{
-      topic: string;
-      postScore: number;
-    }>;
+    topicRelevanceFormula: {
+      formulaApplied: boolean;
+      defaultTopicWeight: number;
+      confidenceThreshold: number;
+      weightedSum: number | null;
+      signalSum: number | null;
+      baseRelevance: number;
+      confidenceMultiplier: number;
+      effectiveRelevance: number;
+      usedDefaultWeight: boolean;
+      terms: Array<{
+        topic: string;
+        postScore: number;
+        communityWeight: number;
+        weightedTerm: number;
+        usedDefaultWeight: boolean;
+      }>;
+    };
+    provenance: ShadowDemoCorpusProvenance & {
+      shadowEpochId: string;
+      postInclusionReasons: ShadowDemoCorpusInclusionReason;
+    };
     counterfactuals: Array<{
-      label: 'previous_epoch' | 'engagement_only' | 'without_reviewer_vote';
+      label: 'previous_epoch' | 'engagement_only' | 'direct_reviewer_ballot_removed';
+      description: string;
       rank: number;
       deltaFromVisible: number;
     }>;

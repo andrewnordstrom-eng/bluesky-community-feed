@@ -237,6 +237,10 @@ function corpusItem(postUri: string) {
     productionEpochId: 2,
     scoredAt: '2026-07-09T12:00:00.000Z',
     componentDetails: null,
+    inclusionReasons: {
+      matchedTopics: [{ topic: 'science-research', score: 0.9 }],
+      matchedTerms: ['research'],
+    },
     displayPost: { kind: 'hidden_post' as const, reason: 'Not hydrated' },
   };
 }

@@ -51,29 +51,6 @@ export function buildRouteRateLimitConfig(
     };
   }
 
-  if (url === '/api/demo/sessions' && !isReadOnly) {
-    return {
-      max: config.RATE_LIMIT_LOGIN_MAX,
-      timeWindow: config.RATE_LIMIT_LOGIN_WINDOW_MS,
-      keyGenerator: governanceMutationKeyGenerator,
-    };
-  }
-
-  if (url.startsWith('/api/demo/') && !isReadOnly) {
-    return {
-      max: config.RATE_LIMIT_VOTE_MAX,
-      timeWindow: config.RATE_LIMIT_VOTE_WINDOW_MS,
-      keyGenerator: governanceMutationKeyGenerator,
-    };
-  }
-
-  if (url.startsWith('/api/demo/') && isReadOnly) {
-    return {
-      max: config.RATE_LIMIT_INTERACTIONS_MAX,
-      timeWindow: config.RATE_LIMIT_INTERACTIONS_WINDOW_MS,
-    };
-  }
-
   if (url.startsWith('/api/governance/') && !isReadOnly) {
     const isCriticalGovernanceMutation =
       url === '/api/governance/epochs/transition' ||

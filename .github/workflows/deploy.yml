@@ -72,6 +72,18 @@ jobs:
             cd ..
             cd cli && npm ci && npx tsc
             cd ..
+            docker compose -f docker-compose.prod.yml up -d --no-deps demo-redis
+            for i in 1 2 3 4 5; do
+              if docker compose -f docker-compose.prod.yml exec -T demo-redis redis-cli ping | grep -q PONG; then
+                echo "Isolated demo Redis is ready (attempt $i/5)"
+                break
+              fi
+              if [ "$i" = "5" ]; then
+                echo "Isolated demo Redis failed to become ready"
+                exit 1
+              fi
+              sleep 2
+            done
             sudo systemctl restart bluesky-feed
 
             # Post-deploy health verification (3 retries, 10s apart)
@@ -87,6 +99,64 @@ jobs:
               echo "Health check failed (attempt $i/3)"
               sleep 10
             done
+
+            # Prove the running service stores anonymous demo state in the
+            # isolated Redis, not merely that the container itself responds.
+            if [ "$HEALTHY" = "true" ]; then
+              PROBE_OCTET=$(( ($(date +%s) % 250) + 1 ))
+              if ! DEMO_RESPONSE=$(curl -fsS --max-time 30 \
+                -H 'content-type: application/json' \
+                -H "x-forwarded-for: 198.51.100.${PROBE_OCTET}" \
+                -d '{"communityId":"open_science_builders"}' \
+                http://localhost:3001/api/demo/sessions); then
+                echo "Demo isolation probe could not create a session"
+                HEALTHY=false
+              elif ! DEMO_SESSION_ID=$(printf '%s' "$DEMO_RESPONSE" | node -e \
+                "let body=''; process.stdin.on('data', chunk => body += chunk); process.stdin.on('end', () => { const parsed = JSON.parse(body); const id = parsed?.payload?.session?.sessionId; if (typeof id !== 'string' || !id.startsWith('demo-')) process.exit(1); process.stdout.write(id); });"); then
+                echo "Demo isolation probe returned an invalid response envelope"
+                HEALTHY=false
+              else
+                DEMO_KEY="demo:session:${DEMO_SESSION_ID}"
+                DEMO_KEY_EXISTS="probe-failed"
+                PRODUCTION_KEY_EXISTS="probe-failed"
+                DEMO_POLICY="probe-failed"
+                DEMO_MAXMEMORY="probe-failed"
+                DEMO_APPENDONLY="probe-failed"
+                DEMO_SAVE="probe-failed"
+                if ! DEMO_KEY_EXISTS=$(docker compose -f docker-compose.prod.yml exec -T demo-redis redis-cli --raw EXISTS "$DEMO_KEY"); then
+                  echo "Demo Redis session-key probe failed"
+                  HEALTHY=false
+                fi
+                if ! PRODUCTION_KEY_EXISTS=$(docker compose -f docker-compose.prod.yml exec -T redis redis-cli --raw EXISTS "$DEMO_KEY"); then
+                  echo "Production Redis isolation probe failed"
+                  HEALTHY=false
+                fi
+                if ! DEMO_POLICY=$(docker compose -f docker-compose.prod.yml exec -T demo-redis redis-cli --raw CONFIG GET maxmemory-policy | tail -n 1); then
+                  echo "Demo Redis maxmemory-policy probe failed"
+                  HEALTHY=false
+                fi
+                if ! DEMO_MAXMEMORY=$(docker compose -f docker-compose.prod.yml exec -T demo-redis redis-cli --raw CONFIG GET maxmemory | tail -n 1); then
+                  echo "Demo Redis maxmemory probe failed"
+                  HEALTHY=false
+                fi
+                if ! DEMO_APPENDONLY=$(docker compose -f docker-compose.prod.yml exec -T demo-redis redis-cli --raw CONFIG GET appendonly | tail -n 1); then
+                  echo "Demo Redis appendonly probe failed"
+                  HEALTHY=false
+                fi
+                if ! DEMO_SAVE=$(docker compose -f docker-compose.prod.yml exec -T demo-redis redis-cli --raw CONFIG GET save | tail -n 1); then
+                  echo "Demo Redis save-policy probe failed"
+                  HEALTHY=false
+                fi
+                if [ "$HEALTHY" != "true" ] || [ "$DEMO_KEY_EXISTS" != "1" ] || [ "$PRODUCTION_KEY_EXISTS" != "0" ] || \
+                   [ "$DEMO_POLICY" != "noeviction" ] || [ "$DEMO_MAXMEMORY" != "67108864" ] || \
+                   [ "$DEMO_APPENDONLY" != "no" ] || [ -n "$DEMO_SAVE" ]; then
+                  echo "Demo Redis isolation or bounded-memory policy verification failed"
+                  HEALTHY=false
+                else
+                  echo "Demo API isolation verified: session state is absent from production Redis"
+                fi
+              fi
+            fi
 
             if [ "$HEALTHY" = "false" ]; then
               echo "DEPLOY FAILED: service unhealthy after restart"

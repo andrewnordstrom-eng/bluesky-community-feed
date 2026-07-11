@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'fs';
+
+vi.mock('../src/db/redis.js', () => ({
+  redis: {},
+}));
 
 import { parseTrustProxyConfig } from '../src/feed/server.js';
 

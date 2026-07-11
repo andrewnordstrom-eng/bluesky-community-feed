@@ -26,7 +26,7 @@ import {
 
 describe('web-next shadow demo contract', () => {
   it('publishes the backend contract version, endpoints, and signal keys for the UI', () => {
-    expect(SHADOW_DEMO_CONTRACT_VERSION).toBe('2026-07-10.shadow-demo.v2');
+    expect(SHADOW_DEMO_CONTRACT_VERSION).toBe('2026-07-10.shadow-demo.v3');
     expect(SHADOW_DEMO_SIGNAL_KEYS).toEqual([
       'recency',
       'engagement',
@@ -62,10 +62,13 @@ describe('web-next shadow demo contract', () => {
     });
     expect(SHADOW_DEMO_ISOLATION_CONTRACT.redisPrefixes).toEqual([
       'demo:session:',
+      'demo:sessions:',
       'demo:corpus:',
       'demo:corpus:current:',
       'demo:idempotency:',
       'demo:lock:',
+      'demo:staging:',
+      'demo:rate-limit:',
     ]);
   });
 
@@ -90,12 +93,16 @@ describe('web-next shadow demo contract', () => {
     const doc = readFileSync(new URL('../docs/lab/demo-shadow-governance-contract.md', import.meta.url), 'utf8');
 
     expect(doc).toContain('shadow-demo');
+    expect(doc).toContain(SHADOW_DEMO_CONTRACT_VERSION);
     expect(doc).toContain(SHADOW_DEMO_AGGREGATION_METHOD);
     expect(doc).toContain('reviewer plus 24 deterministic synthetic community voters');
     expect(doc).toContain('5 guided shadow epochs');
     expect(doc).toContain('10 shadow epochs');
     expect(doc).toContain('demo:session:*');
     expect(doc).toContain('demo:lock:*');
+    expect(doc).toContain('demo:sessions:*');
+    expect(doc).toContain('demo:staging:*');
+    expect(doc).toContain('demo:rate-limit:*');
     expect(doc).not.toContain('equal voter average');
   });
 });

@@ -61,7 +61,13 @@ export function scoreTopicVectorRelevance(
   let scoreSum = 0;
 
   for (const [topic, postScore] of Object.entries(topicVector)) {
-    const communityWeight = topicWeights[topic] ?? DEFAULT_RELEVANCE_SCORE; // Unvoted = neutral
+    if (!Number.isFinite(postScore)) {
+      continue;
+    }
+    const configuredWeight = topicWeights[topic];
+    const communityWeight = typeof configuredWeight === 'number' && Number.isFinite(configuredWeight)
+      ? configuredWeight
+      : DEFAULT_RELEVANCE_SCORE; // Unvoted or invalid = neutral
     weightedSum += postScore * communityWeight;
     scoreSum += postScore;
   }

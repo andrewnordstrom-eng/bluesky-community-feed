@@ -1540,3 +1540,31 @@ Stricter split scout, sampled 2026-07-10T00:35:48.833196+00:00:
 - Run the disabled materializer against production Redis only after an explicit operator window, then hydrate a sample through Bluesky AppView for human precision/safety review.
 - Decide whether `bird_and_bridge` should be a hard feed filter or a boosting feature; current evidence suggests hard filtering may be too narrow for a lively public feed.
 - True governed multi-community feeds still require per-community feed dispatch, Redis namespaces, epochs, weights, votes, receipts, and migration planning beyond this static-policy readiness substrate.
+
+## 2026-07-10 #04 - PROJ-1692 reviewer-safe shadow demo v3 hardening
+
+**Branch:** `dev/PROJ-1692-recsys-harden-shadow-demo-v3-before-reviewer-ui-ships`
+**Commits:** pending review closeout.
+**Contract:** `2026-07-10.shadow-demo.v3`.
+
+### What changed
+
+Hardened the anonymous reviewer demo before UI release. Applied epochs and receipts now preserve the authoritative 25-ballot, two-trim aggregate; `reviewerBallotShare` replaces causal-sounding influence language; the direct reviewer-ballot counterfactual holds all 24 scripted ballots fixed; and topic receipts return the exact normalized, confidence-damped relevance formula and per-term contribution data.
+
+The Open Science corpus now requires both a canonical topic score of at least 0.5 and a matching research/code/data text term. Each frozen session records corpus ID, production epoch, 72-hour sampling window, threshold, eligible count, timestamp, and per-post inclusion reasons. Fewer than ten public scored posts degrades to the labeled fixture corpus rather than overstating live supply.
+
+Demo storage and rate-limit counters now use a dedicated localhost-only Redis on port 6381 with 64 MB, `noeviction`, no persistence, and a 96 MB container limit. Production startup rejects a shared Redis endpoint, demo HMAC identifiers use an independent secret, session writes are staged before an ownership-checked atomic publish, state/idempotency sizes are bounded, and anonymous sessions are capped at 50. A demo Redis outage or OOM fails only `/api/demo/*` with a public-safe `503`.
+
+The deploy workflow now starts and health-checks demo Redis, creates a real post-restart demo session, proves its session key exists only in demo Redis, verifies memory/persistence policy through `CONFIG GET`, and routes any failed probe through the existing rollback path.
+
+### Verification
+
+- Focused hardening gate: 10 files / 111 tests passed.
+- Full production-config `npm run verify`: 120 files / 1,143 tests passed, followed by CLI, SDK, fixture, legacy web lint/build, and `web-next` static export.
+- `npm run docs:verify`, serial `web-next` TypeScript, deploy YAML parsing, deploy shell syntax, Docker Compose rendering, and `git diff --check` passed.
+- A local two-Redis no-eviction proof filled a 2 MB demo instance until Redis returned OOM after 13 writes of 64 KiB each. Demo `evicted_keys` remained 0, used memory was 2,045,280 bytes, policy remained `noeviction`, and a production sentinel in the separate Redis instance remained unchanged.
+- Multiple local CodeRabbit passes found and drove fixes for production Redis rate-limit leakage, cold lazy-client startup, Redis URL equivalence, staged-record cleanup, separated HMAC keys, exact relevance parity, and rollback-safe deployment probes. No known HIGH or MEDIUM finding remains in the implemented backend scope.
+
+### Claim boundary
+
+This is local implementation and verification evidence for the isolated shadow-demo contract. It is not yet production deployment evidence, a published Open Science Bluesky feed, empirical validation of the scripted voter archetypes, or a claim that the current reviewer UI is wired to v3.

@@ -42,45 +42,19 @@ describe('route rate-limit policy', () => {
     expect(policy).toBeNull();
   });
 
-  it('applies vote-like limits to shadow demo mutation endpoints', () => {
-    const policy = buildRouteRateLimitConfig(
-      '/api/demo/sessions/session-1/votes',
-      'POST',
-      noopKeyGenerator
-    );
-
-    expect(policy).toMatchObject({
-      max: config.RATE_LIMIT_VOTE_MAX,
-      timeWindow: config.RATE_LIMIT_VOTE_WINDOW_MS,
-      keyGenerator: noopKeyGenerator,
-    });
-  });
-
-  it('applies login-like limits to shadow demo session creation', () => {
-    const policy = buildRouteRateLimitConfig(
-      '/api/demo/sessions',
-      'POST',
-      noopKeyGenerator
-    );
-
-    expect(policy).toMatchObject({
-      max: config.RATE_LIMIT_LOGIN_MAX,
-      timeWindow: config.RATE_LIMIT_LOGIN_WINDOW_MS,
-      keyGenerator: noopKeyGenerator,
-    });
-  });
-
-  it('applies bounded read limits to shadow demo read endpoints', () => {
-    const policy = buildRouteRateLimitConfig(
-      '/api/demo/sessions/session-1/feed',
-      'GET',
-      noopKeyGenerator
-    );
-
-    expect(policy).toMatchObject({
-      max: config.RATE_LIMIT_INTERACTIONS_MAX,
-      timeWindow: config.RATE_LIMIT_INTERACTIONS_WINDOW_MS,
-    });
+  it('leaves shadow demo routes to the isolated demo Redis limiter', () => {
+    const demoRoutes: Array<[string, string]> = [
+      ['/api/demo/sessions', 'POST'],
+      ['/api/demo/sessions/session-1', 'GET'],
+      ['/api/demo/sessions/session-1/votes', 'POST'],
+      ['/api/demo/sessions/session-1/agents/run', 'POST'],
+      ['/api/demo/sessions/session-1/epochs/advance', 'POST'],
+      ['/api/demo/sessions/session-1/feed', 'GET'],
+      ['/api/demo/sessions/session-1/receipts', 'GET'],
+    ];
+    for (const [url, method] of demoRoutes) {
+      expect(buildRouteRateLimitConfig(url, method, noopKeyGenerator)).toBeNull();
+    }
   });
 
   it('applies critical limits to MCP transport endpoint', () => {

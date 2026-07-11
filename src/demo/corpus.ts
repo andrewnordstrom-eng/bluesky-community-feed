@@ -7,6 +7,8 @@ import { hydrateCorpusItemsWithAppView, type DemoFetchFunction } from './appview
 import { hiddenDisplayPost } from './public-view.js';
 import {
   SHADOW_DEMO_SESSION_TTL_SECONDS,
+  SHADOW_DEMO_CORPUS_PROVENANCE,
+  SHADOW_DEMO_TOPIC_KEYS,
   type ShadowDemoCommunity,
   type ShadowDemoCommunityId,
   type ShadowDemoCorpus,
@@ -15,6 +17,7 @@ import {
   type ShadowDemoRawScores,
   type ShadowDemoWarning,
   type ShadowDemoTopicIntent,
+  type ShadowDemoTopicKey,
   type ShadowDemoWeights,
 } from './types.js';
 import { equalShadowWeights, internalRawScoresToShadow, internalWeightsToShadow } from './weights.js';
@@ -58,13 +61,37 @@ export const DEMO_COMMUNITIES: Record<ShadowDemoCommunityId, ShadowDemoCommunity
 const CANDIDATE_LIMIT = 80;
 const SCORE_READ_BATCH_SIZE = 10;
 const APPVIEW_TIMEOUT_MS = 8000;
-const MIN_PUBLIC_SCORED_POSTS = 5;
-const OPEN_SCIENCE_TOPIC_SLUGS = [
-  'science-research',
-  'data-science',
-  'software-development',
-  'open-source',
+const MIN_PUBLIC_SCORED_POSTS = 10;
+const OPEN_SCIENCE_TOPIC_SLUGS = SHADOW_DEMO_TOPIC_KEYS;
+const OPEN_SCIENCE_TERM_RULES = [
+  { label: 'research', pattern: '\\mresearch\\M' },
+  { label: 'preprint', pattern: '\\mpreprints?\\M' },
+  { label: 'dataset', pattern: '\\mdatasets?\\M' },
+  { label: 'open source', pattern: '\\mopen[- ]source\\M' },
+  { label: 'replication', pattern: '\\mreplicat(e|ed|ion|ing)\\M' },
+  { label: 'reproducibility', pattern: '\\mreproduc(e|ed|ible|ibility|tion)\\M' },
+  { label: 'method', pattern: '\\mmethods?\\M' },
+  { label: 'study', pattern: '\\mstud(y|ies)\\M' },
+  { label: 'science', pattern: '\\msci(ence|entific)\\M' },
+  { label: 'paper', pattern: '\\mpapers?\\M' },
+  { label: 'software', pattern: '\\msoftware\\M' },
+  { label: 'code', pattern: '\\mcode\\M' },
+  { label: 'GitHub', pattern: '\\mgithub\\M' },
+  { label: 'repository', pattern: '\\mrepositor(y|ies)\\M' },
+  { label: 'notebook', pattern: '\\mnotebooks?\\M' },
+  { label: 'Python', pattern: '\\mpython\\M' },
+  { label: 'RStats', pattern: '\\mrstats\\M' },
+  { label: 'Julia', pattern: '\\mjulia\\M' },
+  { label: 'analysis', pattern: '\\manalys(is|es)\\M' },
+  { label: 'benchmark', pattern: '\\mbenchmarks?\\M' },
+  { label: 'model', pattern: '\\mmodels?\\M' },
+  { label: 'CSV', pattern: '\\mcsv\\M' },
+  { label: 'API', pattern: '\\mapi\\M' },
 ] as const;
+const COMPILED_OPEN_SCIENCE_TERM_RULES = OPEN_SCIENCE_TERM_RULES.map((rule) => ({
+  label: rule.label,
+  regex: new RegExp(rule.pattern.replaceAll('\\m', '\\b').replaceAll('\\M', '\\b'), 'i'),
+}));
 
 interface ActiveEpochRow {
   id: number;
@@ -80,6 +107,7 @@ interface CandidatePostRow {
   uri: string;
   author_did: string;
   created_at: Date | string;
+  text: string;
   topic_vector: Record<string, number> | null;
   candidate_count_72h: string | number;
   unique_authors_72h: string | number;
@@ -201,17 +229,23 @@ async function readOpenScienceCandidates(options: {
   const result = await options.dbPool.query<CandidatePostRow>(
     `WITH scored_candidates AS (
        SELECT DISTINCT ON (p.uri)
-              p.uri, p.author_did, p.created_at, p.topic_vector, ps.total_score
+              p.uri, p.author_did, p.created_at, p.text, p.topic_vector, ps.total_score
        FROM posts p
        JOIN post_scores ps ON ps.post_uri = p.uri
        WHERE ps.epoch_id = $1
          AND p.deleted = FALSE
          AND p.created_at >= NOW() - INTERVAL '72 hours'
-         AND COALESCE(p.topic_vector, '{}'::jsonb) ?| $2::text[]
+         AND EXISTS (
+           SELECT 1
+           FROM jsonb_each_text(COALESCE(p.topic_vector, '{}'::jsonb)) topic
+           WHERE topic.key = ANY($2::text[])
+             AND topic.value::double precision >= $3
+         )
+         AND p.text ~* ANY($4::text[])
        ORDER BY p.uri, ps.total_score DESC, p.created_at DESC
      ),
      candidates AS (
-       SELECT uri, author_did, created_at, topic_vector
+       SELECT uri, author_did, created_at, text, topic_vector
        FROM scored_candidates
        ORDER BY total_score DESC, created_at DESC
        LIMIT ${CANDIDATE_LIMIT}
@@ -221,11 +255,16 @@ async function readOpenScienceCandidates(options: {
               COUNT(DISTINCT author_did) AS unique_authors_72h
        FROM scored_candidates
      )
-     SELECT c.uri, c.author_did, c.created_at, c.topic_vector,
+     SELECT c.uri, c.author_did, c.created_at, c.text, c.topic_vector,
             m.candidate_count_72h, m.unique_authors_72h
      FROM candidates c
      CROSS JOIN metrics m`,
-    [options.epochId, [...OPEN_SCIENCE_TOPIC_SLUGS]]
+    [
+      options.epochId,
+      [...OPEN_SCIENCE_TOPIC_SLUGS],
+      SHADOW_DEMO_CORPUS_PROVENANCE.topicScoreThreshold,
+      OPEN_SCIENCE_TERM_RULES.map((rule) => rule.pattern),
+    ]
   );
   return result.rows;
 }
@@ -260,6 +299,7 @@ async function buildScoredCorpusItems(options: {
         productionEpochId: score.epochId,
         scoredAt: score.scoredAt.toISOString(),
         componentDetails: score.componentDetails,
+        inclusionReasons: openScienceInclusionReasons(row.text, row.topic_vector ?? {}),
         displayPost: hiddenDisplayPost('Post has not been hydrated from Bluesky public AppView yet'),
       } satisfies ShadowDemoCorpusItem;
     }));
@@ -391,6 +431,26 @@ function fixtureCorpusItems(now: Date, epochId: number): ShadowDemoCorpusItem[] 
       rawScores: { recency: 0.6, engagement: 0.84, bridging: 0.65, source_diversity: 0.48, relevance: 0.64 },
       topicVector: { 'science-research': 0.7, 'software-development': 0.66 },
     }),
+    fixtureItem({
+      index: 7,
+      epochId,
+      scoredAt,
+      authorHandle: 'danielweiss.net',
+      authorDisplayName: 'Daniel Weiss',
+      text: 'Peer review notes, analysis code, and the exact environment file are now in the open repository.',
+      rawScores: { recency: 0.78, engagement: 0.51, bridging: 0.72, source_diversity: 0.69, relevance: 0.86 },
+      topicVector: { 'science-research': 0.84, 'open-source': 0.79, 'software-development': 0.7 },
+    }),
+    fixtureItem({
+      index: 8,
+      epochId,
+      scoredAt,
+      authorHandle: 'kmillerwrites.bsky.social',
+      authorDisplayName: 'Karen Miller',
+      text: 'A small API change broke three public datasets, so we wrote up the migration and reproducibility impact.',
+      rawScores: { recency: 0.88, engagement: 0.61, bridging: 0.83, source_diversity: 0.75, relevance: 0.9 },
+      topicVector: { 'data-science': 0.83, 'software-development': 0.77, 'open-source': 0.62 },
+    }),
   ];
 }
 
@@ -415,6 +475,7 @@ function fixtureItem(options: {
     productionEpochId: options.epochId,
     scoredAt: options.scoredAt,
     componentDetails: null,
+    inclusionReasons: openScienceInclusionReasons(options.text, options.topicVector),
     displayPost: {
       kind: 'public_post',
       uri,
@@ -433,6 +494,38 @@ function fixtureItem(options: {
       bskyUrl: `https://bsky.app/profile/${options.authorHandle}/post/bird${options.index}`,
     },
   };
+}
+
+export function openScienceInclusionReasons(
+  text: string,
+  topicVector: Record<string, number>
+): ShadowDemoCorpusItem['inclusionReasons'] {
+  const matchedTopics = Object.entries(topicVector)
+    .filter(([topic, score]) =>
+      OPEN_SCIENCE_TOPIC_SLUGS.includes(topic as ShadowDemoTopicKey) &&
+      Number.isFinite(score) &&
+      score >= SHADOW_DEMO_CORPUS_PROVENANCE.topicScoreThreshold
+    )
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .map(([topic, score]) => ({ topic: topic as ShadowDemoTopicKey, score }));
+  return {
+    matchedTopics,
+    matchedTerms: matchingOpenScienceTerms(text),
+  };
+}
+
+export function isStrictOpenScienceCandidate(
+  text: string,
+  topicVector: Record<string, number>
+): boolean {
+  const reasons = openScienceInclusionReasons(text, topicVector);
+  return reasons.matchedTopics.length > 0 && reasons.matchedTerms.length > 0;
+}
+
+function matchingOpenScienceTerms(text: string): string[] {
+  return COMPILED_OPEN_SCIENCE_TERM_RULES
+    .filter((rule) => rule.regex.test(text))
+    .map((rule) => rule.label);
 }
 
 function epochWeights(row: ActiveEpochRow): ShadowDemoWeights {
