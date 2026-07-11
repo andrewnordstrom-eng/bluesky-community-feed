@@ -73,6 +73,14 @@ describe('shadow demo isolation guards', () => {
     expect(deploy).toContain('DEMO_POLICY');
     expect(deploy).toContain(`DEMO_KEY="${demoSessionKeyPrefix()}\${DEMO_SESSION_ID}"`);
 
+    const deployDockerCommands = deploy
+      .split('\n')
+      .filter((line) => line.includes('docker compose'));
+    expect(deployDockerCommands.length).toBeGreaterThan(0);
+    expect(
+      deployDockerCommands.every((line) => line.includes('sudo docker compose'))
+    ).toBe(true);
+
     const demoCompose = compose.split('demo-redis:')[1];
     const maxmemoryMatch = demoCompose?.match(/--maxmemory\s+(\d+)mb/);
     expect(maxmemoryMatch).toBeDefined();
