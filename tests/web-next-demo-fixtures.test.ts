@@ -12,6 +12,7 @@ import {
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const WEB_NEXT_ROOT = path.join(REPO_ROOT, 'web-next');
 const DEMO_PAGE_FILE = path.join(WEB_NEXT_ROOT, 'app', 'demo', 'page.tsx');
+const RECEIPT_PANEL_FILE = path.join(WEB_NEXT_ROOT, 'components', 'demo', 'receipt-panel.tsx');
 const LIVE_METRICS_SNAPSHOT_FILE = path.join(WEB_NEXT_ROOT, 'lib', 'live-metrics-snapshot.ts');
 const README_FILE = path.join(REPO_ROOT, 'README.md');
 const DEV_JOURNAL_FILE = path.join(REPO_ROOT, 'docs', 'dev-journal.md');
@@ -299,6 +300,13 @@ describe('web-next demo receipt fixtures', () => {
     expect(copy).toMatch(/isolated shadow governance namespace/i);
     expect(copy).toMatch(/not native bluesky/i);
     expect(copy).toMatch(/public Corgi feed/i);
+  });
+
+  it('renders every topic term included in the receipt formula', () => {
+    const content = readFixtureFile(RECEIPT_PANEL_FILE);
+
+    expect(content).toContain('const topicInputs = receipt.topicBreakdown');
+    expect(content).not.toMatch(/topicBreakdown\.slice\(/);
   });
 
   it('keeps public PROJ-1433 receipt docs anonymized for the rank-one example', () => {

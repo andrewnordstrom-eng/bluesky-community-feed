@@ -81,7 +81,7 @@ describe('shadow demo routes', () => {
     await app.close();
   });
 
-  it('keeps cached pre-nonce clients functional during the rollout window', async () => {
+  it('requires a bounded client nonce for retry-safe session creation', async () => {
     const app = buildTestApp();
     registerShadowDemoRoutes(app, new ShadowDemoService({
       store: new MemoryDemoStore(),
@@ -95,8 +95,8 @@ describe('shadow demo routes', () => {
       payload: { communityId: 'open_science_builders' },
     });
 
-    expect(response.statusCode).toBe(200);
-    expect(response.json().payload.session.sessionId).toMatch(/^demo-/);
+    expect(response.statusCode).toBe(400);
+    expect(response.json().message).toContain('clientNonce: Required');
     await app.close();
   });
 

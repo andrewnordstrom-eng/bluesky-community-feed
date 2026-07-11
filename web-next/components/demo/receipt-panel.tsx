@@ -80,7 +80,7 @@ export function ReceiptPanel({
   readonly maxEpochs: number
   readonly freePlayEnabled: boolean
 }) {
-  const topTopics = receipt.topicBreakdown.slice(0, 3)
+  const topicInputs = receipt.topicBreakdown
   const displayMath = tryBuildReceiptDisplayMathWithServerTotal(receipt.components, receipt.totalScore)
   const formula = receipt.topicRelevanceFormula
 
@@ -148,11 +148,11 @@ export function ReceiptPanel({
           </div>
         ))}
 
-        {topTopics.length > 0 ? (
+        {topicInputs.length > 0 ? (
           <div className="mt-1">
             <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-foreground/50">Topic weighting inputs</p>
             <div className="mt-2 flex flex-col gap-1.5">
-              {topTopics.map((topic) => (
+              {topicInputs.map((topic) => (
                 <div key={topic.slug} className="flex items-center justify-between gap-3 text-sm">
                   <span className="text-foreground/75">{topic.label}</span>
                   <span className="font-mono text-xs text-foreground/55">
