@@ -34,6 +34,7 @@ import {
   type DemoRateLimitGuard,
 } from '../demo/rate-limit.js';
 import { buildRouteRateLimitConfig } from './rate-limit-config.js';
+import { applyStaticExportResponseHeaders } from './static-export-headers.js';
 
 // Extend FastifyRequest to include correlationId
 declare module 'fastify' {
@@ -499,34 +500,13 @@ export async function createServer(options?: CreateServerOptions) {
       // documents only is the deliberate trade-off. API/JSON responses keep
       // the strict helmet policy above (kept in sync manually — mirror any
       // helmet directive change here).
-      const htmlCsp = [
-        "default-src 'self'",
-        "base-uri 'self'",
-        "frame-ancestors 'none'",
-        "object-src 'none'",
-        "script-src 'self' 'unsafe-inline'",
-        "style-src 'self' 'unsafe-inline'",
-        "img-src 'self' data: https:",
-        "font-src 'self' data: https:",
-        "connect-src 'self' https: wss:",
-        "form-action 'self'",
-        "script-src-attr 'none'",
-        "upgrade-insecure-requests",
-      ].join('; ');
       app.addHook('onSend', async (request, reply) => {
         // Cache-Control split (set here rather than via @fastify/static's
         // setHeaders, whose result the plugin's own cacheControl default
         // overwrites): content-hashed Next assets are immutable; HTML must
         // revalidate so a deploy is picked up immediately (stale HTML
         // referencing purged chunks is the classic white-screen failure).
-        if (request.url.startsWith('/_next/static/')) {
-          reply.header('cache-control', 'public, max-age=31536000, immutable');
-        }
-        const contentType = reply.getHeader('content-type');
-        if (typeof contentType === 'string' && contentType.startsWith('text/html')) {
-          reply.header('cache-control', 'no-cache');
-          reply.header('content-security-policy', htmlCsp);
-        }
+        applyStaticExportResponseHeaders(request, reply);
       });
     }
 
