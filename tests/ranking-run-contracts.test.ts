@@ -11,6 +11,7 @@ import {
 import { hashCanonicalJson } from '../src/governance/policy-version.js';
 import type {
   RankedSlateItem,
+  RankingReceipt,
   RankingRunInputEnvelope,
 } from '../src/shared/ranking-contracts.js';
 
@@ -204,6 +205,28 @@ describe('ranking receipts and reconciliation', () => {
       receiptChecksum: hashCanonicalJson(adjusted),
     })).toThrow('receipt.itemCount must be an integer in [0, 1000]');
   });
+
+  it.each([0.5, Number.NaN, Number.POSITIVE_INFINITY, null, undefined] as const)(
+    'rejects malformed receipt itemCount: %s',
+    (itemCount) => {
+      const input = createCompressedRankingInput(envelope([]));
+      const receipt = buildRankingReceipt({
+        runId: '00000000-0000-4000-8000-000000000001',
+        communityId: 'community-gov',
+        policyVersionId: '00000000-0000-4000-8000-000000000002',
+        policyHash: HASH_A,
+        algorithmVersion: 'corgi-ranking-v2',
+        configurationHash: HASH_B,
+        codeSha: 'd'.repeat(40),
+        asOf: '2026-07-11T20:00:00.000Z',
+        inputChecksum: input.checksum,
+        items: [],
+      });
+      const malformed = { ...receipt, itemCount } as unknown as RankingReceipt;
+      expect(() => validateRankingReceipt(malformed))
+        .toThrow('receipt.itemCount must be an integer in [0, 1000]');
+    }
+  );
 
   it('repairs validated DB state from matching Redis publication metadata', async () => {
     const queries: string[] = [];
