@@ -75,7 +75,7 @@ jobs:
                       pullRequest(number: $prNumber) {
                         reviews(first: 100, after: $after) {
                           nodes {
-                            author { login }
+                            author { __typename login }
                             commit { oid }
                             state
                             submittedAt
@@ -108,12 +108,25 @@ jobs:
                 after = page.pageInfo.endCursor;
               }
 
-              const coderabbitAuthors = new Set(["coderabbitai", "coderabbitai[bot]"]);
               return reviews
                 .filter((review) => {
+                  if (!review) {
+                    return false;
+                  }
+                  const reviewAuthorType = (review.author?.__typename || "").trim();
                   const reviewAuthor = (review.author?.login || "").trim().toLowerCase();
+                  // GitHub currently returns the CodeRabbit Bot actor as `coderabbitai`;
+                  // tolerate the documented bot suffix without trusting a User actor.
+                  const normalizedAuthor = reviewAuthor.endsWith("[bot]")
+                    ? reviewAuthor.slice(0, -"[bot]".length)
+                    : reviewAuthor;
                   const reviewSha = (review.commit?.oid || "").trim();
-                  return coderabbitAuthors.has(reviewAuthor) && reviewSha === headSha;
+                  const reviewState = (review.state || "").trim().toUpperCase();
+                  // COMMENTED is non-decisive; the newest approval or change request wins.
+                  return reviewAuthorType === "Bot"
+                    && normalizedAuthor === "coderabbitai"
+                    && reviewSha === headSha
+                    && (reviewState === "APPROVED" || reviewState === "CHANGES_REQUESTED");
                 })
                 .sort((a, b) => parseTime(b.submittedAt) - parseTime(a.submittedAt))[0] || null;
             };
