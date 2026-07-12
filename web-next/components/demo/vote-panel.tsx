@@ -12,10 +12,17 @@ import {
   DEMO_VOTE_PRESETS,
   SIGNAL_COLORS,
   SIGNAL_LABELS,
-  formatPercent,
   normalizeWeights,
 } from "@/app/demo/shadow-demo-fixtures"
 import { STEP_PANELS } from "@/app/demo/shadow-demo-copy"
+import {
+  createDemoVoteSubmission,
+  formatPolicySliderValue,
+  getEditedTopicSlugs,
+  POLICY_EDIT_THRESHOLD,
+  validateDemoVoteSubmission,
+} from "@/app/demo/shadow-demo-vote-policy"
+import { Slider } from "@/components/ui/slider"
 import { TopicPolicy, topicLabel } from "./topic-policy"
 import { WeightBars } from "./weight-bars"
 
@@ -31,6 +38,63 @@ function mergeTopicPolicy(
   overrides: ShadowDemoTopicIntent,
 ): ShadowDemoTopicIntent {
   return { topicWeights: { ...baseline.topicWeights, ...overrides.topicWeights } }
+}
+
+function singleSliderValue(values: readonly number[], label: string): number {
+  const value = values[0]
+  if (values.length !== 1 || value === undefined || !Number.isFinite(value)) {
+    throw new RangeError(`${label} slider produced an invalid value: ${JSON.stringify(values)}`)
+  }
+  return value
+}
+
+function formatPointDelta(value: number): string {
+  const points = Math.round(value * 100)
+  return `${points > 0 ? "+" : ""}${points} pp`
+}
+
+function PolicySlider({
+  label,
+  ariaLabel,
+  value,
+  displayValue,
+  accentColor,
+  detail,
+  changed,
+  onChange,
+}: {
+  readonly label: string
+  readonly ariaLabel: string
+  readonly value: number
+  readonly displayValue: number
+  readonly accentColor: string
+  readonly detail: string | null
+  readonly changed: boolean
+  readonly onChange: (value: number) => void
+}) {
+  const percent = formatPolicySliderValue(displayValue)
+  return (
+    <div className={`grid grid-cols-[minmax(0,1fr)_58px] items-center gap-x-3 rounded-lg px-2 py-1 transition-colors sm:grid-cols-[minmax(0,140px)_minmax(0,1fr)_58px] ${changed ? "bg-primary/[0.07]" : "bg-transparent"}`}>
+      <span className="col-start-1 row-start-1 min-w-0 text-xs font-semibold leading-tight text-foreground/70">{label}</span>
+      <Slider
+        min={0}
+        max={1}
+        step={0.01}
+        value={[value]}
+        onValueChange={(values) => onChange(singleSliderValue(values, ariaLabel))}
+        accentColor={accentColor}
+        ariaLabel={ariaLabel}
+        ariaValueText={`${percent}${detail === null ? "" : `, ${detail}`}`}
+        className="col-span-2 col-start-1 row-start-2 sm:col-span-1 sm:col-start-2 sm:row-start-1"
+      />
+      <span className="col-start-2 row-start-1 text-right font-mono text-xs font-semibold leading-tight text-foreground/60 sm:col-start-3">
+        <span className="block">{percent}</span>
+        {detail === null ? null : (
+          <span className="mt-0.5 block text-[9px] font-medium text-primary">{detail}</span>
+        )}
+      </span>
+    </div>
+  )
 }
 
 export function VotePanel({
@@ -53,21 +117,33 @@ export function VotePanel({
   const [topicQuery, setTopicQuery] = useState("")
   const [topicSort, setTopicSort] = useState<"alphabetical" | "weight">("weight")
   const [changedOnly, setChangedOnly] = useState(false)
+  const [submissionError, setSubmissionError] = useState<string | null>(null)
 
   const preset = DEMO_VOTE_PRESETS.find((entry) => entry.id === presetId) ?? DEMO_VOTE_PRESETS[0]
+  const presetTopicIntent = useMemo(
+    () => mergeTopicPolicy(baselineTopicIntent, preset.topicIntent),
+    [baselineTopicIntent, preset.topicIntent],
+  )
   const rawWeights = custom ?? preset.weights
   const sum = weightSum(rawWeights)
-  const topicSlugs = new Set(topicCatalog.map((topic) => topic.slug))
-  const submittedTopicSlugs = Object.keys(topicIntent.topicWeights)
-  const topicMismatch = submittedTopicSlugs.length !== topicCatalog.length
-    || submittedTopicSlugs.some((slug) => !topicSlugs.has(slug))
-  const canSubmit = sum > 0
-    && !busy
-    && !topicMismatch
+  const ballotValidation = useMemo(
+    () => validateDemoVoteSubmission(rawWeights, topicIntent, topicCatalog),
+    [rawWeights, topicCatalog, topicIntent],
+  )
+  const canSubmit = !busy && ballotValidation.valid
   const previewWeights = useMemo(() => (sum > 0 ? normalizeWeights(rawWeights) : rawWeights), [rawWeights, sum])
+  const editedTopicSlugs = useMemo(
+    () => getEditedTopicSlugs(topicIntent, presetTopicIntent, topicCatalog),
+    [presetTopicIntent, topicCatalog, topicIntent],
+  )
+  const editedTopicSlugSet = useMemo(() => new Set(editedTopicSlugs), [editedTopicSlugs])
+  const editedSignalKeys = SHADOW_DEMO_SIGNAL_KEYS.filter(
+    (key) => Math.abs(rawWeights[key] - preset.weights[key]) >= POLICY_EDIT_THRESHOLD,
+  )
+  const customPolicy = editedSignalKeys.length > 0 || editedTopicSlugs.length > 0
   const visibleTopics = useMemo(() => topicCatalog
     .filter((topic) => topic.name.toLowerCase().includes(topicQuery.toLowerCase()) || topic.slug.includes(topicQuery.toLowerCase()))
-    .filter((topic) => !changedOnly || Math.abs((topicIntent.topicWeights[topic.slug] ?? topic.baselineWeight) - topic.baselineWeight) >= 0.005)
+    .filter((topic) => !changedOnly || Math.abs((topicIntent.topicWeights[topic.slug] ?? topic.baselineWeight) - topic.baselineWeight) >= POLICY_EDIT_THRESHOLD)
     .sort((left, right) => topicSort === "alphabetical"
       ? left.name.localeCompare(right.name)
       : (topicIntent.topicWeights[right.slug] ?? right.baselineWeight) - (topicIntent.topicWeights[left.slug] ?? left.baselineWeight)),
@@ -79,18 +155,37 @@ export function VotePanel({
     setPresetId(id)
     setCustom(null)
     setTopicIntent(mergeTopicPolicy(baselineTopicIntent, next.topicIntent))
+    setSubmissionError(null)
   }
 
   function setSignal(key: (typeof SHADOW_DEMO_SIGNAL_KEYS)[number], value: number): void {
     setCustom({ ...rawWeights, [key]: value })
+    setSubmissionError(null)
   }
 
   function setTopic(slug: string, value: number): void {
     setTopicIntent({ topicWeights: { ...topicIntent.topicWeights, [slug]: value } })
+    setSubmissionError(null)
   }
 
   function resetTopics(): void {
     setTopicIntent(mergeTopicPolicy(baselineTopicIntent, preset.topicIntent))
+    setSubmissionError(null)
+  }
+
+  function submitPolicy(): void {
+    setSubmissionError(null)
+    let submission: ReturnType<typeof createDemoVoteSubmission>
+    try {
+      submission = createDemoVoteSubmission(rawWeights, topicIntent, topicCatalog)
+    } catch (error) {
+      if (error instanceof RangeError) {
+        setSubmissionError("This policy has an incomplete or invalid value. Reset the preset and try again.")
+        return
+      }
+      throw error
+    }
+    onSubmit(submission.weights, submission.topicIntent)
   }
 
   return (
@@ -105,7 +200,7 @@ export function VotePanel({
 
         <div className="mt-5 grid gap-2 sm:grid-cols-2">
           {DEMO_VOTE_PRESETS.map((entry) => {
-            const active = entry.id === presetId && custom === null
+            const active = entry.id === presetId && !customPolicy
             return (
               <button key={entry.id} type="button" onClick={() => selectPreset(entry.id)} aria-pressed={active}
                 className={`rounded-2xl border px-4 py-3 text-left transition-colors ${FOCUS} ${active ? "border-primary/40 bg-primary/[0.075] text-foreground" : "border-border bg-background text-foreground/75 hover:border-primary/25 hover:text-foreground"}`}>
@@ -118,7 +213,7 @@ export function VotePanel({
 
         <div className="mt-5 rounded-2xl border border-border bg-biscuit/30 px-4 py-4">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-foreground/45">{custom === null ? "Preset policy" : "Your custom policy"}</p>
+            <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-foreground/45">{customPolicy ? "Your custom policy" : "Preset policy"}</p>
             <button type="button" onClick={() => setShowFineTune((value) => !value)} aria-expanded={showFineTune}
               className={`inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1 text-xs font-semibold text-foreground/70 transition-colors hover:text-foreground ${FOCUS}`}>
               <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
@@ -140,19 +235,33 @@ export function VotePanel({
               </div>
 
               {fineTuneTab === "signals" ? (
-                <div className="mt-4 flex flex-col gap-3">
+                <div className="mt-4 flex flex-col gap-1">
+                  <p className="mb-1 text-xs leading-relaxed text-foreground/55">
+                    Signal sliders are relative settings. Corgi normalizes them to 100% when you cast the ballot.
+                  </p>
                   {SHADOW_DEMO_SIGNAL_KEYS.map((key) => (
-                    <label key={key} className="grid grid-cols-[104px_minmax(0,1fr)_44px] items-center gap-3">
-                      <span className="truncate text-xs font-semibold text-foreground/70">{SIGNAL_LABELS[key]}</span>
-                      <input type="range" min={0} max={1} step={0.01} value={rawWeights[key]} onChange={(event) => setSignal(key, Number(event.target.value))}
-                        style={{ accentColor: SIGNAL_COLORS[key] }} className={`w-full ${FOCUS}`} aria-label={`${SIGNAL_LABELS[key]} weight`} />
-                      <span className="text-right font-mono text-xs font-semibold text-foreground/55">{formatPercent(previewWeights[key])}</span>
-                    </label>
+                    <PolicySlider
+                      key={key}
+                      label={SIGNAL_LABELS[key]}
+                      ariaLabel={`${SIGNAL_LABELS[key]} weight`}
+                      value={rawWeights[key]}
+                      displayValue={rawWeights[key]}
+                      accentColor={SIGNAL_COLORS[key]}
+                      detail={null}
+                      changed={editedSignalKeys.includes(key)}
+                      onChange={(value) => setSignal(key, value)}
+                    />
                   ))}
                   {sum <= 0 ? <p className="text-xs font-medium text-primary">Give at least one signal some weight to cast a vote.</p> : null}
                 </div>
               ) : (
                 <div className="mt-4">
+                  <div className="mb-3 flex items-start justify-between gap-4 text-xs leading-relaxed text-foreground/55">
+                    <p>Topic weights shape the relevance signal. Every ballot carries all {topicCatalog.length} values.</p>
+                    <p className="shrink-0 font-mono text-[10px] uppercase tracking-[0.12em] text-primary">
+                      {editedTopicSlugs.length === 0 ? "Preset unchanged" : `${editedTopicSlugs.length} fine-tuned`}
+                    </p>
+                  </div>
                   <div className="flex flex-wrap gap-2">
                     <label className="relative min-w-[180px] flex-1">
                       <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-foreground/40" aria-hidden="true" />
@@ -162,20 +271,29 @@ export function VotePanel({
                       <option value="weight">Current weight</option><option value="alphabetical">Alphabetical</option>
                     </select>
                     <label className="inline-flex h-10 items-center gap-2 rounded-lg border border-border bg-background px-3 text-xs font-medium text-foreground/70">
-                      <input type="checkbox" checked={changedOnly} onChange={(event) => setChangedOnly(event.target.checked)} />Changed only
+                      <input type="checkbox" checked={changedOnly} onChange={(event) => setChangedOnly(event.target.checked)} aria-label="Show topics different from live policy" />Different from live
                     </label>
                     <button type="button" onClick={resetTopics} className={`inline-flex h-10 items-center gap-1.5 rounded-lg border border-border bg-background px-3 text-xs font-semibold text-foreground/70 ${FOCUS}`}>
-                      <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />Reset
+                      <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />Reset preset
                     </button>
                   </div>
-                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  <div className="mt-3 grid gap-y-1">
                     {visibleTopics.map((topic) => {
                       const value = topicIntent.topicWeights[topic.slug] ?? topic.baselineWeight
+                      const presetValue = presetTopicIntent.topicWeights[topic.slug] ?? topic.baselineWeight
+                      const edited = editedTopicSlugSet.has(topic.slug)
                       return (
-                        <label key={topic.slug} className="rounded-lg border border-border/70 bg-background px-3 py-2.5">
-                          <span className="flex items-center justify-between gap-2 text-xs"><span className="font-semibold text-foreground/75">{topicLabel(topic.slug, topicCatalog)}</span><span className="font-mono text-foreground/55">{formatPercent(value)}</span></span>
-                          <input type="range" min={0} max={1} step={0.01} value={value} onChange={(event) => setTopic(topic.slug, Number(event.target.value))} className={`mt-2 w-full ${FOCUS}`} aria-label={`${topic.name} topic weight`} />
-                        </label>
+                        <PolicySlider
+                          key={topic.slug}
+                          label={topicLabel(topic.slug, topicCatalog)}
+                          ariaLabel={`${topic.name} topic weight`}
+                          value={value}
+                          displayValue={value}
+                          accentColor="hsl(var(--primary))"
+                          detail={edited ? formatPointDelta(value - presetValue) : null}
+                          changed={edited}
+                          onChange={(nextValue) => setTopic(topic.slug, nextValue)}
+                        />
                       )
                     })}
                   </div>
@@ -188,15 +306,18 @@ export function VotePanel({
       </div>
 
       <div className="mt-5 xl:mt-3 xl:shrink-0 xl:border-t xl:border-border/70 xl:bg-background xl:pt-3">
-        <button type="button" onClick={() => onSubmit(normalizeWeights(rawWeights), topicIntent)} disabled={!canSubmit}
+        <button type="button" onClick={submitPolicy} disabled={!canSubmit}
           className={`inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-[0_2px_8px_rgba(200,97,44,0.25)] transition-colors hover:bg-primary-dark disabled:opacity-60 ${FOCUS}`}>
           {busy ? "Casting…" : STEP_PANELS.vote.cta}
         </button>
-        {topicMismatch ? (
+        {!ballotValidation.valid ? (
           <p className="mt-2 text-xs font-medium text-primary" role="alert">
-            This snapshot&apos;s complete topic policy is unavailable. Start a new demo session to continue.
+            This policy has an incomplete or invalid value. Reset the preset or start a new demo session to continue.
           </p>
         ) : null}
+        {submissionError === null ? null : (
+          <p className="mt-2 text-xs font-medium text-primary" role="alert">{submissionError}</p>
+        )}
       </div>
     </div>
   )
