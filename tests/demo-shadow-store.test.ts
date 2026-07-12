@@ -80,6 +80,44 @@ describe('Redis shadow demo store', () => {
     await expect(store.readSession('partial')).rejects.toBeInstanceOf(DemoStoreCorruptionError);
   });
 
+  it('round-trips the v4 publication policy from Redis', async () => {
+    const session = storedSession();
+    session.communityId = 'community_gov';
+    session.corpus.communityId = 'community_gov';
+    session.corpus.sourceSnapshot = {
+      feedName: 'Community Governed Feed',
+      digest: 'a'.repeat(64),
+      runId: 'run-v4',
+      updatedAt: '2026-07-10T00:00:00.000Z',
+      capturedAt: '2026-07-10T00:01:00.000Z',
+      reviewedAt: '2026-07-10T00:02:00.000Z',
+      sourcePostCount: 100,
+      selectionPolicyVersion: 'community-gov-reviewer-safe-v1',
+      baselineOrderDigest: 'b'.repeat(64),
+      publicationPolicy: {
+        urlDedupEnabled: true,
+        minimumOriginalTextLength: 200,
+        minimumRelevance: 0.25,
+        decay: [1, 0.7, 0.5, 0.3],
+      },
+    };
+    const { corpus, ...header } = session;
+    const get = vi.fn()
+      .mockResolvedValueOnce(JSON.stringify(header))
+      .mockResolvedValueOnce(JSON.stringify(corpus));
+    const store = new RedisDemoStore({ get } as unknown as Redis);
+
+    await expect(store.readSession(session.sessionId)).resolves.toMatchObject({
+      corpus: {
+        sourceSnapshot: {
+          publicationPolicy: {
+            minimumRelevance: 0.25,
+          },
+        },
+      },
+    });
+  });
+
   it('reads retry-safe session creation nonce mappings from Redis', async () => {
     const get = vi.fn()
       .mockResolvedValueOnce('demo-existing-session')
