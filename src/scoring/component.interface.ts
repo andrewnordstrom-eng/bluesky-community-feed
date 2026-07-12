@@ -21,6 +21,8 @@ import type { GovernanceWeightKey } from '../config/votable-params.js';
 export interface ScoringContext {
   readonly epoch: GovernanceEpoch;
   readonly scoringWindowHours: number;
+  /** Immutable ranking clock. V2 always supplies this; optional for legacy adapters. */
+  readonly asOf?: Date;
   /** Mutable map shared across components in a single run. */
   readonly authorCounts: Map<string, number>;
   /**
@@ -43,4 +45,14 @@ export interface ScoringComponent {
   readonly name: string;
   /** Score a post. Must return a value between 0.0 and 1.0. */
   score(post: PostForScoring, context: ScoringContext): Promise<number>;
+  /** Optional efficient path keyed by `${uri}\0${createdAt.toISOString()}`. */
+  scoreBatch?(
+    posts: readonly PostForScoring[],
+    context: ScoringContext
+  ): Promise<ReadonlyMap<string, number>>;
+}
+
+export interface SlateReranker<TInput, TOutput> {
+  readonly key: string;
+  rerank(items: readonly TInput[], limit: number): readonly TOutput[];
 }

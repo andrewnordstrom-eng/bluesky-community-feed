@@ -41,7 +41,7 @@ jobs:
 
             const failWithAction = (reason) => {
               core.setFailed(
-                `[coderabbit-freshness:fail] ${reason}. Next action: run "@coderabbitai review" on this PR and wait for a fresh CodeRabbit update. Temporary bypass requires label "coderabbit:exempt" with audit note.`
+                `[coderabbit-freshness:fail] ${reason}. Next action: run the sanctioned pr-review-readiness wrapper and only request another review when coderabbit-request-review authorizes it. Temporary bypass requires label "coderabbit:exempt" with audit note.`
               );
             };
 
@@ -63,6 +63,137 @@ jobs:
                 return null;
               }
               return resolvedPr;
+            };
+
+            const resolveExactHeadCodeRabbitReview = async (prNumber, headSha) => {
+              const reviews = [];
+              let after = null;
+              for (let pageCount = 0; pageCount < 100; pageCount += 1) {
+                const result = await github.graphql(
+                  `query($owner: String!, $repo: String!, $prNumber: Int!, $after: String) {
+                    repository(owner: $owner, name: $repo) {
+                      pullRequest(number: $prNumber) {
+                        reviews(first: 100, after: $after) {
+                          nodes {
+                            author { __typename login }
+                            commit { oid }
+                            state
+                            submittedAt
+                          }
+                          pageInfo {
+                            hasNextPage
+                            endCursor
+                          }
+                        }
+                      }
+                    }
+                  }`,
+                  { owner, repo, prNumber, after }
+                );
+                const pullRequest = result.repository?.pullRequest;
+                if (!pullRequest) {
+                  throw new Error(`PR #${prNumber} was not returned by the review query`);
+                }
+                const page = pullRequest.reviews;
+                reviews.push(...(page?.nodes || []));
+                if (!page?.pageInfo?.hasNextPage) {
+                  break;
+                }
+                if (!page.pageInfo.endCursor) {
+                  throw new Error("Review pagination is incomplete: missing endCursor");
+                }
+                if (pageCount === 99) {
+                  throw new Error("Review pagination exceeded the 100-page safety bound");
+                }
+                after = page.pageInfo.endCursor;
+              }
+
+              const exactHeadReviews = reviews
+                .filter((review) => {
+                  if (!review) {
+                    return false;
+                  }
+                  const reviewAuthorType = (review.author?.__typename || "").trim();
+                  const reviewAuthor = (review.author?.login || "").trim().toLowerCase();
+                  // GitHub currently returns the CodeRabbit Bot actor as `coderabbitai`;
+                  // tolerate the documented bot suffix without trusting a User actor.
+                  const normalizedAuthor = reviewAuthor.endsWith("[bot]")
+                    ? reviewAuthor.slice(0, -"[bot]".length)
+                    : reviewAuthor;
+                  const reviewSha = (review.commit?.oid || "").trim();
+                  return reviewAuthorType === "Bot"
+                    && normalizedAuthor === "coderabbitai"
+                    && reviewSha === headSha;
+                })
+                .sort((a, b) => parseTime(b.submittedAt) - parseTime(a.submittedAt));
+              const decisiveReviews = exactHeadReviews.filter((review) => {
+                const reviewState = (review.state || "").trim().toUpperCase();
+                return reviewState === "APPROVED" || reviewState === "CHANGES_REQUESTED";
+              });
+
+              return {
+                latestReview: exactHeadReviews[0] || null,
+                // COMMENTED is non-decisive; the newest approval or change request wins.
+                latestDecisiveReview: decisiveReviews[0] || null,
+              };
+            };
+
+            const resolveExactHeadCodeRabbitRollup = async (headSha) => {
+              const runs = [];
+              let after = null;
+              for (let pageCount = 0; pageCount < 100; pageCount += 1) {
+                const result = await github.graphql(
+                  `query($owner: String!, $repo: String!, $headSha: GitObjectID!, $after: String) {
+                    repository(owner: $owner, name: $repo) {
+                      object(oid: $headSha) {
+                        oid
+                        ... on Commit {
+                          statusCheckRollup {
+                            contexts(first: 100, after: $after) {
+                              nodes {
+                                __typename
+                                ... on CheckRun {
+                                  name
+                                  status
+                                  conclusion
+                                  startedAt
+                                  completedAt
+                                  checkSuite { app { slug } }
+                                }
+                              }
+                              pageInfo {
+                                hasNextPage
+                                endCursor
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }`,
+                  { owner, repo, headSha, after }
+                );
+                const commit = result.repository?.object;
+                if (!commit || commit.oid !== headSha) {
+                  throw new Error(`Exact-head commit ${headSha} was not returned by the status rollup query`);
+                }
+                const contexts = commit.statusCheckRollup?.contexts;
+                if (!contexts) {
+                  return [];
+                }
+                runs.push(...(contexts.nodes || []).filter((node) => node?.__typename === "CheckRun"));
+                if (!contexts.pageInfo?.hasNextPage) {
+                  break;
+                }
+                if (!contexts.pageInfo.endCursor) {
+                  throw new Error("Status rollup pagination is incomplete: missing endCursor");
+                }
+                if (pageCount === 99) {
+                  throw new Error("Status rollup pagination exceeded the 100-page safety bound");
+                }
+                after = contexts.pageInfo.endCursor;
+              }
+              return runs;
             };
 
             const pr = await resolvePullRequest();
@@ -153,6 +284,96 @@ jobs:
               return;
             }
 
+            const allCheckRuns = await github.paginate(
+              github.rest.checks.listForRef,
+              {
+                owner,
+                repo,
+                ref: sha,
+                per_page: 100,
+              },
+              (response) => response.data?.check_runs || []
+            );
+            const checkRuns = (allCheckRuns || [])
+              .filter((run) => {
+                const appSlug = (((run.app || {}).slug || "").trim().toLowerCase());
+                const runName = ((run.name || "").trim().toLowerCase());
+                return appSlug === "coderabbitai" && runName === "coderabbit";
+              })
+              .sort((a, b) => {
+                const aTs = parseTime(a.completed_at || a.started_at || a.created_at || "");
+                const bTs = parseTime(b.completed_at || b.started_at || b.created_at || "");
+                return bTs - aTs;
+              });
+
+            if (checkRuns.length === 0) {
+              try {
+                const rollupRuns = await resolveExactHeadCodeRabbitRollup(sha);
+                checkRuns.push(
+                  ...rollupRuns
+                    .filter((run) => {
+                      const appSlug = (((run.checkSuite || {}).app || {}).slug || "")
+                        .trim()
+                        .toLowerCase();
+                      const runName = ((run.name || "").trim().toLowerCase());
+                      return appSlug === "coderabbitai" && runName === "coderabbit";
+                    })
+                    .map((run) => ({
+                      name: run.name,
+                      status: run.status,
+                      conclusion: run.conclusion,
+                      started_at: run.startedAt,
+                      completed_at: run.completedAt,
+                      app: run.checkSuite?.app || null,
+                    }))
+                );
+                checkRuns.sort((a, b) => {
+                  const aTs = parseTime(a.completed_at || a.started_at || a.created_at || "");
+                  const bTs = parseTime(b.completed_at || b.started_at || b.created_at || "");
+                  return bTs - aTs;
+                });
+              } catch (error) {
+                core.info(
+                  `[coderabbit-freshness:rollup_unavailable] ${error?.message || error}; continuing to check-suite and review fallbacks.`
+                );
+              }
+            }
+
+            if (checkRuns.length > 0) {
+              const latestRun = checkRuns[0];
+              const runStatus = ((latestRun.status || "").trim().toLowerCase());
+              const runConclusion = ((latestRun.conclusion || "").trim().toLowerCase());
+              const runUpdatedAt = parseTime(
+                latestRun.completed_at || latestRun.started_at || latestRun.created_at || ""
+              );
+              const runAgeMinutes = Math.max(0, Math.floor((now - runUpdatedAt) / 60000));
+
+              if (runStatus === "completed") {
+                if (runConclusion !== "success") {
+                  failWithAction(`CodeRabbit check-run conclusion is ${runConclusion || "unknown"}`);
+                  return;
+                }
+                core.notice(
+                  `[coderabbit-freshness:ok_run] Exact-head CodeRabbit check run completed (success); age ${runAgeMinutes}m.`
+                );
+                return;
+              }
+
+              const pendingStates = ["queued", "in_progress", "waiting", "pending"];
+              if (!pendingStates.includes(runStatus)) {
+                failWithAction(`CodeRabbit check-run status is ${runStatus || "unknown"}`);
+                return;
+              }
+              if (runAgeMinutes > staleMinutes) {
+                failWithAction(
+                  `CodeRabbit check-run is pending stale (${runAgeMinutes}m old; SLA ${staleMinutes}m)`
+                );
+                return;
+              }
+              failWithAction(`CodeRabbit check-run is still ${runStatus} (${runAgeMinutes}m old)`);
+              return;
+            }
+
             const allSuites = await github.paginate(
               github.rest.checks.listSuitesForRef,
               {
@@ -167,7 +388,35 @@ jobs:
               (suite) => (((suite.app || {}).slug || "").trim().toLowerCase() === "coderabbitai")
             );
             if (suites.length === 0) {
-              failWithAction("Missing CodeRabbit status/check-suite for this commit");
+              let exactHeadReviewTruth;
+              try {
+                exactHeadReviewTruth = await resolveExactHeadCodeRabbitReview(pr.number, sha);
+              } catch (error) {
+                failWithAction(`Could not verify complete exact-head CodeRabbit review truth: ${error?.message || error}`);
+                return;
+              }
+              const exactHeadReview = exactHeadReviewTruth.latestDecisiveReview;
+              if (!exactHeadReview) {
+                const latestReview = exactHeadReviewTruth.latestReview;
+                if (latestReview) {
+                  const latestState = (latestReview.state || "").trim().toUpperCase() || "unknown";
+                  failWithAction(
+                    `Exact-head CodeRabbit review exists but has no decisive APPROVED/CHANGES_REQUESTED state (latest state: ${latestState}); confirm request_changes_workflow is enabled`
+                  );
+                  return;
+                }
+                failWithAction("Missing CodeRabbit status/check-suite and exact-head review for this commit");
+                return;
+              }
+
+              const reviewState = (exactHeadReview.state || "").trim().toUpperCase();
+              if (reviewState !== "APPROVED") {
+                failWithAction(`Latest exact-head CodeRabbit review state is ${reviewState || "unknown"}`);
+                return;
+              }
+              core.notice(
+                `[coderabbit-freshness:ok_review] Exact-head CodeRabbit review is APPROVED at ${exactHeadReview.submittedAt || "unknown time"}; the workflow token returned no CodeRabbit status/check-suite.`
+              );
               return;
             }
 

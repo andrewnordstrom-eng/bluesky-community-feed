@@ -7,6 +7,10 @@
 
 import type { GovernanceWeights } from '../shared/api-types.js';
 
+export const CLASSIFICATION_METHODS = ['keyword', 'embedding'] as const;
+
+export type ClassificationMethod = typeof CLASSIFICATION_METHODS[number];
+
 /**
  * Per-component score map: `Record<componentKey, value 0..1>`. Was a 5-field
  * interface before PROJ-816; now reuses the registry-driven shape from
@@ -89,7 +93,7 @@ export interface PostForScoring {
   /** Topic classification vector from ingestion. Slug → confidence (0.0-1.0). */
   topicVector?: Record<string, number>;
   /** Which classifier produced the topic_vector: winkNLP keywords or Transformers.js embeddings. */
-  classificationMethod?: 'keyword' | 'embedding';
+  classificationMethod?: ClassificationMethod;
 }
 
 function weightFromRow(row: Record<string, unknown>, field: string): number {
