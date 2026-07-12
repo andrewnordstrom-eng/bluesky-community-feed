@@ -12,7 +12,7 @@
     "declaration": true,
     "isolatedModules": true,
     "noEmitOnError": true,
-    "baseUrl": ".",
+    "types": ["node"],
     "paths": {
       "@corgi/feed-sdk": ["../../packages/feed-sdk/dist/index.d.ts"]
     }

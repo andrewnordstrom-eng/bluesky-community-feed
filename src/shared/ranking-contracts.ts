@@ -14,12 +14,15 @@ export type RankingRunState =
   | 'superseded'
   | 'rejected';
 
-export type CandidateSource =
-  | 'newest'
-  | 'engagement'
-  | 'policy_relevance'
-  | 'previous_snapshot'
-  | 'preliminary_fill';
+export const CANDIDATE_SOURCES = [
+  'newest',
+  'engagement',
+  'policy_relevance',
+  'previous_snapshot',
+  'preliminary_fill',
+] as const;
+
+export type CandidateSource = typeof CANDIDATE_SOURCES[number];
 
 export interface PolicyProvenanceReference {
   kind: string;
@@ -43,6 +46,25 @@ export interface PolicyBundle extends GovernancePolicyDocument {
   policyHash: string;
   reconciliationStatus: 'match' | 'incomplete_evidence' | 'conflict_preserved';
   createdAt: string;
+}
+
+export interface RankingRunContext {
+  runId: string;
+  communityId: string;
+  asOf: string;
+  policy: PolicyBundle;
+  algorithmVersion: string;
+  configurationHash: string;
+  codeSha: string;
+}
+
+export type EvidenceState = 'observed' | 'insufficient';
+
+export interface ComponentEvidence {
+  raw: number;
+  weight: number;
+  weighted: number;
+  evidenceState: EvidenceState;
 }
 
 export interface RankingReceipt {
@@ -80,6 +102,8 @@ export interface RankingRunInputEnvelope {
   policyHash: string;
   configurationHash: string;
   asOf: string;
+  /** Required for v2 exact replay; optional only for retained v1 contract inputs. */
+  sourceDiversityWeight?: number;
   candidates: readonly JsonObject[];
 }
 
