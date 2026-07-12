@@ -69,6 +69,38 @@ describe('durable ranking request queue integration', () => {
     expect(state.rows[0]?.state).toBe('completed');
   });
 
+  it('persists structured failure evidence and rejects the wrong worker', async () => {
+    await queue.enqueue({
+      idempotencyKey: 'manual:community-gov:did:plc:admin:failed',
+      communityId: 'community-gov',
+      requestKind: 'manual',
+      requestedBy: 'did:plc:admin',
+      notBefore: new Date('2020-01-01T00:00:00.000Z'),
+    });
+    const claimed = await queue.claimNext('worker-a', 'community-gov');
+    expect(claimed).not.toBeNull();
+
+    await expect(queue.fail(claimed!.id, 'worker-b', new TypeError('publisher failed')))
+      .rejects.toThrow('is not claimed by worker worker-b');
+    await expect(queue.defer(claimed!.id, 'worker-b', new Date('2020-01-01T00:00:01.000Z')))
+      .rejects.toThrow('is not claimed by worker worker-b');
+    await queue.fail(claimed!.id, 'worker-a', new TypeError('publisher failed'));
+
+    const result = await db.query<{
+      state: string;
+      failure: { name: string; message: string };
+      completed_at: Date | null;
+    }>(
+      'SELECT state, failure, completed_at FROM ranking_run_requests WHERE id = $1',
+      [claimed!.id]
+    );
+    expect(result.rows[0]).toMatchObject({
+      state: 'failed',
+      failure: { name: 'TypeError', message: 'publisher failed' },
+    });
+    expect(result.rows[0]?.completed_at).toBeInstanceOf(Date);
+  });
+
   it('returns a deferred request to pending for another worker', async () => {
     await queue.enqueue({
       idempotencyKey: 'scheduled:community-gov:789',

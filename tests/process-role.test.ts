@@ -42,6 +42,31 @@ describe('process-role configuration', () => {
     })).toThrow('must be less than half');
   });
 
+  it('accepts lease renewal immediately below the half-TTL boundary', () => {
+    const parsed = ConfigSchema.parse({
+      ...process.env,
+      SCORING_TIMEOUT_MS: '30000',
+      RANKING_LEASE_TTL_MS: '60000',
+      RANKING_LEASE_RENEW_INTERVAL_MS: '29999',
+    });
+    expect(parsed.RANKING_LEASE_RENEW_INTERVAL_MS).toBe(29_999);
+  });
+
+  it('rejects heartbeat interval equality and accepts the passing boundary', () => {
+    expect(() => ConfigSchema.parse({
+      ...process.env,
+      RANKING_WORKER_HEARTBEAT_INTERVAL_MS: '30000',
+      RANKING_WORKER_HEARTBEAT_TTL_MS: '30000',
+    })).toThrow('must be less than');
+
+    const parsed = ConfigSchema.parse({
+      ...process.env,
+      RANKING_WORKER_HEARTBEAT_INTERVAL_MS: '29999',
+      RANKING_WORKER_HEARTBEAT_TTL_MS: '30000',
+    });
+    expect(parsed.RANKING_WORKER_HEARTBEAT_INTERVAL_MS).toBe(29_999);
+  });
+
   it('does not reclaim a request before the ranking timeout can finish', () => {
     expect(() => ConfigSchema.parse({
       ...process.env,
@@ -56,5 +81,17 @@ describe('process-role configuration', () => {
       SCORING_TIMEOUT_MS: '240000',
       RANKING_LEASE_TTL_MS: '240000',
     })).toThrow('must exceed SCORING_TIMEOUT_MS');
+  });
+
+  it('accepts claim and lease windows one millisecond beyond the ranking timeout', () => {
+    const parsed = ConfigSchema.parse({
+      ...process.env,
+      SCORING_TIMEOUT_MS: '240000',
+      RANKING_CLAIM_STALE_MS: '240001',
+      RANKING_LEASE_TTL_MS: '240001',
+      RANKING_LEASE_RENEW_INTERVAL_MS: '60000',
+    });
+    expect(parsed.RANKING_CLAIM_STALE_MS).toBe(240_001);
+    expect(parsed.RANKING_LEASE_TTL_MS).toBe(240_001);
   });
 });

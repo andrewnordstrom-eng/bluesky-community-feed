@@ -78,11 +78,22 @@ interface QuarantinedLease {
   renewalTimer: NodeJS.Timeout;
 }
 
+export class ScoringPipelineTimeoutError extends Error {
+  readonly code = 'SCORING_PIPELINE_TIMEOUT';
+
+  constructor(cause: unknown) {
+    super('Scoring pipeline timed out', { cause });
+    this.name = 'ScoringPipelineTimeoutError';
+  }
+}
+
 export class RankingWorker {
   private readonly options: RankingWorkerOptions;
   private scheduleTimer: NodeJS.Timeout | null = null;
   private pollTimer: NodeJS.Timeout | null = null;
   private heartbeatTimer: NodeJS.Timeout | null = null;
+  private startPromise: Promise<void> | null = null;
+  private stopPromise: Promise<void> | null = null;
   private currentRun: Promise<void> | null = null;
   private quarantinedLease: QuarantinedLease | null = null;
   private quarantined = false;
@@ -99,52 +110,113 @@ export class RankingWorker {
   }
 
   async start(): Promise<void> {
+    if (this.startPromise) {
+      await this.startPromise;
+      return;
+    }
     if (this.running) {
       logger.warn({ workerId: this.options.workerId }, 'Ranking worker already running');
       return;
     }
+    const startPromise = this.startInternal();
+    this.startPromise = startPromise;
+    try {
+      await startPromise;
+    } finally {
+      if (this.startPromise === startPromise) {
+        this.startPromise = null;
+      }
+    }
+  }
+
+  private async startInternal(): Promise<void> {
     this.running = true;
     this.stopping = false;
     this.state = 'starting';
-    await this.writeHeartbeat();
-    const recoveredClaims = await this.options.queue.requeueStaleClaims(
-      new Date(this.options.now().getTime() - this.options.claimStaleAfterMs),
-      this.options.communityId
-    );
-    if (recoveredClaims > 0) {
-      logger.warn({ recoveredClaims }, 'Recovered stale ranking request claims');
-    }
-    await this.enqueueScheduledRequest(this.options.now());
+    try {
+      await this.writeHeartbeat();
+      const recoveredClaims = await this.options.queue.requeueStaleClaims(
+        new Date(this.options.now().getTime() - this.options.claimStaleAfterMs),
+        this.options.communityId
+      );
+      if (recoveredClaims > 0) {
+        logger.warn({ recoveredClaims }, 'Recovered stale ranking request claims');
+      }
+      await this.enqueueScheduledRequest(this.options.now());
 
-    this.scheduleTimer = setInterval(() => {
-      void this.enqueueScheduledAndDrain();
-    }, this.options.scheduleIntervalMs);
-    this.pollTimer = setInterval(() => {
+      this.scheduleTimer = setInterval(() => {
+        void this.enqueueScheduledAndDrain();
+      }, this.options.scheduleIntervalMs);
+      this.pollTimer = setInterval(() => {
+        void this.drainOnce();
+      }, this.options.pollIntervalMs);
+      this.heartbeatTimer = setInterval(() => {
+        void this.writeHeartbeat().catch((error) => {
+          this.lastError = errorMessage(error);
+          logger.error({ err: error }, 'Ranking worker heartbeat failed');
+        });
+      }, this.options.heartbeatIntervalMs);
+      this.state = 'idle';
+      await this.writeHeartbeat();
+      logger.info({ workerId: this.options.workerId }, 'Ranking worker started');
       void this.drainOnce();
-    }, this.options.pollIntervalMs);
-    this.heartbeatTimer = setInterval(() => {
-      void this.writeHeartbeat().catch((error) => {
-        this.lastError = errorMessage(error);
-        logger.error({ err: error }, 'Ranking worker heartbeat failed');
+    } catch (error) {
+      clearTimer(this.scheduleTimer);
+      clearTimer(this.pollTimer);
+      clearTimer(this.heartbeatTimer);
+      this.scheduleTimer = null;
+      this.pollTimer = null;
+      this.heartbeatTimer = null;
+      this.lastError = errorMessage(error);
+      this.state = 'failed';
+      this.running = false;
+      this.stopping = false;
+      await this.writeHeartbeat().catch((heartbeatError) => {
+        logger.error({ err: heartbeatError }, 'Failed to persist ranking worker startup failure');
       });
-    }, this.options.heartbeatIntervalMs);
-    this.state = 'idle';
-    await this.writeHeartbeat();
-    logger.info({ workerId: this.options.workerId }, 'Ranking worker started');
-    void this.drainOnce();
+      throw error;
+    }
   }
 
   async stop(): Promise<void> {
+    if (this.stopPromise) {
+      await this.stopPromise;
+      return;
+    }
+    const pendingStart = this.startPromise;
+    if (pendingStart) {
+      await pendingStart;
+    }
     if (!this.running) {
       return;
     }
+    const stopPromise = this.stopInternal();
+    this.stopPromise = stopPromise;
+    try {
+      await stopPromise;
+    } finally {
+      if (this.stopPromise === stopPromise) {
+        this.stopPromise = null;
+      }
+    }
+  }
+
+  private async stopInternal(): Promise<void> {
     this.stopping = true;
     this.state = 'stopping';
     clearTimer(this.scheduleTimer);
     clearTimer(this.pollTimer);
     this.scheduleTimer = null;
     this.pollTimer = null;
-    await this.writeHeartbeat();
+    let stopError: unknown;
+    let stoppingHeartbeatFailed = false;
+    try {
+      await this.writeHeartbeat();
+    } catch (error) {
+      stopError = error;
+      stoppingHeartbeatFailed = true;
+      logger.error({ err: error }, 'Failed to persist ranking worker stopping heartbeat');
+    }
     if (this.currentRun) {
       await this.currentRun;
     }
@@ -164,6 +236,9 @@ export class RankingWorker {
     this.heartbeatTimer = null;
     this.running = false;
     logger.info({ workerId: this.options.workerId }, 'Ranking worker stopped');
+    if (stoppingHeartbeatFailed) {
+      throw stopError;
+    }
   }
 
   isRunning(): boolean {
@@ -458,5 +533,5 @@ function errorMessage(error: unknown): string {
 }
 
 function isScoringPipelineTimeout(error: unknown): boolean {
-  return error instanceof Error && error.message === 'Scoring pipeline timed out';
+  return error instanceof ScoringPipelineTimeoutError;
 }

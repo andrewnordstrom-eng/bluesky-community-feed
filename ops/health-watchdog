@@ -18,9 +18,24 @@ RETRY_DELAY=10
 TAG="health-watchdog"
 DISK_WARN_PCT=80
 DISK_CRIT_PCT=90
-WORKER_HEARTBEAT_KEY="corgi:ranking-worker:heartbeat:community-gov"
 WORKER_HEARTBEAT_MAX_AGE_SECONDS=60
 FEED_MAX_AGE_SECONDS=600
+PROBE_TIMEOUT_SECONDS=5
+
+RANKING_COMMUNITY_ID="${RANKING_COMMUNITY_ID:-}"
+if [ -z "$RANKING_COMMUNITY_ID" ] && [ -f /opt/bluesky-feed/.env ]; then
+  COMMUNITY_CONFIG=""
+  if ! COMMUNITY_CONFIG=$(sed -n 's/^RANKING_COMMUNITY_ID=//p' /opt/bluesky-feed/.env | tail -1); then
+    echo "ERROR: could not read RANKING_COMMUNITY_ID from /opt/bluesky-feed/.env" >&2
+    exit 1
+  fi
+  COMMUNITY_CONFIG=$(printf '%s' "$COMMUNITY_CONFIG" | tr -d "\r\"'")
+  if [ -n "$COMMUNITY_CONFIG" ]; then
+    RANKING_COMMUNITY_ID="$COMMUNITY_CONFIG"
+  fi
+fi
+RANKING_COMMUNITY_ID="${RANKING_COMMUNITY_ID:-community-gov}"
+WORKER_HEARTBEAT_KEY="corgi:ranking-worker:heartbeat:${RANKING_COMMUNITY_ID}"
 
 log_info()  { logger -t "$TAG" -p user.info  "$1"; }
 log_warn()  { logger -t "$TAG" -p user.warning "$1"; }
@@ -32,7 +47,7 @@ worker_unit_installed() {
 
 worker_heartbeat_healthy() {
   local heartbeat
-  heartbeat=$(docker exec bluesky-feed-redis redis-cli --raw GET "$WORKER_HEARTBEAT_KEY" 2>/dev/null) || return 1
+  heartbeat=$(timeout "$PROBE_TIMEOUT_SECONDS" docker exec bluesky-feed-redis redis-cli --raw GET "$WORKER_HEARTBEAT_KEY" 2>/dev/null) || return 1
   [ -n "$heartbeat" ] || return 1
   HEARTBEAT_JSON="$heartbeat" HEARTBEAT_MAX_AGE="$WORKER_HEARTBEAT_MAX_AGE_SECONDS" python3 -c '
 import datetime
@@ -51,8 +66,8 @@ if payload.get("state") == "failed":
 
 feed_snapshot_healthy() {
   local feed_count updated_at
-  feed_count=$(docker exec bluesky-feed-redis redis-cli --raw ZCARD feed:current 2>/dev/null) || return 1
-  updated_at=$(docker exec bluesky-feed-redis redis-cli --raw GET feed:updated_at 2>/dev/null) || return 1
+  feed_count=$(timeout "$PROBE_TIMEOUT_SECONDS" docker exec bluesky-feed-redis redis-cli --raw ZCARD feed:current 2>/dev/null) || return 1
+  updated_at=$(timeout "$PROBE_TIMEOUT_SECONDS" docker exec bluesky-feed-redis redis-cli --raw GET feed:updated_at 2>/dev/null) || return 1
   [ "$feed_count" -gt 0 ] 2>/dev/null || return 1
   [ -n "$updated_at" ] || return 1
   FEED_UPDATED_AT="$updated_at" FEED_MAX_AGE="$FEED_MAX_AGE_SECONDS" python3 -c '
@@ -98,16 +113,16 @@ if ! systemctl is-active --quiet "$SERVICE"; then
 fi
 
 if worker_unit_installed; then
+  worker_restart_reason=""
   if ! systemctl is-active --quiet "$WORKER_SERVICE"; then
-    log_err "$WORKER_SERVICE is not active — restarting worker without touching feed serving"
-    systemctl restart "$WORKER_SERVICE"
+    worker_restart_reason="$WORKER_SERVICE is not active"
   elif ! worker_heartbeat_healthy; then
-    log_err "$WORKER_SERVICE heartbeat is stale or failed — restarting worker only"
-    systemctl restart "$WORKER_SERVICE"
+    worker_restart_reason="$WORKER_SERVICE heartbeat is stale or failed"
+  elif ! feed_snapshot_healthy; then
+    worker_restart_reason="Feed snapshot is empty or stale"
   fi
-
-  if ! feed_snapshot_healthy; then
-    log_err "Feed snapshot is empty or stale — restarting worker only and preserving API service"
+  if [ -n "$worker_restart_reason" ]; then
+    log_err "$worker_restart_reason — restarting worker once and preserving API service"
     systemctl restart "$WORKER_SERVICE"
   fi
 fi

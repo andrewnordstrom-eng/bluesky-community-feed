@@ -75,17 +75,28 @@ jobs:
             # Migrations are forward-only and must be applied before either
             # process is cut over. Fail closed unless the dedicated backup
             # mount and newest logical dump are present and readable.
-            BACKUP_TARGET=$(findmnt -n -o TARGET --target /mnt/host-backups)
+            BACKUP_TARGET=""
+            if ! BACKUP_TARGET=$(findmnt -n -o TARGET --target /mnt/host-backups); then
+              echo "Could not inspect the dedicated backup mount; refusing migration"
+              exit 1
+            fi
             if [ "$BACKUP_TARGET" != "/mnt/host-backups" ]; then
               echo "Dedicated backup mount is missing; refusing migration"
               exit 1
             fi
-            LATEST_BACKUP=$(sudo find /mnt/host-backups/postgres -maxdepth 1 -type f -name 'dump-*.sql.gz' -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)
+            LATEST_BACKUP=""
+            if ! LATEST_BACKUP=$(sudo find /mnt/host-backups/postgres -maxdepth 1 -type f -name 'dump-*.sql.gz' -printf '%T@ %p\n' | sort -nr | sed -n '1p' | cut -d' ' -f2-); then
+              echo "Could not inspect PostgreSQL backups; refusing migration"
+              exit 1
+            fi
             if [ -z "$LATEST_BACKUP" ]; then
               echo "No PostgreSQL backup exists; refusing migration"
               exit 1
             fi
-            sudo gzip -t "$LATEST_BACKUP"
+            if ! sudo gzip -t "$LATEST_BACKUP"; then
+              echo "Newest PostgreSQL backup failed gzip validation; refusing migration"
+              exit 1
+            fi
             npm run migrate
             sudo docker compose -f docker-compose.prod.yml up -d --no-deps demo-redis
             for i in 1 2 3 4 5; do
@@ -105,7 +116,42 @@ jobs:
             WORKER_INSTALLED=false
             if sudo systemctl cat corgi-ranking-worker.service > /dev/null 2>&1; then
               WORKER_INSTALLED=true
-              sudo systemctl restart corgi-ranking-worker
+              if ! sudo systemctl restart corgi-ranking-worker; then
+                echo "Ranking worker restart failed; API was not touched"
+                exit 1
+              fi
+
+              RANKING_COMMUNITY_ID="community-gov"
+              COMMUNITY_CONFIG=""
+              if [ -f .env ]; then
+                if ! COMMUNITY_CONFIG=$(sed -n 's/^RANKING_COMMUNITY_ID=//p' .env | tail -1); then
+                  echo "Could not read RANKING_COMMUNITY_ID from .env"
+                  exit 1
+                fi
+                COMMUNITY_CONFIG=$(printf '%s' "$COMMUNITY_CONFIG" | tr -d "\r\"'")
+                if [ -n "$COMMUNITY_CONFIG" ]; then
+                  RANKING_COMMUNITY_ID="$COMMUNITY_CONFIG"
+                fi
+              fi
+              WORKER_HEARTBEAT_KEY="corgi:ranking-worker:heartbeat:${RANKING_COMMUNITY_ID}"
+              WORKER_HEALTHY=false
+              for i in 1 2 3; do
+                WORKER_HEARTBEAT=""
+                if ! WORKER_HEARTBEAT=$(sudo docker compose -f docker-compose.prod.yml exec -T redis redis-cli --raw GET "$WORKER_HEARTBEAT_KEY"); then
+                  echo "Ranking worker heartbeat probe failed (attempt $i/3)"
+                elif [ -n "$WORKER_HEARTBEAT" ] && HEARTBEAT_JSON="$WORKER_HEARTBEAT" python3 -c 'import datetime, json, os; payload=json.loads(os.environ["HEARTBEAT_JSON"]); updated=datetime.datetime.fromisoformat(payload["updatedAt"].replace("Z", "+00:00")); age=(datetime.datetime.now(datetime.timezone.utc)-updated).total_seconds(); raise SystemExit(0 if 0 <= age <= 60 and payload.get("state") != "failed" else 1)'; then
+                  echo "Ranking worker heartbeat passed (attempt $i/3)"
+                  WORKER_HEALTHY=true
+                  break
+                else
+                  echo "Ranking worker heartbeat is missing, malformed, stale, or failed (attempt $i/3)"
+                fi
+                sleep 10
+              done
+              if [ "$WORKER_HEALTHY" != "true" ]; then
+                echo "Ranking worker did not become ready; API was not touched"
+                exit 1
+              fi
             fi
             sudo systemctl restart bluesky-feed
 
@@ -181,31 +227,6 @@ jobs:
                 else
                   echo "Demo API isolation verified: session state is absent from production Redis"
                 fi
-              fi
-            fi
-
-            if [ "$HEALTHY" = "true" ] && [ "$WORKER_INSTALLED" = "true" ]; then
-              WORKER_HEALTHY=false
-              for i in 1 2 3; do
-                WORKER_HEARTBEAT=$(sudo docker compose -f docker-compose.prod.yml exec -T redis redis-cli --raw GET corgi:ranking-worker:heartbeat:community-gov)
-                if [ -n "$WORKER_HEARTBEAT" ] && HEARTBEAT_JSON="$WORKER_HEARTBEAT" python3 -c '
-import datetime
-import json
-import os
-payload = json.loads(os.environ["HEARTBEAT_JSON"])
-updated = datetime.datetime.fromisoformat(payload["updatedAt"].replace("Z", "+00:00"))
-age = (datetime.datetime.now(datetime.timezone.utc) - updated).total_seconds()
-raise SystemExit(0 if 0 <= age <= 60 and payload.get("state") != "failed" else 1)
-'; then
-                  echo "Ranking worker heartbeat passed (attempt $i/3)"
-                  WORKER_HEALTHY=true
-                  break
-                fi
-                sleep 10
-              done
-              if [ "$WORKER_HEALTHY" != "true" ]; then
-                echo "Ranking worker heartbeat did not become healthy"
-                HEALTHY=false
               fi
             fi
 

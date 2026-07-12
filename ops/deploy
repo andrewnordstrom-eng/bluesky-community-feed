@@ -15,23 +15,70 @@ echo "=== Building ==="
 npx tsc
 
 if [ "${1:-}" != "--skip-migrate" ]; then
-  if [ "$(findmnt -n -o TARGET --target /mnt/host-backups)" != "/mnt/host-backups" ]; then
+  backup_target=""
+  if ! backup_target=$(findmnt -n -o TARGET --target /mnt/host-backups); then
+    echo "ERROR: could not inspect dedicated backup mount; refusing migration" >&2
+    exit 1
+  fi
+  if [ "$backup_target" != "/mnt/host-backups" ]; then
     echo "ERROR: dedicated backup mount missing; refusing migration" >&2
     exit 1
   fi
-  latest_backup=$(find /mnt/host-backups/postgres -maxdepth 1 -type f -name 'dump-*.sql.gz' -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)
+  latest_backup=""
+  if ! latest_backup=$(find /mnt/host-backups/postgres -maxdepth 1 -type f -name 'dump-*.sql.gz' -printf '%T@ %p\n' | sort -nr | sed -n '1p' | cut -d' ' -f2-); then
+    echo "ERROR: could not inspect PostgreSQL backups; refusing migration" >&2
+    exit 1
+  fi
   if [ -z "$latest_backup" ]; then
     echo "ERROR: no PostgreSQL backup exists; refusing migration" >&2
     exit 1
   fi
-  gzip -t "$latest_backup"
+  if ! gzip -t "$latest_backup"; then
+    echo "ERROR: newest PostgreSQL backup failed gzip validation; refusing migration" >&2
+    exit 1
+  fi
   echo "=== Running migrations ==="
   npm run migrate
 fi
 
 if systemctl cat corgi-ranking-worker.service > /dev/null 2>&1; then
   echo "=== Restarting ranking worker ==="
-  systemctl restart corgi-ranking-worker
+  if ! systemctl restart corgi-ranking-worker; then
+    echo "ERROR: ranking worker restart failed; API was not touched" >&2
+    exit 1
+  fi
+
+  ranking_community_id="${RANKING_COMMUNITY_ID:-community-gov}"
+  if [ -z "${RANKING_COMMUNITY_ID:-}" ] && [ -f .env ]; then
+    community_config=""
+    if ! community_config=$(sed -n 's/^RANKING_COMMUNITY_ID=//p' .env | tail -1); then
+      echo "ERROR: could not read RANKING_COMMUNITY_ID from .env" >&2
+      exit 1
+    fi
+    community_config=$(printf '%s' "$community_config" | tr -d "\r\"'")
+    if [ -n "$community_config" ]; then
+      ranking_community_id="$community_config"
+    fi
+  fi
+  worker_heartbeat_key="corgi:ranking-worker:heartbeat:${ranking_community_id}"
+  worker_healthy=false
+  for attempt in 1 2 3; do
+    worker_heartbeat=""
+    if ! worker_heartbeat=$(timeout 5 docker exec bluesky-feed-redis redis-cli --raw GET "$worker_heartbeat_key" 2>/dev/null); then
+      echo "Ranking worker heartbeat probe failed (attempt $attempt/3)" >&2
+    elif [ -n "$worker_heartbeat" ] && HEARTBEAT_JSON="$worker_heartbeat" python3 -c 'import datetime, json, os; payload=json.loads(os.environ["HEARTBEAT_JSON"]); updated=datetime.datetime.fromisoformat(payload["updatedAt"].replace("Z", "+00:00")); age=(datetime.datetime.now(datetime.timezone.utc)-updated).total_seconds(); raise SystemExit(0 if 0 <= age <= 60 and payload.get("state") != "failed" else 1)' 2>/dev/null; then
+      worker_healthy=true
+      echo "Ranking worker heartbeat passed (attempt $attempt/3)"
+      break
+    else
+      echo "Ranking worker heartbeat is missing, malformed, stale, or failed (attempt $attempt/3)" >&2
+    fi
+    sleep 10
+  done
+  if [ "$worker_healthy" != "true" ]; then
+    echo "ERROR: ranking worker did not become ready; API was not touched" >&2
+    exit 1
+  fi
 fi
 
 echo "=== Restarting API service ==="

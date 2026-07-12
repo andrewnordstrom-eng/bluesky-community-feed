@@ -97,8 +97,17 @@ describe('admin manual rescore overlap guard', () => {
     readRankingWorkerHealthMock.mockReset();
     readRankingWorkerHealthMock.mockResolvedValue({
       healthy: true,
-      heartbeat: null,
-      ageMs: null,
+      heartbeat: {
+        schemaVersion: 1,
+        workerId: 'worker-1',
+        communityId: 'community-gov',
+        state: 'idle',
+        updatedAt: '2026-07-12T05:00:00.000Z',
+        currentRequestId: null,
+        lastCompletedAt: '2026-07-12T04:59:00.000Z',
+        lastError: null,
+      },
+      ageMs: 1_000,
       queue: {
         pendingCount: 0,
         claimedCount: 0,
@@ -154,6 +163,34 @@ describe('admin manual rescore overlap guard', () => {
     expect(enqueueManualScoringRunMock).toHaveBeenCalledTimes(1);
     expect(dbQueryMock).toHaveBeenCalledTimes(1);
     expect(dbQueryMock.mock.calls[0]?.[0]).toContain('INSERT INTO governance_audit_log');
+
+    await app.close();
+  });
+
+  it('returns the queued receipt when auxiliary audit persistence fails', async () => {
+    enqueueManualScoringRunMock.mockResolvedValue({
+      id: 'request-2',
+      created: true,
+      idempotencyKey: 'manual:community-gov:did:plc:admin:2',
+    });
+    dbQueryMock.mockRejectedValue(new Error('audit database unavailable'));
+
+    const app = Fastify();
+    registerFeedHealthRoutes(app);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/feed/rescore',
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(response.json()).toMatchObject({
+      success: true,
+      queued: true,
+      requestId: 'request-2',
+    });
+    expect(enqueueManualScoringRunMock).toHaveBeenCalledTimes(1);
+    expect(dbQueryMock).toHaveBeenCalledTimes(1);
 
     await app.close();
   });

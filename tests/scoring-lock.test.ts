@@ -73,4 +73,29 @@ describe('token-owned Redis scoring lease', () => {
     expect(scoringLeaseKey('future-feed')).toBe('lock:scoring:future-feed');
     expect(() => scoringLeaseKey('')).toThrow('must be non-empty');
   });
+
+  it('rejects invalid TTL and empty ownership tokens at every operation', async () => {
+    expect(() => new OwnedRedisLease(client, 'lock:scoring', 999)).toThrow('>= 1000');
+    await expect(lease.acquire('')).rejects.toThrow('token must be non-empty');
+    await expect(lease.renew('  ')).rejects.toThrow('token must be non-empty');
+    await expect(lease.release('')).rejects.toThrow('token must be non-empty');
+  });
+
+  it('allows only one of two concurrent contenders to acquire ownership', async () => {
+    set.mockResolvedValueOnce('OK').mockResolvedValueOnce(null);
+
+    const results = await Promise.all([
+      lease.acquire('owner-a'),
+      lease.acquire('owner-b'),
+    ]);
+
+    expect(results).toEqual([true, false]);
+    expect(set).toHaveBeenCalledTimes(2);
+  });
+
+  it('fails closed when Redis cannot renew ownership', async () => {
+    evalScript.mockRejectedValue(new Error('connection reset'));
+
+    await expect(lease.renew('owner-a')).rejects.toBeInstanceOf(RedisLeaseUnavailableError);
+  });
 });

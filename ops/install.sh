@@ -103,7 +103,14 @@ echo "✓ systemctl daemon-reload"
 systemctl enable bluesky-feed 2>/dev/null || true
 echo "✓ bluesky-feed enabled"
 
-systemctl enable corgi-ranking-worker 2>/dev/null || true
+if ! systemctl list-unit-files corgi-ranking-worker.service --no-legend 2>/dev/null | grep -q '^corgi-ranking-worker.service'; then
+  echo "ERROR: corgi-ranking-worker.service is not installed; cannot enable it" >&2
+  exit 1
+fi
+if ! systemctl enable corgi-ranking-worker 2>/dev/null; then
+  echo "ERROR: failed to enable corgi-ranking-worker.service" >&2
+  exit 1
+fi
 echo "✓ corgi-ranking-worker enabled (not started by installer)"
 
 systemctl enable --now health-watchdog.timer 2>/dev/null || true

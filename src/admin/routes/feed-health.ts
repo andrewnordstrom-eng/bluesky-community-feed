@@ -199,17 +199,25 @@ export function registerFeedHealthRoutes(app: FastifyInstance): void {
       });
     }
 
-    // Log to audit
-    await db.query(
-      `INSERT INTO governance_audit_log (action, actor_did, details)
-       VALUES ('manual_rescore', $1, $2)`,
-      [adminDid, JSON.stringify({
-        requestId: rankingRequest.id,
-        idempotencyKey: rankingRequest.idempotencyKey,
-        created: rankingRequest.created,
-        queuedAt: new Date().toISOString(),
-      })]
-    );
+    // The durable queue write is authoritative. An auxiliary audit failure
+    // must not tell the caller that an already-queued request was rejected.
+    try {
+      await db.query(
+        `INSERT INTO governance_audit_log (action, actor_did, details)
+         VALUES ('manual_rescore', $1, $2)`,
+        [adminDid, JSON.stringify({
+          requestId: rankingRequest.id,
+          idempotencyKey: rankingRequest.idempotencyKey,
+          created: rankingRequest.created,
+          queuedAt: new Date().toISOString(),
+        })]
+      );
+    } catch (error) {
+      logger.error(
+        { err: error, adminDid, requestId: rankingRequest.id },
+        'Manual rescore was queued but governance audit persistence failed'
+      );
+    }
 
     logger.info(
       { adminDid, requestId: rankingRequest.id, created: rankingRequest.created },
