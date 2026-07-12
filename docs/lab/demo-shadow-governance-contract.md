@@ -91,7 +91,7 @@ Failure returns the explicitly labeled mechanics fixture. The system never weake
 ### Approved 2026-07-11 Snapshot Receipt
 
 - Manifest: 100 ordered production URIs, epoch 2, publication run `96698b9f-8933-4d54-b011-0c861ce898b3`.
-- Release-bundle digest: `80a7a0573b8ca29710830cd1ebc15791a3794ee7c7bf9793a9163e887879dbe3`; this binds the ordered entries, reviewed CIDs, per-post frozen score lineage and ranking inputs, provenance, frozen signal/topic policies, publication policy, and review metadata.
+- Release-bundle digest: `b4d0eb29dd456c881e118ebe53051bb75c3b5f810ac8e9de7badcd09913d49b5`; this binds the ordered entries, reviewed CIDs, per-post frozen score lineage and ranking inputs, provenance, frozen signal/topic policies, publication policy, and review metadata.
 - Baseline-order digest: `4fcc78007cf74389074df54aa809e70836e921f5d7573720dbb4a48478bb4be1`; this separately fingerprints the ordered rank/URI cohort and remains stable when only publication scores or frozen inputs change.
 - Production score receipt: 100/100 source entries carry complete five-component decompositions and their own score-run IDs.
 - Eligibility: 74 public posts passed current AppView visibility and deterministic reviewer-safety gates; 26 source positions were withheld. Hidden records expose no text, identity, media, quote, or source URL.

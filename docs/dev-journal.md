@@ -1591,7 +1591,7 @@ The v4 product path now starts directly with Community Governed Feed, exposes al
 - Source updated: `2026-07-12T05:58:39.436Z`.
 - Captured: `2026-07-12T06:01:08.660Z`.
 - Reviewed: `2026-07-12T06:02:16.144Z`.
-- Release-bundle digest: `80a7a0573b8ca29710830cd1ebc15791a3794ee7c7bf9793a9163e887879dbe3`.
+- Release-bundle digest: `b4d0eb29dd456c881e118ebe53051bb75c3b5f810ac8e9de7badcd09913d49b5`.
 - Baseline-order digest: `4fcc78007cf74389074df54aa809e70836e921f5d7573720dbb4a48478bb4be1`.
 - All 100 source entries freeze complete five-component decompositions and their own score-run IDs; 74 were public and displayable, while 26 were withheld.
 - 100% score-decomposition completeness for the 100 source posts.
