@@ -31,6 +31,10 @@ const snapshotProvenance: ShadowDemoCorpusProvenance = {
 }
 
 const demoPageSource = readFileSync(new URL("../page.tsx", import.meta.url), "utf8")
+const votePanelSource = readFileSync(
+  new URL("../../../components/demo/vote-panel.tsx", import.meta.url),
+  "utf8",
+)
 
 function makeFeed(overrides: Partial<ShadowDemoFeed>): ShadowDemoFeed {
   return {
@@ -136,5 +140,13 @@ describe("demo v4 frontend release blockers", () => {
       /\[mobileView, receiptFocusRequest, reduceMotion, reranked, selectedUri\]/,
     )
     expect(demoPageSource).toMatch(/aria-live="polite" aria-atomic="true"[\s\S]*?\{receiptAnnouncement\}/)
+  })
+
+  it("keeps expanded desktop voting controls independently scrollable with the action visible", () => {
+    expect(votePanelSource).toMatch(/xl:max-h-\[calc\(100dvh-7rem\)\]/)
+    expect(votePanelSource).toMatch(/xl:overflow-y-auto/)
+    expect(votePanelSource).toMatch(/xl:overscroll-contain/)
+    expect(votePanelSource).toMatch(/xl:\[scrollbar-gutter:stable\]/)
+    expect(votePanelSource).toMatch(/xl:shrink-0[\s\S]*?STEP_PANELS\.vote\.cta/)
   })
 })
