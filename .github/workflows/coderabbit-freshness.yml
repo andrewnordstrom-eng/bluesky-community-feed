@@ -252,14 +252,8 @@ jobs:
                 const latestReview = exactHeadReviewTruth.latestReview;
                 if (latestReview) {
                   const latestState = (latestReview.state || "").trim().toUpperCase() || "unknown";
-                  if (latestState === "COMMENTED") {
-                    core.notice(
-                      `[coderabbit-freshness:ok_review_comment_only] Exact-head CodeRabbit review is COMMENTED at ${latestReview.submittedAt || "unknown time"}; the separately required thread gate remains authoritative for unresolved findings.`
-                    );
-                    return;
-                  }
                   failWithAction(
-                    `Exact-head CodeRabbit review exists but has no acceptable APPROVED/CHANGES_REQUESTED/COMMENTED state (latest state: ${latestState})`
+                    `Exact-head CodeRabbit review exists but has no decisive APPROVED/CHANGES_REQUESTED state (latest state: ${latestState}); confirm request_changes_workflow is enabled`
                   );
                   return;
                 }

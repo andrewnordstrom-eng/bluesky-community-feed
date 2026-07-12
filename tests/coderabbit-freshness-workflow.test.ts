@@ -279,7 +279,7 @@ describe('coderabbit freshness exact-head review identity', () => {
     expect(result.failures[0]).toMatch(/exact-head review/);
   });
 
-  it('accepts an exact-head comment-only review while leaving findings to the thread gate', async () => {
+  it('fails closed on an exact-head comment-only review', async () => {
     const result = await runScenario([
       review(
         'head',
@@ -290,8 +290,7 @@ describe('coderabbit freshness exact-head review identity', () => {
       ),
     ]);
 
-    expect(result.failures).toEqual([]);
-    expect(result.notices[0]).toMatch(/ok_review_comment_only/);
+    expect(result.failures[0]).toMatch(/no decisive APPROVED\/CHANGES_REQUESTED state/);
   });
 
   it('rejects a genuinely missing exact-head CodeRabbit review', async () => {
@@ -409,7 +408,7 @@ describe('coderabbit freshness exact-head review identity', () => {
         ),
       ]);
 
-      expect(result.failures[0]).toMatch(/no acceptable APPROVED\/CHANGES_REQUESTED\/COMMENTED state/);
+      expect(result.failures[0]).toMatch(/no decisive APPROVED\/CHANGES_REQUESTED state/);
     },
   );
 
