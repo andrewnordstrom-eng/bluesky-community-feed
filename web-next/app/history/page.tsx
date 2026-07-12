@@ -10,6 +10,7 @@ import { StatusChip } from "@/components/ui/status-chip"
 import { WeightsSkeleton, EmptyState, ErrorCard, Skeleton } from "@/components/ui/state-kit"
 import { SIGNAL_COLORS, SIGNAL_LABELS, type SignalKey } from "@/lib/signals"
 import { transparencyApi, type EpochResponse, type AuditLogEntry } from "@/lib/api/client"
+import { policyIsActive, showParticipationRatio, ballotCountText } from "@/lib/governance-status"
 
 /* ─── Constants ────────────────────────────────────────── */
 
@@ -23,7 +24,8 @@ const AUDIT_PAGE_SIZE = 25
 interface EpochView {
   id: number
   status: string
-  phase: string
+  /** True when this round's weights are the policy currently applied to the feed. */
+  policyActive: boolean
   vote_count: number
   subscriber_count: number
   created_at: string
@@ -46,7 +48,10 @@ function deriveEpochViews(epochs: EpochResponse[]): EpochView[] {
     return {
       id: epoch.id,
       status: epoch.status,
-      phase: epoch.phase ?? epoch.status,
+      // The backend's `phase` field is only meaningful for the current voting
+      // cycle (historical epochs keep whatever phase they last had), so the
+      // ledger derives its label from the policy lifecycle instead.
+      policyActive: policyIsActive(epoch),
       vote_count: epoch.vote_count,
       subscriber_count: epoch.subscriber_count ?? 0,
       created_at: epoch.created_at,
@@ -110,7 +115,8 @@ function EpochCard({
   selected: boolean
   onClick: () => void
 }) {
-  // NaN-guard: subscriber_count can be 0 for a fresh round.
+  // Participation math is only shown once the member count is meaningful.
+  const showRatio = showParticipationRatio(epoch.subscriber_count)
   const participation = epoch.subscriber_count > 0 ? Math.round((epoch.vote_count / epoch.subscriber_count) * 100) : 0
 
   return (
@@ -129,33 +135,38 @@ function EpochCard({
       <div className={`flex gap-0 overflow-hidden rounded-xl`}>
         <div className={`w-1 flex-shrink-0 rounded-l-xl transition-colors ${selected ? "bg-primary" : "bg-transparent"}`} aria-hidden="true" />
         <div className="flex-1 p-4 flex flex-col gap-3">
-          {/* Top row: round number + phase chip */}
+          {/* Top row: round number + policy-state chip */}
           <div className="flex items-center justify-between gap-2">
             <span className={`text-xl font-mono font-bold leading-none ${selected ? "text-foreground" : "text-foreground/70"}`}>
               #{epoch.id}
             </span>
-            <StatusChip phase={epoch.phase} />
+            <StatusChip phase={epoch.policyActive ? "active" : "archived"} />
           </div>
           {/* Stats row */}
           <div className="flex items-center justify-between text-xs">
             <span className="font-mono text-foreground/50 tabular-nums">
               {epoch.vote_count.toLocaleString()} votes
             </span>
-            <span className="font-mono text-foreground/40">
-              {participation}%
-            </span>
+            {showRatio && (
+              <span className="font-mono text-foreground/50">
+                {participation}%
+              </span>
+            )}
           </div>
           {/* Participation bar */}
-          <div className="h-1 rounded-full bg-biscuit overflow-hidden">
-            <div
-              className={`h-1 rounded-full transition-all ${selected ? "bg-primary" : "bg-primary/40"}`}
-              style={{ width: `${participation}%` }}
-            />
-          </div>
+          {showRatio && (
+            <div className="h-1 rounded-full bg-biscuit overflow-hidden">
+              <div
+                className={`h-1 rounded-full transition-all ${selected ? "bg-primary" : "bg-primary/40"}`}
+                style={{ width: `${participation}%` }}
+              />
+            </div>
+          )}
           {/* Date */}
-          <time dateTime={epoch.created_at} className="text-[10px] font-mono text-foreground/45">
-            {fmtDate(epoch.created_at)}
-            {epoch.closed_at ? ` – ${fmtDate(epoch.closed_at)}` : " · active"}
+          <time dateTime={epoch.created_at} className="text-[10px] font-mono text-foreground/55">
+            {epoch.closed_at
+              ? `${fmtDate(epoch.created_at)} – ${fmtDate(epoch.closed_at)}`
+              : `since ${fmtDate(epoch.created_at)}`}
           </time>
         </div>
       </div>
@@ -181,7 +192,7 @@ function WeightDiffRow({
     <div className="flex items-center gap-2 sm:gap-3">
       <span className="text-sm font-medium text-foreground w-24 sm:w-32 flex-shrink-0">{label}</span>
       <div className="flex items-center gap-2 flex-1 min-w-0">
-        <span className="text-xs font-mono text-foreground/40 w-7 text-right tabular-nums flex-shrink-0">
+        <span className="text-xs font-mono text-foreground/50 w-7 text-right tabular-nums flex-shrink-0">
           {(before * 100).toFixed(0)}%
         </span>
         {/* Before track (muted) with the new weight in the signal's color */}
@@ -213,12 +224,59 @@ function WeightDiffRow({
   )
 }
 
+/** Above this many additions, keyword chips collapse behind a one-line summary.
+ *  A long suppression list (e.g. an adult-content filter) is still fully
+ *  inspectable, but doesn't dominate the round detail by default. */
+const KEYWORD_COLLAPSE_THRESHOLD = 6
+
+function CollapsibleKeywordGroup({
+  words,
+  variant,
+  summaryLabel,
+}: {
+  words: string[]
+  variant: "add-include" | "add-exclude"
+  summaryLabel: string
+}) {
+  const [expanded, setExpanded] = useState(false)
+  if (words.length === 0) return null
+  if (words.length <= KEYWORD_COLLAPSE_THRESHOLD || expanded) {
+    return (
+      <>
+        {words.map((w) => (
+          <KeywordDiffRow key={`${variant}-${w}`} word={w} variant={variant} />
+        ))}
+        {words.length > KEYWORD_COLLAPSE_THRESHOLD && (
+          <button
+            type="button"
+            onClick={() => setExpanded(false)}
+            className="text-xs text-primary/80 hover:text-primary transition-colors underline underline-offset-2"
+          >
+            Collapse
+          </button>
+        )}
+      </>
+    )
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => setExpanded(true)}
+      aria-expanded={false}
+      className="inline-flex items-center gap-1.5 text-xs font-mono px-2.5 py-1 rounded-full border bg-tongue/10 border-tongue/25 text-tongue-foreground hover:bg-tongue/20 transition-colors"
+    >
+      {summaryLabel} · {words.length} keywords
+      <span aria-hidden="true">▸</span>
+    </button>
+  )
+}
+
 function KeywordDiffRow({ word, variant }: { word: string; variant: "add-include" | "add-exclude" | "remove-include" | "remove-exclude" }) {
   const cfg = {
     "add-include":    { prefix: "+", label: "boost",    cls: "bg-success/10 border-success/25 text-success" },
     "add-exclude":    { prefix: "−", label: "suppress", cls: "bg-tongue/15 border-tongue/25 text-tongue-foreground" },
-    "remove-include": { prefix: "+", label: "removed",  cls: "bg-foreground/8 border-border text-foreground/45 line-through" },
-    "remove-exclude": { prefix: "−", label: "removed",  cls: "bg-foreground/8 border-border text-foreground/45 line-through" },
+    "remove-include": { prefix: "+", label: "removed",  cls: "bg-foreground/8 border-border text-foreground/55 line-through" },
+    "remove-exclude": { prefix: "−", label: "removed",  cls: "bg-foreground/8 border-border text-foreground/55 line-through" },
   }[variant]
   return (
     <span className={`inline-flex items-center gap-1 text-xs font-mono px-2.5 py-1 rounded-full border ${cfg.cls}`}>
@@ -245,7 +303,7 @@ function AuditRow({ entry }: { entry: AuditLogEntry }) {
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-medium text-foreground font-mono">{entry.action}</span>
             {handle && (
-              <span className="text-xs font-mono text-foreground/45 truncate max-w-[200px]">
+              <span className="text-xs font-mono text-foreground/55 truncate max-w-[200px]">
                 {handle}
               </span>
             )}
@@ -272,7 +330,7 @@ function AuditRow({ entry }: { entry: AuditLogEntry }) {
           </span>
           <time
             dateTime={entry.created_at}
-            className="text-[10px] font-mono text-foreground/45"
+            className="text-[10px] font-mono text-foreground/55"
             title={fmtDate(entry.created_at, "long")}
           >
             {fmtRelative(entry.created_at)}
@@ -293,6 +351,7 @@ function DetailPanel({ epoch, epochAudit, auditWindowNote }: { epoch: EpochView;
     epoch.keywords_removed.include.length +
     epoch.keywords_removed.exclude.length > 0
 
+  const showRatio = showParticipationRatio(epoch.subscriber_count)
   const participation = epoch.subscriber_count > 0 ? Math.round((epoch.vote_count / epoch.subscriber_count) * 100) : 0
 
   return (
@@ -305,15 +364,17 @@ function DetailPanel({ epoch, epochAudit, auditWindowNote }: { epoch: EpochView;
             <h2 className="font-display text-2xl font-bold text-foreground tracking-normal">
               Round #{epoch.id}
             </h2>
-            <StatusChip phase={epoch.phase} />
+            <StatusChip phase={epoch.policyActive ? "active" : "archived"} />
           </div>
-          <p className="text-sm text-foreground/50">
-            {epoch.vote_count.toLocaleString()} votes of {epoch.subscriber_count.toLocaleString()} members
-            {" · "}{participation}% participation
+          <p className="text-sm text-foreground/55">
+            {showRatio
+              ? `${epoch.vote_count.toLocaleString()} votes of ${epoch.subscriber_count.toLocaleString()} members · ${participation}% participation`
+              : ballotCountText(epoch.vote_count)}
           </p>
-          <p className="text-xs font-mono text-foreground/45 mt-0.5">
-            {fmtDate(epoch.created_at, "long")}
-            {epoch.closed_at ? ` — ${fmtDate(epoch.closed_at, "long")}` : " · still open"}
+          <p className="text-xs font-mono text-foreground/55 mt-0.5">
+            {epoch.closed_at
+              ? `In effect ${fmtDate(epoch.created_at, "long")} — ${fmtDate(epoch.closed_at, "long")}`
+              : `Policy in effect since ${fmtDate(epoch.created_at, "long")}`}
           </p>
         </div>
         <Link
@@ -326,7 +387,7 @@ function DetailPanel({ epoch, epochAudit, auditWindowNote }: { epoch: EpochView;
 
       {/* ── Applied weights — the signature stacked bar ────── */}
       <section aria-label="Applied weights">
-        <p className="text-[10px] font-mono text-foreground/40 uppercase tracking-widest mb-4">
+        <p className="text-[10px] font-mono text-foreground/50 uppercase tracking-widest mb-4">
           Applied weights
         </p>
         <PolicyBar weights={epoch.weights} height={14} />
@@ -335,17 +396,17 @@ function DetailPanel({ epoch, epochAudit, auditWindowNote }: { epoch: EpochView;
 
       {/* ── Weight diff vs previous ───────────────────────── */}
       <section aria-label="Weight changes vs previous round">
-        <p className="text-[10px] font-mono text-foreground/40 uppercase tracking-widest mb-4">
+        <p className="text-[10px] font-mono text-foreground/50 uppercase tracking-widest mb-4">
           {epoch.prev_weights
             ? `Changes vs round #${epoch.id - 1}`
             : `No previous round to compare`}
         </p>
         {!epoch.prev_weights ? (
-          <p className="text-sm text-foreground/45 italic">
+          <p className="text-sm text-foreground/55 italic">
             This is the oldest round in the ledger — no prior round to diff against.
           </p>
         ) : diffs.length === 0 ? (
-          <p className="text-sm text-foreground/45 italic">
+          <p className="text-sm text-foreground/55 italic">
             No weight changes from the previous round.
           </p>
         ) : (
@@ -369,21 +430,25 @@ function DetailPanel({ epoch, epochAudit, auditWindowNote }: { epoch: EpochView;
 
       {/* ── Keyword diff ─────────────────────────────────── */}
       <section aria-label="Keyword rule changes">
-        <p className="text-[10px] font-mono text-foreground/40 uppercase tracking-widest mb-4">
+        <p className="text-[10px] font-mono text-foreground/50 uppercase tracking-widest mb-4">
           Content rule changes
         </p>
         {!hasKeywordChanges ? (
-          <p className="text-sm text-foreground/45 italic">
+          <p className="text-sm text-foreground/55 italic">
             No keyword changes this round.
           </p>
         ) : (
-          <div className="flex flex-wrap gap-2">
-            {epoch.keywords_added.include.map((w) => (
-              <KeywordDiffRow key={`ai-${w}`} word={w} variant="add-include" />
-            ))}
-            {epoch.keywords_added.exclude.map((w) => (
-              <KeywordDiffRow key={`ae-${w}`} word={w} variant="add-exclude" />
-            ))}
+          <div className="flex flex-wrap items-center gap-2">
+            <CollapsibleKeywordGroup
+              words={epoch.keywords_added.include}
+              variant="add-include"
+              summaryLabel="+ boosted-keyword list"
+            />
+            <CollapsibleKeywordGroup
+              words={epoch.keywords_added.exclude}
+              variant="add-exclude"
+              summaryLabel="− suppressed-keyword filter"
+            />
             {epoch.keywords_removed.include.map((w) => (
               <KeywordDiffRow key={`ri-${w}`} word={w} variant="remove-include" />
             ))}
@@ -399,7 +464,7 @@ function DetailPanel({ epoch, epochAudit, auditWindowNote }: { epoch: EpochView;
 
       {/* ── Per-round audit events ────────────────────────── */}
       <section aria-label={`Audit events for round ${epoch.id}`}>
-        <p className="text-[10px] font-mono text-foreground/40 uppercase tracking-widest mb-2">
+        <p className="text-[10px] font-mono text-foreground/50 uppercase tracking-widest mb-2">
           Audit events · Round #{epoch.id}{auditWindowNote ? ` (${auditWindowNote})` : ""}
         </p>
         {epochAudit.length === 0 ? (
@@ -485,6 +550,10 @@ export default function HistoryPage() {
             <p className="text-sm text-foreground/50 leading-relaxed max-w-lg">
               Every weight change, keyword rule, and governance event — in full, forever. Select a round to inspect it.
             </p>
+            <p className="text-xs text-foreground/50 leading-relaxed max-w-lg">
+              Corgi is in its pilot phase: the early rounds below were run with a small group of voters to
+              prove the loop end-to-end, and they are kept here unedited.
+            </p>
           </div>
           <Link
             href="/dashboard"
@@ -501,7 +570,7 @@ export default function HistoryPage() {
         {epochsQuery.isLoading ? (
           <div className="flex flex-col lg:flex-row gap-6 items-start">
             <aside className="w-full lg:w-56 lg:flex-shrink-0 flex flex-col gap-2" aria-label="Loading rounds">
-              <p className="text-[10px] font-mono text-foreground/40 uppercase tracking-widest px-1 mb-1">
+              <p className="text-[10px] font-mono text-foreground/50 uppercase tracking-widest px-1 mb-1">
                 Rounds · newest first
               </p>
               <div className="flex flex-col gap-2">
@@ -540,7 +609,7 @@ export default function HistoryPage() {
               className="w-full lg:w-56 lg:flex-shrink-0 flex flex-col gap-2 lg:sticky lg:top-20"
               aria-label="Epoch timeline"
             >
-              <p className="text-[10px] font-mono text-foreground/40 uppercase tracking-widest px-1 mb-1">
+              <p className="text-[10px] font-mono text-foreground/50 uppercase tracking-widest px-1 mb-1">
                 Rounds · newest first
               </p>
               <nav className="flex flex-row lg:flex-col gap-2 overflow-x-auto pb-2 lg:pb-0" aria-label="Select a round">
@@ -569,10 +638,10 @@ export default function HistoryPage() {
         {/* ── Full audit table (all epochs) ────────────────── */}
         <section aria-label="Full audit log">
           <div className="flex items-center justify-between mb-4">
-            <p className="text-[10px] font-mono text-foreground/40 uppercase tracking-widest">
+            <p className="text-[10px] font-mono text-foreground/50 uppercase tracking-widest">
               Full audit log · {auditEntries.length} of {auditTotal} entries
             </p>
-            <span className="text-xs text-foreground/45 font-mono">
+            <span className="text-xs text-foreground/55 font-mono">
               Showing {auditEntries.length} most recent
             </span>
           </div>
@@ -602,9 +671,9 @@ export default function HistoryPage() {
             <div className="rounded-xl border border-border bg-card overflow-hidden">
               {/* Table header */}
               <div className="grid grid-cols-[1fr_auto_auto] gap-4 px-5 py-2.5 bg-biscuit/40 border-b border-border">
-                <span className="text-[10px] font-semibold text-foreground/40 uppercase tracking-wide">Event</span>
-                <span className="text-[10px] font-semibold text-foreground/40 uppercase tracking-wide w-14 text-center">Round</span>
-                <span className="text-[10px] font-semibold text-foreground/40 uppercase tracking-wide w-20 text-right">Time</span>
+                <span className="text-[10px] font-semibold text-foreground/50 uppercase tracking-wide">Event</span>
+                <span className="text-[10px] font-semibold text-foreground/50 uppercase tracking-wide w-14 text-center">Round</span>
+                <span className="text-[10px] font-semibold text-foreground/50 uppercase tracking-wide w-20 text-right">Time</span>
               </div>
               <div className="divide-y divide-border/60">
                 {auditEntries.map((entry) => (
@@ -613,7 +682,7 @@ export default function HistoryPage() {
               </div>
               {/* Pagination */}
               <div className="px-5 py-3 border-t border-border/60 flex items-center justify-between">
-                <span className="text-xs text-foreground/40 font-mono">{auditTotal} total · {auditEntries.length} shown</span>
+                <span className="text-xs text-foreground/50 font-mono">{auditTotal} total · {auditEntries.length} shown</span>
                 {auditHasMore && (
                   <button
                     type="button"

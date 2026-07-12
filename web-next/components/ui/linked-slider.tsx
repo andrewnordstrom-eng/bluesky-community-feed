@@ -86,7 +86,7 @@ export function LinkedSlider({
             <div className="flex items-center justify-between gap-2">
               <div className="flex flex-col gap-0">
                 <span className="text-sm font-medium text-foreground">{sig.label}</span>
-                <span className="text-xs text-foreground/40 leading-tight">{sig.description}</span>
+                <span className="text-xs text-foreground/50 leading-tight">{sig.description}</span>
               </div>
               <div className="flex items-center gap-1.5 flex-shrink-0">
                 {hasDelta && (

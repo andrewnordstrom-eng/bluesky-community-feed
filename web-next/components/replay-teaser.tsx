@@ -65,8 +65,8 @@ export function ReplayTeaser() {
       <div className="rounded-3xl border border-border bg-card shadow-[0_8px_40px_rgba(46,38,32,0.12)]">
         <div className="border-b border-border/60 px-4 py-4 sm:px-5">
           <div className="mb-2.5 flex items-center justify-between gap-3">
-            <p className="text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/45">Community policy</p>
-            <p className="hidden text-[11px] font-medium text-foreground/40 sm:block">Pick one &mdash; the feed reorders instantly</p>
+            <p className="text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/55">Community policy</p>
+            <p className="hidden text-[11px] font-medium text-foreground/50 sm:block">Pick one &mdash; the feed reorders instantly</p>
           </div>
           <div className="flex flex-wrap gap-2" role="group" aria-label="Community ranking policy">
             {epochs.map((epoch) => (
@@ -153,7 +153,7 @@ export function ReplayTeaser() {
 
           <div className="flex flex-col gap-4 bg-background/55 p-4 sm:p-5">
             <div className="rounded-2xl border border-border bg-card p-4 shadow-[0_2px_14px_rgba(46,38,32,0.06)]">
-              <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-foreground/45">{activeEpoch.eyebrow}</p>
+              <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-foreground/55">{activeEpoch.eyebrow}</p>
               <h3 className="mt-1 text-base font-bold leading-tight text-foreground">{activeEpoch.label}</h3>
               <p className="mt-1.5 text-xs leading-relaxed text-foreground/55">{activeEpoch.body}</p>
               <div className="mt-3.5">
@@ -161,7 +161,7 @@ export function ReplayTeaser() {
               </div>
             </div>
 
-            <p className="text-[11px] leading-relaxed text-foreground/45">
+            <p className="text-[11px] leading-relaxed text-foreground/55">
               Tap <span className="font-semibold text-primary">Why</span> on any post for its receipt. Rank badges and receipts are
               Corgi annotations, not native Bluesky chrome.
             </p>
@@ -169,7 +169,7 @@ export function ReplayTeaser() {
         </div>
 
         <div className="flex flex-col gap-2 border-t border-border/60 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <span className="text-xs text-foreground/45">
+          <span className="text-xs text-foreground/55">
             Illustrative demo &mdash; live ranking claims use Corgi receipts and snapshot data.
           </span>
           <Link href="/how-it-works#replay" className="text-sm font-semibold text-primary hover:underline underline-offset-2">

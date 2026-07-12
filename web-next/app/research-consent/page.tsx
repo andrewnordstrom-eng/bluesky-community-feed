@@ -24,7 +24,7 @@ function DisclosureSection({
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-2">
         <div className="h-px flex-1 bg-border/60" />
-        <span className="text-[10px] font-mono uppercase tracking-widest text-foreground/40 px-1">
+        <span className="text-[10px] font-mono uppercase tracking-widest text-foreground/50 px-1">
           {label}
         </span>
         <div className="h-px flex-1 bg-border/60" />
@@ -60,7 +60,7 @@ function StepDot({ label, done, active }: { label: string; done?: boolean; activ
           ${done ? "bg-success" : active ? "bg-primary" : "bg-border"}`}
         aria-hidden="true"
       />
-      <span className={`text-[10px] font-mono ${active ? "text-foreground/70" : "text-foreground/45"}`}>
+      <span className={`text-[10px] font-mono ${active ? "text-foreground/70" : "text-foreground/55"}`}>
         {label}
       </span>
     </div>
@@ -201,7 +201,7 @@ export default function ResearchConsentPage() {
           {/* Consent receipt — reflects what the backend recorded */}
           {agreed && (
             <div className="w-full rounded-xl border border-border bg-card px-5 py-4 flex flex-col gap-2 text-left">
-              <p className="text-[10px] font-mono uppercase tracking-widest text-foreground/40">Consent receipt</p>
+              <p className="text-[10px] font-mono uppercase tracking-widest text-foreground/50">Consent receipt</p>
               <div className="flex flex-col gap-1.5">
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-foreground/50">Decision</span>
@@ -222,7 +222,7 @@ export default function ResearchConsentPage() {
           )}
 
           {/* Withdrawal note */}
-          <p className="text-xs text-foreground/45 leading-relaxed max-w-xs">
+          <p className="text-xs text-foreground/55 leading-relaxed max-w-xs">
             You can change this at any time by contacting{" "}
             <a href="mailto:hello@corgi.network" className="text-primary hover:underline underline-offset-2">
               hello@corgi.network
@@ -329,7 +329,7 @@ export default function ResearchConsentPage() {
               </div>
 
               {/* Trust footer */}
-              <p className="text-xs text-foreground/40 text-center leading-relaxed">
+              <p className="text-xs text-foreground/50 text-center leading-relaxed">
                 By participating you agree to our{" "}
                 <Link href="/privacy" className="text-primary hover:underline underline-offset-2">
                   Privacy Policy

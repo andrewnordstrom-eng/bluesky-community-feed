@@ -28,7 +28,7 @@ export default function LandingPage() {
         <AnimatedSection className="relative z-20 pt-14 pb-4 md:pt-20" delay={0.15}>
           <Container width="stage">
             <div className="mx-auto mb-8 max-w-[720px] text-center md:mb-10">
-              <p className="mb-3 text-[11px] font-mono uppercase tracking-[0.22em] text-foreground/40">
+              <p className="mb-3 text-[11px] font-mono uppercase tracking-[0.22em] text-foreground/50">
                 Interactive preview
               </p>
               <h2 className="font-display text-3xl font-bold leading-tight tracking-tight text-foreground text-balance md:text-[40px] md:leading-[1.1]">

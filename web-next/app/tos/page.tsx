@@ -1,5 +1,13 @@
+import type { Metadata } from "next"
 import { AppShell } from "@/components/app-shell"
 import { LegalLayout, P, UL, LI, Strong, InlineLink } from "@/components/legal-layout"
+
+export const metadata: Metadata = {
+  title: "Terms of Service | Corgi",
+  description:
+    "The terms that govern using Corgi, the community-governed Bluesky feed — eligibility, governance participation, research consent, and prohibited conduct.",
+  alternates: { canonical: "/tos/" },
+}
 
 const SECTIONS = [
   {

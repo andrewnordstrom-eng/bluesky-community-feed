@@ -57,7 +57,7 @@ export function PageHero({
   return (
     <div className={`${center ? "text-center" : ""} ${className}`}>
       {eyebrow ? (
-        <p className="text-[11px] font-mono uppercase tracking-[0.22em] text-foreground/45">{eyebrow}</p>
+        <p className="text-[11px] font-mono uppercase tracking-[0.22em] text-foreground/55">{eyebrow}</p>
       ) : null}
       <h1
         className={`${eyebrow ? "mt-3" : ""} font-display font-bold leading-[1.05] tracking-tight text-balance text-foreground ${TITLE_SIZE[size]}`}

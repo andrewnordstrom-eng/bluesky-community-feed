@@ -24,16 +24,16 @@ export function FlowProgress({ currentIndex }: { readonly currentIndex: number }
                   ? "border-primary bg-primary text-primary-foreground"
                   : active
                     ? "border-primary bg-primary/10 text-primary"
-                    : "border-border bg-background text-foreground/40"
+                    : "border-border bg-background text-foreground/50"
               }`}
             >
               {done ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : index + 1}
             </span>
             <span className="flex flex-col leading-none">
-              <span className={`text-xs font-semibold ${active || done ? "text-foreground" : "text-foreground/45"}`}>
+              <span className={`text-xs font-semibold ${active || done ? "text-foreground" : "text-foreground/55"}`}>
                 {step.label}
               </span>
-              <span className="mt-0.5 hidden text-[10px] text-foreground/45 sm:block">{step.hint}</span>
+              <span className="mt-0.5 hidden text-[10px] text-foreground/55 sm:block">{step.hint}</span>
             </span>
             {index < FLOW_STEPS.length - 1 ? (
               <span

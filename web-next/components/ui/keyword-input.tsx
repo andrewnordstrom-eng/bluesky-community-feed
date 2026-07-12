@@ -65,7 +65,7 @@ export function KeywordInput({
         <label className="text-sm font-semibold text-foreground">{label}</label>
         <span
           className={`text-xs font-mono tabular-nums transition-colors
-            ${atMax ? "text-tongue-foreground font-semibold" : "text-foreground/40"}`}
+            ${atMax ? "text-tongue-foreground font-semibold" : "text-foreground/50"}`}
         >
           {keywords.length}/{MAX_KEYWORDS}
         </span>
@@ -113,7 +113,7 @@ export function KeywordInput({
             disabled={disabled}
             placeholder={keywords.length === 0 ? "Type and press Enter…" : ""}
             aria-label={`Add ${label.toLowerCase()} keyword`}
-            className="flex-1 min-w-[120px] bg-transparent text-xs font-mono text-foreground placeholder:text-foreground/45 outline-none border-none"
+            className="flex-1 min-w-[120px] bg-transparent text-xs font-mono text-foreground placeholder:text-foreground/55 outline-none border-none"
           />
         )}
 

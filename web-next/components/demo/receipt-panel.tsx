@@ -283,7 +283,7 @@ export function ReceiptPanel({
         </div>
 
         <div className="mt-1">
-          <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-foreground/45">Counterfactuals</p>
+          <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-foreground/55">Counterfactuals</p>
           <div className="mt-2 flex flex-col gap-1.5">
             {receipt.counterfactuals.map((item) => (
               <CounterfactualRow key={item.id} item={item} />

@@ -6,6 +6,7 @@ export const metadata: Metadata = {
   title: "Corgi docs — how the ranking works",
   description:
     "How Corgi scores posts: the five signals, the scoring math, epochs and voting, transparency receipts, and where to find the source and API.",
+  alternates: { canonical: "/docs/" },
 }
 
 const SECTIONS = [

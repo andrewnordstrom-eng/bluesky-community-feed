@@ -220,7 +220,7 @@ export function RankColumnHeader({ label = "Corgi rank", sublabel }: { readonly 
   return (
     <div className="flex flex-col items-center justify-center border-l border-border/60 bg-biscuit/25 px-2 text-center">
       <span className="font-mono text-[9.5px] font-bold uppercase tracking-[0.14em] leading-none text-primary/80">{label}</span>
-      {sublabel ? <span className="mt-1 font-mono text-[9px] leading-none text-foreground/45">{sublabel}</span> : null}
+      {sublabel ? <span className="mt-1 font-mono text-[9px] leading-none text-foreground/55">{sublabel}</span> : null}
     </div>
   )
 }

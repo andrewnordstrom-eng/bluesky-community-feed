@@ -8,22 +8,27 @@ import { PolicyBar, PolicyLegend } from "@/components/ui/policy-bar"
 import { ErrorCard, Skeleton } from "@/components/ui/state-kit"
 import { SIGNAL_KEYS, SIGNAL_LABELS } from "@/lib/signals"
 import { weightsApi, transparencyApi, type EpochResponse } from "@/lib/api/client"
+import { votingState, votingClosedDate } from "@/lib/governance-status"
 
 function pct(value: number): string {
   return `${Math.round(value * 100)}%`
 }
 
-function formatDate(value: string | null | undefined): string {
+function formatDate(value: string | Date | null | undefined): string {
   if (!value) return "—"
-  const d = new Date(value)
+  const d = value instanceof Date ? value : new Date(value)
   return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString([], { dateStyle: "medium" })
 }
 
 function phaseLabel(epoch: EpochResponse): string {
-  if (epoch.phase === "voting") return "Voting open"
-  if (epoch.phase === "results") return "Results"
-  if (epoch.phase === "running") return "Applied"
-  return epoch.status
+  if (votingState(epoch) === "open") return "Voting open"
+  if (votingState(epoch) === "review") return "Under review"
+  // Voting is over; if the policy is still applied, say so.
+  return policyApplied(epoch) ? "Active policy" : "Closed"
+}
+
+function policyApplied(epoch: EpochResponse): boolean {
+  return epoch.status === "active" || epoch.closed_at == null
 }
 
 /** The signal carrying the most weight in a policy — the round's headline. */
@@ -51,7 +56,7 @@ export default function ProposalsPage() {
     <AppShell>
       <Container as="main" width="doc" className="flex flex-col gap-8 py-10 md:py-14">
         <div>
-          <p className="font-mono text-[11px] uppercase tracking-[0.22em] text-foreground/45">Governance</p>
+          <p className="font-mono text-[11px] uppercase tracking-[0.22em] text-foreground/55">Governance</p>
           <h1 className="mt-2 font-display text-3xl font-bold tracking-tight text-foreground md:text-4xl">Proposals</h1>
           <p className="mt-3 max-w-2xl text-base leading-relaxed text-foreground/60">
             Every governance round is a proposal to reweight the feed. Members vote on the five ranking signals; when the
@@ -69,7 +74,7 @@ export default function ProposalsPage() {
 
         {/* Current round */}
         <section className="flex flex-col gap-3">
-          <h2 className="font-mono text-sm uppercase tracking-[0.18em] text-foreground/45">Current round</h2>
+          <h2 className="font-mono text-sm uppercase tracking-[0.18em] text-foreground/55">Current round</h2>
           {currentQuery.isLoading ? (
             <Skeleton className="h-40 w-full rounded-2xl" />
           ) : currentQuery.isError || !current ? (
@@ -87,7 +92,7 @@ export default function ProposalsPage() {
                     {phaseLabel(current)}
                   </span>
                 </div>
-                {current.phase === "voting" ? (
+                {votingState(current) === "open" ? (
                   <Link
                     href="/vote"
                     className="rounded text-sm font-semibold text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
@@ -102,14 +107,21 @@ export default function ProposalsPage() {
                   <PolicyLegend weights={current.weights} className="mt-3" />
                 </div>
                 <div className="flex gap-6 border-t border-border/50 pt-3 text-sm">
-                  <span className="text-foreground/55">
-                    <span className="font-mono font-bold text-foreground tabular-nums">{current.vote_count}</span> votes
-                  </span>
-                  {current.voting_ends_at ? (
+                  {current.vote_count > 0 ? (
+                    <span className="text-foreground/55">
+                      <span className="font-mono font-bold text-foreground tabular-nums">{current.vote_count}</span> votes
+                    </span>
+                  ) : null}
+                  {votingState(current) === "open" && current.voting_ends_at ? (
                     <span className="text-foreground/55">
                       Voting ends <span className="font-mono font-semibold text-foreground">{formatDate(current.voting_ends_at)}</span>
                     </span>
-                  ) : null}
+                  ) : (
+                    <span className="text-foreground/55">
+                      Voting closed <span className="font-mono font-semibold text-foreground">{formatDate(votingClosedDate(current))}</span>
+                      {policyApplied(current) ? " · this policy ranks the feed today" : ""}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -118,7 +130,7 @@ export default function ProposalsPage() {
 
         {/* Past proposals */}
         <section className="flex flex-col gap-3">
-          <h2 className="font-mono text-sm uppercase tracking-[0.18em] text-foreground/45">Enacted proposals</h2>
+          <h2 className="font-mono text-sm uppercase tracking-[0.18em] text-foreground/55">Enacted proposals</h2>
           {historyQuery.isLoading ? (
             <div className="flex flex-col gap-3">
               <Skeleton className="h-24 w-full rounded-2xl" />

@@ -10,6 +10,7 @@ export const metadata: Metadata = {
   title: "Get started — add the Corgi feed in Bluesky",
   description:
     "Add the community-governed Corgi feed to your Bluesky app, explore it read-only, and connect an app password when you're ready to vote.",
+  alternates: { canonical: "/start/" },
 }
 
 const CORGI_FEED_URL = "https://bsky.app/profile/corgi-network.bsky.social/feed/community-gov"

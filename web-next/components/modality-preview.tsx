@@ -7,7 +7,7 @@ function CorgiReceiptPanel() {
   return (
     <div className="flex h-full flex-col gap-4">
       <div className="flex flex-col gap-1">
-        <p className="text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/45">
+        <p className="text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/55">
           Corgi view
         </p>
         <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between lg:flex-col lg:items-start xl:flex-row xl:items-end">
@@ -24,7 +24,7 @@ function CorgiReceiptPanel() {
         <div className="border-b border-border/60 px-5 py-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <p className="text-xs font-mono text-foreground/45">Anonymized live receipt</p>
+              <p className="text-xs font-mono text-foreground/55">Anonymized live receipt</p>
               <p className="mt-1 text-sm font-semibold text-foreground">{LIVE_RANK_ONE_EXPLANATION.authorLabel}</p>
             </div>
             <span className="w-fit rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-mono font-semibold text-primary">
@@ -61,7 +61,7 @@ function CorgiReceiptPanel() {
         </div>
 
         <div className="mt-auto flex flex-col gap-3 border-t border-border/60 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <span className="text-xs text-foreground/40">
+          <span className="text-xs text-foreground/50">
             Snapshot collected {LIVE_METRICS_SNAPSHOT.collectedAtLabel}
           </span>
           <Link href="/demo" className="text-sm font-medium text-primary hover:underline underline-offset-2">
@@ -81,7 +81,7 @@ function ProductSurface({ showIntro }: { readonly showIntro: boolean }) {
           <p className="text-sm font-semibold text-foreground">
             Bluesky shows the ordered posts. Corgi shows the receipt.
           </p>
-          <p className="mt-1 text-xs leading-relaxed text-foreground/45">
+          <p className="mt-1 text-xs leading-relaxed text-foreground/55">
             Sample posts show the interface shape; the receipt panel uses an anonymized live snapshot.
           </p>
         </div>

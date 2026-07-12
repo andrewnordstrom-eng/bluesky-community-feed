@@ -510,7 +510,7 @@ export default function DemoPage() {
                       </p>
                       <p className="mt-1 text-[11px] font-medium text-primary/75">Shadow session · never changes the public feed</p>
                     </div>
-                    <p className="text-[11px] font-mono text-foreground/45">
+                    <p className="text-[11px] font-mono text-foreground/55">
                       {corpusPresentation?.metricsLine}
                     </p>
                   </div>

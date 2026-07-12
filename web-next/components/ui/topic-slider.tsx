@@ -58,7 +58,7 @@ export function TopicSlider({ topic, value, onChange, disabled = false }: TopicS
             <button
               type="button"
               onClick={handleReset}
-              className="text-[10px] font-medium text-foreground/45 hover:text-primary transition-colors underline underline-offset-2"
+              className="text-[10px] font-medium text-foreground/55 hover:text-primary transition-colors underline underline-offset-2"
               aria-label={`Reset ${topic.name} to neutral`}
             >
               Reset
@@ -66,7 +66,7 @@ export function TopicSlider({ topic, value, onChange, disabled = false }: TopicS
           )}
           {/* My value */}
           <span className={`text-xs font-mono font-semibold tabular-nums w-8 text-right transition-colors
-            ${value < NEUTRAL - 0.05 ? "text-tongue-foreground" : value > NEUTRAL + 0.05 ? "text-success" : "text-foreground/45"}`}>
+            ${value < NEUTRAL - 0.05 ? "text-tongue-foreground" : value > NEUTRAL + 0.05 ? "text-success" : "text-foreground/55"}`}>
             {pct}%
           </span>
         </div>
@@ -124,7 +124,7 @@ export function TopicSlider({ topic, value, onChange, disabled = false }: TopicS
       </div>
 
       {/* Labels + community marker label */}
-      <div className="flex items-center justify-between text-[10px] text-foreground/45 font-mono select-none">
+      <div className="flex items-center justify-between text-[10px] text-foreground/55 font-mono select-none">
         <span className="text-tongue-foreground/60">Reduce</span>
         <span className="flex items-center gap-1">
           <span className="w-0.5 h-2.5 rounded-full bg-foreground/20 inline-block" />
@@ -169,7 +169,7 @@ export function TopicGroup({ parentSlug, topics, values, onChangeAll, touchedCou
         </div>
         <svg
           width="12" height="12" viewBox="0 0 12 12" fill="none"
-          className={`text-foreground/40 transition-transform ${open ? "" : "-rotate-90"}`}
+          className={`text-foreground/50 transition-transform ${open ? "" : "-rotate-90"}`}
           aria-hidden="true"
         >
           <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />

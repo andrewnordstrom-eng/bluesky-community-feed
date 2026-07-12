@@ -148,12 +148,12 @@ export function HeroSection() {
         </Button>
       </div>
       {/* Trust line */}
-      <p className="relative z-10 mt-3 text-xs text-foreground/40 font-medium">
+      <p className="relative z-10 mt-3 text-xs text-foreground/50 font-medium">
         No-login demo first &middot; connect Bluesky when ready &middot; inspectable ranking
       </p>
 
       {/* Scroll cue — invites the visitor down into the interactive demo. */}
-      <div className="pointer-events-none absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 flex-col items-center gap-1.5 text-foreground/45">
+      <div className="pointer-events-none absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 flex-col items-center gap-1.5 text-foreground/55">
         <span className="text-[10px] font-mono uppercase tracking-[0.22em]">See it in action</span>
         <ChevronDown className="h-4 w-4 motion-safe:animate-bounce" aria-hidden="true" />
       </div>

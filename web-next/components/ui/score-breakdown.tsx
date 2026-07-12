@@ -27,10 +27,10 @@ export function ScoreBreakdown({ components, total_score, epochLabel, className 
     <div className={`flex flex-col ${className ?? ""}`}>
       {/* Column headers */}
       <div className="flex items-center gap-3 px-4 py-2 border-b border-border">
-        <span className="flex-1 text-xs font-semibold text-foreground/45 uppercase tracking-wide">Signal</span>
-        <span className="w-24 text-right text-xs font-semibold text-foreground/45 uppercase tracking-wide hidden sm:block">Raw</span>
-        <span className="w-16 text-right text-xs font-semibold text-foreground/45 uppercase tracking-wide hidden sm:block">Weight</span>
-        <span className="w-20 text-right text-xs font-semibold text-foreground/45 uppercase tracking-wide">Score</span>
+        <span className="flex-1 text-xs font-semibold text-foreground/55 uppercase tracking-wide">Signal</span>
+        <span className="w-24 text-right text-xs font-semibold text-foreground/55 uppercase tracking-wide hidden sm:block">Raw</span>
+        <span className="w-16 text-right text-xs font-semibold text-foreground/55 uppercase tracking-wide hidden sm:block">Weight</span>
+        <span className="w-20 text-right text-xs font-semibold text-foreground/55 uppercase tracking-wide">Score</span>
       </div>
 
       {/* Component rows */}

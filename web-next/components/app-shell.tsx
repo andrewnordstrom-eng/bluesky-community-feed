@@ -288,7 +288,7 @@ export function AppShell({ user = null, children }: AppShellProps) {
             <div className="flex flex-col gap-2 pb-2">
               {authedUser ? (
                 <>
-                  <span className="px-4 text-xs font-mono text-foreground/45">@{authedUser.handle}</span>
+                  <span className="px-4 text-xs font-mono text-foreground/55">@{authedUser.handle}</span>
                   <button
                     onClick={() => { void handleLogout() }}
                     disabled={logoutPending}

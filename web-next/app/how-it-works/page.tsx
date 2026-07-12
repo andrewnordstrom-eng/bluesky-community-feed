@@ -11,6 +11,7 @@ export const metadata: Metadata = {
   title: "How Corgi Works - Community-governed Bluesky ranking",
   description:
     "Replay how the same posts become a different Bluesky feed when a community changes Corgi's ranking policy.",
+  alternates: { canonical: "/how-it-works/" },
 }
 
 const surfaceBoundaries = [
@@ -58,7 +59,7 @@ export default function HowItWorksPage() {
 
         <Section id="modality" bordered spacing="default">
           <div className="mx-auto mb-8 max-w-3xl text-center">
-            <p className="mb-2 text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/45">
+            <p className="mb-2 text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/55">
               Where ranking lives
             </p>
             <h2 className="font-display text-3xl font-bold leading-tight tracking-tight text-foreground md:text-5xl">
@@ -80,7 +81,7 @@ export default function HowItWorksPage() {
                 key={boundary.label}
                 className="rounded-2xl border border-border bg-card p-5 shadow-[0_2px_10px_rgba(46,38,32,0.05)]"
               >
-                <p className="text-[11px] font-mono uppercase tracking-[0.18em] text-foreground/45">
+                <p className="text-[11px] font-mono uppercase tracking-[0.18em] text-foreground/55">
                   {boundary.label}
                 </p>
                 <h3 className="mt-3 text-lg font-bold leading-snug text-foreground">{boundary.heading}</h3>
@@ -108,7 +109,7 @@ export default function HowItWorksPage() {
               <SignInCTA />
             </div>
           </div>
-          <p className="mt-8 max-w-3xl text-xs leading-relaxed text-foreground/45">
+          <p className="mt-8 max-w-3xl text-xs leading-relaxed text-foreground/55">
             Demo posts are illustrative; live ranking claims use Corgi receipts and snapshot data.
           </p>
         </Section>

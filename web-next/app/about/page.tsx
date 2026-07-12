@@ -6,6 +6,7 @@ export const metadata: Metadata = {
   title: "About Corgi — who runs it and how it's governed",
   description:
     "Corgi is an open-source, community-governed Bluesky feed. Learn who operates it, how the feed is governed, and what happens to your vote and your account.",
+  alternates: { canonical: "/about/" },
 }
 
 const SECTIONS = [

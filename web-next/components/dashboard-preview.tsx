@@ -28,7 +28,7 @@ export function DashboardPreview() {
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1 flex-wrap">
               <span className="text-foreground font-semibold text-sm">{LIVE_RANK_ONE_EXPLANATION.authorLabel}</span>
-              <span className="text-foreground/40 text-xs">· anonymized live receipt</span>
+              <span className="text-foreground/50 text-xs">· anonymized live receipt</span>
               <span className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs font-semibold font-mono">
                 score: {formatSignedScore(LIVE_RANK_ONE_EXPLANATION.totalScore)}
               </span>
@@ -43,7 +43,7 @@ export function DashboardPreview() {
         <div className="pt-4">
           <div className="flex items-center justify-between mb-3 gap-2">
             <h3 className="text-foreground text-sm font-semibold">Score breakdown</h3>
-            <span className="text-foreground/40 text-xs font-mono hidden sm:block">weighted by active policy</span>
+            <span className="text-foreground/50 text-xs font-mono hidden sm:block">weighted by active policy</span>
           </div>
           <div className="flex flex-col gap-3">
             {signals.map((sig) => (
@@ -63,7 +63,7 @@ export function DashboardPreview() {
                 >
                   {sig.value}
                 </span>
-                <span className="hidden sm:block w-12 text-right text-foreground/45 text-xs font-mono flex-shrink-0">
+                <span className="hidden sm:block w-12 text-right text-foreground/55 text-xs font-mono flex-shrink-0">
                   ×{sig.weight.toFixed(2)}
                 </span>
               </div>
@@ -77,7 +77,7 @@ export function DashboardPreview() {
             </span>
           </div>
           <div className="mt-3 flex items-center justify-between">
-            <span className="text-foreground/40 text-xs">Epoch #{LIVE_METRICS_SNAPSHOT.epochId} · refreshed {LIVE_METRICS_SNAPSHOT.collectedAtLabel}</span>
+            <span className="text-foreground/50 text-xs">Epoch #{LIVE_METRICS_SNAPSHOT.epochId} · refreshed {LIVE_METRICS_SNAPSHOT.collectedAtLabel}</span>
             <Link href="/history" className="text-primary text-xs font-medium hover:underline">
               View epoch history &rarr;
             </Link>
