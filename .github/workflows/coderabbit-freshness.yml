@@ -108,7 +108,7 @@ jobs:
                 after = page.pageInfo.endCursor;
               }
 
-              return reviews
+              const exactHeadReviews = reviews
                 .filter((review) => {
                   if (!review) {
                     return false;
@@ -121,14 +121,21 @@ jobs:
                     ? reviewAuthor.slice(0, -"[bot]".length)
                     : reviewAuthor;
                   const reviewSha = (review.commit?.oid || "").trim();
-                  const reviewState = (review.state || "").trim().toUpperCase();
-                  // COMMENTED is non-decisive; the newest approval or change request wins.
                   return reviewAuthorType === "Bot"
                     && normalizedAuthor === "coderabbitai"
-                    && reviewSha === headSha
-                    && (reviewState === "APPROVED" || reviewState === "CHANGES_REQUESTED");
+                    && reviewSha === headSha;
                 })
-                .sort((a, b) => parseTime(b.submittedAt) - parseTime(a.submittedAt))[0] || null;
+                .sort((a, b) => parseTime(b.submittedAt) - parseTime(a.submittedAt));
+              const decisiveReviews = exactHeadReviews.filter((review) => {
+                const reviewState = (review.state || "").trim().toUpperCase();
+                return reviewState === "APPROVED" || reviewState === "CHANGES_REQUESTED";
+              });
+
+              return {
+                latestReview: exactHeadReviews[0] || null,
+                // COMMENTED is non-decisive; the newest approval or change request wins.
+                latestDecisiveReview: decisiveReviews[0] || null,
+              };
             };
 
             const pr = await resolvePullRequest();
@@ -233,14 +240,23 @@ jobs:
               (suite) => (((suite.app || {}).slug || "").trim().toLowerCase() === "coderabbitai")
             );
             if (suites.length === 0) {
-              let exactHeadReview;
+              let exactHeadReviewTruth;
               try {
-                exactHeadReview = await resolveExactHeadCodeRabbitReview(pr.number, sha);
+                exactHeadReviewTruth = await resolveExactHeadCodeRabbitReview(pr.number, sha);
               } catch (error) {
                 failWithAction(`Could not verify complete exact-head CodeRabbit review truth: ${error?.message || error}`);
                 return;
               }
+              const exactHeadReview = exactHeadReviewTruth.latestDecisiveReview;
               if (!exactHeadReview) {
+                const latestReview = exactHeadReviewTruth.latestReview;
+                if (latestReview) {
+                  const latestState = (latestReview.state || "").trim().toUpperCase() || "unknown";
+                  failWithAction(
+                    `Exact-head CodeRabbit review exists but has no decisive APPROVED/CHANGES_REQUESTED state (latest state: ${latestState}); confirm request_changes_workflow is enabled`
+                  );
+                  return;
+                }
                 failWithAction("Missing CodeRabbit status/check-suite and exact-head review for this commit");
                 return;
               }
