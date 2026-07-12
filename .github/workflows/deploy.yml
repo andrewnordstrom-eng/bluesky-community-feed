@@ -26,6 +26,14 @@ jobs:
             PREV_COMMIT=$(git rev-parse HEAD)
 
             git pull origin main
+            RANKING_READINESS_LIBRARY="ops/lib/ranking-worker-readiness.sh"
+            if [ ! -r "$RANKING_READINESS_LIBRARY" ]; then
+              echo "Required ranking worker readiness library is missing: ${RANKING_READINESS_LIBRARY}"
+              exit 1
+            fi
+            # shellcheck source=/dev/null
+            source "$RANKING_READINESS_LIBRARY"
+            reject_shared_process_role ".env"
             npm ci --ignore-scripts
             node scripts/audit-allowlist.mjs --audit-level=high
             npm run build
@@ -116,40 +124,25 @@ jobs:
             WORKER_INSTALLED=false
             if sudo systemctl cat corgi-ranking-worker.service > /dev/null 2>&1; then
               WORKER_INSTALLED=true
+              validate_ranking_worker_stop_timeout \
+                <(sudo systemctl cat corgi-ranking-worker.service) \
+                ".env"
+              WORKER_RESTART_EPOCH_MS=$(date +%s%3N)
               if ! sudo systemctl restart corgi-ranking-worker; then
                 echo "Ranking worker restart failed; API was not touched"
                 exit 1
               fi
-              WORKER_RESTART_EPOCH_MS=$(date +%s%3N)
 
-              RANKING_COMMUNITY_ID="community-gov"
-              COMMUNITY_CONFIG=""
-              if [ -f .env ]; then
-                if ! COMMUNITY_CONFIG=$(sed -n 's/^RANKING_COMMUNITY_ID=//p' .env | tail -1); then
-                  echo "Could not read RANKING_COMMUNITY_ID from .env"
-                  exit 1
-                fi
-                COMMUNITY_CONFIG=$(printf '%s' "$COMMUNITY_CONFIG" | tr -d "\r\"'")
-                if [ -n "$COMMUNITY_CONFIG" ]; then
-                  RANKING_COMMUNITY_ID="$COMMUNITY_CONFIG"
-                fi
+              RANKING_COMMUNITY_ID=""
+              if ! RANKING_COMMUNITY_ID=$(resolve_ranking_community_id ".env"); then
+                exit 1
               fi
-              WORKER_HEARTBEAT_KEY="corgi:ranking-worker:heartbeat:${RANKING_COMMUNITY_ID}"
-              WORKER_HEALTHY=false
-              for i in 1 2 3; do
-                WORKER_HEARTBEAT=""
-                if ! WORKER_HEARTBEAT=$(sudo docker compose -f docker-compose.prod.yml exec -T redis redis-cli --raw GET "$WORKER_HEARTBEAT_KEY"); then
-                  echo "Ranking worker heartbeat probe failed (attempt $i/3)"
-                elif [ -n "$WORKER_HEARTBEAT" ] && HEARTBEAT_JSON="$WORKER_HEARTBEAT" WORKER_RESTART_EPOCH_MS="$WORKER_RESTART_EPOCH_MS" python3 -c 'import datetime, json, os; payload=json.loads(os.environ["HEARTBEAT_JSON"]); updated=datetime.datetime.fromisoformat(payload["updatedAt"].replace("Z", "+00:00")); age=(datetime.datetime.now(datetime.timezone.utc)-updated).total_seconds(); updated_ms=int(updated.timestamp()*1000); restart_ms=int(os.environ["WORKER_RESTART_EPOCH_MS"]); raise SystemExit(0 if 0 <= age <= 60 and updated_ms >= restart_ms and payload.get("state") != "failed" else 1)'; then
-                  echo "Ranking worker heartbeat passed (attempt $i/3)"
-                  WORKER_HEALTHY=true
-                  break
-                else
-                  echo "Ranking worker heartbeat is missing, malformed, stale, or failed (attempt $i/3)"
-                fi
-                sleep 10
-              done
-              if [ "$WORKER_HEALTHY" != "true" ]; then
+              PROBE_TIMEOUT_SECONDS=5
+              ranking_worker_heartbeat_probe() {
+                local HEARTBEAT_KEY="$1"
+                probe_ranking_worker_heartbeat_with_compose "$PROBE_TIMEOUT_SECONDS" docker-compose.prod.yml "$HEARTBEAT_KEY"
+              }
+              if ! wait_for_ranking_worker_ready "$RANKING_COMMUNITY_ID" "$WORKER_RESTART_EPOCH_MS" 3 10 ranking_worker_heartbeat_probe; then
                 echo "Ranking worker did not become ready; API was not touched"
                 exit 1
               fi

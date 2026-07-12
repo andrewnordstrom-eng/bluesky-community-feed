@@ -1,5 +1,7 @@
 import { execFileSync } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { feedHealthSummary } from '../cli/src/commands/feed.js';
 
@@ -11,6 +13,25 @@ async function source(path: string): Promise<string> {
   return readFile(new URL(path, ROOT), 'utf8');
 }
 
+function runReadinessCommand(
+  readinessLibrary: string,
+  command: string,
+  environment: Record<string, string>
+): boolean {
+  try {
+    execFileSync('bash', ['-c', `${readinessLibrary}
+${command}
+`], {
+      env: { ...process.env, ...environment },
+      stdio: 'pipe',
+      timeout: 2_000,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function probeWatchdogFunction(
   watchdog: string,
   functionName: 'worker_heartbeat_healthy' | 'feed_snapshot_healthy',
@@ -18,7 +39,13 @@ function probeWatchdogFunction(
   dockerFunction: string,
   timeoutFunction: string
 ): boolean {
-  const definitions = watchdog.slice(0, watchdog.indexOf('# ── Disk space check'));
+  let definitions = watchdog.slice(0, watchdog.indexOf('# ── Disk space check'));
+  if (environment.TEST_NOW) {
+    definitions = definitions.replaceAll(
+      'datetime.datetime.now(datetime.timezone.utc)',
+      'datetime.datetime.fromisoformat(os.environ["TEST_NOW"])'
+    );
+  }
   const script = `${definitions}
 ${timeoutFunction}
 ${dockerFunction}
@@ -36,23 +63,19 @@ if ${functionName}; then exit 0; else exit 1; fi
   }
 }
 
-function validateDeployHeartbeat(
-  deployScript: string,
+function validateRankingWorkerHeartbeat(
+  readinessLibrary: string,
   heartbeat: Record<string, unknown>,
   restartEpochMs: number
 ): boolean {
-  const validator = deployScript.match(
-    /HEARTBEAT_JSON="\$[^\"]+" WORKER_RESTART_EPOCH_MS="\$[^\"]+" python3 -c '([^']+)'/
-  )?.[1];
-  if (!validator) {
-    throw new Error('Deploy heartbeat validator was not found');
-  }
   try {
-    execFileSync('python3', ['-c', validator], {
+    execFileSync('bash', ['-c', `${readinessLibrary}
+ranking_worker_heartbeat_is_healthy "$FAKE_HEARTBEAT" "$FAKE_RESTART_EPOCH_MS"
+`], {
       env: {
         ...process.env,
-        HEARTBEAT_JSON: JSON.stringify(heartbeat),
-        WORKER_RESTART_EPOCH_MS: String(restartEpochMs),
+        FAKE_HEARTBEAT: JSON.stringify(heartbeat),
+        FAKE_RESTART_EPOCH_MS: String(restartEpochMs),
       },
       stdio: 'pipe',
       timeout: 2_000,
@@ -65,16 +88,60 @@ function validateDeployHeartbeat(
 
 describe('ranking worker deployment contracts', () => {
   it('gives API and worker independent process roles and memory boundaries', async () => {
-    const [apiUnit, workerUnit] = await Promise.all([
-      source('ops/bluesky-feed.service'),
-      source('ops/corgi-ranking-worker.service'),
-    ]);
+    const [apiUnit, workerUnit, installScript, deployScript, workflow, operability] =
+      await Promise.all([
+        source('ops/bluesky-feed.service'),
+        source('ops/corgi-ranking-worker.service'),
+        source('ops/install.sh'),
+        source('ops/deploy'),
+        source('.github/workflows/deploy.yml'),
+        source('docs/OPERABILITY.md'),
+      ]);
 
     expect(apiUnit).toContain('Environment=PROCESS_ROLE=api');
     expect(workerUnit).toContain('Environment=PROCESS_ROLE=ranking-worker');
     expect(workerUnit).toContain('MemoryMax=1G');
     expect(workerUnit).toContain('TimeoutStopSec=300');
     expect(workerUnit).toContain('ExecStart=/usr/bin/node dist/index.js');
+    expect(apiUnit).toContain('PROCESS_ROLE must never be set in the shared .env');
+    expect(workerUnit).toContain('PROCESS_ROLE must never be set in the shared .env');
+    for (const deploymentPath of [installScript, deployScript, workflow]) {
+      expect(deploymentPath).toContain('reject_shared_process_role');
+    }
+    expect(operability).toContain('must never define `PROCESS_ROLE`');
+    expect(operability).toContain('at least 60 seconds');
+  });
+
+  it('rejects shared role overrides and unsafe worker stop-timeout drift', async () => {
+    const readinessLibrary = await source('ops/lib/ranking-worker-readiness.sh');
+    const directory = await mkdtemp(join(tmpdir(), 'corgi-worker-readiness-'));
+    const envFile = join(directory, '.env');
+    const unitFile = join(directory, 'corgi-ranking-worker.service');
+    try {
+      await writeFile(unitFile, '[Service]\nTimeoutStopSec=300\n', 'utf8');
+      await writeFile(envFile, 'PROCESS_ROLE=all\n', 'utf8');
+      expect(runReadinessCommand(
+        readinessLibrary,
+        'reject_shared_process_role "$TEST_ENV_FILE"',
+        { TEST_ENV_FILE: envFile }
+      )).toBe(false);
+
+      await writeFile(envFile, 'SCORING_TIMEOUT_MS=240000\n', 'utf8');
+      expect(runReadinessCommand(
+        readinessLibrary,
+        'validate_ranking_worker_stop_timeout "$TEST_UNIT_FILE" "$TEST_ENV_FILE"',
+        { TEST_ENV_FILE: envFile, TEST_UNIT_FILE: unitFile }
+      )).toBe(true);
+
+      await writeFile(envFile, 'SCORING_TIMEOUT_MS=240001\n', 'utf8');
+      expect(runReadinessCommand(
+        readinessLibrary,
+        'validate_ranking_worker_stop_timeout "$TEST_UNIT_FILE" "$TEST_ENV_FILE"',
+        { TEST_ENV_FILE: envFile, TEST_UNIT_FILE: unitFile }
+      )).toBe(false);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it('runs backup verification and migrations before either process restart', async () => {
@@ -120,33 +187,63 @@ describe('ranking worker deployment contracts', () => {
         script.indexOf('WORKER_RESTART_EPOCH_MS=$(date +%s%3N)'),
         script.indexOf('worker_restart_epoch_ms=$(date +%s%3N)')
       );
-      const heartbeatPassed = script.indexOf('Ranking worker heartbeat passed');
+      const heartbeatPassed = script.indexOf('wait_for_ranking_worker_ready');
       const apiRestart = script.indexOf('restart bluesky-feed');
       expect(workerRestart).toBeGreaterThan(0);
-      expect(restartCutoff).toBeGreaterThan(workerRestart);
+      expect(restartCutoff).toBeLessThan(workerRestart);
       expect(heartbeatPassed).toBeGreaterThan(workerRestart);
       expect(apiRestart).toBeGreaterThan(heartbeatPassed);
       expect(script).toContain('API was not touched');
-      expect(script).toContain('WORKER_RESTART_EPOCH_MS');
+      expect(script).toMatch(/WORKER_RESTART_EPOCH_MS|worker_restart_epoch_ms/);
     }
   });
 
   it('requires the heartbeat to come from the newly restarted worker', async () => {
-    const [workflow, deploy] = await Promise.all([
+    const [workflow, deploy, readinessLibrary] = await Promise.all([
       source('.github/workflows/deploy.yml'),
       source('ops/deploy'),
+      source('ops/lib/ranking-worker-readiness.sh'),
     ]);
     const updatedAt = new Date();
     const heartbeat = { updatedAt: updatedAt.toISOString(), state: 'idle' };
     for (const script of [workflow, deploy]) {
-      expect(validateDeployHeartbeat(script, heartbeat, updatedAt.getTime() - 1)).toBe(true);
-      expect(validateDeployHeartbeat(script, heartbeat, updatedAt.getTime() + 1)).toBe(false);
-      expect(validateDeployHeartbeat(
-        script,
-        { ...heartbeat, state: 'failed' },
-        updatedAt.getTime() - 1
-      )).toBe(false);
+      expect(script).toContain('source "$RANKING_READINESS_LIBRARY"');
+      expect(script).toContain('wait_for_ranking_worker_ready');
     }
+    expect(validateRankingWorkerHeartbeat(
+      readinessLibrary,
+      heartbeat,
+      updatedAt.getTime() - 1
+    )).toBe(true);
+    expect(validateRankingWorkerHeartbeat(
+      readinessLibrary,
+      heartbeat,
+      updatedAt.getTime() + 1
+    )).toBe(false);
+    expect(validateRankingWorkerHeartbeat(
+      readinessLibrary,
+      { ...heartbeat, state: 'failed' },
+      updatedAt.getTime() - 1
+    )).toBe(false);
+  });
+
+  it('bounds heartbeat probes in both deployment paths', async () => {
+    const [workflow, deploy, readinessLibrary] = await Promise.all([
+      source('.github/workflows/deploy.yml'),
+      source('ops/deploy'),
+      source('ops/lib/ranking-worker-readiness.sh'),
+    ]);
+
+    expect(readinessLibrary).toContain(
+      'timeout "$timeout_seconds" sudo docker compose'
+    );
+    expect(readinessLibrary).toContain(
+      'timeout "$timeout_seconds" docker exec'
+    );
+    expect(workflow).toContain('probe_ranking_worker_heartbeat_with_compose');
+    expect(deploy).toContain('probe_ranking_worker_heartbeat_with_docker');
+    expect(workflow).toContain('<(sudo systemctl cat corgi-ranking-worker.service)');
+    expect(deploy).toContain('<(systemctl cat corgi-ranking-worker.service)');
   });
 
   it('checks and restarts worker health without restarting the API', async () => {
@@ -211,12 +308,14 @@ describe('ranking worker deployment contracts', () => {
       esac
     }`;
     const nowMs = Date.now();
+    const testNow = new Date(nowMs).toISOString();
 
     expect(probeWatchdogFunction(
       watchdog,
       'feed_snapshot_healthy',
       {
         RANKING_COMMUNITY_ID: 'community-gov',
+        TEST_NOW: testNow,
         FAKE_COUNT: '1000',
         FAKE_UPDATED_AT: new Date(nowMs - 599_000).toISOString(),
       },
@@ -228,6 +327,7 @@ describe('ranking worker deployment contracts', () => {
       'feed_snapshot_healthy',
       {
         RANKING_COMMUNITY_ID: 'community-gov',
+        TEST_NOW: testNow,
         FAKE_COUNT: '0',
         FAKE_UPDATED_AT: new Date(nowMs).toISOString(),
       },
@@ -239,6 +339,19 @@ describe('ranking worker deployment contracts', () => {
       'feed_snapshot_healthy',
       {
         RANKING_COMMUNITY_ID: 'community-gov',
+        TEST_NOW: testNow,
+        FAKE_COUNT: '1000',
+        FAKE_UPDATED_AT: new Date(nowMs - 600_000).toISOString(),
+      },
+      dockerFunction,
+      PASS_THROUGH_TIMEOUT
+    )).toBe(true);
+    expect(probeWatchdogFunction(
+      watchdog,
+      'feed_snapshot_healthy',
+      {
+        RANKING_COMMUNITY_ID: 'community-gov',
+        TEST_NOW: testNow,
         FAKE_COUNT: '1000',
         FAKE_UPDATED_AT: new Date(nowMs - 601_000).toISOString(),
       },

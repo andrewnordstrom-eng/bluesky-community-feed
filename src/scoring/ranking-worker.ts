@@ -6,6 +6,9 @@ import type {
   RankingRequest,
 } from './ranking-request-queue.js';
 import { scheduledRequestKey } from './ranking-request-queue.js';
+import { ScoringPipelineTimeoutError } from './scoring-pipeline-timeout-error.js';
+
+export { ScoringPipelineTimeoutError } from './scoring-pipeline-timeout-error.js';
 
 export const RANKING_WORKER_HEARTBEAT_KEY_PREFIX = 'corgi:ranking-worker:heartbeat';
 
@@ -76,15 +79,6 @@ export interface RankingWorkerRedis {
 interface QuarantinedLease {
   token: string;
   renewalTimer: NodeJS.Timeout;
-}
-
-export class ScoringPipelineTimeoutError extends Error {
-  readonly code = 'SCORING_PIPELINE_TIMEOUT';
-
-  constructor(cause: unknown) {
-    super('Scoring pipeline timed out', { cause });
-    this.name = 'ScoringPipelineTimeoutError';
-  }
 }
 
 export class RankingWorker {

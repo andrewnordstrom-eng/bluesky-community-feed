@@ -71,6 +71,13 @@ or starting `corgi-ranking-worker.service`, or replacing the installed API unit
 with the tracked `PROCESS_ROLE=api` unit, requires the explicit PROJ-1769
 production gate.
 
+The shared `/opt/bluesky-feed/.env` must never define `PROCESS_ROLE`. systemd
+`EnvironmentFile=` values override the explicit role in both unit files, which
+could disable ranking or run it twice. `ops/install.sh`, `ops/deploy`, and the
+hosted deploy workflow reject that configuration before restarting either
+service. They also require the worker unit's `TimeoutStopSec` to exceed the
+effective `SCORING_TIMEOUT_MS` by at least 60 seconds.
+
 Pre-activation evidence must prove all of the following:
 
 1. The VPS checkout matches the reviewed merge SHA and CI/deploy receipts are green.

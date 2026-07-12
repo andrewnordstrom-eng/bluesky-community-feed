@@ -34,6 +34,8 @@ class FakeQueue implements RankingWorkerQueue {
   staleClaimsRecovered = 0;
   private nextId = 1;
 
+  constructor(private readonly clock: TestClock) {}
+
   async enqueue(input: {
     idempotencyKey: string;
     communityId: string;
@@ -62,14 +64,14 @@ class FakeQueue implements RankingWorkerQueue {
     const request = this.requests.find((candidate) => (
       candidate.state === 'pending'
       && candidate.communityId === communityId
-      && new Date(candidate.notBefore).getTime() <= new Date('2026-07-12T05:00:00.000Z').getTime()
+      && new Date(candidate.notBefore).getTime() <= this.clock.now().getTime()
     ));
     if (!request) {
       return null;
     }
     request.state = 'claimed';
     request.claimedBy = workerId;
-    request.claimedAt = '2026-07-12T05:00:00.000Z';
+    request.claimedAt = this.clock.now().toISOString();
     return { ...request };
   }
 
@@ -203,9 +205,9 @@ describe('ranking worker isolation', () => {
   });
 
   it('persists, claims, leases, and completes scheduled work', async () => {
-    const queue = new FakeQueue();
-    const redis = new FakeRedis();
     const clock = createClock();
+    const queue = new FakeQueue(clock);
+    const redis = new FakeRedis();
     const runRanking = vi.fn().mockResolvedValue(undefined);
     const ownedLease = lease({});
     const worker = new RankingWorker(workerOptions({ queue, redis, ownedLease, runRanking, clock }));
@@ -218,10 +220,31 @@ describe('ranking worker isolation', () => {
     expect(queue.failed).toEqual([]);
   });
 
-  it('never starts ranking without the distributed lease', async () => {
-    const queue = new FakeQueue();
-    const redis = new FakeRedis();
+  it('claims deferred work only after the shared clock reaches notBefore', async () => {
     const clock = createClock();
+    const queue = new FakeQueue(clock);
+    const notBefore = new Date(clock.now().getTime() + 1_000);
+    await queue.enqueue({
+      idempotencyKey: 'scheduled:community-gov:future',
+      communityId: 'community-gov',
+      requestKind: 'scheduled',
+      requestedBy: 'ranking-worker',
+      notBefore,
+    });
+
+    await expect(queue.claimNext('worker-1', 'community-gov')).resolves.toBeNull();
+    clock.advance(999);
+    await expect(queue.claimNext('worker-1', 'community-gov')).resolves.toBeNull();
+    clock.advance(1);
+    await expect(queue.claimNext('worker-1', 'community-gov')).resolves.toEqual(
+      expect.objectContaining({ id: 'request-1', claimedBy: 'worker-1' })
+    );
+  });
+
+  it('never starts ranking without the distributed lease', async () => {
+    const clock = createClock();
+    const queue = new FakeQueue(clock);
+    const redis = new FakeRedis();
     const runRanking = vi.fn().mockResolvedValue(undefined);
     const worker = new RankingWorker(workerOptions({
       queue,
@@ -241,9 +264,9 @@ describe('ranking worker isolation', () => {
 
   it('fails the durable request when ownership is lost during ranking', async () => {
     vi.useFakeTimers();
-    const queue = new FakeQueue();
-    const redis = new FakeRedis();
     const clock = createClock();
+    const queue = new FakeQueue(clock);
+    const redis = new FakeRedis();
     let finishRanking: (() => void) | undefined;
     const runRanking = vi.fn(() => new Promise<void>((resolve) => {
       finishRanking = resolve;
@@ -268,9 +291,9 @@ describe('ranking worker isolation', () => {
 
   it('keeps heartbeating while the first ranking run is still active', async () => {
     vi.useFakeTimers();
-    const queue = new FakeQueue();
-    const redis = new FakeRedis();
     const clock = createClock();
+    const queue = new FakeQueue(clock);
+    const redis = new FakeRedis();
     let finishRanking: (() => void) | undefined;
     const runRanking = vi.fn(() => new Promise<void>((resolve) => {
       finishRanking = resolve;
@@ -303,12 +326,12 @@ describe('ranking worker isolation', () => {
   });
 
   it('quarantines a timed-out publisher and retains its lease until process stop', async () => {
-    const queue = new FakeQueue();
-    const redis = new FakeRedis();
     const clock = createClock();
+    const queue = new FakeQueue(clock);
+    const redis = new FakeRedis();
     const release = vi.fn().mockResolvedValue(true);
     const runRanking = vi.fn().mockRejectedValue(
-      new ScoringPipelineTimeoutError(new Error('legacy timeout'))
+      new ScoringPipelineTimeoutError('timeout wording changed')
     );
     const worker = new RankingWorker(workerOptions({
       queue,
@@ -334,9 +357,9 @@ describe('ranking worker isolation', () => {
   });
 
   it('reports heartbeat age and queue state independently', async () => {
-    const queue = new FakeQueue();
-    const redis = new FakeRedis();
     const clock = createClock();
+    const queue = new FakeQueue(clock);
+    const redis = new FakeRedis();
     const worker = new RankingWorker(workerOptions({
       queue,
       redis,
@@ -361,7 +384,7 @@ describe('ranking worker isolation', () => {
   });
 
   it('rejects a heartbeat timestamp from the future', async () => {
-    const queue = new FakeQueue();
+    const queue = new FakeQueue(createClock());
     const redis = new FakeRedis();
     await redis.set('corgi:ranking-worker:heartbeat:community-gov', JSON.stringify({
       schemaVersion: 1,
@@ -387,7 +410,7 @@ describe('ranking worker isolation', () => {
   });
 
   it('treats the exact heartbeat TTL as healthy and one millisecond beyond as stale', async () => {
-    const queue = new FakeQueue();
+    const queue = new FakeQueue(createClock());
     const redis = new FakeRedis();
     await redis.set('corgi:ranking-worker:heartbeat:community-gov', JSON.stringify({
       schemaVersion: 1,
@@ -420,7 +443,7 @@ describe('ranking worker isolation', () => {
   });
 
   it('rejects malformed and cross-community heartbeat payloads', async () => {
-    const queue = new FakeQueue();
+    const queue = new FakeQueue(createClock());
     const redis = new FakeRedis();
     await redis.set('corgi:ranking-worker:heartbeat:community-gov', '{invalid-json');
     await expect(readRankingWorkerHealth(
@@ -451,7 +474,8 @@ describe('ranking worker isolation', () => {
   });
 
   it('fails startup cleanly when Redis or stale-claim recovery is unavailable', async () => {
-    const redisFailureQueue = new FakeQueue();
+    const redisFailureClock = createClock();
+    const redisFailureQueue = new FakeQueue(redisFailureClock);
     const redisFailure = new FakeRedis();
     vi.spyOn(redisFailure, 'set').mockRejectedValue(new Error('redis unavailable'));
     const redisFailureWorker = new RankingWorker(workerOptions({
@@ -459,12 +483,13 @@ describe('ranking worker isolation', () => {
       redis: redisFailure,
       ownedLease: lease({}),
       runRanking: async () => undefined,
-      clock: createClock(),
+      clock: redisFailureClock,
     }));
     await expect(redisFailureWorker.start()).rejects.toThrow('redis unavailable');
     expect(redisFailureWorker.isRunning()).toBe(false);
 
-    const queueFailure = new FakeQueue();
+    const queueFailureClock = createClock();
+    const queueFailure = new FakeQueue(queueFailureClock);
     vi.spyOn(queueFailure, 'requeueStaleClaims').mockRejectedValue(
       new Error('queue unavailable')
     );
@@ -474,7 +499,7 @@ describe('ranking worker isolation', () => {
       redis: queueFailureRedis,
       ownedLease: lease({}),
       runRanking: async () => undefined,
-      clock: createClock(),
+      clock: queueFailureClock,
     }));
     await expect(queueFailureWorker.start()).rejects.toThrow('queue unavailable');
     expect(queueFailureWorker.isRunning()).toBe(false);
@@ -484,7 +509,8 @@ describe('ranking worker isolation', () => {
   });
 
   it('recovers stale work only for its configured community', async () => {
-    const queue = new FakeQueue();
+    const clock = createClock();
+    const queue = new FakeQueue(clock);
     queue.requests.push({
       id: 'stale-community-request',
       idempotencyKey: 'scheduled:community-gov:stale',
@@ -513,7 +539,7 @@ describe('ranking worker isolation', () => {
       redis: new FakeRedis(),
       ownedLease: lease({}),
       runRanking: async () => undefined,
-      clock: createClock(),
+      clock,
     }));
 
     await worker.start();
@@ -526,14 +552,15 @@ describe('ranking worker isolation', () => {
   });
 
   it('serializes concurrent start and stop calls', async () => {
-    const queue = new FakeQueue();
+    const clock = createClock();
+    const queue = new FakeQueue(clock);
     const runRanking = vi.fn().mockResolvedValue(undefined);
     const worker = new RankingWorker(workerOptions({
       queue,
       redis: new FakeRedis(),
       ownedLease: lease({}),
       runRanking,
-      clock: createClock(),
+      clock,
     }));
 
     await Promise.all([worker.start(), worker.start()]);
@@ -544,7 +571,8 @@ describe('ranking worker isolation', () => {
   });
 
   it('waits for an active ranking run before stop completes', async () => {
-    const queue = new FakeQueue();
+    const clock = createClock();
+    const queue = new FakeQueue(clock);
     let finishRanking: (() => void) | undefined;
     const runRanking = vi.fn(() => new Promise<void>((resolve) => {
       finishRanking = resolve;
@@ -554,7 +582,7 @@ describe('ranking worker isolation', () => {
       redis: new FakeRedis(),
       ownedLease: lease({}),
       runRanking,
-      clock: createClock(),
+      clock,
     }));
     await worker.start();
     await vi.waitFor(() => {

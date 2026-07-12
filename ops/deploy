@@ -5,6 +5,15 @@
 set -euo pipefail
 cd /opt/bluesky-feed
 
+RANKING_READINESS_LIBRARY="ops/lib/ranking-worker-readiness.sh"
+if [ ! -r "$RANKING_READINESS_LIBRARY" ]; then
+  echo "ERROR: required ranking worker readiness library is missing: ${RANKING_READINESS_LIBRARY}" >&2
+  exit 1
+fi
+# shellcheck source=/dev/null
+source "$RANKING_READINESS_LIBRARY"
+reject_shared_process_role ".env"
+
 echo "=== Pulling latest ==="
 git pull --ff-only origin main
 
@@ -42,41 +51,26 @@ if [ "${1:-}" != "--skip-migrate" ]; then
 fi
 
 if systemctl cat corgi-ranking-worker.service > /dev/null 2>&1; then
+  validate_ranking_worker_stop_timeout \
+    <(systemctl cat corgi-ranking-worker.service) \
+    ".env"
   echo "=== Restarting ranking worker ==="
+  worker_restart_epoch_ms=$(date +%s%3N)
   if ! systemctl restart corgi-ranking-worker; then
     echo "ERROR: ranking worker restart failed; API was not touched" >&2
     exit 1
   fi
-  worker_restart_epoch_ms=$(date +%s%3N)
 
-  ranking_community_id="${RANKING_COMMUNITY_ID:-community-gov}"
-  if [ -z "${RANKING_COMMUNITY_ID:-}" ] && [ -f .env ]; then
-    community_config=""
-    if ! community_config=$(sed -n 's/^RANKING_COMMUNITY_ID=//p' .env | tail -1); then
-      echo "ERROR: could not read RANKING_COMMUNITY_ID from .env" >&2
-      exit 1
-    fi
-    community_config=$(printf '%s' "$community_config" | tr -d "\r\"'")
-    if [ -n "$community_config" ]; then
-      ranking_community_id="$community_config"
-    fi
+  ranking_community_id=""
+  if ! ranking_community_id=$(resolve_ranking_community_id ".env"); then
+    exit 1
   fi
-  worker_heartbeat_key="corgi:ranking-worker:heartbeat:${ranking_community_id}"
-  worker_healthy=false
-  for attempt in 1 2 3; do
-    worker_heartbeat=""
-    if ! worker_heartbeat=$(timeout 5 docker exec bluesky-feed-redis redis-cli --raw GET "$worker_heartbeat_key" 2>/dev/null); then
-      echo "Ranking worker heartbeat probe failed (attempt $attempt/3)" >&2
-    elif [ -n "$worker_heartbeat" ] && HEARTBEAT_JSON="$worker_heartbeat" WORKER_RESTART_EPOCH_MS="$worker_restart_epoch_ms" python3 -c 'import datetime, json, os; payload=json.loads(os.environ["HEARTBEAT_JSON"]); updated=datetime.datetime.fromisoformat(payload["updatedAt"].replace("Z", "+00:00")); age=(datetime.datetime.now(datetime.timezone.utc)-updated).total_seconds(); updated_ms=int(updated.timestamp()*1000); restart_ms=int(os.environ["WORKER_RESTART_EPOCH_MS"]); raise SystemExit(0 if 0 <= age <= 60 and updated_ms >= restart_ms and payload.get("state") != "failed" else 1)' 2>/dev/null; then
-      worker_healthy=true
-      echo "Ranking worker heartbeat passed (attempt $attempt/3)"
-      break
-    else
-      echo "Ranking worker heartbeat is missing, malformed, stale, or failed (attempt $attempt/3)" >&2
-    fi
-    sleep 10
-  done
-  if [ "$worker_healthy" != "true" ]; then
+  PROBE_TIMEOUT_SECONDS=5
+  ranking_worker_heartbeat_probe() {
+    local heartbeat_key="$1"
+    probe_ranking_worker_heartbeat_with_docker "$PROBE_TIMEOUT_SECONDS" bluesky-feed-redis "$heartbeat_key"
+  }
+  if ! wait_for_ranking_worker_ready "$ranking_community_id" "$worker_restart_epoch_ms" 3 10 ranking_worker_heartbeat_probe; then
     echo "ERROR: ranking worker did not become ready; API was not touched" >&2
     exit 1
   fi

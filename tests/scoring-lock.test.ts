@@ -76,6 +76,7 @@ describe('token-owned Redis scoring lease', () => {
 
   it('rejects invalid TTL and empty ownership tokens at every operation', async () => {
     expect(() => new OwnedRedisLease(client, 'lock:scoring', 999)).toThrow('>= 1000');
+    expect(() => new OwnedRedisLease(client, 'lock:scoring', 1_000)).not.toThrow();
     await expect(lease.acquire('')).rejects.toThrow('token must be non-empty');
     await expect(lease.renew('  ')).rejects.toThrow('token must be non-empty');
     await expect(lease.release('')).rejects.toThrow('token must be non-empty');

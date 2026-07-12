@@ -46,6 +46,21 @@ describe('durable ranking request queue integration', () => {
     expect([first, second].filter((request) => request === null)).toHaveLength(1);
   });
 
+  it('installs the community-scoped due-work claim index', async () => {
+    const result = await db.query<{ indexdef: string }>(
+      `SELECT indexdef
+         FROM pg_indexes
+        WHERE schemaname = current_schema()
+          AND tablename = 'ranking_run_requests'
+          AND indexname = 'idx_ranking_run_requests_community_state_due'`
+    );
+
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]?.indexdef).toContain(
+      '(community_id, state, not_before, requested_at, id)'
+    );
+  });
+
   it('prevents stale workers from completing another worker claim', async () => {
     await queue.enqueue({
       idempotencyKey: 'manual:community-gov:did:plc:admin:456',

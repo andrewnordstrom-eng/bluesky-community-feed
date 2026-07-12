@@ -14,6 +14,7 @@ BACKUP_GUARD_CONTEXT="install"
 BACKUP_GUARD_LIBRARY="${APP_DIR}/ops/lib/backup-path-guards.sh"
 BACKUP_GUARD_INSTALL_DIR="/opt/backups/lib"
 BACKUP_GUARD_INSTALL_LIBRARY="${BACKUP_GUARD_INSTALL_DIR}/backup-path-guards.sh"
+RANKING_READINESS_LIBRARY="${APP_DIR}/ops/lib/ranking-worker-readiness.sh"
 DEPLOYMENT_RECEIPT="/opt/backups/DEPLOYMENT_RECEIPT"
 INSTALL_RANKING_WORKER="${INSTALL_RANKING_WORKER:-false}"
 
@@ -26,9 +27,17 @@ if [ ! -r "${BACKUP_GUARD_LIBRARY}" ]; then
   echo "ERROR: required backup guard library missing: ${BACKUP_GUARD_LIBRARY}" >&2
   exit 1
 fi
+if [ ! -r "${RANKING_READINESS_LIBRARY}" ]; then
+  echo "ERROR: required ranking worker readiness library missing: ${RANKING_READINESS_LIBRARY}" >&2
+  exit 1
+fi
 
 # shellcheck source=/dev/null
 source "${BACKUP_GUARD_LIBRARY}"
+# shellcheck source=/dev/null
+source "${RANKING_READINESS_LIBRARY}"
+
+reject_shared_process_role "${APP_DIR}/.env"
 
 # ── Make ops scripts executable ──────────────────────────────────
 SCRIPTS="db redis logs deploy feed-check status health-watchdog daily-backup.sh bluesky-ops-retention.sh"
@@ -50,6 +59,9 @@ if [ -f "$APP_DIR/ops/bluesky-feed.service" ]; then
 fi
 
 if [ "$INSTALL_RANKING_WORKER" = "true" ] && [ -f "$APP_DIR/ops/corgi-ranking-worker.service" ]; then
+  validate_ranking_worker_stop_timeout \
+    "$APP_DIR/ops/corgi-ranking-worker.service" \
+    "$APP_DIR/.env"
   cp "$APP_DIR/ops/corgi-ranking-worker.service" /etc/systemd/system/corgi-ranking-worker.service
   echo "✓ corgi-ranking-worker.service"
 elif [ "$INSTALL_RANKING_WORKER" = "true" ]; then

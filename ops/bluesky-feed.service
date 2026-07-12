@@ -25,6 +25,8 @@ NotifyAccess=main
 # Working directory and environment
 WorkingDirectory=/opt/bluesky-feed
 EnvironmentFile=/opt/bluesky-feed/.env
+# PROCESS_ROLE must never be set in the shared .env. EnvironmentFile values
+# override Environment values for both API and worker units.
 Environment=NODE_ENV=production
 Environment=PROCESS_ROLE=api
 Environment=NODE_OPTIONS=--max-old-space-size=896

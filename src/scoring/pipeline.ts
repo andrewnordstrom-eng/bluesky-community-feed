@@ -38,6 +38,7 @@ import type { ContentRules } from '../governance/governance.types.js';
 import { updateScoringStatus } from '../admin/status-tracker.js';
 import { calculateAuthorConcentration } from '../transparency/metrics.js';
 import { applyFeedUrlDedup, FEED_URL_DEDUP_DECAY } from './feed-publication.js';
+import { ScoringPipelineTimeoutError } from './scoring-pipeline-timeout-error.js';
 
 // Maximum time allowed for a single scoring run.
 const SCORING_TIMEOUT_MS = config.SCORING_TIMEOUT_MS;
@@ -223,7 +224,7 @@ export async function runScoringPipeline(): Promise<void> {
   let timeout: NodeJS.Timeout | null = null;
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeout = setTimeout(
-      () => reject(new Error('Scoring pipeline timed out')),
+      () => reject(new ScoringPipelineTimeoutError('Scoring pipeline timed out')),
       SCORING_TIMEOUT_MS
     );
   });

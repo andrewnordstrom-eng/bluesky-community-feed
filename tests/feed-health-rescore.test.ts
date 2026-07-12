@@ -166,6 +166,10 @@ describe('admin manual rescore overlap guard', () => {
       requestId: 'request-1',
     });
     expect(enqueueManualScoringRunMock).toHaveBeenCalledTimes(1);
+    expect(enqueueManualScoringRunMock).toHaveBeenCalledWith(
+      'did:plc:admin',
+      expect.any(Date)
+    );
     expect(dbQueryMock).toHaveBeenCalledTimes(1);
     expect(dbQueryMock.mock.calls[0]?.[0]).toContain('INSERT INTO governance_audit_log');
 

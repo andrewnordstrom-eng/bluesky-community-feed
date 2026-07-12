@@ -15,11 +15,7 @@ import {
   rankingRequestQueue,
   type EnqueuedRankingRequest,
 } from './ranking-request-queue.js';
-import {
-  createRankingWorkerId,
-  RankingWorker,
-  ScoringPipelineTimeoutError,
-} from './ranking-worker.js';
+import { createRankingWorkerId, RankingWorker } from './ranking-worker.js';
 import { runScoringPipeline } from './pipeline.js';
 
 let worker: RankingWorker | null = null;
@@ -47,7 +43,7 @@ export async function startScoring(): Promise<void> {
     heartbeatIntervalMs: config.RANKING_WORKER_HEARTBEAT_INTERVAL_MS,
     heartbeatTtlMs: config.RANKING_WORKER_HEARTBEAT_TTL_MS,
     claimStaleAfterMs: config.RANKING_CLAIM_STALE_MS,
-    runRanking: runScoringPipelineWithStableErrors,
+    runRanking: runScoringPipeline,
     now: () => new Date(),
   });
   await worker.start();
@@ -109,18 +105,4 @@ export function isSchedulerRunning(): boolean {
 
 export function isScoringInProgress(): boolean {
   return worker?.isRanking() ?? false;
-}
-
-async function runScoringPipelineWithStableErrors(): Promise<void> {
-  try {
-    await runScoringPipeline();
-  } catch (error) {
-    // The leased legacy pipeline currently exposes this timeout as a message.
-    // Translate it once at the compatibility boundary so worker safety logic
-    // depends on a stable error type rather than message matching.
-    if (error instanceof Error && error.message === 'Scoring pipeline timed out') {
-      throw new ScoringPipelineTimeoutError(error);
-    }
-    throw error;
-  }
 }
