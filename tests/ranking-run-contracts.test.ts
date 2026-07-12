@@ -8,6 +8,7 @@ import {
   reconcilePublishedRankingRun,
   validateRankingReceipt,
 } from '../src/scoring/ranking-run-contracts.js';
+import { hashCanonicalJson } from '../src/governance/policy-version.js';
 import type {
   RankedSlateItem,
   RankingRunInputEnvelope,
@@ -158,6 +159,50 @@ describe('ranking receipts and reconciliation', () => {
     });
     expect(() => validateRankingReceipt({ ...receipt, receiptChecksum: HASH_C }))
       .toThrow('Ranking receipt checksum mismatch');
+  });
+
+  it.each([0, 1000])('accepts receipt itemCount boundary %s', (itemCount) => {
+    const input = createCompressedRankingInput(envelope([]));
+    const receipt = buildRankingReceipt({
+      runId: '00000000-0000-4000-8000-000000000001',
+      communityId: 'community-gov',
+      policyVersionId: '00000000-0000-4000-8000-000000000002',
+      policyHash: HASH_A,
+      algorithmVersion: 'corgi-ranking-v2',
+      configurationHash: HASH_B,
+      codeSha: 'd'.repeat(40),
+      asOf: '2026-07-11T20:00:00.000Z',
+      inputChecksum: input.checksum,
+      items: [],
+    });
+    const { receiptChecksum: _receiptChecksum, ...unsigned } = receipt;
+    const adjusted = { ...unsigned, itemCount };
+    expect(() => validateRankingReceipt({
+      ...adjusted,
+      receiptChecksum: hashCanonicalJson(adjusted),
+    })).not.toThrow();
+  });
+
+  it.each([-1, 1001])('rejects receipt itemCount outside bounds: %s', (itemCount) => {
+    const input = createCompressedRankingInput(envelope([]));
+    const receipt = buildRankingReceipt({
+      runId: '00000000-0000-4000-8000-000000000001',
+      communityId: 'community-gov',
+      policyVersionId: '00000000-0000-4000-8000-000000000002',
+      policyHash: HASH_A,
+      algorithmVersion: 'corgi-ranking-v2',
+      configurationHash: HASH_B,
+      codeSha: 'd'.repeat(40),
+      asOf: '2026-07-11T20:00:00.000Z',
+      inputChecksum: input.checksum,
+      items: [],
+    });
+    const { receiptChecksum: _receiptChecksum, ...unsigned } = receipt;
+    const adjusted = { ...unsigned, itemCount };
+    expect(() => validateRankingReceipt({
+      ...adjusted,
+      receiptChecksum: hashCanonicalJson(adjusted),
+    })).toThrow('receipt.itemCount must be an integer in [0, 1000]');
   });
 
   it('repairs validated DB state from matching Redis publication metadata', async () => {
