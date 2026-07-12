@@ -15,6 +15,12 @@ BACKUP_GUARD_LIBRARY="${APP_DIR}/ops/lib/backup-path-guards.sh"
 BACKUP_GUARD_INSTALL_DIR="/opt/backups/lib"
 BACKUP_GUARD_INSTALL_LIBRARY="${BACKUP_GUARD_INSTALL_DIR}/backup-path-guards.sh"
 DEPLOYMENT_RECEIPT="/opt/backups/DEPLOYMENT_RECEIPT"
+INSTALL_RANKING_WORKER="${INSTALL_RANKING_WORKER:-false}"
+
+if [ "$INSTALL_RANKING_WORKER" != "true" ] && [ "$INSTALL_RANKING_WORKER" != "false" ]; then
+  echo "ERROR: INSTALL_RANKING_WORKER must be true or false" >&2
+  exit 1
+fi
 
 if [ ! -r "${BACKUP_GUARD_LIBRARY}" ]; then
   echo "ERROR: required backup guard library missing: ${BACKUP_GUARD_LIBRARY}" >&2
@@ -43,9 +49,14 @@ if [ -f "$APP_DIR/ops/bluesky-feed.service" ]; then
   echo "✓ bluesky-feed.service"
 fi
 
-if [ -f "$APP_DIR/ops/corgi-ranking-worker.service" ]; then
+if [ "$INSTALL_RANKING_WORKER" = "true" ] && [ -f "$APP_DIR/ops/corgi-ranking-worker.service" ]; then
   cp "$APP_DIR/ops/corgi-ranking-worker.service" /etc/systemd/system/corgi-ranking-worker.service
   echo "✓ corgi-ranking-worker.service"
+elif [ "$INSTALL_RANKING_WORKER" = "true" ]; then
+  echo "ERROR: approved worker activation requested but source unit is missing" >&2
+  exit 1
+else
+  echo "○ corgi-ranking-worker.service installation skipped (set INSTALL_RANKING_WORKER=true after approval)"
 fi
 
 # Health watchdog timer
@@ -103,15 +114,19 @@ echo "✓ systemctl daemon-reload"
 systemctl enable bluesky-feed 2>/dev/null || true
 echo "✓ bluesky-feed enabled"
 
-if ! systemctl list-unit-files corgi-ranking-worker.service --no-legend 2>/dev/null | grep -q '^corgi-ranking-worker.service'; then
-  echo "ERROR: corgi-ranking-worker.service is not installed; cannot enable it" >&2
-  exit 1
+if [ "$INSTALL_RANKING_WORKER" = "true" ]; then
+  if ! systemctl list-unit-files corgi-ranking-worker.service --no-legend 2>/dev/null | grep -q '^corgi-ranking-worker.service'; then
+    echo "ERROR: corgi-ranking-worker.service is not installed; cannot enable it" >&2
+    exit 1
+  fi
+  if ! systemctl enable corgi-ranking-worker 2>/dev/null; then
+    echo "ERROR: failed to enable corgi-ranking-worker.service" >&2
+    exit 1
+  fi
+  echo "✓ corgi-ranking-worker enabled (not started by installer)"
+else
+  echo "○ corgi-ranking-worker enable skipped pending approved activation"
 fi
-if ! systemctl enable corgi-ranking-worker 2>/dev/null; then
-  echo "ERROR: failed to enable corgi-ranking-worker.service" >&2
-  exit 1
-fi
-echo "✓ corgi-ranking-worker enabled (not started by installer)"
 
 systemctl enable --now health-watchdog.timer 2>/dev/null || true
 echo "✓ health-watchdog.timer enabled"

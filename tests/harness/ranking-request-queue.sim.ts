@@ -111,7 +111,15 @@ describe('durable ranking request queue integration', () => {
     });
     const firstClaim = await queue.claimNext('worker-a', 'community-gov');
     expect(firstClaim).not.toBeNull();
-    await queue.defer(firstClaim!.id, 'worker-a', new Date('2020-01-01T00:00:01.000Z'));
+    await queue.defer(firstClaim!.id, 'worker-a', new Date('2999-01-01T00:00:00.000Z'));
+
+    await expect(queue.claimNext('worker-b', 'community-gov')).resolves.toBeNull();
+    await db.query(
+      `UPDATE ranking_run_requests
+          SET not_before = NOW() - INTERVAL '1 second'
+        WHERE id = $1`,
+      [firstClaim!.id]
+    );
 
     const secondClaim = await queue.claimNext('worker-b', 'community-gov');
     expect(secondClaim?.id).toBe(firstClaim!.id);

@@ -13,6 +13,7 @@ const {
   redisGetMock,
   redisZCardMock,
   readRankingWorkerHealthMock,
+  rankingRequestQueueMock,
 } = vi.hoisted(() => ({
   dbQueryMock: vi.fn(),
   enqueueManualScoringRunMock: vi.fn(),
@@ -25,6 +26,7 @@ const {
   redisGetMock: vi.fn(),
   redisZCardMock: vi.fn(),
   readRankingWorkerHealthMock: vi.fn(),
+  rankingRequestQueueMock: {},
 }));
 
 vi.mock('../src/db/client.js', () => ({
@@ -53,7 +55,7 @@ vi.mock('../src/scoring/scheduler.js', () => ({
 }));
 
 vi.mock('../src/scoring/ranking-request-queue.js', () => ({
-  rankingRequestQueue: {},
+  rankingRequestQueue: rankingRequestQueueMock,
 }));
 
 vi.mock('../src/scoring/ranking-worker.js', () => ({
@@ -61,7 +63,10 @@ vi.mock('../src/scoring/ranking-worker.js', () => ({
 }));
 
 vi.mock('../src/config.js', () => ({
-  config: { RANKING_WORKER_HEARTBEAT_TTL_MS: 30_000 },
+  config: {
+    RANKING_COMMUNITY_ID: 'community-gov',
+    RANKING_WORKER_HEARTBEAT_TTL_MS: 30_000,
+  },
 }));
 
 vi.mock('../src/lib/logger.js', () => ({
@@ -260,6 +265,13 @@ describe('admin manual rescore overlap guard', () => {
       feedSize: 51,
     });
     expect(redisGetMock).not.toHaveBeenCalled();
+    expect(readRankingWorkerHealthMock).toHaveBeenCalledWith(
+      expect.objectContaining({ get: redisGetMock, zcard: redisZCardMock }),
+      rankingRequestQueueMock,
+      'community-gov',
+      expect.any(Date),
+      30_000
+    );
 
     await app.close();
   });

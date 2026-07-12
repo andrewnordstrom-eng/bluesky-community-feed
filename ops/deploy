@@ -47,6 +47,7 @@ if systemctl cat corgi-ranking-worker.service > /dev/null 2>&1; then
     echo "ERROR: ranking worker restart failed; API was not touched" >&2
     exit 1
   fi
+  worker_restart_epoch_ms=$(date +%s%3N)
 
   ranking_community_id="${RANKING_COMMUNITY_ID:-community-gov}"
   if [ -z "${RANKING_COMMUNITY_ID:-}" ] && [ -f .env ]; then
@@ -66,7 +67,7 @@ if systemctl cat corgi-ranking-worker.service > /dev/null 2>&1; then
     worker_heartbeat=""
     if ! worker_heartbeat=$(timeout 5 docker exec bluesky-feed-redis redis-cli --raw GET "$worker_heartbeat_key" 2>/dev/null); then
       echo "Ranking worker heartbeat probe failed (attempt $attempt/3)" >&2
-    elif [ -n "$worker_heartbeat" ] && HEARTBEAT_JSON="$worker_heartbeat" python3 -c 'import datetime, json, os; payload=json.loads(os.environ["HEARTBEAT_JSON"]); updated=datetime.datetime.fromisoformat(payload["updatedAt"].replace("Z", "+00:00")); age=(datetime.datetime.now(datetime.timezone.utc)-updated).total_seconds(); raise SystemExit(0 if 0 <= age <= 60 and payload.get("state") != "failed" else 1)' 2>/dev/null; then
+    elif [ -n "$worker_heartbeat" ] && HEARTBEAT_JSON="$worker_heartbeat" WORKER_RESTART_EPOCH_MS="$worker_restart_epoch_ms" python3 -c 'import datetime, json, os; payload=json.loads(os.environ["HEARTBEAT_JSON"]); updated=datetime.datetime.fromisoformat(payload["updatedAt"].replace("Z", "+00:00")); age=(datetime.datetime.now(datetime.timezone.utc)-updated).total_seconds(); updated_ms=int(updated.timestamp()*1000); restart_ms=int(os.environ["WORKER_RESTART_EPOCH_MS"]); raise SystemExit(0 if 0 <= age <= 60 and updated_ms >= restart_ms and payload.get("state") != "failed" else 1)' 2>/dev/null; then
       worker_healthy=true
       echo "Ranking worker heartbeat passed (attempt $attempt/3)"
       break

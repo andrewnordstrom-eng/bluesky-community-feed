@@ -107,5 +107,5 @@ else
 
   echo ""
   echo "=== Last Scoring ==="
-  journalctl -u corgi-ranking-worker --since "15 minutes ago" --no-pager 2>/dev/null | grep -i "scoring pipeline complete" | tail -1 || echo "No recent scoring run found"
+  journalctl -u bluesky-feed -u corgi-ranking-worker --since "15 minutes ago" --no-pager 2>/dev/null | grep -i "scoring pipeline complete" | tail -1 || echo "No recent scoring run found"
 fi

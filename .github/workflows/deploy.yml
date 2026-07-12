@@ -120,6 +120,7 @@ jobs:
                 echo "Ranking worker restart failed; API was not touched"
                 exit 1
               fi
+              WORKER_RESTART_EPOCH_MS=$(date +%s%3N)
 
               RANKING_COMMUNITY_ID="community-gov"
               COMMUNITY_CONFIG=""
@@ -139,7 +140,7 @@ jobs:
                 WORKER_HEARTBEAT=""
                 if ! WORKER_HEARTBEAT=$(sudo docker compose -f docker-compose.prod.yml exec -T redis redis-cli --raw GET "$WORKER_HEARTBEAT_KEY"); then
                   echo "Ranking worker heartbeat probe failed (attempt $i/3)"
-                elif [ -n "$WORKER_HEARTBEAT" ] && HEARTBEAT_JSON="$WORKER_HEARTBEAT" python3 -c 'import datetime, json, os; payload=json.loads(os.environ["HEARTBEAT_JSON"]); updated=datetime.datetime.fromisoformat(payload["updatedAt"].replace("Z", "+00:00")); age=(datetime.datetime.now(datetime.timezone.utc)-updated).total_seconds(); raise SystemExit(0 if 0 <= age <= 60 and payload.get("state") != "failed" else 1)'; then
+                elif [ -n "$WORKER_HEARTBEAT" ] && HEARTBEAT_JSON="$WORKER_HEARTBEAT" WORKER_RESTART_EPOCH_MS="$WORKER_RESTART_EPOCH_MS" python3 -c 'import datetime, json, os; payload=json.loads(os.environ["HEARTBEAT_JSON"]); updated=datetime.datetime.fromisoformat(payload["updatedAt"].replace("Z", "+00:00")); age=(datetime.datetime.now(datetime.timezone.utc)-updated).total_seconds(); updated_ms=int(updated.timestamp()*1000); restart_ms=int(os.environ["WORKER_RESTART_EPOCH_MS"]); raise SystemExit(0 if 0 <= age <= 60 and updated_ms >= restart_ms and payload.get("state") != "failed" else 1)'; then
                   echo "Ranking worker heartbeat passed (attempt $i/3)"
                   WORKER_HEALTHY=true
                   break

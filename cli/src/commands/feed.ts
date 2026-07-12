@@ -30,20 +30,7 @@ export function registerFeedCommands(program: Command): void {
         if (config.json) {
           printJson(data);
         } else {
-          const db = data.database as Record<string, unknown> | undefined;
-          const scoring = data.scoring as Record<string, unknown> | undefined;
-          const jetstream = data.jetstream as Record<string, unknown> | undefined;
-          const rankingWorker = data.rankingWorker as Record<string, unknown> | undefined;
-          const queue = rankingWorker?.queue as Record<string, unknown> | undefined;
-          printSummary([
-            ['Total Posts', db?.totalPosts ?? 'N/A'],
-            ['Scored Posts', scoring?.scoredPosts ?? 'N/A'],
-            ['Last Scored', scoring?.lastScoredAt ?? 'N/A'],
-            ['Jetstream Connected', jetstream?.connected ?? 'N/A'],
-            ['Subscriber Count', data.subscriberCount ?? 'N/A'],
-            ['Ranking Worker Healthy', rankingWorker?.healthy ?? 'N/A'],
-            ['Queued Ranking Requests', queue?.pendingCount ?? 'N/A'],
-          ]);
+          printSummary(feedHealthSummary(data));
         }
       } catch (err) {
         printError((err as Error).message);
@@ -98,4 +85,23 @@ export function registerFeedCommands(program: Command): void {
         process.exitCode = 1;
       }
     });
+}
+
+/** Convert the feed-health API response into CLI summary rows. */
+export function feedHealthSummary(data: Record<string, unknown>): [string, unknown][] {
+  const db = data.database as Record<string, unknown> | undefined;
+  const scoring = data.scoring as Record<string, unknown> | undefined;
+  const jetstream = data.jetstream as Record<string, unknown> | undefined;
+  const subscribers = data.subscribers as Record<string, unknown> | undefined;
+  const rankingWorker = data.rankingWorker as Record<string, unknown> | undefined;
+  const queue = rankingWorker?.queue as Record<string, unknown> | undefined;
+  return [
+    ['Total Posts', db?.totalPosts ?? 'N/A'],
+    ['Scored Posts', scoring?.postsScored ?? 'N/A'],
+    ['Last Scored', scoring?.lastRun ?? 'N/A'],
+    ['Jetstream Connected', jetstream?.connected ?? 'N/A'],
+    ['Subscriber Count', subscribers?.total ?? 'N/A'],
+    ['Ranking Worker Healthy', rankingWorker?.healthy ?? 'N/A'],
+    ['Queued Ranking Requests', queue?.pendingCount ?? 'N/A'],
+  ];
 }
