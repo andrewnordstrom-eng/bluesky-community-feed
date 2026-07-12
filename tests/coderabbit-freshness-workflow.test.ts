@@ -35,11 +35,24 @@ interface CommitStatus {
   updated_at: string;
 }
 
+interface CheckRun {
+  name: string;
+  status: string;
+  conclusion: string | null;
+  app: {
+    slug: string;
+  } | null;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
 interface ScenarioOptions {
   pages?: ReviewPage[];
   graphqlError?: Error;
   missingPullRequest?: boolean;
   statusPages?: CommitStatus[][];
+  checkRunPages?: CheckRun[][];
 }
 
 type WorkflowExecutor = (
@@ -116,6 +129,7 @@ async function runScenario(
   let pageIndex = 0;
   let statusPageCount = 0;
   const listCommitStatusesForRef = (): undefined => undefined;
+  const listForRef = (): undefined => undefined;
   const listSuitesForRef = (): undefined => undefined;
   const github = {
     rest: {
@@ -147,13 +161,19 @@ async function runScenario(
         listCommitStatusesForRef,
       },
       checks: {
+        listForRef,
         listSuitesForRef,
       },
     },
     paginate: async (
       method: unknown,
       args: unknown,
-      map: ((response: { data: { check_suites: unknown[] } }) => unknown) | undefined,
+      map: ((response: {
+        data: {
+          check_runs?: unknown[];
+          check_suites?: unknown[];
+        };
+      }) => unknown) | undefined,
     ) => {
       if (method === listCommitStatusesForRef) {
         expect(args).toEqual({
@@ -165,6 +185,20 @@ async function runScenario(
         const statusPages = options?.statusPages ?? [[]];
         statusPageCount = statusPages.length;
         return statusPages.flat();
+      }
+      if (method === listForRef) {
+        expect(args).toEqual({
+          owner: 'andrewnordstrom-eng',
+          repo: 'bluesky-community-feed',
+          ref: 'head',
+          per_page: 100,
+        });
+        const response = {
+          data: {
+            check_runs: (options?.checkRunPages ?? [[]]).flat(),
+          },
+        };
+        return map === undefined ? response : map(response);
       }
       if (method === listSuitesForRef) {
         expect(args).toEqual({
@@ -245,6 +279,101 @@ async function runScenario(
 }
 
 describe('coderabbit freshness exact-head review identity', () => {
+  it('accepts an exact-head successful check run from the CodeRabbit GitHub App', async () => {
+    const now = new Date().toISOString();
+    const result = await runScenario([], {
+      checkRunPages: [[{
+        name: 'CodeRabbit',
+        status: 'completed',
+        conclusion: 'success',
+        app: { slug: 'coderabbitai' },
+        created_at: now,
+        started_at: now,
+        completed_at: now,
+      }]],
+    });
+
+    expect(result.failures).toEqual([]);
+    expect(result.notices[0]).toMatch(/\[coderabbit-freshness:ok_run\]/);
+    expect(result.pageCount).toBe(0);
+  });
+
+  it.each(['failure', 'neutral', 'skipped'])(
+    'rejects a completed CodeRabbit check run with conclusion %s',
+    async (conclusion) => {
+      const now = new Date().toISOString();
+      const result = await runScenario([], {
+        checkRunPages: [[{
+          name: 'CodeRabbit',
+          status: 'completed',
+          conclusion,
+          app: { slug: 'coderabbitai' },
+          created_at: now,
+          started_at: now,
+          completed_at: now,
+        }]],
+      });
+
+      expect(result.failures[0]).toMatch(new RegExp(`check-run conclusion is ${conclusion}`));
+      expect(result.pageCount).toBe(0);
+    },
+  );
+
+  it('rejects a pending CodeRabbit check run instead of falling back to a review', async () => {
+    const now = new Date().toISOString();
+    const result = await runScenario([
+      approvedReview('head', 'coderabbitai', 'Bot'),
+    ], {
+      checkRunPages: [[{
+        name: 'CodeRabbit',
+        status: 'in_progress',
+        conclusion: null,
+        app: { slug: 'coderabbitai' },
+        created_at: now,
+        started_at: now,
+        completed_at: null,
+      }]],
+    });
+
+    expect(result.failures[0]).toMatch(/check-run is still in_progress/);
+    expect(result.pageCount).toBe(0);
+  });
+
+  it('rejects a stale pending CodeRabbit check run', async () => {
+    const stale = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+    const result = await runScenario([], {
+      checkRunPages: [[{
+        name: 'CodeRabbit',
+        status: 'queued',
+        conclusion: null,
+        app: { slug: 'coderabbitai' },
+        created_at: stale,
+        started_at: stale,
+        completed_at: null,
+      }]],
+    });
+
+    expect(result.failures[0]).toMatch(/pending stale/);
+    expect(result.pageCount).toBe(0);
+  });
+
+  it('ignores lookalike check runs that are not owned by the CodeRabbit GitHub App', async () => {
+    const now = new Date().toISOString();
+    const result = await runScenario([], {
+      checkRunPages: [[{
+        name: 'CodeRabbit',
+        status: 'completed',
+        conclusion: 'success',
+        app: { slug: 'untrusted-app' },
+        created_at: now,
+        started_at: now,
+        completed_at: now,
+      }]],
+    });
+
+    expect(result.failures[0]).toMatch(/exact-head review/);
+  });
+
   it('accepts a bare coderabbitai login only for a Bot actor on the exact head', async () => {
     const result = await runScenario([
       approvedReview('head', 'coderabbitai', 'Bot'),

@@ -1,16 +1,21 @@
 # PROJ-1761 validation receipt
 
-Date: 2026-07-11 (America/Los_Angeles)
+Date: 2026-07-12 (America/Los_Angeles)
 Repository: `andrewnordstrom-eng/bluesky-community-feed`
 Pull request: https://github.com/andrewnordstrom-eng/bluesky-community-feed/pull/340
 Validated implementation head before this receipt: `9ff14a7722c3c1509510f1ddb35aadb2e668a97e`
 
 ## Delivered behavior
 
-The CodeRabbit freshness workflow can use a complete exact-head review when the
-Actions token cannot observe CodeRabbit's third-party status or check suite. The
-fallback requires the CodeRabbit `Bot` actor, a normalized canonical login, the
-exact pull-request head commit, and complete review pagination.
+The CodeRabbit freshness workflow recognizes the exact-head `CodeRabbit` check
+run only when GitHub attributes it to the `coderabbitai` GitHub App. This covers
+the production API shape where the Actions token can list the check run but the
+corresponding check-suite query returns no CodeRabbit suite.
+
+If neither a legacy status nor that authenticated check run nor a check suite is
+visible, the workflow can use a complete exact-head review. The fallback
+requires the CodeRabbit `Bot` actor, a normalized canonical login, the exact
+pull-request head commit, and complete review pagination.
 
 Only an exact-head `APPROVED` review passes. `CHANGES_REQUESTED`, `COMMENTED`,
 `PENDING`, `DISMISSED`, a stale review, incomplete pagination, or ambiguous
@@ -28,12 +33,14 @@ The workflow harness executes the production script and covers:
   including fail-closed comment-only behavior;
 - newest-decisive-review ordering;
 - commit-status and GraphQL review pagination;
+- authenticated check-run success plus failure, neutral, skipped, pending, and
+  lookalike-app rejection;
 - nullable review data, a missing pull-request node, incomplete pagination,
   the 100-page safety bound, and GraphQL failure.
 
 ## Verification
 
-- Focused workflow harness: 22 tests passed.
+- Focused workflow harness: 29 tests passed.
 - `actionlint .github/workflows/coderabbit-freshness.yml`: passed.
 - `npm run build`: passed.
 - `npm run docs:verify`: passed.
@@ -53,5 +60,6 @@ No CodeRabbit exemption, synthetic status, duplicate raw review request,
 ruleset weakening, or break-glass merge was used. The repair changes only the
 freshness workflow, its executable regression harness, and this receipt.
 
-Current-head CodeRabbit approval, freshness, closeout, merge, and deployment
-remain pending. Merge remains subject to Andrew's separate approval.
+Current-head CodeRabbit freshness, closeout, merge, and deployment remain
+pending. Andrew approved end-to-end landing on 2026-07-12; repository gates
+remain authoritative.

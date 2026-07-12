@@ -226,6 +226,63 @@ jobs:
               return;
             }
 
+            const allCheckRuns = await github.paginate(
+              github.rest.checks.listForRef,
+              {
+                owner,
+                repo,
+                ref: sha,
+                per_page: 100,
+              },
+              (response) => response.data?.check_runs || []
+            );
+            const checkRuns = (allCheckRuns || [])
+              .filter((run) => {
+                const appSlug = (((run.app || {}).slug || "").trim().toLowerCase());
+                const runName = ((run.name || "").trim().toLowerCase());
+                return appSlug === "coderabbitai" && runName === "coderabbit";
+              })
+              .sort((a, b) => {
+                const aTs = parseTime(a.completed_at || a.started_at || a.created_at || "");
+                const bTs = parseTime(b.completed_at || b.started_at || b.created_at || "");
+                return bTs - aTs;
+              });
+
+            if (checkRuns.length > 0) {
+              const latestRun = checkRuns[0];
+              const runStatus = ((latestRun.status || "").trim().toLowerCase());
+              const runConclusion = ((latestRun.conclusion || "").trim().toLowerCase());
+              const runUpdatedAt = parseTime(
+                latestRun.completed_at || latestRun.started_at || latestRun.created_at || ""
+              );
+              const runAgeMinutes = Math.max(0, Math.floor((now - runUpdatedAt) / 60000));
+
+              if (runStatus === "completed") {
+                if (runConclusion !== "success") {
+                  failWithAction(`CodeRabbit check-run conclusion is ${runConclusion || "unknown"}`);
+                  return;
+                }
+                core.notice(
+                  `[coderabbit-freshness:ok_run] Exact-head CodeRabbit check run completed (success); age ${runAgeMinutes}m.`
+                );
+                return;
+              }
+
+              const pendingStates = ["queued", "in_progress", "waiting", "pending"];
+              if (!pendingStates.includes(runStatus)) {
+                failWithAction(`CodeRabbit check-run status is ${runStatus || "unknown"}`);
+                return;
+              }
+              if (runAgeMinutes > staleMinutes) {
+                failWithAction(
+                  `CodeRabbit check-run is pending stale (${runAgeMinutes}m old; SLA ${staleMinutes}m)`
+                );
+                return;
+              }
+              failWithAction(`CodeRabbit check-run is still ${runStatus} (${runAgeMinutes}m old)`);
+              return;
+            }
+
             const allSuites = await github.paginate(
               github.rest.checks.listSuitesForRef,
               {
