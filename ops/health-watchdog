@@ -11,16 +11,59 @@
 set -euo pipefail
 
 SERVICE="bluesky-feed"
+WORKER_SERVICE="corgi-ranking-worker"
 HEALTH_URL="http://localhost:3001/health/ready"
 MAX_RETRIES=3
 RETRY_DELAY=10
 TAG="health-watchdog"
 DISK_WARN_PCT=80
 DISK_CRIT_PCT=90
+WORKER_HEARTBEAT_KEY="corgi:ranking-worker:heartbeat"
+WORKER_HEARTBEAT_MAX_AGE_SECONDS=60
+FEED_MAX_AGE_SECONDS=600
 
 log_info()  { logger -t "$TAG" -p user.info  "$1"; }
 log_warn()  { logger -t "$TAG" -p user.warning "$1"; }
 log_err()   { logger -t "$TAG" -p user.err "$1"; }
+
+worker_unit_installed() {
+  systemctl list-unit-files "$WORKER_SERVICE.service" --no-legend 2>/dev/null | grep -q "^$WORKER_SERVICE.service"
+}
+
+worker_heartbeat_healthy() {
+  local heartbeat
+  heartbeat=$(docker exec bluesky-feed-redis redis-cli --raw GET "$WORKER_HEARTBEAT_KEY" 2>/dev/null) || return 1
+  [ -n "$heartbeat" ] || return 1
+  HEARTBEAT_JSON="$heartbeat" HEARTBEAT_MAX_AGE="$WORKER_HEARTBEAT_MAX_AGE_SECONDS" python3 -c '
+import datetime
+import json
+import os
+
+payload = json.loads(os.environ["HEARTBEAT_JSON"])
+updated = datetime.datetime.fromisoformat(payload["updatedAt"].replace("Z", "+00:00"))
+age = (datetime.datetime.now(datetime.timezone.utc) - updated).total_seconds()
+if age < 0 or age > int(os.environ["HEARTBEAT_MAX_AGE"]):
+    raise SystemExit(1)
+if payload.get("state") == "failed":
+    raise SystemExit(1)
+' 2>/dev/null
+}
+
+feed_snapshot_healthy() {
+  local feed_count updated_at
+  feed_count=$(docker exec bluesky-feed-redis redis-cli --raw ZCARD feed:current 2>/dev/null) || return 1
+  updated_at=$(docker exec bluesky-feed-redis redis-cli --raw GET feed:updated_at 2>/dev/null) || return 1
+  [ "$feed_count" -gt 0 ] 2>/dev/null || return 1
+  [ -n "$updated_at" ] || return 1
+  FEED_UPDATED_AT="$updated_at" FEED_MAX_AGE="$FEED_MAX_AGE_SECONDS" python3 -c '
+import datetime
+import os
+
+updated = datetime.datetime.fromisoformat(os.environ["FEED_UPDATED_AT"].replace("Z", "+00:00"))
+age = (datetime.datetime.now(datetime.timezone.utc) - updated).total_seconds()
+raise SystemExit(0 if 0 <= age <= int(os.environ["FEED_MAX_AGE"]) else 1)
+' 2>/dev/null
+}
 
 # ── Disk space check (runs even if service is down) ──
 DISK_PCT=$(df / --output=pcent | tail -1 | tr -d ' %')
@@ -52,6 +95,21 @@ fi
 if ! systemctl is-active --quiet "$SERVICE"; then
   log_warn "$SERVICE is not active — skipping health check (systemd will handle restart)"
   exit 0
+fi
+
+if worker_unit_installed; then
+  if ! systemctl is-active --quiet "$WORKER_SERVICE"; then
+    log_err "$WORKER_SERVICE is not active — restarting worker without touching feed serving"
+    systemctl restart "$WORKER_SERVICE"
+  elif ! worker_heartbeat_healthy; then
+    log_err "$WORKER_SERVICE heartbeat is stale or failed — restarting worker only"
+    systemctl restart "$WORKER_SERVICE"
+  fi
+
+  if ! feed_snapshot_healthy; then
+    log_err "Feed snapshot is empty or stale — restarting worker only and preserving API service"
+    systemctl restart "$WORKER_SERVICE"
+  fi
 fi
 
 # Try health check with retries

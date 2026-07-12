@@ -9,6 +9,10 @@ ADMIN_DID="${ADMIN_DID:-}"
 
 echo "=== Service ==="
 systemctl is-active bluesky-feed 2>/dev/null || echo "NOT RUNNING"
+if systemctl list-unit-files corgi-ranking-worker.service --no-legend 2>/dev/null | grep -q '^corgi-ranking-worker.service'; then
+  printf "Ranking worker: "
+  systemctl is-active corgi-ranking-worker 2>/dev/null || echo "NOT RUNNING"
+fi
 
 # Try vitals endpoint first (requires admin auth header)
 VITALS=""
@@ -103,5 +107,5 @@ else
 
   echo ""
   echo "=== Last Scoring ==="
-  journalctl -u bluesky-feed --since "15 minutes ago" --no-pager 2>/dev/null | grep -i "scoring pipeline complete" | tail -1 || echo "No recent scoring run found"
+  journalctl -u corgi-ranking-worker --since "15 minutes ago" --no-pager 2>/dev/null | grep -i "scoring pipeline complete" | tail -1 || echo "No recent scoring run found"
 fi

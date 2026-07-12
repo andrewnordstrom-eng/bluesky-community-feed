@@ -10,9 +10,12 @@ import { db } from '../../db/client.js';
 import { redis } from '../../db/redis.js';
 import { getScoringStatus } from '../status-tracker.js';
 import { getAdminDid } from '../../auth/admin.js';
-import { tryTriggerManualScoringRun } from '../../scoring/scheduler.js';
+import { enqueueManualScoringRun } from '../../scoring/scheduler.js';
 import { logger } from '../../lib/logger.js';
 import { adminSecurity } from '../../lib/openapi.js';
+import { config } from '../../config.js';
+import { rankingRequestQueue } from '../../scoring/ranking-request-queue.js';
+import { readRankingWorkerHealth } from '../../scoring/ranking-worker.js';
 import {
   getJetstreamDisconnectedAt,
   getJetstreamEventsLast5Min,
@@ -93,6 +96,18 @@ export function registerFeedHealthRoutes(app: FastifyInstance): void {
       logger.warn({ err }, 'Failed to get feed size from Redis');
     }
 
+    let rankingWorker: Awaited<ReturnType<typeof readRankingWorkerHealth>> | null = null;
+    try {
+      rankingWorker = await readRankingWorkerHealth(
+        redis,
+        rankingRequestQueue,
+        new Date(),
+        config.RANKING_WORKER_HEARTBEAT_TTL_MS
+      );
+    } catch (err) {
+      logger.warn({ err }, 'Failed to get ranking worker health');
+    }
+
     return reply.send({
       database: {
         totalPosts: parseInt(dbStats.rows[0].total_posts, 10),
@@ -124,6 +139,7 @@ export function registerFeedHealthRoutes(app: FastifyInstance): void {
         lastUpdated: epochResult.rows[0]?.rules_updated,
       },
       feedSize,
+      rankingWorker,
     });
   });
 
@@ -165,17 +181,20 @@ export function registerFeedHealthRoutes(app: FastifyInstance): void {
     schema: {
       tags: ['Admin'],
       summary: 'Rescore feed',
-      description: 'Manually triggers the scoring pipeline to rescore the feed.',
+      description: 'Durably queues an idempotent scoring request for the ranking worker.',
       security: adminSecurity,
     },
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     const adminDid = getAdminDid(request);
 
-    if (!(await tryTriggerManualScoringRun())) {
-      logger.warn({ adminDid }, 'Manual rescore rejected because scoring is already in progress');
-      return reply.code(409).send({
-        error: 'Conflict',
-        message: 'Scoring pipeline is already running. Try again after it completes.',
+    let rankingRequest: Awaited<ReturnType<typeof enqueueManualScoringRun>>;
+    try {
+      rankingRequest = await enqueueManualScoringRun(adminDid, new Date());
+    } catch (err) {
+      logger.error({ err, adminDid }, 'Manual rescore queueing failed');
+      return reply.code(503).send({
+        error: 'RankingQueueUnavailable',
+        message: 'The ranking request could not be queued. No ranking was started.',
       });
     }
 
@@ -183,14 +202,26 @@ export function registerFeedHealthRoutes(app: FastifyInstance): void {
     await db.query(
       `INSERT INTO governance_audit_log (action, actor_did, details)
        VALUES ('manual_rescore', $1, $2)`,
-      [adminDid, JSON.stringify({ triggeredAt: new Date().toISOString() })]
+      [adminDid, JSON.stringify({
+        requestId: rankingRequest.id,
+        idempotencyKey: rankingRequest.idempotencyKey,
+        created: rankingRequest.created,
+        queuedAt: new Date().toISOString(),
+      })]
     );
 
-    logger.info({ adminDid }, 'Manual rescore triggered by admin');
+    logger.info(
+      { adminDid, requestId: rankingRequest.id, created: rankingRequest.created },
+      'Manual rescore queued by admin'
+    );
 
-    return reply.send({
+    return reply.code(202).send({
       success: true,
-      message: 'Scoring pipeline started. Check feed-health endpoint for results.',
+      queued: true,
+      requestId: rankingRequest.id,
+      idempotencyKey: rankingRequest.idempotencyKey,
+      created: rankingRequest.created,
+      message: 'Scoring request queued. Check feed-health for worker progress.',
     });
   });
 }

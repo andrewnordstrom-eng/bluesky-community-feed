@@ -1,0 +1,41 @@
+# Trustworthy Corgi governed ranking worker
+#
+# Installation and activation are approval-gated. See PROJ-1769 and
+# docs/OPERABILITY.md before copying this unit into /etc/systemd/system.
+
+[Unit]
+Description=Corgi Governed Ranking Worker
+Documentation=https://github.com/andrewnordstrom-eng/bluesky-community-feed
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/bluesky-feed
+EnvironmentFile=/opt/bluesky-feed/.env
+Environment=NODE_ENV=production
+Environment=PROCESS_ROLE=ranking-worker
+Environment=NODE_OPTIONS=--max-old-space-size=896
+ExecStart=/usr/bin/node dist/index.js
+Restart=on-failure
+RestartSec=5
+MemoryHigh=768M
+MemoryMax=1G
+# Must exceed SCORING_TIMEOUT_MS=240000 so an owned run can drain safely.
+TimeoutStopSec=300
+KillSignal=SIGTERM
+KillMode=mixed
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/bluesky-feed
+PrivateTmp=true
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=corgi-ranking-worker
+
+[Install]
+WantedBy=multi-user.target

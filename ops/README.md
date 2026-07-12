@@ -69,3 +69,15 @@ python3 scripts/generate-report.py --date "March 15, 2026"
 **Dependencies:** Python 3.12+, pandas, matplotlib, python-docx (all pre-installed).
 
 **Output:** 6-page report covering executive summary, topic distribution, score composition, classification & diversity, engagement profile, and sample posts.
+
+## Ranking worker activation gate
+
+The tracked units split feed serving from ranking:
+
+- `bluesky-feed.service` runs `PROCESS_ROLE=api`.
+- `corgi-ranking-worker.service` runs `PROCESS_ROLE=ranking-worker` with an independent 1 GiB cgroup and a 300-second stop timeout.
+- The application default remains `PROCESS_ROLE=all` until the production activation packet is explicitly approved, preserving rollback compatibility.
+
+Do not install or start the worker unit from an ordinary deploy. Follow the
+pre-activation backup, migration, heartbeat, snapshot freshness, independent
+restart, and rollback probes in `docs/OPERABILITY.md`.

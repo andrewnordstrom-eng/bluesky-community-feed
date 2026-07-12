@@ -43,6 +43,11 @@ if [ -f "$APP_DIR/ops/bluesky-feed.service" ]; then
   echo "✓ bluesky-feed.service"
 fi
 
+if [ -f "$APP_DIR/ops/corgi-ranking-worker.service" ]; then
+  cp "$APP_DIR/ops/corgi-ranking-worker.service" /etc/systemd/system/corgi-ranking-worker.service
+  echo "✓ corgi-ranking-worker.service"
+fi
+
 # Health watchdog timer
 if [ -f "$APP_DIR/ops/health-watchdog.service" ]; then
   cp "$APP_DIR/ops/health-watchdog.service" /etc/systemd/system/health-watchdog.service
@@ -98,6 +103,9 @@ echo "✓ systemctl daemon-reload"
 systemctl enable bluesky-feed 2>/dev/null || true
 echo "✓ bluesky-feed enabled"
 
+systemctl enable corgi-ranking-worker 2>/dev/null || true
+echo "✓ corgi-ranking-worker enabled (not started by installer)"
+
 systemctl enable --now health-watchdog.timer 2>/dev/null || true
 echo "✓ health-watchdog.timer enabled"
 
@@ -115,5 +123,6 @@ echo "  /usr/local/bin/bluesky-ops-retention.sh"
 echo ""
 echo "Systemd units:"
 echo "  systemctl status bluesky-feed"
+echo "  systemctl status corgi-ranking-worker"
 echo "  systemctl list-timers health-watchdog.timer"
 echo "  journalctl -t health-watchdog --since '1 hour ago'"

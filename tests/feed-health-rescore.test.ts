@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   dbQueryMock,
-  tryTriggerManualScoringRunMock,
+  enqueueManualScoringRunMock,
   getScoringStatusMock,
   isJetstreamConnectedMock,
   getLastEventReceivedAtMock,
@@ -12,9 +12,10 @@ const {
   triggerJetstreamReconnectMock,
   redisGetMock,
   redisZCardMock,
+  readRankingWorkerHealthMock,
 } = vi.hoisted(() => ({
   dbQueryMock: vi.fn(),
-  tryTriggerManualScoringRunMock: vi.fn(),
+  enqueueManualScoringRunMock: vi.fn(),
   getScoringStatusMock: vi.fn(),
   isJetstreamConnectedMock: vi.fn(),
   getLastEventReceivedAtMock: vi.fn(),
@@ -23,6 +24,7 @@ const {
   triggerJetstreamReconnectMock: vi.fn(),
   redisGetMock: vi.fn(),
   redisZCardMock: vi.fn(),
+  readRankingWorkerHealthMock: vi.fn(),
 }));
 
 vi.mock('../src/db/client.js', () => ({
@@ -47,7 +49,27 @@ vi.mock('../src/auth/admin.js', () => ({
 }));
 
 vi.mock('../src/scoring/scheduler.js', () => ({
-  tryTriggerManualScoringRun: tryTriggerManualScoringRunMock,
+  enqueueManualScoringRun: enqueueManualScoringRunMock,
+}));
+
+vi.mock('../src/scoring/ranking-request-queue.js', () => ({
+  rankingRequestQueue: {},
+}));
+
+vi.mock('../src/scoring/ranking-worker.js', () => ({
+  readRankingWorkerHealth: readRankingWorkerHealthMock,
+}));
+
+vi.mock('../src/config.js', () => ({
+  config: { RANKING_WORKER_HEARTBEAT_TTL_MS: 30_000 },
+}));
+
+vi.mock('../src/lib/logger.js', () => ({
+  logger: {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  },
 }));
 
 vi.mock('../src/ingestion/jetstream.js', () => ({
@@ -63,7 +85,7 @@ import { registerFeedHealthRoutes } from '../src/admin/routes/feed-health.js';
 describe('admin manual rescore overlap guard', () => {
   beforeEach(() => {
     dbQueryMock.mockReset();
-    tryTriggerManualScoringRunMock.mockReset();
+    enqueueManualScoringRunMock.mockReset();
     getScoringStatusMock.mockReset();
     isJetstreamConnectedMock.mockReset();
     getLastEventReceivedAtMock.mockReset();
@@ -72,10 +94,23 @@ describe('admin manual rescore overlap guard', () => {
     triggerJetstreamReconnectMock.mockReset();
     redisGetMock.mockReset();
     redisZCardMock.mockReset();
+    readRankingWorkerHealthMock.mockReset();
+    readRankingWorkerHealthMock.mockResolvedValue({
+      healthy: true,
+      heartbeat: null,
+      ageMs: null,
+      queue: {
+        pendingCount: 0,
+        claimedCount: 0,
+        oldestPendingAt: null,
+        newestRequestId: null,
+        newestRequestState: null,
+      },
+    });
   });
 
-  it('returns 409 when scoring is already in progress', async () => {
-    tryTriggerManualScoringRunMock.mockReturnValue(false);
+  it('returns 503 and starts nothing when the durable queue is unavailable', async () => {
+    enqueueManualScoringRunMock.mockRejectedValue(new Error('database unavailable'));
 
     const app = Fastify();
     registerFeedHealthRoutes(app);
@@ -85,9 +120,9 @@ describe('admin manual rescore overlap guard', () => {
       url: '/feed/rescore',
     });
 
-    expect(response.statusCode).toBe(409);
+    expect(response.statusCode).toBe(503);
     expect(response.json()).toMatchObject({
-      error: 'Conflict',
+      error: 'RankingQueueUnavailable',
     });
     expect(dbQueryMock).not.toHaveBeenCalled();
 
@@ -95,7 +130,11 @@ describe('admin manual rescore overlap guard', () => {
   });
 
   it('starts manual scoring and writes audit log when idle', async () => {
-    tryTriggerManualScoringRunMock.mockReturnValue(true);
+    enqueueManualScoringRunMock.mockResolvedValue({
+      id: 'request-1',
+      created: true,
+      idempotencyKey: 'manual:community-gov:did:plc:admin:1',
+    });
     dbQueryMock.mockResolvedValue({ rows: [] });
 
     const app = Fastify();
@@ -106,11 +145,13 @@ describe('admin manual rescore overlap guard', () => {
       url: '/feed/rescore',
     });
 
-    expect(response.statusCode).toBe(200);
+    expect(response.statusCode).toBe(202);
     expect(response.json()).toMatchObject({
       success: true,
+      queued: true,
+      requestId: 'request-1',
     });
-    expect(tryTriggerManualScoringRunMock).toHaveBeenCalledTimes(1);
+    expect(enqueueManualScoringRunMock).toHaveBeenCalledTimes(1);
     expect(dbQueryMock).toHaveBeenCalledTimes(1);
     expect(dbQueryMock.mock.calls[0]?.[0]).toContain('INSERT INTO governance_audit_log');
 

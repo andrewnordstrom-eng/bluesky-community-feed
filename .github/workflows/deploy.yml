@@ -72,6 +72,21 @@ jobs:
             cd ..
             cd cli && npm ci && npx tsc
             cd ..
+            # Migrations are forward-only and must be applied before either
+            # process is cut over. Fail closed unless the dedicated backup
+            # mount and newest logical dump are present and readable.
+            BACKUP_TARGET=$(findmnt -n -o TARGET --target /mnt/host-backups)
+            if [ "$BACKUP_TARGET" != "/mnt/host-backups" ]; then
+              echo "Dedicated backup mount is missing; refusing migration"
+              exit 1
+            fi
+            LATEST_BACKUP=$(sudo find /mnt/host-backups/postgres -maxdepth 1 -type f -name 'dump-*.sql.gz' -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)
+            if [ -z "$LATEST_BACKUP" ]; then
+              echo "No PostgreSQL backup exists; refusing migration"
+              exit 1
+            fi
+            sudo gzip -t "$LATEST_BACKUP"
+            npm run migrate
             sudo docker compose -f docker-compose.prod.yml up -d --no-deps demo-redis
             for i in 1 2 3 4 5; do
               if sudo docker compose -f docker-compose.prod.yml exec -T demo-redis redis-cli ping | grep -q PONG; then
@@ -84,6 +99,14 @@ jobs:
               fi
               sleep 2
             done
+            # The split worker is activated only by the separately approved
+            # systemd packet. Until then the installed API unit still runs the
+            # rollback-compatible PROCESS_ROLE=all default.
+            WORKER_INSTALLED=false
+            if sudo systemctl cat corgi-ranking-worker.service > /dev/null 2>&1; then
+              WORKER_INSTALLED=true
+              sudo systemctl restart corgi-ranking-worker
+            fi
             sudo systemctl restart bluesky-feed
 
             # Post-deploy health verification (3 retries, 10s apart)
@@ -161,6 +184,31 @@ jobs:
               fi
             fi
 
+            if [ "$HEALTHY" = "true" ] && [ "$WORKER_INSTALLED" = "true" ]; then
+              WORKER_HEALTHY=false
+              for i in 1 2 3; do
+                WORKER_HEARTBEAT=$(sudo docker compose -f docker-compose.prod.yml exec -T redis redis-cli --raw GET corgi:ranking-worker:heartbeat)
+                if [ -n "$WORKER_HEARTBEAT" ] && HEARTBEAT_JSON="$WORKER_HEARTBEAT" python3 -c '
+import datetime
+import json
+import os
+payload = json.loads(os.environ["HEARTBEAT_JSON"])
+updated = datetime.datetime.fromisoformat(payload["updatedAt"].replace("Z", "+00:00"))
+age = (datetime.datetime.now(datetime.timezone.utc) - updated).total_seconds()
+raise SystemExit(0 if 0 <= age <= 60 and payload.get("state") != "failed" else 1)
+'; then
+                  echo "Ranking worker heartbeat passed (attempt $i/3)"
+                  WORKER_HEALTHY=true
+                  break
+                fi
+                sleep 10
+              done
+              if [ "$WORKER_HEALTHY" != "true" ]; then
+                echo "Ranking worker heartbeat did not become healthy"
+                HEALTHY=false
+              fi
+            fi
+
             if [ "$HEALTHY" = "false" ]; then
               echo "DEPLOY FAILED: service unhealthy after restart"
               echo "Rolling back to $PREV_COMMIT..."
@@ -174,6 +222,9 @@ jobs:
               (cd web && npm ci && npm run build) || echo "WARNING: web rollback rebuild failed; serving prior artifacts"
               (cd web-next && npm ci && npm run build) || echo "WARNING: web-next rollback rebuild failed; serving prior artifacts"
               sudo systemctl restart bluesky-feed
+              if [ "$WORKER_INSTALLED" = "true" ]; then
+                sudo systemctl restart corgi-ranking-worker || true
+              fi
               sleep 5
               echo "Rollback complete. Current health:"
               curl -s http://localhost:3001/health || echo "Still unhealthy after rollback"

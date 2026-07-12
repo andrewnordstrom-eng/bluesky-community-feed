@@ -33,12 +33,16 @@ export function registerFeedCommands(program: Command): void {
           const db = data.database as Record<string, unknown> | undefined;
           const scoring = data.scoring as Record<string, unknown> | undefined;
           const jetstream = data.jetstream as Record<string, unknown> | undefined;
+          const rankingWorker = data.rankingWorker as Record<string, unknown> | undefined;
+          const queue = rankingWorker?.queue as Record<string, unknown> | undefined;
           printSummary([
             ['Total Posts', db?.totalPosts ?? 'N/A'],
             ['Scored Posts', scoring?.scoredPosts ?? 'N/A'],
             ['Last Scored', scoring?.lastScoredAt ?? 'N/A'],
             ['Jetstream Connected', jetstream?.connected ?? 'N/A'],
             ['Subscriber Count', data.subscriberCount ?? 'N/A'],
+            ['Ranking Worker Healthy', rankingWorker?.healthy ?? 'N/A'],
+            ['Queued Ranking Requests', queue?.pendingCount ?? 'N/A'],
           ]);
         }
       } catch (err) {
@@ -50,7 +54,7 @@ export function registerFeedCommands(program: Command): void {
   // ── Rescore ──
   feed
     .command('rescore')
-    .description('Trigger manual scoring pipeline run')
+    .description('Queue a durable manual scoring request')
     .action(async () => {
       try {
         const config = resolveConfig(program.opts());
@@ -63,7 +67,7 @@ export function registerFeedCommands(program: Command): void {
         if (config.json) {
           printJson(data);
         } else {
-          printSuccess('Scoring pipeline triggered');
+          printSuccess(`Scoring request queued: ${String(data.requestId ?? 'unknown')}`);
         }
       } catch (err) {
         printError((err as Error).message);

@@ -15,11 +15,26 @@ echo "=== Building ==="
 npx tsc
 
 if [ "${1:-}" != "--skip-migrate" ]; then
+  if [ "$(findmnt -n -o TARGET --target /mnt/host-backups)" != "/mnt/host-backups" ]; then
+    echo "ERROR: dedicated backup mount missing; refusing migration" >&2
+    exit 1
+  fi
+  latest_backup=$(find /mnt/host-backups/postgres -maxdepth 1 -type f -name 'dump-*.sql.gz' -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)
+  if [ -z "$latest_backup" ]; then
+    echo "ERROR: no PostgreSQL backup exists; refusing migration" >&2
+    exit 1
+  fi
+  gzip -t "$latest_backup"
   echo "=== Running migrations ==="
   npm run migrate
 fi
 
-echo "=== Restarting service ==="
+if systemctl cat corgi-ranking-worker.service > /dev/null 2>&1; then
+  echo "=== Restarting ranking worker ==="
+  systemctl restart corgi-ranking-worker
+fi
+
+echo "=== Restarting API service ==="
 systemctl restart bluesky-feed
 sleep 3
 
@@ -29,3 +44,6 @@ echo ""
 
 echo "=== Status ==="
 systemctl is-active bluesky-feed
+if systemctl cat corgi-ranking-worker.service > /dev/null 2>&1; then
+  systemctl is-active corgi-ranking-worker
+fi
