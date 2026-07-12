@@ -6,6 +6,7 @@
     "build": "next build",
     "dev": "next dev",
     "lint": "next lint",
+    "smoke:production": "playwright test --config playwright.config.ts",
     "start": "next start"
   },
   "dependencies": {
@@ -64,6 +65,7 @@
     "zod": "3.25.76"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@types/node": "^24",
     "@types/react": "^19",
     "@types/react-dom": "^19",
