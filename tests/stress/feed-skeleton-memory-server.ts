@@ -15,6 +15,11 @@ import {
   type FeedRequestTrackerStats,
 } from '../../src/feed/request-tracker.js';
 
+// A 20,000-request burst can leave bounded asynchronous attribution work after
+// the HTTP load has completed. Keep the post-load collection window finite but
+// long enough to prove that the production-safe 45-operation cap drains it.
+const FEED_REQUEST_TRACKER_DRAIN_TIMEOUT_MS = 30_000;
+
 interface ServerOptions {
   mode: 'normal' | 'noop';
   diagnostic: boolean;
@@ -283,7 +288,7 @@ async function waitForConnectionDrain(app: ReturnType<typeof Fastify>, timeoutMs
 }
 
 async function settleServerBeforeSnapshot(app: ReturnType<typeof Fastify>, gc: () => void): Promise<DrainDiagnosticStats> {
-  const tracker = await drainFeedRequestTracker(10_000);
+  const tracker = await drainFeedRequestTracker(FEED_REQUEST_TRACKER_DRAIN_TIMEOUT_MS);
   const serverWithIdleClose = app.server as typeof app.server & { closeIdleConnections?: () => void };
   if (typeof serverWithIdleClose.closeIdleConnections === 'function') {
     serverWithIdleClose.closeIdleConnections();
