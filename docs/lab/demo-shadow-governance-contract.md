@@ -46,6 +46,16 @@ These are scripted deterministic voter archetypes, not LLM agents and not valida
 
 Aggregation uses the same side-effect-free production helper, labeled `trimmed_mean_no_trim_under_10`. With 25 ballots, two low and two high values are trimmed from each signal and topic component before averaging. `reviewerBallotShare=1/25` is ballot share, not causal influence, because scripted ballots respond partly to the proposal. The `direct_reviewer_ballot_removed` counterfactual removes the direct reviewer ballot while holding the 24 scripted ballots fixed.
 
+## Content Rules (flag-gated)
+
+Behind `DEMO_CONTENT_RULES_ENABLED` (default off), the ballot gains a third channel: exclude keywords. With the flag off, every payload is contract-identical to v4 and keyword ballots are rejected.
+
+- The reviewer may propose up to 10 exclude keywords (production normalization: lowercase, trim, dedupe, 50-character cap). Synthetic voters never originate keywords; each voter deterministically echoes a reviewer proposal (seeded per keyword, per voter, with bloc-specific echo rates) and sustains previously adopted rules with inertia. Identical inputs replay exactly.
+- Aggregation is the production support-threshold rule, not trimmed mean: a keyword is adopted when backed by at least 30 percent of the electorate (`ceil(0.3 x n)`, so 8 of 25). Every demo ballot is complete, so the denominator is the full 25-ballot electorate; production computes the same share over voters who cast a content ballot. The demo has no safety-net default rules because the frozen corpus is already reviewer-safe.
+- Adopted rules apply at shadow rank time with the production matcher (`checkContentRules`: prefix matching, exclude precedence). Matching posts are withheld from the ranking, not reordered; the feed payload lists them under `withheldPosts` with the matching keyword and its support count. The frozen corpus itself never changes: rules shrink the eligible set, weights reorder the rest, and both effects stay attributable.
+- Rank receipts on visible posts state the adopted rules, threshold, and electorate. Withheld posts have no rank receipt; the receipt endpoint returns an explicit error naming the rule and support.
+- Suggested keywords are derived deterministically from the frozen corpus (frequency-bounded so a suggestion always withholds some posts but never most of the corpus).
+
 ## Ranking And Receipts
 
 The demo reuses stored production raw score components, topic vectors, the production relevance formula, the relevance floor, trimmed-mean aggregation, and the publication-order adjustment represented by the approved feed snapshot. It does not rerun the scorer when a reviewer clicks.
