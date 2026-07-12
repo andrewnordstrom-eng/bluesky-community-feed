@@ -166,12 +166,25 @@ const StoredCorpusSchema = z.object({
   }).optional(),
 });
 
+const StoredContentRulesSummarySchema = z.object({
+  enabled: z.literal(true),
+  threshold: z.number().int().positive(),
+  electorate: z.number().int().nonnegative(),
+  adoptedExcludeKeywords: z.array(z.string().min(1).max(50)),
+  support: z.array(z.object({
+    keyword: z.string().min(1).max(50),
+    supportCount: z.number().int().nonnegative(),
+    adopted: z.boolean(),
+  })),
+});
+
 const StoredVoteSummarySchema = z.object({
   aggregateMethod: z.literal('trimmed_mean_no_trim_under_10'),
   voteCount: z.number().int().nonnegative(),
   trimCount: z.number().int().nonnegative(),
   weights: StoredWeightsSchema,
   topicIntent: StoredTopicIntentSchema,
+  contentRules: StoredContentRulesSummarySchema.optional(),
 });
 
 const StoredEpochSchema = z.object({
@@ -191,6 +204,7 @@ const StoredVoteBaseSchema = z.object({
   label: z.string().min(1),
   weights: StoredWeightsSchema,
   topicIntent: StoredTopicIntentSchema,
+  excludeKeywords: z.array(z.string().min(1).max(50)).max(10).optional(),
   createdAt: z.string().min(1),
 });
 

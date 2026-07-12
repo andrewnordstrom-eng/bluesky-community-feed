@@ -2,6 +2,13 @@ import { createHash, randomUUID } from 'node:crypto';
 import { config } from '../config.js';
 import { applyFeedUrlDedup, FEED_URL_DEDUP_DECAY } from '../scoring/feed-publication.js';
 import { DEMO_COMMUNITIES, createDefaultCorpusLoader } from './corpus.js';
+import {
+  aggregateShadowContentRules,
+  applyShadowContentRules,
+  emptyShadowContentRules,
+  suggestedExcludeKeywords,
+  validateShadowExcludeKeywords,
+} from './content-rules.js';
 import { createSyntheticVoterVotes, getShadowDemoVoterProfiles } from './synthetic-voters.js';
 import {
   DEMO_MAX_ACTIVE_SESSIONS,
@@ -34,6 +41,7 @@ import {
   type ShadowDemoVote,
   type ShadowDemoWarning,
   type ShadowDemoWeights,
+  type ShadowDemoWithheldPost,
 } from './types.js';
 import {
   aggregateShadowVotes,
@@ -88,6 +96,10 @@ export interface ShadowDemoServiceDependencies {
     now: Date;
   }) => Promise<ShadowDemoCorpus>;
   now: () => Date;
+  /** Defaults to false; the default factory reads DEMO_CONTENT_RULES_ENABLED. */
+  contentRulesEnabled?: boolean;
+  /** Session seed source; defaults to randomUUID. Injectable for deterministic tests. */
+  seed?: () => string;
 }
 
 export interface CreateSessionRequest {
@@ -100,6 +112,7 @@ export interface CastVoteRequest {
   baseEpochId: string;
   weights: unknown;
   topicIntent: unknown;
+  excludeKeywords?: unknown;
   idempotencyKey: string | null;
 }
 
@@ -136,11 +149,15 @@ export class ShadowDemoService {
   private readonly store: DemoStore;
   private readonly loadCorpus: ShadowDemoServiceDependencies['loadCorpus'];
   private readonly now: () => Date;
+  private readonly contentRulesEnabled: boolean;
+  private readonly seed: () => string;
 
   constructor(dependencies: ShadowDemoServiceDependencies) {
     this.store = dependencies.store;
     this.loadCorpus = dependencies.loadCorpus;
     this.now = dependencies.now;
+    this.contentRulesEnabled = dependencies.contentRulesEnabled ?? false;
+    this.seed = dependencies.seed ?? randomUUID;
   }
 
   private async replayCreatedSession(
@@ -180,12 +197,15 @@ export class ShadowDemoService {
         trimCount: 0,
         weights: corpus.baseWeights,
         topicIntent: cloneShadowTopicIntent(corpus.baseTopicIntent),
+        ...(this.contentRulesEnabled
+          ? { contentRules: emptyShadowContentRules(SHADOW_DEMO_TOTAL_DEMO_VOTERS) }
+          : {}),
       },
     });
     const state: ShadowDemoSessionState = {
       sessionId,
       communityId: request.communityId,
-      seed: randomUUID(),
+      seed: this.seed(),
       phase: 'created',
       createdAt: now.toISOString(),
       expiresAt: new Date(now.getTime() + SHADOW_DEMO_SESSION_TTL_SECONDS * 1000).toISOString(),
@@ -214,7 +234,7 @@ export class ShadowDemoService {
     }
     return {
       sessionId,
-      payload: sessionPayload(state),
+      payload: sessionPayload(state, this.contentRulesEnabled),
       warnings: state.warnings,
     };
   }
@@ -223,7 +243,7 @@ export class ShadowDemoService {
     const state = await this.readRequiredSession(sessionId);
     return {
       sessionId,
-      payload: sessionPayload(state),
+      payload: sessionPayload(state, this.contentRulesEnabled),
       warnings: state.warnings,
     };
   }
@@ -235,6 +255,7 @@ export class ShadowDemoService {
       assertPhaseForReviewerVote(state);
       const weights = validateWeightsForApi(request.weights);
       const topicIntent = validateTopicIntentForSession(state, request.topicIntent);
+      const excludeKeywords = this.validateExcludeKeywordsForApi(request.excludeKeywords);
       const now = this.now().toISOString();
       const reviewerVote: ShadowDemoVote = {
         id: `vote-reviewer-${request.baseEpochId}`,
@@ -244,6 +265,7 @@ export class ShadowDemoService {
         label: 'Reviewer',
         weights,
         topicIntent,
+        ...(excludeKeywords.length > 0 ? { excludeKeywords } : {}),
         createdAt: now,
       };
 
@@ -259,7 +281,7 @@ export class ShadowDemoService {
         state: nextState,
         response: {
           sessionId: nextState.sessionId,
-          payload: sessionPayload(nextState),
+          payload: sessionPayload(nextState, this.contentRulesEnabled),
           warnings: nextState.warnings,
         },
       };
@@ -297,6 +319,15 @@ export class ShadowDemoService {
         priorCommunityWeights: currentEpoch.aggregate.weights,
         priorTopicIntent: currentEpoch.aggregate.topicIntent,
         createdAt: now,
+        ...(this.contentRulesEnabled
+          ? {
+              contentRules: {
+                reviewerExcludeKeywords: reviewerVote.excludeKeywords ?? [],
+                priorAdoptedExcludeKeywords:
+                  currentEpoch.aggregate.contentRules?.adoptedExcludeKeywords ?? [],
+              },
+            }
+          : {}),
       });
       const nextVotes = state.votes
         .filter((vote) => !(vote.epochId === request.baseEpochId && vote.actorType === 'synthetic_voter'))
@@ -310,7 +341,7 @@ export class ShadowDemoService {
         state: nextState,
         response: {
           sessionId: nextState.sessionId,
-          payload: sessionPayload(nextState),
+          payload: sessionPayload(nextState, this.contentRulesEnabled),
           warnings: nextState.warnings,
         },
       };
@@ -340,7 +371,12 @@ export class ShadowDemoService {
       const now = this.now().toISOString();
       const decisionVotes = votesForEpoch(state, currentEpoch.id);
       assertCompleteDemoElectorate(decisionVotes, currentEpoch.id);
-      const nextAggregate = aggregateShadowVotes(decisionVotes);
+      const nextAggregate = {
+        ...aggregateShadowVotes(decisionVotes),
+        ...(this.contentRulesEnabled
+          ? { contentRules: aggregateShadowContentRules(decisionVotes, decisionVotes.length) }
+          : {}),
+      };
       const advancedEpoch: ShadowDemoEpoch = {
         ...currentEpoch,
         status: 'advanced',
@@ -363,7 +399,7 @@ export class ShadowDemoService {
         state: nextState,
         response: {
           sessionId: nextState.sessionId,
-          payload: sessionPayload(nextState),
+          payload: sessionPayload(nextState, this.contentRulesEnabled),
           warnings: nextState.warnings,
         },
       };
@@ -381,7 +417,7 @@ export class ShadowDemoService {
     const state = await this.readRequiredSession(request.sessionId);
     const epoch = epochByIdOrCurrent(state, request.epochId);
     const previousEpoch = previousEpochFor(state, epoch);
-    const posts = rankedPosts({
+    const ranked = rankedPosts({
       corpus: state.corpus,
       epoch,
       previousEpoch,
@@ -396,7 +432,10 @@ export class ShadowDemoService {
         corpusHealth: state.corpus.health,
         corpusProvenance: corpusProvenanceFor(state),
         aggregate: epoch.aggregate,
-        posts,
+        posts: ranked.posts,
+        ...(this.contentRulesEnabled && epoch.aggregate.contentRules
+          ? { withheldPosts: ranked.withheld }
+          : {}),
       },
       warnings: state.warnings,
     };
@@ -414,13 +453,24 @@ export class ShadowDemoService {
     }
 
     const previousEpoch = previousEpochFor(state, epoch);
-    const fullRankedPosts = rankedPosts({
+    const ranked = rankedPosts({
       corpus: state.corpus,
       epoch,
       previousEpoch,
       limit: state.corpus.items.length,
     });
-    const rankedPost = fullRankedPosts.find(
+    const withheldEntry = ranked.withheld.find(
+      (candidate) => candidate.post.kind === 'public_post' && candidate.post.uri === request.postUri
+    );
+    if (withheldEntry) {
+      const rules = epoch.aggregate.contentRules;
+      throw new DemoValidationError(
+        `Post is withheld by adopted community rule "-${withheldEntry.keyword}" `
+        + `(${withheldEntry.supportCount}/${rules?.electorate ?? SHADOW_DEMO_TOTAL_DEMO_VOTERS} support, `
+        + `threshold ${rules?.threshold ?? '?'}); withheld posts have no rank receipt in this epoch`
+      );
+    }
+    const rankedPost = ranked.posts.find(
       (candidate) => candidate.post.kind === 'public_post' && candidate.post.uri === request.postUri
     );
     if (!rankedPost) {
@@ -468,10 +518,35 @@ export class ShadowDemoService {
             epoch,
             visibleRank: rankedPost.rank,
           }),
+          ...(this.contentRulesEnabled && epoch.aggregate.contentRules
+            ? {
+                contentRules: {
+                  adoptedExcludeKeywords: [...epoch.aggregate.contentRules.adoptedExcludeKeywords],
+                  threshold: epoch.aggregate.contentRules.threshold,
+                  electorate: epoch.aggregate.contentRules.electorate,
+                  matchedKeyword: null,
+                },
+              }
+            : {}),
         },
       },
       warnings: state.warnings,
     };
+  }
+
+  private validateExcludeKeywordsForApi(value: unknown): string[] {
+    if (!this.contentRulesEnabled) {
+      if (value !== undefined && value !== null) {
+        throw new DemoValidationError('Shadow demo content rules are not enabled on this deployment');
+      }
+      return [];
+    }
+    try {
+      return validateShadowExcludeKeywords(value);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new DemoValidationError(message);
+    }
   }
 
   private async readRequiredSession(sessionId: string): Promise<ShadowDemoSessionState> {
@@ -644,10 +719,14 @@ export function createDefaultShadowDemoService(): ShadowDemoService {
     store: createRedisDemoStore(),
     loadCorpus: createDefaultCorpusLoader(),
     now: () => new Date(),
+    contentRulesEnabled: config.DEMO_CONTENT_RULES_ENABLED,
   });
 }
 
-function sessionPayload(state: ShadowDemoSessionState): ShadowDemoSessionPayload {
+function sessionPayload(
+  state: ShadowDemoSessionState,
+  contentRulesEnabled: boolean
+): ShadowDemoSessionPayload {
   return {
     session: {
       sessionId: state.sessionId,
@@ -657,7 +736,7 @@ function sessionPayload(state: ShadowDemoSessionState): ShadowDemoSessionPayload
       expiresAt: state.expiresAt,
       corpusHealth: state.corpus.health,
       epochs: state.epochs,
-      pendingAggregate: pendingAggregateFor(state),
+      pendingAggregate: pendingAggregateFor(state, contentRulesEnabled),
       voteCount: state.votes.length,
       guidedEpochs: SHADOW_DEMO_GUIDED_EPOCHS,
       maxEpochs: SHADOW_DEMO_MAX_EPOCHS_PER_SESSION,
@@ -668,6 +747,12 @@ function sessionPayload(state: ShadowDemoSessionState): ShadowDemoSessionPayload
       votes: state.votes,
       topicCatalog: state.corpus.topicCatalog,
       sourceFeedUri: state.corpus.sourceFeedUri,
+      ...(contentRulesEnabled
+        ? {
+            contentRulesEnabled: true,
+            suggestedExcludeKeywords: suggestedExcludeKeywords(state.corpus.items, 6),
+          }
+        : {}),
     },
   };
 }
@@ -777,6 +862,15 @@ function createEpoch(options: {
       ...options.aggregate,
       weights: { ...options.aggregate.weights },
       topicIntent: cloneShadowTopicIntent(options.aggregate.topicIntent),
+      ...(options.aggregate.contentRules
+        ? {
+            contentRules: {
+              ...options.aggregate.contentRules,
+              adoptedExcludeKeywords: [...options.aggregate.contentRules.adoptedExcludeKeywords],
+              support: options.aggregate.contentRules.support.map((entry) => ({ ...entry })),
+            },
+          }
+        : {}),
     },
   };
 }
@@ -875,9 +969,24 @@ function votesForEpoch(state: ShadowDemoSessionState, epochId: string): ShadowDe
   return state.votes.filter((vote) => vote.epochId === epochId);
 }
 
-function pendingAggregateFor(state: ShadowDemoSessionState): ReturnType<typeof aggregateShadowVotes> | null {
+function pendingAggregateFor(
+  state: ShadowDemoSessionState,
+  contentRulesEnabled: boolean
+): ReturnType<typeof aggregateShadowVotes> | null {
   const votes = votesForEpoch(state, state.currentEpochId);
-  return votes.length > 0 ? aggregateShadowVotes(votes) : null;
+  if (votes.length === 0) {
+    return null;
+  }
+  return {
+    ...aggregateShadowVotes(votes),
+    ...(contentRulesEnabled
+      ? {
+          // Live support preview while the electorate is still assembling:
+          // threshold stays at the full-electorate bar the decision will use.
+          contentRules: aggregateShadowContentRules(votes, SHADOW_DEMO_TOTAL_DEMO_VOTERS),
+        }
+      : {}),
+  };
 }
 
 function assertPhaseForReviewerVote(state: ShadowDemoSessionState): void {
@@ -896,18 +1005,32 @@ function assertCompleteDemoElectorate(votes: ShadowDemoVote[], epochId: string):
   }
 }
 
+function adoptedRulesFor(epoch: ShadowDemoEpoch): string[] {
+  return epoch.aggregate.contentRules?.adoptedExcludeKeywords ?? [];
+}
+
 function rankedPosts(options: {
   corpus: ShadowDemoCorpus;
   epoch: ShadowDemoEpoch;
   previousEpoch: ShadowDemoEpoch | null;
   limit: number;
-}): ShadowDemoRankedPost[] {
+}): { posts: ShadowDemoRankedPost[]; withheld: ShadowDemoWithheldPost[] } {
   const previousRanks = options.previousEpoch
     ? rankMapForEpoch(options.corpus, options.previousEpoch)
     : new Map<string, number>();
   const isPublishedBaseline = options.corpus.communityId === 'community_gov' && options.epoch.sequence === 1;
-  return scoreAndPublishItems(
-    options.corpus.items,
+  const ruleApplication = applyShadowContentRules(options.corpus.items, adoptedRulesFor(options.epoch));
+  const support = new Map(
+    (options.epoch.aggregate.contentRules?.support ?? []).map((entry) => [entry.keyword, entry.supportCount])
+  );
+  const withheld = ruleApplication.withheld.map((entry) => ({
+    keyword: entry.keyword,
+    supportCount: support.get(entry.keyword) ?? 0,
+    previousRank: previousRanks.get(entry.item.postUri) ?? null,
+    post: entry.item.displayPost,
+  }));
+  const posts = scoreAndPublishItems(
+    ruleApplication.eligible,
     options.epoch.aggregate.weights,
     options.epoch.aggregate.topicIntent,
     isPublishedBaseline,
@@ -934,6 +1057,7 @@ function rankedPosts(options: {
           : null,
       };
     });
+  return { posts, withheld };
 }
 
 function rankMapForEpoch(corpus: ShadowDemoCorpus, epoch: ShadowDemoEpoch): Map<string, number> {
@@ -943,7 +1067,7 @@ function rankMapForEpoch(corpus: ShadowDemoCorpus, epoch: ShadowDemoEpoch): Map<
     return ranks;
   }
   scoreAndPublishItems(
-    corpus.items,
+    applyShadowContentRules(corpus.items, adoptedRulesFor(epoch)).eligible,
     epoch.aggregate.weights,
     epoch.aggregate.topicIntent,
     false,
@@ -992,6 +1116,7 @@ function counterfactualsForReceipt(options: {
         weights: previousWeights,
         topicIntent: previousTopicIntent,
         visibleRank: options.visibleRank,
+        adoptedExcludeKeywords: previousEpoch ? adoptedRulesFor(previousEpoch) : [],
       });
   return [
     previousCounterfactual,
@@ -1003,6 +1128,7 @@ function counterfactualsForReceipt(options: {
       weights: engagementOnlyWeights(),
       topicIntent: options.epoch.aggregate.topicIntent,
       visibleRank: options.visibleRank,
+      adoptedExcludeKeywords: adoptedRulesFor(options.epoch),
     }),
     counterfactualForWeights({
       label: 'direct_reviewer_ballot_removed',
@@ -1012,6 +1138,7 @@ function counterfactualsForReceipt(options: {
       weights: directReviewerBallotRemoved.weights,
       topicIntent: directReviewerBallotRemoved.topicIntent,
       visibleRank: options.visibleRank,
+      adoptedExcludeKeywords: adoptedRulesFor(options.epoch),
     }),
   ];
 }
@@ -1040,12 +1167,14 @@ function counterfactualForWeights(options: {
   weights: ShadowDemoWeights;
   topicIntent: ShadowDemoTopicIntent;
   visibleRank: number;
+  adoptedExcludeKeywords?: readonly string[];
 }): ShadowDemoCounterfactual {
   const rank = rankForWeights(
     options.state.corpus,
     options.item.postUri,
     options.weights,
-    options.topicIntent
+    options.topicIntent,
+    options.adoptedExcludeKeywords ?? []
   );
   return {
     label: options.label,
@@ -1059,10 +1188,11 @@ function rankForWeights(
   corpus: ShadowDemoCorpus,
   postUri: string,
   weights: ShadowDemoWeights,
-  topicIntent: ShadowDemoTopicIntent
+  topicIntent: ShadowDemoTopicIntent,
+  adoptedExcludeKeywords: readonly string[] = []
 ): number | null {
   const ranked = scoreAndPublishItems(
-    corpus.items,
+    applyShadowContentRules(corpus.items, adoptedExcludeKeywords).eligible,
     weights,
     topicIntent,
     false,

@@ -1,3 +1,4 @@
+import { syntheticExcludeKeywords } from './content-rules.js';
 import { normalizeShadowWeights } from './weights.js';
 import {
   SHADOW_DEMO_SYNTHETIC_VOTER_COUNT,
@@ -190,6 +191,10 @@ export function createSyntheticVoterVotes(options: {
   priorCommunityWeights: ShadowDemoWeights;
   priorTopicIntent: ShadowDemoTopicIntent;
   createdAt: string;
+  contentRules?: {
+    reviewerExcludeKeywords: readonly string[];
+    priorAdoptedExcludeKeywords: readonly string[];
+  };
 }): ShadowDemoVote[] {
   return profilesForCommunity(options.communityId).flatMap((profile) =>
     Array.from({ length: profile.voterCount }, (_unused, voterIndex) => {
@@ -217,6 +222,19 @@ export function createSyntheticVoterVotes(options: {
         priorTopicIntent: options.priorTopicIntent,
       });
 
+      const excludeKeywords = options.contentRules
+        ? syntheticExcludeKeywords({
+            seed: options.seed,
+            communityId: options.communityId,
+            epochId: options.epochId,
+            actorId,
+            blocId: profile.id,
+            policyInertia: profile.policyInertia,
+            reviewerExcludeKeywords: options.contentRules.reviewerExcludeKeywords,
+            priorAdoptedExcludeKeywords: options.contentRules.priorAdoptedExcludeKeywords,
+          })
+        : undefined;
+
       return {
         id: `vote-${actorId}-${options.epochId}`,
         epochId: options.epochId,
@@ -226,6 +244,7 @@ export function createSyntheticVoterVotes(options: {
         label: `${profile.label} voter ${voterNumber}`,
         weights: normalizeShadowWeights(blended),
         topicIntent,
+        ...(excludeKeywords && excludeKeywords.length > 0 ? { excludeKeywords } : {}),
         createdAt: options.createdAt,
       };
     })
