@@ -160,6 +160,7 @@ const StoredCorpusSchema = z.object({
     publicationPolicy: z.object({
       urlDedupEnabled: z.boolean(),
       minimumOriginalTextLength: z.number().finite().nonnegative(),
+      minimumRelevance: z.number().finite().min(0).max(1),
       decay: z.array(z.number().finite().positive().max(1)).min(1),
     }).strict(),
   }).optional(),
