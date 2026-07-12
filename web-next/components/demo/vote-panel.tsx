@@ -12,13 +12,15 @@ import {
   DEMO_VOTE_PRESETS,
   SIGNAL_COLORS,
   SIGNAL_LABELS,
-  formatPercent,
   normalizeWeights,
 } from "@/app/demo/shadow-demo-fixtures"
 import { STEP_PANELS } from "@/app/demo/shadow-demo-copy"
 import {
   createDemoVoteSubmission,
+  formatPolicySliderValue,
   getEditedTopicSlugs,
+  POLICY_EDIT_THRESHOLD,
+  validateDemoVoteSubmission,
 } from "@/app/demo/shadow-demo-vote-policy"
 import { Slider } from "@/components/ui/slider"
 import { TopicPolicy, topicLabel } from "./topic-policy"
@@ -70,7 +72,7 @@ function PolicySlider({
   readonly changed: boolean
   readonly onChange: (value: number) => void
 }) {
-  const percent = formatPercent(displayValue)
+  const percent = formatPolicySliderValue(displayValue)
   return (
     <div className={`grid grid-cols-[minmax(0,1fr)_58px] items-center gap-x-3 rounded-lg px-2 py-1 transition-colors sm:grid-cols-[minmax(0,140px)_minmax(0,1fr)_58px] ${changed ? "bg-primary/[0.07]" : "bg-transparent"}`}>
       <span className="col-start-1 row-start-1 min-w-0 text-xs font-semibold leading-tight text-foreground/70">{label}</span>
@@ -115,6 +117,7 @@ export function VotePanel({
   const [topicQuery, setTopicQuery] = useState("")
   const [topicSort, setTopicSort] = useState<"alphabetical" | "weight">("weight")
   const [changedOnly, setChangedOnly] = useState(false)
+  const [submissionError, setSubmissionError] = useState<string | null>(null)
 
   const preset = DEMO_VOTE_PRESETS.find((entry) => entry.id === presetId) ?? DEMO_VOTE_PRESETS[0]
   const presetTopicIntent = useMemo(
@@ -123,13 +126,11 @@ export function VotePanel({
   )
   const rawWeights = custom ?? preset.weights
   const sum = weightSum(rawWeights)
-  const topicSlugs = new Set(topicCatalog.map((topic) => topic.slug))
-  const submittedTopicSlugs = Object.keys(topicIntent.topicWeights)
-  const topicMismatch = submittedTopicSlugs.length !== topicCatalog.length
-    || submittedTopicSlugs.some((slug) => !topicSlugs.has(slug))
-  const canSubmit = sum > 0
-    && !busy
-    && !topicMismatch
+  const ballotValidation = useMemo(
+    () => validateDemoVoteSubmission(rawWeights, topicIntent, topicCatalog),
+    [rawWeights, topicCatalog, topicIntent],
+  )
+  const canSubmit = !busy && ballotValidation.valid
   const previewWeights = useMemo(() => (sum > 0 ? normalizeWeights(rawWeights) : rawWeights), [rawWeights, sum])
   const editedTopicSlugs = useMemo(
     () => getEditedTopicSlugs(topicIntent, presetTopicIntent, topicCatalog),
@@ -137,12 +138,12 @@ export function VotePanel({
   )
   const editedTopicSlugSet = useMemo(() => new Set(editedTopicSlugs), [editedTopicSlugs])
   const editedSignalKeys = SHADOW_DEMO_SIGNAL_KEYS.filter(
-    (key) => Math.abs(rawWeights[key] - preset.weights[key]) >= 0.005,
+    (key) => Math.abs(rawWeights[key] - preset.weights[key]) >= POLICY_EDIT_THRESHOLD,
   )
   const customPolicy = editedSignalKeys.length > 0 || editedTopicSlugs.length > 0
   const visibleTopics = useMemo(() => topicCatalog
     .filter((topic) => topic.name.toLowerCase().includes(topicQuery.toLowerCase()) || topic.slug.includes(topicQuery.toLowerCase()))
-    .filter((topic) => !changedOnly || Math.abs((topicIntent.topicWeights[topic.slug] ?? topic.baselineWeight) - topic.baselineWeight) >= 0.005)
+    .filter((topic) => !changedOnly || Math.abs((topicIntent.topicWeights[topic.slug] ?? topic.baselineWeight) - topic.baselineWeight) >= POLICY_EDIT_THRESHOLD)
     .sort((left, right) => topicSort === "alphabetical"
       ? left.name.localeCompare(right.name)
       : (topicIntent.topicWeights[right.slug] ?? right.baselineWeight) - (topicIntent.topicWeights[left.slug] ?? left.baselineWeight)),
@@ -154,18 +155,37 @@ export function VotePanel({
     setPresetId(id)
     setCustom(null)
     setTopicIntent(mergeTopicPolicy(baselineTopicIntent, next.topicIntent))
+    setSubmissionError(null)
   }
 
   function setSignal(key: (typeof SHADOW_DEMO_SIGNAL_KEYS)[number], value: number): void {
     setCustom({ ...rawWeights, [key]: value })
+    setSubmissionError(null)
   }
 
   function setTopic(slug: string, value: number): void {
     setTopicIntent({ topicWeights: { ...topicIntent.topicWeights, [slug]: value } })
+    setSubmissionError(null)
   }
 
   function resetTopics(): void {
     setTopicIntent(mergeTopicPolicy(baselineTopicIntent, preset.topicIntent))
+    setSubmissionError(null)
+  }
+
+  function submitPolicy(): void {
+    setSubmissionError(null)
+    let submission: ReturnType<typeof createDemoVoteSubmission>
+    try {
+      submission = createDemoVoteSubmission(rawWeights, topicIntent, topicCatalog)
+    } catch (error) {
+      if (error instanceof RangeError) {
+        setSubmissionError("This policy has an incomplete or invalid value. Reset the preset and try again.")
+        return
+      }
+      throw error
+    }
+    onSubmit(submission.weights, submission.topicIntent)
   }
 
   return (
@@ -216,13 +236,16 @@ export function VotePanel({
 
               {fineTuneTab === "signals" ? (
                 <div className="mt-4 flex flex-col gap-1">
+                  <p className="mb-1 text-xs leading-relaxed text-foreground/55">
+                    Signal sliders are relative settings. Corgi normalizes them to 100% when you cast the ballot.
+                  </p>
                   {SHADOW_DEMO_SIGNAL_KEYS.map((key) => (
                     <PolicySlider
                       key={key}
                       label={SIGNAL_LABELS[key]}
                       ariaLabel={`${SIGNAL_LABELS[key]} weight`}
                       value={rawWeights[key]}
-                      displayValue={previewWeights[key]}
+                      displayValue={rawWeights[key]}
                       accentColor={SIGNAL_COLORS[key]}
                       detail={null}
                       changed={editedSignalKeys.includes(key)}
@@ -283,18 +306,18 @@ export function VotePanel({
       </div>
 
       <div className="mt-5 xl:mt-3 xl:shrink-0 xl:border-t xl:border-border/70 xl:bg-background xl:pt-3">
-        <button type="button" onClick={() => {
-          const submission = createDemoVoteSubmission(rawWeights, topicIntent, topicCatalog)
-          onSubmit(submission.weights, submission.topicIntent)
-        }} disabled={!canSubmit}
+        <button type="button" onClick={submitPolicy} disabled={!canSubmit}
           className={`inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-[0_2px_8px_rgba(200,97,44,0.25)] transition-colors hover:bg-primary-dark disabled:opacity-60 ${FOCUS}`}>
           {busy ? "Casting…" : STEP_PANELS.vote.cta}
         </button>
-        {topicMismatch ? (
+        {!ballotValidation.valid ? (
           <p className="mt-2 text-xs font-medium text-primary" role="alert">
-            This snapshot&apos;s complete topic policy is unavailable. Start a new demo session to continue.
+            This policy has an incomplete or invalid value. Reset the preset or start a new demo session to continue.
           </p>
         ) : null}
+        {submissionError === null ? null : (
+          <p className="mt-2 text-xs font-medium text-primary" role="alert">{submissionError}</p>
+        )}
       </div>
     </div>
   )

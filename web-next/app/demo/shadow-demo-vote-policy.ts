@@ -1,4 +1,4 @@
-import { normalizeWeights } from "./shadow-demo-fixtures"
+import { formatPercent, normalizeWeights } from "./shadow-demo-fixtures"
 import {
   SHADOW_DEMO_SIGNAL_KEYS,
   type ShadowDemoTopicCatalogEntry,
@@ -6,8 +6,26 @@ import {
   type ShadowDemoWeights,
 } from "./shadow-demo-view-model"
 
+export const POLICY_EDIT_THRESHOLD = 0.005
+
+export type DemoVoteSubmission = {
+  readonly weights: ShadowDemoWeights
+  readonly topicIntent: ShadowDemoTopicIntent
+}
+
+export type DemoVoteSubmissionValidation =
+  | { readonly valid: true; readonly submission: DemoVoteSubmission }
+  | { readonly valid: false; readonly reason: string }
+
 function weightSum(weights: ShadowDemoWeights): number {
   return SHADOW_DEMO_SIGNAL_KEYS.reduce((total, key) => total + weights[key], 0)
+}
+
+export function formatPolicySliderValue(value: number): string {
+  if (!Number.isFinite(value) || value < 0 || value > 1) {
+    throw new RangeError(`Policy slider has invalid value: ${String(value)}`)
+  }
+  return formatPercent(value)
 }
 
 export function getEditedTopicSlugs(
@@ -19,44 +37,64 @@ export function getEditedTopicSlugs(
     .filter((topic) => Math.abs(
       (topicIntent.topicWeights[topic.slug] ?? topic.baselineWeight)
       - (presetTopicIntent.topicWeights[topic.slug] ?? topic.baselineWeight),
-    ) >= 0.005)
+    ) >= POLICY_EDIT_THRESHOLD)
     .map((topic) => topic.slug)
 }
 
-export function createDemoVoteSubmission(
+export function validateDemoVoteSubmission(
   rawWeights: ShadowDemoWeights,
   topicIntent: ShadowDemoTopicIntent,
   topicCatalog: readonly ShadowDemoTopicCatalogEntry[],
-): { readonly weights: ShadowDemoWeights; readonly topicIntent: ShadowDemoTopicIntent } {
+): DemoVoteSubmissionValidation {
   for (const key of SHADOW_DEMO_SIGNAL_KEYS) {
     const value = rawWeights[key]
     if (!Number.isFinite(value) || value < 0 || value > 1) {
-      throw new RangeError(`Demo vote signal ${key} has invalid weight: ${String(value)}`)
+      return { valid: false, reason: `Demo vote signal ${key} has invalid weight: ${String(value)}` }
     }
   }
   if (weightSum(rawWeights) <= 0) {
-    throw new RangeError("Demo vote signal weights must include at least one positive value")
+    return { valid: false, reason: "Demo vote signal weights must include at least one positive value" }
   }
 
   const submittedSlugs = Object.keys(topicIntent.topicWeights)
   const catalogSlugs = new Set(topicCatalog.map((topic) => topic.slug))
   if (submittedSlugs.length !== topicCatalog.length
     || submittedSlugs.some((slug) => !catalogSlugs.has(slug))) {
-    throw new RangeError(
-      `Demo vote topic policy must contain exactly the ${topicCatalog.length} catalog topics`,
-    )
+    return {
+      valid: false,
+      reason: `Demo vote topic policy must contain exactly the ${topicCatalog.length} catalog topics`,
+    }
   }
 
-  const topicWeights = Object.fromEntries(topicCatalog.map((topic) => {
+  const topicWeights: Record<string, number> = {}
+  for (const topic of topicCatalog) {
     const value = topicIntent.topicWeights[topic.slug]
     if (value === undefined || !Number.isFinite(value) || value < 0 || value > 1) {
-      throw new RangeError(`Demo vote topic ${topic.slug} has invalid weight: ${String(value)}`)
+      return {
+        valid: false,
+        reason: `Demo vote topic ${topic.slug} has invalid weight: ${String(value)}`,
+      }
     }
-    return [topic.slug, value]
-  }))
+    topicWeights[topic.slug] = value
+  }
 
   return {
-    weights: normalizeWeights(rawWeights),
-    topicIntent: { topicWeights },
+    valid: true,
+    submission: {
+      weights: normalizeWeights(rawWeights),
+      topicIntent: { topicWeights },
+    },
   }
+}
+
+export function createDemoVoteSubmission(
+  rawWeights: ShadowDemoWeights,
+  topicIntent: ShadowDemoTopicIntent,
+  topicCatalog: readonly ShadowDemoTopicCatalogEntry[],
+): DemoVoteSubmission {
+  const validation = validateDemoVoteSubmission(rawWeights, topicIntent, topicCatalog)
+  if (!validation.valid) {
+    throw new RangeError(validation.reason)
+  }
+  return validation.submission
 }

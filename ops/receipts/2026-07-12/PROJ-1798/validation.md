@@ -25,14 +25,17 @@ outside the scrolling region.
 
 ## Deterministic Eval
 
-- Focused frontend release-blocker suite: 11 tests passed.
-- Full repository verification: 142 test files and 1,522 tests passed.
+- Focused frontend release-blocker suite: 13 tests passed.
+- Full repository verification: 142 test files and 1,524 tests passed.
 - Root, CLI, SDK, legacy web, and `web-next` builds passed.
 - `web-next` lint and TypeScript checks passed.
 - Documentation verification passed: 14 tracked docs and 37 Markdown files.
 - Contract tests prove ballots contain exactly the 26 catalog topics, preserve
   edited values, normalize the five signal weights, and fail closed for missing
   topics or out-of-range signal values.
+- Review follow-up locks the edit-threshold boundary, reset behavior, raw signal
+  readout semantics, shared ballot validity, friendly submission failure, and
+  multi-thumb Slider rendering.
 - Ballot validation lives in a React-free policy module so the root backend CI
   lane can verify the shared contract without installing frontend packages.
 

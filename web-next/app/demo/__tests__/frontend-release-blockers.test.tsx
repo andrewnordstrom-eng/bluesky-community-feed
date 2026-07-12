@@ -10,7 +10,10 @@ import {
 import type { ShadowDemoCorpusProvenance, ShadowDemoFeed } from "../shadow-demo-view-model"
 import {
   createDemoVoteSubmission,
+  formatPolicySliderValue,
   getEditedTopicSlugs,
+  POLICY_EDIT_THRESHOLD,
+  validateDemoVoteSubmission,
 } from "../shadow-demo-vote-policy"
 
 const snapshotProvenance: ShadowDemoCorpusProvenance = {
@@ -37,6 +40,10 @@ const snapshotProvenance: ShadowDemoCorpusProvenance = {
 const demoPageSource = readFileSync(new URL("../page.tsx", import.meta.url), "utf8")
 const votePanelSource = readFileSync(
   new URL("../../../components/demo/vote-panel.tsx", import.meta.url),
+  "utf8",
+)
+const sliderSource = readFileSync(
+  new URL("../../../components/ui/slider.tsx", import.meta.url),
   "utf8",
 )
 
@@ -182,6 +189,54 @@ describe("demo v4 frontend release blockers", () => {
     expect(Object.values(submission.weights).reduce((total, value) => total + value, 0)).toBeCloseTo(1)
   })
 
+  it("uses one shared edit threshold and resets edited topics to the preset", () => {
+    const topicCatalog = [{
+      slug: "research",
+      name: "Research",
+      description: null,
+      baselineWeight: 0.5,
+    }]
+    const presetTopicIntent = { topicWeights: { research: 0.5 } }
+
+    expect(getEditedTopicSlugs(
+      { topicWeights: { research: 0.5 + POLICY_EDIT_THRESHOLD } },
+      presetTopicIntent,
+      topicCatalog,
+    )).toEqual(["research"])
+    expect(getEditedTopicSlugs(
+      { topicWeights: { research: 0.5049 } },
+      presetTopicIntent,
+      topicCatalog,
+    )).toEqual([])
+    expect(getEditedTopicSlugs(presetTopicIntent, presetTopicIntent, topicCatalog)).toEqual([])
+  })
+
+  it("shows the raw relative signal setting and validates with the shared ballot rules", () => {
+    const weights = {
+      recency: 0.4,
+      engagement: 0.2,
+      bridging: 0.2,
+      source_diversity: 0.1,
+      relevance: 0.1,
+    }
+    const topicCatalog = [{
+      slug: "research",
+      name: "Research",
+      description: null,
+      baselineWeight: 0.5,
+    }]
+    const validation = validateDemoVoteSubmission(
+      weights,
+      { topicWeights: { research: 0.5 } },
+      topicCatalog,
+    )
+
+    expect(formatPolicySliderValue(weights.recency)).toBe("40%")
+    expect(validation.valid).toBe(true)
+    expect(votePanelSource).toMatch(/displayValue=\{rawWeights\[key\]\}/)
+    expect(votePanelSource).toMatch(/Corgi normalizes them to 100%/)
+  })
+
   it("fails closed when a demo ballot omits a topic", () => {
     const topicCatalog = Array.from({ length: 26 }, (_, index) => ({
       slug: `topic-${index}`,
@@ -223,5 +278,7 @@ describe("demo v4 frontend release blockers", () => {
     expect(votePanelSource).not.toMatch(/<input type="range"/)
     expect(votePanelSource).toMatch(/Your custom policy/)
     expect(votePanelSource).toMatch(/Every ballot carries all/)
+    expect(votePanelSource).toMatch(/onClick=\{submitPolicy\}/)
+    expect(sliderSource).toMatch(/thumbValues\.map/)
   })
 })
