@@ -7,9 +7,9 @@
 
 export const HERO = {
   eyebrow: "Interactive demo",
-  title: "Watch a community re-rank its own feed.",
+  title: "Re-rank a frozen Community Governed Feed snapshot.",
   subtitle:
-    "Propose a policy for Open Science Builders, combine it with 24 scripted deterministic voter archetypes, and inspect how the same frozen comparison posts move.",
+    "Start with a reviewer-safe published snapshot, propose a policy, combine it with 24 scripted ballots, and inspect how the same posts move.",
 } as const
 
 export interface FlowStepCopy {
@@ -29,13 +29,13 @@ export const FLOW_STEPS: readonly FlowStepCopy[] = [
 
 export const STEP_PANELS = {
   community: {
-    heading: "Meet the community",
-    body: "Open Science Builders spans research, data science, software development, and open source. Start a session to freeze a comparison corpus and test a policy against it.",
+    heading: "Start from the published feed",
+    body: "Corgi freezes an objectively filtered snapshot of its live Community Governed Feed. Your shadow session can change the ranking policy without changing the public feed.",
     cta: "Start a demo session",
   },
   vote: {
     heading: "Cast your demo vote",
-    body: "Pick a policy for how this community should rank posts. You can fine-tune the five signals, or start from a preset.",
+    body: "Start from the production policy, choose a preset, or fine-tune all five signals and the full topic catalog.",
     cta: "Cast demo vote",
   },
   agents: {
@@ -67,7 +67,7 @@ export const DISCLOSURE = {
   production:
     "Demo votes and epochs run in an isolated shadow governance namespace. They never enter production governance, audit logs, research exports, or the public Corgi feed.",
   posts:
-    "The primary path uses live public Bluesky posts with Corgi score decompositions, held as a frozen comparison corpus so policy changes remain attributable. A labeled fixture appears only if live corpus loading degrades.",
+    "The primary path uses an objectively filtered snapshot of posts published in Corgi's live Community Governed Feed. The comparison corpus is frozen for the session so policy changes remain attributable. A labeled mechanics fixture appears only if snapshot loading degrades.",
   // Keeps the Bluesky-vs-Corgi boundary honest without claiming native rendering.
   annotations:
     "Rank badges, scores, and receipts are Corgi annotations shown on Corgi's site, not native Bluesky UI. Bluesky renders the ordered posts; Corgi shows why.",
@@ -75,8 +75,8 @@ export const DISCLOSURE = {
 
 export const LABELS = {
   previewBadge: "Coming soon",
-  corpusFrozen: "Live public posts · frozen comparison corpus",
-  corpusFallback: "Illustrative fallback · frozen comparison corpus",
+  corpusFrozen: "Published feed snapshot · frozen comparison corpus",
+  corpusFallback: "Mechanics fixture · frozen comparison corpus",
   reset: "Start over",
   reviewerVoter: "You (reviewer)",
   withheldRow: "Withheld from the public view",

@@ -5,6 +5,8 @@ import {
   SHADOW_DEMO_SIGNAL_KEYS,
   type ShadowDemoAgent,
   type ShadowDemoAggregate,
+  type ShadowDemoTopicCatalogEntry,
+  type ShadowDemoTopicIntent,
   type ShadowDemoVote,
   type ShadowDemoWeights,
 } from "@/app/demo/shadow-demo-view-model"
@@ -63,6 +65,8 @@ export function AgentsPanel({
   onRun,
   onAdvance,
   busy,
+  topicCatalog,
+  baselineTopicIntent,
 }: {
   readonly agents: readonly ShadowDemoAgent[]
   readonly agentVotes: readonly ShadowDemoVote[]
@@ -70,6 +74,8 @@ export function AgentsPanel({
   readonly onRun: () => void
   readonly onAdvance: () => void
   readonly busy: boolean
+  readonly topicCatalog: readonly ShadowDemoTopicCatalogEntry[]
+  readonly baselineTopicIntent: ShadowDemoTopicIntent
 }) {
   const hasVoted = agentVotes.length > 0
 
@@ -122,7 +128,12 @@ export function AgentsPanel({
           <WeightBars weights={aggregate.weights} />
         </div>
         <div className="mt-4 border-t border-primary/15 pt-4">
-          <TopicPolicy topicIntent={aggregate.topicIntent} label="Aggregated topic priorities" />
+          <TopicPolicy
+            topicIntent={aggregate.topicIntent}
+            baselineTopicIntent={baselineTopicIntent}
+            catalog={topicCatalog}
+            label="Aggregated topic priorities"
+          />
         </div>
         <p className="mt-3 text-xs leading-relaxed text-foreground/55">
           Your ballot is 1 of {aggregate.voteSummary.totalVotes}. That describes ballot count, not causal influence: the scripted ballots respond partly to your proposal. All demo ballots stay isolated from production governance.

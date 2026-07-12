@@ -17,6 +17,7 @@ import {
   getShadowDemoVoterProfiles,
 } from '../src/demo/synthetic-voters.js';
 import { aggregateRowsWithTrimmedMean } from '../src/governance/aggregation-math.js';
+import { validateShadowTopicIntentForCatalog } from '../src/demo/topic-intent.js';
 
 const RECENCY_ONLY: ShadowDemoWeights = {
   recency: 1,
@@ -44,6 +45,15 @@ const TOPIC_INTENT = {
 };
 
 describe('shadow demo weight math', () => {
+  it('rejects duplicate slugs in a dynamic topic catalog before validating a vote', () => {
+    const catalog = Array.from({ length: 26 }, (_unused, index) => `topic-${index}`);
+    catalog[25] = catalog[0];
+    expect(() => validateShadowTopicIntentForCatalog(
+      { topicWeights: Object.fromEntries(catalog.map((slug) => [slug, 0.5])) },
+      catalog
+    )).toThrow(/unique topic slugs/);
+  });
+
   it('validates finite non-negative weights that sum to one', () => {
     expect(validateShadowWeights(RECENCY_ONLY)).toEqual(RECENCY_ONLY);
     expect(() =>
@@ -159,7 +169,7 @@ describe('shadow demo weight math', () => {
 
   it('generates twenty-four deterministic synthetic voters across visible blocs', () => {
     assertSyntheticVoterProfiles();
-    const profiles = getShadowDemoVoterProfiles();
+    const profiles = getShadowDemoVoterProfiles('open_science_builders');
     const profileVoteCount = profiles.reduce((sum, profile) => sum + profile.voterCount, 0);
     const syntheticVotes = createSyntheticVoterVotes({
       seed: 'session-seed',
@@ -215,6 +225,32 @@ describe('shadow demo weight math', () => {
 
     expect(summary.voteCount).toBe(SHADOW_DEMO_TOTAL_DEMO_VOTERS);
     expect(summary.trimCount).toBe(2);
+  });
+
+  it('inherits unspecified general-bloc topic preferences from the prior production policy', () => {
+    const votes = createSyntheticVoterVotes({
+      seed: 'community-gov-seed',
+      epochId: 'shadow-epoch-1',
+      communityId: 'community_gov',
+      reviewerWeights: RECENCY_ONLY,
+      reviewerTopicIntent: { topicWeights: { 'decentralized-social': 0.1 } },
+      priorCommunityWeights: ENGAGEMENT_ONLY,
+      priorTopicIntent: { topicWeights: { 'decentralized-social': 0.9, 'science-research': 0.82 } },
+      createdAt: '2026-07-11T12:00:00.000Z',
+    });
+
+    expect(votes).toHaveLength(24);
+    for (const vote of votes) {
+      expect(vote.topicIntent.topicWeights['decentralized-social']).toBeGreaterThan(0.7);
+      expect(vote.topicIntent.topicWeights['decentralized-social']).toBeLessThan(0.78);
+      expect(vote.topicIntent.topicWeights['science-research']).toBeGreaterThan(0.68);
+      expect(vote.topicIntent.topicWeights['science-research']).toBeLessThan(0.72);
+      expect(Object.values(vote.topicIntent.topicWeights).every((value) => Number.isFinite(value) && value >= 0 && value <= 1)).toBe(true);
+    }
+  });
+
+  it('rejects unknown community IDs instead of silently selecting voter profiles', () => {
+    expect(() => getShadowDemoVoterProfiles('unknown' as never)).toThrow(/Unsupported shadow demo community/);
   });
 
   it('carries prior-policy inertia across otherwise identical epoch proposals', () => {

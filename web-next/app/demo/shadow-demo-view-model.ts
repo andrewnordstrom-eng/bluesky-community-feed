@@ -8,6 +8,7 @@ import {
   type ShadowDemoCommunityId,
   type ShadowDemoSignalKey,
   type ShadowDemoTopicIntent,
+  type ShadowDemoTopicCatalogEntry,
   type ShadowDemoWeights,
   type ShadowDemoVoterBlocId,
 } from "./shadow-demo-contract"
@@ -24,6 +25,7 @@ export type {
   ShadowDemoCommunityId,
   ShadowDemoSignalKey,
   ShadowDemoTopicIntent,
+  ShadowDemoTopicCatalogEntry,
   ShadowDemoWeights,
   ShadowDemoVoterBlocId,
 }
@@ -53,7 +55,7 @@ export type ShadowDemoAction = (typeof SHADOW_DEMO_ACTIONS)[number]
 export type ShadowDemoAgentId = (typeof SHADOW_DEMO_AGENT_IDS)[number]
 
 export interface ShadowDemoEnvelope<TPayload> {
-  readonly contractVersion: "2026-07-10.shadow-demo.v3"
+  readonly contractVersion: typeof SHADOW_DEMO_CONTRACT_VERSION
   readonly requestId: string
   readonly generatedAt: string
   readonly sessionId: string | null
@@ -98,6 +100,8 @@ export interface ShadowDemoSession {
   readonly isolation: ShadowDemoIsolation
   readonly capabilities: ShadowDemoCapabilities
   readonly corpusProvenance: ShadowDemoCorpusProvenance
+  readonly topicCatalog?: readonly ShadowDemoTopicCatalogEntry[]
+  readonly sourceFeedUri?: string | null
 }
 
 export interface ShadowDemoIsolation {
@@ -121,7 +125,7 @@ export interface ShadowDemoCommunity {
   readonly id: ShadowDemoCommunityId
   readonly name: string
   readonly tagline: string
-  readonly corpusStrategy: "live_appview_search" | "fixture_fallback"
+  readonly corpusStrategy: "published_feed_snapshot" | "live_appview_search" | "fixture_fallback"
   readonly candidateTerms: readonly string[]
   readonly bridgeTerms: readonly string[]
   readonly publicBlueskyFeedUrl: string | null
@@ -244,6 +248,8 @@ export type ShadowDemoFeedItem = ShadowDemoPublicFeedItem | ShadowDemoHiddenFeed
 export interface ShadowDemoPublicFeedItem {
   readonly visibility: "public"
   readonly rank: number
+  readonly publishedRank?: number | null
+  readonly publishedScore?: number | null
   readonly previousRank: number | null
   readonly movement: ShadowDemoRankMovement
   readonly post: ShadowDemoPublicPost
@@ -253,12 +259,49 @@ export interface ShadowDemoPublicFeedItem {
 export interface ShadowDemoHiddenFeedItem {
   readonly visibility: "hidden"
   readonly rank: number
+  readonly publishedRank?: number | null
+  readonly publishedScore?: number | null
   readonly previousRank: number | null
   readonly movement: ShadowDemoRankMovement
   readonly post: null
   readonly score: null
   readonly hiddenReason: "no_unauthenticated" | "hide_label" | "adult_label" | "deleted_or_unavailable" | "missing_text"
   readonly labels: readonly string[]
+}
+
+export interface ShadowDemoImageMedia {
+  readonly thumb: string
+  readonly fullsize: string
+  readonly alt: string
+  readonly width: number | null
+  readonly height: number | null
+}
+
+export interface ShadowDemoExternalMedia {
+  readonly uri: string
+  readonly title: string
+  readonly description: string
+  readonly thumb: string | null
+}
+
+export interface ShadowDemoQuoteMedia {
+  readonly uri: string
+  readonly authorHandle: string
+  readonly authorDisplayName: string
+  readonly text: string
+}
+
+export interface ShadowDemoVideoMedia {
+  readonly thumbnail: string | null
+  readonly width: number | null
+  readonly height: number | null
+}
+
+export interface ShadowDemoPostMedia {
+  readonly images: readonly ShadowDemoImageMedia[]
+  readonly external: ShadowDemoExternalMedia | null
+  readonly quote: ShadowDemoQuoteMedia | null
+  readonly video: ShadowDemoVideoMedia | null
 }
 
 export interface ShadowDemoPublicPost {
@@ -277,6 +320,8 @@ export interface ShadowDemoPublicPost {
   readonly replyCount: number
   readonly quoteCount: number
   readonly labels: readonly string[]
+  readonly languages?: readonly string[]
+  readonly media?: ShadowDemoPostMedia | null
 }
 
 export interface ShadowDemoRankMovement {
@@ -287,6 +332,8 @@ export interface ShadowDemoRankMovement {
 export interface ShadowDemoScore {
   readonly total: number
   readonly components: readonly ShadowDemoScoreComponent[]
+  readonly componentTotal?: number | null
+  readonly publicationAdjustment?: number | null
 }
 
 export interface ShadowDemoScoreComponent {
@@ -306,19 +353,44 @@ export interface ShadowDemoCorpusHealth {
   readonly uniqueAuthorCount: number
   readonly collectedAt: string
   readonly frozenForSession: true
+  readonly sourcePostCount?: number | null
+  readonly eligiblePostCount?: number | null
+  readonly englishTaggedShare?: number | null
+  readonly richMediaShare?: number | null
 }
 
-export interface ShadowDemoCorpusProvenance {
-  readonly mode: "production_sourced_session_frozen"
-  readonly label: "Live-scored snapshot"
+interface ShadowDemoCorpusProvenanceBase {
   readonly description: string
   readonly corpusId: string
   readonly productionEpochId: number
   readonly sampledAt: string
-  readonly windowHours: 72
-  readonly topicScoreThreshold: 0.5
+  readonly windowHours: number
+  readonly topicScoreThreshold: number
   readonly eligiblePostCount: number
 }
+
+export type ShadowDemoCorpusProvenance =
+  | ShadowDemoCorpusProvenanceBase & {
+      readonly mode: "production_feed_snapshot_session_frozen"
+      readonly label: "Reviewer-safe snapshot of the live Community Governed Feed"
+      readonly sourceFeedUri: string
+      readonly sourceFeedName: string
+      readonly sourceSnapshotDigest: string
+      readonly sourceRunId: string
+      readonly sourceUpdatedAt: string
+      readonly sourceReviewedAt?: string
+      readonly sourcePostCount: number
+      readonly selectionPolicyVersion: string
+      readonly baselineOrderDigest: string
+    }
+  | ShadowDemoCorpusProvenanceBase & {
+      readonly mode: "production_sourced_session_frozen"
+      readonly label: "Live-scored snapshot"
+    }
+  | ShadowDemoCorpusProvenanceBase & {
+      readonly mode: "illustrative_fixture_session_frozen"
+      readonly label: "Illustrative mechanics fixture"
+    }
 
 export interface ShadowDemoReceiptRequest {
   readonly epochId: string
@@ -336,6 +408,10 @@ export interface ShadowDemoReceipt {
   readonly visibleRank: number
   readonly previousRank: number | null
   readonly totalScore: number
+  readonly componentScore?: number | null
+  readonly publicationAdjustment?: number | null
+  readonly publishedRank?: number | null
+  readonly publishedScore?: number | null
   readonly scoredAt: string
   readonly aggregate: ShadowDemoAggregate
   readonly reviewerBallotShare: number
@@ -377,11 +453,13 @@ export interface ShadowDemoTopicContribution {
   readonly contribution: number
 }
 
-export interface ShadowDemoReceiptProvenance extends ShadowDemoCorpusProvenance {
+export type ShadowDemoReceiptProvenance = ShadowDemoCorpusProvenance & {
   readonly shadowEpochId: string
   readonly postInclusionReasons: {
     readonly matchedTopics: readonly { readonly topic: string; readonly score: number }[]
     readonly matchedTerms: readonly string[]
+    readonly sourceRank?: number
+    readonly reason?: "published_feed_snapshot"
   }
 }
 
@@ -389,8 +467,8 @@ export interface ShadowDemoCounterfactual {
   readonly id: "prior_epoch" | "engagement_only" | "direct_reviewer_ballot_removed"
   readonly label: string
   readonly description: string
-  readonly rank: number
-  readonly deltaFromVisibleRank: number
+  readonly rank: number | null
+  readonly deltaFromVisibleRank: number | null
 }
 
 export interface ShadowDemoClient {

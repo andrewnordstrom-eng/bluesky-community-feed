@@ -1,13 +1,29 @@
 import { normalizeShadowWeights } from './weights.js';
 import {
   SHADOW_DEMO_SYNTHETIC_VOTER_COUNT,
-  SHADOW_DEMO_VOTER_BLOC_IDS,
+  type ShadowDemoCommunityId,
   type ShadowDemoSyntheticVoterId,
   type ShadowDemoVoterBlocId,
   type ShadowDemoVote,
   type ShadowDemoTopicIntent,
   type ShadowDemoWeights,
 } from './types.js';
+
+export const OPEN_SCIENCE_VOTER_BLOC_IDS = [
+  'research_practitioner',
+  'dataset_steward',
+  'current_awareness',
+  'community_discussant',
+  'interdisciplinary_connector',
+] as const satisfies readonly ShadowDemoVoterBlocId[];
+
+export const COMMUNITY_GOV_VOTER_BLOC_IDS = [
+  'freshness_watcher',
+  'conversation_follower',
+  'bridge_builder',
+  'source_diversifier',
+  'relevance_steward',
+] as const satisfies readonly ShadowDemoVoterBlocId[];
 
 export interface SyntheticVoterBlocProfile {
   id: ShadowDemoVoterBlocId;
@@ -19,7 +35,7 @@ export interface SyntheticVoterBlocProfile {
   policyInertia: number;
 }
 
-const SYNTHETIC_VOTER_BLOC_PROFILES: SyntheticVoterBlocProfile[] = [
+const OPEN_SCIENCE_VOTER_BLOC_PROFILES: SyntheticVoterBlocProfile[] = [
   {
     id: 'research_practitioner',
     label: 'Research Practitioners',
@@ -122,8 +138,43 @@ const SYNTHETIC_VOTER_BLOC_PROFILES: SyntheticVoterBlocProfile[] = [
   },
 ];
 
-export function getShadowDemoVoterProfiles(): SyntheticVoterBlocProfile[] {
-  return SYNTHETIC_VOTER_BLOC_PROFILES.map((profile) => ({
+const COMMUNITY_GOV_VOTER_BLOC_PROFILES: SyntheticVoterBlocProfile[] = [
+  generalProfile('freshness_watcher', 'Freshness Watchers', 5, {
+    recency: 0.48, engagement: 0.14, bridging: 0.1, source_diversity: 0.08, relevance: 0.2,
+  }),
+  generalProfile('conversation_follower', 'Conversation Followers', 4, {
+    recency: 0.16, engagement: 0.5, bridging: 0.1, source_diversity: 0.07, relevance: 0.17,
+  }),
+  generalProfile('bridge_builder', 'Bridge Builders', 5, {
+    recency: 0.12, engagement: 0.1, bridging: 0.46, source_diversity: 0.18, relevance: 0.14,
+  }),
+  generalProfile('source_diversifier', 'Source Diversifiers', 5, {
+    recency: 0.12, engagement: 0.08, bridging: 0.2, source_diversity: 0.44, relevance: 0.16,
+  }),
+  generalProfile('relevance_steward', 'Relevance Stewards', 5, {
+    recency: 0.16, engagement: 0.08, bridging: 0.12, source_diversity: 0.12, relevance: 0.52,
+  }),
+];
+
+function generalProfile(
+  id: SyntheticVoterBlocProfile['id'],
+  label: string,
+  voterCount: number,
+  baseWeights: ShadowDemoWeights
+): SyntheticVoterBlocProfile {
+  return {
+    id,
+    label,
+    voterCount,
+    reviewerBlend: 0.2,
+    policyInertia: 0.3,
+    baseWeights,
+    baseTopicWeights: {},
+  };
+}
+
+export function getShadowDemoVoterProfiles(communityId: ShadowDemoCommunityId): SyntheticVoterBlocProfile[] {
+  return profilesForCommunity(communityId).map((profile) => ({
     ...profile,
     baseWeights: { ...profile.baseWeights },
     baseTopicWeights: { ...profile.baseTopicWeights },
@@ -133,14 +184,14 @@ export function getShadowDemoVoterProfiles(): SyntheticVoterBlocProfile[] {
 export function createSyntheticVoterVotes(options: {
   seed: string;
   epochId: string;
-  communityId: string;
+  communityId: ShadowDemoCommunityId;
   reviewerWeights: ShadowDemoWeights;
   reviewerTopicIntent: ShadowDemoTopicIntent;
   priorCommunityWeights: ShadowDemoWeights;
   priorTopicIntent: ShadowDemoTopicIntent;
   createdAt: string;
 }): ShadowDemoVote[] {
-  return SYNTHETIC_VOTER_BLOC_PROFILES.flatMap((profile) =>
+  return profilesForCommunity(options.communityId).flatMap((profile) =>
     Array.from({ length: profile.voterCount }, (_unused, voterIndex) => {
       const voterNumber = voterIndex + 1;
       const actorId = syntheticVoterId(profile.id, voterNumber);
@@ -182,25 +233,49 @@ export function createSyntheticVoterVotes(options: {
 }
 
 export function assertSyntheticVoterProfiles(): void {
-  const configured = new Set(SYNTHETIC_VOTER_BLOC_PROFILES.map((profile) => profile.id));
-  for (const id of SHADOW_DEMO_VOTER_BLOC_IDS) {
-    if (!configured.has(id)) {
-      throw new Error(`Missing shadow demo voter bloc profile for ${id}`);
-    }
-  }
-  for (const profile of SYNTHETIC_VOTER_BLOC_PROFILES) {
+  const allProfiles = [...OPEN_SCIENCE_VOTER_BLOC_PROFILES, ...COMMUNITY_GOV_VOTER_BLOC_PROFILES];
+  assertProfileIds('Open Science', OPEN_SCIENCE_VOTER_BLOC_PROFILES, OPEN_SCIENCE_VOTER_BLOC_IDS);
+  assertProfileIds('Community Governed Feed', COMMUNITY_GOV_VOTER_BLOC_PROFILES, COMMUNITY_GOV_VOTER_BLOC_IDS);
+  for (const profile of allProfiles) {
     if (profile.reviewerBlend < 0 || profile.policyInertia < 0 || profile.reviewerBlend + profile.policyInertia >= 1) {
       throw new Error(`Invalid shadow demo blend configuration for ${profile.id}`);
     }
   }
-  const configuredVoterCount = SYNTHETIC_VOTER_BLOC_PROFILES.reduce(
-    (sum, profile) => sum + profile.voterCount,
-    0
-  );
-  if (configuredVoterCount !== SHADOW_DEMO_SYNTHETIC_VOTER_COUNT) {
-    throw new Error(
-      `Shadow demo synthetic voter count must be ${SHADOW_DEMO_SYNTHETIC_VOTER_COUNT}; received ${configuredVoterCount}`
-    );
+  for (const profiles of [OPEN_SCIENCE_VOTER_BLOC_PROFILES, COMMUNITY_GOV_VOTER_BLOC_PROFILES]) {
+    const configuredVoterCount = profiles.reduce((sum, profile) => sum + profile.voterCount, 0);
+    if (configuredVoterCount !== SHADOW_DEMO_SYNTHETIC_VOTER_COUNT) {
+      throw new Error(`Shadow demo synthetic voter count must be ${SHADOW_DEMO_SYNTHETIC_VOTER_COUNT}; received ${configuredVoterCount}`);
+    }
+  }
+}
+
+function profilesForCommunity(communityId: ShadowDemoCommunityId): SyntheticVoterBlocProfile[] {
+  switch (communityId) {
+    case 'community_gov':
+      return COMMUNITY_GOV_VOTER_BLOC_PROFILES;
+    case 'open_science_builders':
+    case 'birders_who_code':
+    case 'crit_fumble_pickup':
+    case 'osint_garden_club':
+      return OPEN_SCIENCE_VOTER_BLOC_PROFILES;
+    default: {
+      const exhaustive: never = communityId;
+      throw new Error(`Unsupported shadow demo community: ${String(exhaustive)}`);
+    }
+  }
+}
+
+function assertProfileIds(
+  label: string,
+  profiles: readonly SyntheticVoterBlocProfile[],
+  expectedIds: readonly ShadowDemoVoterBlocId[]
+): void {
+  const ids = profiles.map((profile) => profile.id);
+  if (new Set(ids).size !== ids.length) {
+    throw new Error(`${label} shadow demo voter profiles contain duplicate bloc IDs`);
+  }
+  if (ids.length !== expectedIds.length || expectedIds.some((id) => !ids.includes(id))) {
+    throw new Error(`${label} shadow demo voter profiles do not match the expected bloc IDs`);
   }
 }
 
@@ -208,7 +283,7 @@ function syntheticTopicIntent(options: {
   profile: SyntheticVoterBlocProfile;
   actorId: ShadowDemoSyntheticVoterId;
   seed: string;
-  communityId: string;
+  communityId: ShadowDemoCommunityId;
   epochId: string;
   reviewerTopicIntent: ShadowDemoTopicIntent;
   priorTopicIntent: ShadowDemoTopicIntent;
@@ -221,9 +296,10 @@ function syntheticTopicIntent(options: {
   const baseBlend = 1 - options.profile.reviewerBlend - options.profile.policyInertia;
   const topicWeights: Record<string, number> = {};
   for (const slug of slugs) {
-    const base = (options.profile.baseTopicWeights[slug] ?? 0.2) * baseBlend;
+    const priorTopicWeight = options.priorTopicIntent.topicWeights[slug] ?? 0.2;
+    const base = (options.profile.baseTopicWeights[slug] ?? priorTopicWeight) * baseBlend;
     const reviewer = (options.reviewerTopicIntent.topicWeights[slug] ?? 0.2) * options.profile.reviewerBlend;
-    const prior = (options.priorTopicIntent.topicWeights[slug] ?? 0.2) * options.profile.policyInertia;
+    const prior = priorTopicWeight * options.profile.policyInertia;
     const jitter = deterministicJitter(
       `${options.seed}:${options.communityId}:${options.epochId}:${options.actorId}:topic:${slug}`
     );

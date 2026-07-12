@@ -15,7 +15,7 @@ import {
 } from '../web-next/app/demo/shadow-demo-contract';
 import {
   SHADOW_DEMO_COMMUNITY_IDS as BACKEND_COMMUNITY_IDS,
-  SHADOW_DEMO_CONTRACT_VERSION as BACKEND_CONTRACT_VERSION,
+  SHADOW_DEMO_V4_CONTRACT_VERSION as BACKEND_CONTRACT_VERSION,
   SHADOW_DEMO_GUIDED_EPOCHS as BACKEND_GUIDED_EPOCHS,
   SHADOW_DEMO_MAX_EPOCHS_PER_SESSION as BACKEND_MAX_EPOCHS,
   SHADOW_DEMO_SIGNAL_KEYS as BACKEND_SIGNAL_KEYS,
@@ -26,7 +26,7 @@ import {
 
 describe('web-next shadow demo contract', () => {
   it('publishes the backend contract version, endpoints, and signal keys for the UI', () => {
-    expect(SHADOW_DEMO_CONTRACT_VERSION).toBe('2026-07-10.shadow-demo.v3');
+    expect(SHADOW_DEMO_CONTRACT_VERSION).toBe('2026-07-11.shadow-demo.v4');
     expect(SHADOW_DEMO_SIGNAL_KEYS).toEqual([
       'recency',
       'engagement',
@@ -35,13 +35,13 @@ describe('web-next shadow demo contract', () => {
       'relevance',
     ]);
     expect(SHADOW_DEMO_ENDPOINTS).toEqual({
-      createSession: '/api/demo/sessions',
-      readSession: '/api/demo/sessions/:sessionId',
-      castVote: '/api/demo/sessions/:sessionId/votes',
-      runSyntheticVoters: '/api/demo/sessions/:sessionId/agents/run',
-      advanceEpoch: '/api/demo/sessions/:sessionId/epochs/advance',
-      readFeed: '/api/demo/sessions/:sessionId/feed?epochId=&limit=',
-      readReceipt: '/api/demo/sessions/:sessionId/receipts?epochId=&postUri=',
+      createSession: '/api/demo/v4/sessions',
+      readSession: '/api/demo/v4/sessions/:sessionId',
+      castVote: '/api/demo/v4/sessions/:sessionId/votes',
+      runSyntheticVoters: '/api/demo/v4/sessions/:sessionId/agents/run',
+      advanceEpoch: '/api/demo/v4/sessions/:sessionId/epochs/advance',
+      readFeed: '/api/demo/v4/sessions/:sessionId/feed?epochId=&limit=',
+      readReceipt: '/api/demo/v4/sessions/:sessionId/receipts?epochId=&postUri=',
     });
     expect(SHADOW_DEMO_MAX_EPOCHS_PER_SESSION).toBe(10);
     expect(SHADOW_DEMO_GUIDED_EPOCHS).toBe(5);
@@ -58,13 +58,13 @@ describe('web-next shadow demo contract', () => {
       productionAuditLogMutates: false,
       researchExportsMutate: false,
       stateBackend: 'redis_only_demo_namespace',
-      liveShadowCommunities: ['open_science_builders'],
+      liveShadowCommunities: ['community_gov'],
     });
     expect(SHADOW_DEMO_ISOLATION_CONTRACT.redisPrefixes).toEqual([
       'demo:session:',
       'demo:sessions:',
       'demo:corpus:',
-      'demo:corpus:current:',
+      'demo:corpus:current:v4:',
       'demo:idempotency:',
       'demo:lock:',
       'demo:staging:',
@@ -81,7 +81,7 @@ describe('web-next shadow demo contract', () => {
     expect(SHADOW_DEMO_MAX_EPOCHS_PER_SESSION).toBe(BACKEND_MAX_EPOCHS);
     expect(SHADOW_DEMO_VOTER_BLOC_IDS).toEqual(BACKEND_VOTER_BLOC_IDS);
     expect(SHADOW_DEMO_ISOLATION_CONTRACT.liveShadowCommunities).toEqual(
-      BACKEND_COMMUNITY_IDS.filter((id) => id === 'open_science_builders')
+      BACKEND_COMMUNITY_IDS.filter((id) => id === 'community_gov')
     );
 
     expect(new Set(SHADOW_DEMO_SIGNAL_KEYS).size).toBe(SHADOW_DEMO_SIGNAL_KEYS.length);

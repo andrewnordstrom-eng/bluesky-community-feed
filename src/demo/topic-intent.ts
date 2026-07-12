@@ -6,9 +6,31 @@ import {
 import { aggregateRowsWithTrimmedMean } from '../governance/aggregation-math.js';
 
 const MAX_TOPIC_IDENTIFIER_LENGTH = 64;
+const MAX_DYNAMIC_TOPIC_COUNT = 64;
 const ALLOWED_TOPICS = new Set<ShadowDemoTopicKey>(SHADOW_DEMO_TOPIC_KEYS);
 
 export function validateShadowTopicIntent(value: unknown): ShadowDemoTopicIntent {
+  return validateTopicIntentEntries(value, ALLOWED_TOPICS, SHADOW_DEMO_TOPIC_KEYS.length);
+}
+
+export function validateShadowTopicIntentForCatalog(
+  value: unknown,
+  allowedTopicSlugs: readonly string[]
+): ShadowDemoTopicIntent {
+  if (allowedTopicSlugs.length === 0 || allowedTopicSlugs.length > MAX_DYNAMIC_TOPIC_COUNT) {
+    throw new Error(`Shadow demo topic catalog must contain between 1 and ${MAX_DYNAMIC_TOPIC_COUNT} topics`);
+  }
+  if (new Set(allowedTopicSlugs).size !== allowedTopicSlugs.length) {
+    throw new Error('Shadow demo topic catalog must contain unique topic slugs');
+  }
+  return validateTopicIntentEntries(value, new Set(allowedTopicSlugs), allowedTopicSlugs.length);
+}
+
+function validateTopicIntentEntries(
+  value: unknown,
+  allowedTopics: ReadonlySet<string>,
+  maximumTopicCount: number
+): ShadowDemoTopicIntent {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('Shadow demo topic intent must be an object');
   }
@@ -18,13 +40,13 @@ export function validateShadowTopicIntent(value: unknown): ShadowDemoTopicIntent
   }
 
   const entries = Object.entries(topicWeightsValue as Record<string, unknown>);
-  if (entries.length > SHADOW_DEMO_TOPIC_KEYS.length) {
-    throw new Error(`Shadow demo topic intent supports at most ${SHADOW_DEMO_TOPIC_KEYS.length} topics`);
+  if (entries.length > maximumTopicCount) {
+    throw new Error(`Shadow demo topic intent supports at most ${maximumTopicCount} topics`);
   }
 
   const topicWeights: Record<string, number> = {};
   for (const [slug, rawWeight] of entries) {
-    if (slug.length > MAX_TOPIC_IDENTIFIER_LENGTH || !ALLOWED_TOPICS.has(slug as ShadowDemoTopicKey)) {
+    if (slug.length > MAX_TOPIC_IDENTIFIER_LENGTH || !allowedTopics.has(slug)) {
       throw new Error(`Shadow demo topic is not allowed: ${slug}`);
     }
     if (typeof rawWeight !== 'number' || !Number.isFinite(rawWeight)) {

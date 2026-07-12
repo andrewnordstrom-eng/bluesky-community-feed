@@ -5,6 +5,7 @@ import { logger } from '../lib/logger.js';
 import {
   SHADOW_DEMO_COMMUNITY_IDS,
   SHADOW_DEMO_CONTRACT_VERSION,
+  SHADOW_DEMO_V4_CONTRACT_VERSION,
   SHADOW_DEMO_SESSION_TTL_SECONDS,
   SHADOW_DEMO_TOPIC_KEYS,
   type ShadowDemoEnvelope,
@@ -37,6 +38,10 @@ const WeightSchema = z.object({
 
 const TopicIntentSchema = z.object({
   topicWeights: z.record(z.enum(SHADOW_DEMO_TOPIC_KEYS), z.number().min(0).max(1)),
+}).strict();
+const V4TopicIntentSchema = z.object({
+  topicWeights: z.record(z.string().min(1).max(64), z.number().min(0).max(1))
+    .refine((weights) => Object.keys(weights).length <= 64, 'Topic policy exceeds 64 entries'),
 }).strict();
 
 const CreateSessionBodySchema = z.object({
@@ -77,47 +82,91 @@ const ReceiptQuerySchema = z.object({
 
 export function registerShadowDemoRoutes(
   app: FastifyInstance,
-  serviceOverride: ShadowDemoService | null,
+  serviceOverride: ShadowDemoService | null | undefined,
   rateLimitGuard: DemoRateLimitGuard | null
 ): void {
+  registerShadowDemoRouteFamily(app, serviceOverride, rateLimitGuard, {
+    prefix: '/api/demo',
+    contractVersion: SHADOW_DEMO_CONTRACT_VERSION,
+    defaultCommunityId: 'open_science_builders',
+    topicIntentSchema: TopicIntentSchema,
+    installCloseHook: true,
+  });
+}
+
+export function registerShadowDemoV4Routes(
+  app: FastifyInstance,
+  serviceOverride: ShadowDemoService | null | undefined,
+  rateLimitGuard: DemoRateLimitGuard | null
+): void {
+  registerShadowDemoRouteFamily(app, serviceOverride, rateLimitGuard, {
+    prefix: '/api/demo/v4',
+    contractVersion: SHADOW_DEMO_V4_CONTRACT_VERSION,
+    defaultCommunityId: 'community_gov',
+    topicIntentSchema: V4TopicIntentSchema,
+    installCloseHook: false,
+  });
+}
+
+function registerShadowDemoRouteFamily(
+  app: FastifyInstance,
+  serviceOverride: ShadowDemoService | null | undefined,
+  rateLimitGuard: DemoRateLimitGuard | null,
+  options: {
+    prefix: '/api/demo' | '/api/demo/v4';
+    contractVersion: typeof SHADOW_DEMO_CONTRACT_VERSION | typeof SHADOW_DEMO_V4_CONTRACT_VERSION;
+    defaultCommunityId: 'open_science_builders' | 'community_gov';
+    topicIntentSchema: typeof TopicIntentSchema | typeof V4TopicIntentSchema;
+    installCloseHook: boolean;
+  }
+): void {
+  if (serviceOverride === null) {
+    return;
+  }
   const service = serviceOverride ?? createDefaultShadowDemoService();
 
-  if (rateLimitGuard) {
+  if (rateLimitGuard && options.installCloseHook) {
     app.addHook('onClose', async () => {
       await rateLimitGuard.close();
     });
   }
 
-  app.post('/api/demo/sessions', {
+  app.post(`${options.prefix}/sessions`, {
     bodyLimit: DEMO_MUTATION_BODY_LIMIT_BYTES,
     schema: { tags: ['Demo'] },
   }, async (request, reply) => {
     return handleShadowDemoRequest(request, reply, async () => {
       await applyRateLimit(rateLimitGuard, 'session_create', request.ip);
       const body = parseOrThrow(CreateSessionBodySchema, request.body ?? {});
+      if (options.defaultCommunityId === 'community_gov' && body.communityId && body.communityId !== 'community_gov') {
+        throw new DemoValidationError('Shadow demo v4 supports only community_gov');
+      }
+      if (options.defaultCommunityId !== 'community_gov' && body.communityId === 'community_gov') {
+        throw new DemoValidationError('community_gov is available only on the v4 shadow demo API');
+      }
       return service.createSession({
-        communityId: body.communityId ?? 'open_science_builders',
+        communityId: body.communityId ?? options.defaultCommunityId,
         clientNonce: body.clientNonce,
       });
-    });
+    }, options.contractVersion);
   });
 
-  app.get('/api/demo/sessions/:sessionId', { schema: { tags: ['Demo'] } }, async (request, reply) => {
+  app.get(`${options.prefix}/sessions/:sessionId`, { schema: { tags: ['Demo'] } }, async (request, reply) => {
     return handleShadowDemoRequest(request, reply, async () => {
       await applyRateLimit(rateLimitGuard, 'read', request.ip);
       const params = parseOrThrow(SessionParamsSchema, request.params);
       return service.getSession(params.sessionId);
-    });
+    }, options.contractVersion);
   });
 
-  app.post('/api/demo/sessions/:sessionId/votes', {
+  app.post(`${options.prefix}/sessions/:sessionId/votes`, {
     bodyLimit: DEMO_MUTATION_BODY_LIMIT_BYTES,
     schema: { tags: ['Demo'] },
   }, async (request, reply) => {
     return handleShadowDemoRequest(request, reply, async () => {
       await applyRateLimit(rateLimitGuard, 'mutation', request.ip);
       const params = parseOrThrow(SessionParamsSchema, request.params);
-      const body = parseOrThrow(VoteBodySchema, request.body ?? {});
+      const body = parseOrThrow(VoteBodySchema.extend({ topicIntent: options.topicIntentSchema }), request.body ?? {});
       return service.castVote({
         sessionId: params.sessionId,
         baseEpochId: body.baseEpochId,
@@ -125,10 +174,10 @@ export function registerShadowDemoRoutes(
         topicIntent: body.topicIntent,
         idempotencyKey: idempotencyKeyFrom(request, body.idempotencyKey ?? null),
       });
-    });
+    }, options.contractVersion);
   });
 
-  app.post('/api/demo/sessions/:sessionId/agents/run', {
+  app.post(`${options.prefix}/sessions/:sessionId/agents/run`, {
     bodyLimit: DEMO_MUTATION_BODY_LIMIT_BYTES,
     schema: { tags: ['Demo'] },
   }, async (request, reply) => {
@@ -141,10 +190,10 @@ export function registerShadowDemoRoutes(
         baseEpochId: body.baseEpochId,
         idempotencyKey: idempotencyKeyFrom(request, body.idempotencyKey ?? null),
       });
-    });
+    }, options.contractVersion);
   });
 
-  app.post('/api/demo/sessions/:sessionId/epochs/advance', {
+  app.post(`${options.prefix}/sessions/:sessionId/epochs/advance`, {
     bodyLimit: DEMO_MUTATION_BODY_LIMIT_BYTES,
     schema: { tags: ['Demo'] },
   }, async (request, reply) => {
@@ -157,10 +206,10 @@ export function registerShadowDemoRoutes(
         fromEpochId: body.fromEpochId,
         idempotencyKey: idempotencyKeyFrom(request, body.idempotencyKey ?? null),
       });
-    });
+    }, options.contractVersion);
   });
 
-  app.get('/api/demo/sessions/:sessionId/feed', { schema: { tags: ['Demo'] } }, async (request, reply) => {
+  app.get(`${options.prefix}/sessions/:sessionId/feed`, { schema: { tags: ['Demo'] } }, async (request, reply) => {
     return handleShadowDemoRequest(request, reply, async () => {
       await applyRateLimit(rateLimitGuard, 'read', request.ip);
       const params = parseOrThrow(SessionParamsSchema, request.params);
@@ -171,10 +220,10 @@ export function registerShadowDemoRoutes(
         epochId: query.epochId ?? null,
         limit,
       });
-    });
+    }, options.contractVersion);
   });
 
-  app.get('/api/demo/sessions/:sessionId/receipts', { schema: { tags: ['Demo'] } }, async (request, reply) => {
+  app.get(`${options.prefix}/sessions/:sessionId/receipts`, { schema: { tags: ['Demo'] } }, async (request, reply) => {
     return handleShadowDemoRequest(request, reply, async () => {
       await applyRateLimit(rateLimitGuard, 'read', request.ip);
       const params = parseOrThrow(SessionParamsSchema, request.params);
@@ -184,7 +233,7 @@ export function registerShadowDemoRoutes(
         epochId: query.epochId ?? null,
         postUri: query.postUri,
       });
-    });
+    }, options.contractVersion);
   });
 }
 
@@ -234,10 +283,11 @@ function sendEnvelope<TPayload>(
     sessionId: string | null;
     payload: TPayload;
     warnings: ShadowDemoEnvelope<TPayload>['warnings'];
-  }
+  },
+  contractVersion: typeof SHADOW_DEMO_CONTRACT_VERSION | typeof SHADOW_DEMO_V4_CONTRACT_VERSION
 ): FastifyReply {
   const envelope: ShadowDemoEnvelope<TPayload> = {
-    contractVersion: SHADOW_DEMO_CONTRACT_VERSION,
+    contractVersion,
     requestId: request.correlationId ?? randomUUID(),
     generatedAt: new Date().toISOString(),
     sessionId: result.sessionId,
@@ -254,11 +304,12 @@ async function handleShadowDemoRequest<TPayload>(
     sessionId: string | null;
     payload: TPayload;
     warnings: ShadowDemoEnvelope<TPayload>['warnings'];
-  }>
+  }>,
+  contractVersion: typeof SHADOW_DEMO_CONTRACT_VERSION | typeof SHADOW_DEMO_V4_CONTRACT_VERSION = SHADOW_DEMO_CONTRACT_VERSION
 ): Promise<FastifyReply> {
   try {
     const result = await operation();
-    return sendEnvelope(request, reply, result);
+    return sendEnvelope(request, reply, result, contractVersion);
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
     const correlationId = request.correlationId ?? randomUUID();

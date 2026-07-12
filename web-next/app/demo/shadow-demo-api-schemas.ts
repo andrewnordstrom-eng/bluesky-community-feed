@@ -1,22 +1,19 @@
 import { z } from "zod"
 
-export const CONTRACT_VERSION = "2026-07-10.shadow-demo.v3" as const
+export const CONTRACT_VERSION = "2026-07-11.shadow-demo.v4" as const
 
 const signalKeySchema = z.enum(["recency", "engagement", "bridging", "source_diversity", "relevance"])
-const topicKeySchema = z.enum(["science-research", "data-science", "software-development", "open-source"])
-const communityIdSchema = z.enum([
-  "open_science_builders",
-  "birders_who_code",
-  "crit_fumble_pickup",
-  "osint_garden_club",
-])
+const topicKeySchema = z.string().min(1).max(64)
+const communityIdSchema = z.literal("community_gov")
 const voterBlocIdSchema = z.enum([
-  "research_practitioner",
-  "dataset_steward",
-  "current_awareness",
-  "community_discussant",
-  "interdisciplinary_connector",
+  "freshness_watcher",
+  "conversation_follower",
+  "bridge_builder",
+  "source_diversifier",
+  "relevance_steward",
 ])
+const voterBlocIdPattern = voterBlocIdSchema.options.join("|")
+const syntheticVoterIdPattern = new RegExp(`^synthetic-(${voterBlocIdPattern})-\\d+$`)
 
 const finiteNumber = z.number().finite()
 const nonNegativeNumber = finiteNumber.nonnegative()
@@ -34,9 +31,6 @@ export const apiWeightsSchema = z.object({
 const apiTopicWeightsSchema = z.record(z.string().min(1).max(64), unitNumber)
   .refine((weights) => Object.keys(weights).length <= 64, {
     message: "Topic policy exceeds the supported 64-key response bound",
-  })
-  .refine((weights) => topicKeySchema.options.every((key) => weights[key] !== undefined), {
-    message: "Topic policy omitted a required Open Science control",
   })
 
 export const apiTopicIntentSchema = z.object({
@@ -84,10 +78,10 @@ const reviewerVoteSchema = voteBaseSchema.extend({
 
 export const apiSyntheticVoteSchema = voteBaseSchema.extend({
   actorType: z.literal("synthetic_voter"),
-  actorId: z.string().regex(/^synthetic-(research_practitioner|dataset_steward|current_awareness|community_discussant|interdisciplinary_connector)-\d+$/),
+  actorId: z.string().regex(syntheticVoterIdPattern),
   blocId: voterBlocIdSchema,
 }).strict().superRefine((vote, context) => {
-  const actorBloc = vote.actorId.match(/^synthetic-(research_practitioner|dataset_steward|current_awareness|community_discussant|interdisciplinary_connector)-\d+$/)?.[1]
+  const actorBloc = vote.actorId.match(syntheticVoterIdPattern)?.[1]
   if (actorBloc !== vote.blocId) {
     context.addIssue({
       code: "custom",
@@ -99,13 +93,17 @@ export const apiSyntheticVoteSchema = voteBaseSchema.extend({
 
 const corpusHealthSchema = z.object({
   status: z.enum(["live", "degraded"]),
-  source: z.enum(["production_scores_appview", "fixture_fallback"]),
+  source: z.enum(["production_scores_appview", "production_feed_snapshot", "fixture_fallback"]),
   candidatePosts72h: z.number().int().nonnegative(),
   publicScoredPosts: z.number().int().nonnegative(),
   uniqueAuthors72h: z.number().int().nonnegative(),
   bridgePostShare: unitNumber,
   topAuthorConcentration: unitNumber,
   sampledAt: isoDateTime,
+  sourcePostCount: z.number().int().nonnegative().optional(),
+  eligiblePostCount: z.number().int().nonnegative().optional(),
+  englishTaggedShare: unitNumber.optional(),
+  richMediaShare: unitNumber.optional(),
 }).strict()
 
 export const apiReceiptComponentsSchema = z.array(z.object({
@@ -118,16 +116,103 @@ export const apiReceiptComponentsSchema = z.array(z.object({
   { message: "Receipt must contain one component for each ranking signal." },
 )
 
-const corpusProvenanceSchema = z.object({
-  mode: z.literal("production_sourced_session_frozen"),
-  label: z.literal("Live-scored snapshot"),
+const corpusProvenanceBaseShape = {
   description: z.string().min(1),
   corpusId: z.string().min(1),
   productionEpochId: z.number().int().nonnegative(),
   sampledAt: isoDateTime,
-  windowHours: z.literal(72),
-  topicScoreThreshold: z.literal(0.5),
+  windowHours: nonNegativeNumber,
+  topicScoreThreshold: unitNumber,
   eligiblePostCount: z.number().int().nonnegative(),
+} as const
+const snapshotCorpusProvenanceSchema = z.object({
+  ...corpusProvenanceBaseShape,
+  mode: z.literal("production_feed_snapshot_session_frozen"),
+  label: z.literal("Reviewer-safe snapshot of the live Community Governed Feed"),
+  sourceFeedUri: z.string().startsWith("at://"),
+  sourceFeedName: z.string().min(1),
+  sourceSnapshotDigest: z.string().min(1),
+  sourceRunId: z.string().min(1),
+  sourceUpdatedAt: isoDateTime,
+  sourceReviewedAt: isoDateTime.optional(),
+  sourcePostCount: z.number().int().nonnegative(),
+  selectionPolicyVersion: z.string().min(1),
+  baselineOrderDigest: z.string().min(1),
+}).strict()
+const liveCorpusProvenanceSchema = z.object({
+  ...corpusProvenanceBaseShape,
+  mode: z.literal("production_sourced_session_frozen"),
+  label: z.literal("Live-scored snapshot"),
+}).strict()
+const fixtureCorpusProvenanceSchema = z.object({
+  ...corpusProvenanceBaseShape,
+  mode: z.literal("illustrative_fixture_session_frozen"),
+  label: z.literal("Illustrative mechanics fixture"),
+}).strict()
+const corpusProvenanceSchema = z.discriminatedUnion("mode", [
+  snapshotCorpusProvenanceSchema,
+  liveCorpusProvenanceSchema,
+  fixtureCorpusProvenanceSchema,
+])
+const receiptProvenanceShape = {
+  shadowEpochId: z.string().min(1),
+  postInclusionReasons: z.object({
+    matchedTopics: z.array(z.object({ topic: topicKeySchema, score: finiteNumber }).strict()),
+    matchedTerms: z.array(z.string().min(1)),
+    sourceRank: z.number().int().positive().optional(),
+    reason: z.literal("published_feed_snapshot").optional(),
+  }).strict(),
+} as const
+const receiptProvenanceSchema = z.discriminatedUnion("mode", [
+  snapshotCorpusProvenanceSchema.extend(receiptProvenanceShape).strict(),
+  liveCorpusProvenanceSchema.extend(receiptProvenanceShape).strict(),
+  fixtureCorpusProvenanceSchema.extend(receiptProvenanceShape).strict(),
+])
+
+const topicCatalogEntrySchema = z.object({
+  slug: topicKeySchema,
+  name: z.string().min(1),
+  description: z.string().nullable(),
+  baselineWeight: unitNumber,
+}).strict()
+
+const httpsUrl = z.string().url().refine((value) => new URL(value).protocol === "https:", {
+  message: "Expected an HTTPS URL",
+})
+
+const imageMediaSchema = z.object({
+  thumb: httpsUrl,
+  fullsize: httpsUrl,
+  alt: z.string(),
+  width: z.number().int().positive().nullable(),
+  height: z.number().int().positive().nullable(),
+}).strict()
+
+const externalMediaSchema = z.object({
+  uri: httpsUrl,
+  title: z.string(),
+  description: z.string(),
+  thumb: httpsUrl.nullable(),
+}).strict()
+
+const quoteMediaSchema = z.object({
+  uri: z.string().startsWith("at://"),
+  authorHandle: z.string().min(1),
+  authorDisplayName: z.string().min(1),
+  text: z.string().min(1),
+}).strict()
+
+const videoMediaSchema = z.object({
+  thumbnail: httpsUrl.nullable(),
+  width: z.number().int().positive().nullable(),
+  height: z.number().int().positive().nullable(),
+}).strict()
+
+export const apiPostMediaSchema = z.object({
+  images: z.array(imageMediaSchema),
+  external: externalMediaSchema.nullable(),
+  quote: quoteMediaSchema.nullable(),
+  video: videoMediaSchema.nullable(),
 }).strict()
 
 const communitySchema = z.object({
@@ -164,6 +249,11 @@ export const apiSessionPayloadSchema = z.object({
     syntheticVoterCount: z.literal(24),
     totalDemoVoters: z.literal(25),
     corpusProvenance: corpusProvenanceSchema,
+    topicCatalog: z.array(topicCatalogEntrySchema).length(26).refine(
+      (catalog) => new Set(catalog.map((topic) => topic.slug)).size === 26,
+      { message: "Community Governed Feed topic catalog must contain 26 unique active topics." },
+    ),
+    sourceFeedUri: z.string().startsWith("at://"),
     voterProfiles: z.array(voterProfileSchema),
     votes: z.array(z.union([reviewerVoteSchema, apiSyntheticVoteSchema])),
   }).strict(),
@@ -185,6 +275,8 @@ const publicPostSchema = z.object({
   indexedAt: isoDateTime,
   createdAt: isoDateTime,
   bskyUrl: z.string().url(),
+  languages: z.array(z.string().min(1).max(35)).optional(),
+  media: apiPostMediaSchema.nullable().optional(),
 }).strict()
 
 const hiddenPostSchema = z.object({
@@ -215,6 +307,10 @@ export const apiFeedPayloadSchema = z.object({
     weightedComponents: rawScoresSchema.nullable(),
     rawScores: rawScoresSchema.nullable(),
     post: z.discriminatedUnion("kind", [publicPostSchema, hiddenPostSchema]),
+    publishedRank: z.number().int().positive().optional(),
+    publishedScore: finiteNumber.optional(),
+    componentScore: finiteNumber.nullable().optional(),
+    publicationAdjustment: finiteNumber.nullable().optional(),
   }).strict()),
 }).strict()
 
@@ -226,6 +322,10 @@ export const apiReceiptPayloadSchema = z.object({
     visibleRank: z.number().int().positive(),
     previousRank: z.number().int().positive().nullable(),
     score: finiteNumber,
+    componentScore: finiteNumber.optional(),
+    publicationAdjustment: finiteNumber.optional(),
+    publishedRank: z.number().int().positive().optional(),
+    publishedScore: finiteNumber.optional(),
     scoredAt: isoDateTime,
     aggregate: voteSummarySchema,
     reviewerBallotShare: unitNumber,
@@ -248,18 +348,12 @@ export const apiReceiptPayloadSchema = z.object({
         usedDefaultWeight: z.boolean(),
       }).strict()),
     }).strict(),
-    provenance: corpusProvenanceSchema.extend({
-      shadowEpochId: z.string().min(1),
-      postInclusionReasons: z.object({
-        matchedTopics: z.array(z.object({ topic: topicKeySchema, score: finiteNumber }).strict()),
-        matchedTerms: z.array(z.string().min(1)),
-      }).strict(),
-    }).strict(),
+    provenance: receiptProvenanceSchema,
     counterfactuals: z.array(z.object({
       label: z.enum(["previous_epoch", "engagement_only", "direct_reviewer_ballot_removed"]),
       description: z.string().min(1),
-      rank: z.number().int().positive(),
-      deltaFromVisible: z.number().int(),
+      rank: z.number().int().positive().nullable(),
+      deltaFromVisible: z.number().int().nullable(),
     }).strict()),
   }).strict(),
 }).strict()

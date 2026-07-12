@@ -26,7 +26,7 @@ describe('shadow demo isolation guards', () => {
     expect(demoSessionKeyPrefix()).toBe('demo:session:');
     expect(demoSessionNonceKeyPrefix()).toBe('demo:session-nonce:');
     expect(demoCorpusKeyPrefix()).toBe('demo:corpus:');
-    expect(demoSharedCorpusKeyPrefix()).toBe('demo:corpus:current:');
+    expect(demoSharedCorpusKeyPrefix()).toBe('demo:corpus:current:v4:');
     expect(demoIdempotencyKeyPrefix()).toBe('demo:idempotency:');
     expect(demoLockKeyPrefix()).toBe('demo:lock:');
     expect(demoStagingKeyPrefix()).toBe('demo:staging:');

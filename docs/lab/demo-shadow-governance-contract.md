@@ -1,113 +1,118 @@
 # Corgi Shadow Demo Governance Contract
 
-Version: `2026-07-10.shadow-demo.v3`
+Version: `2026-07-11.shadow-demo.v4`
 
-This contract powers the public `/demo` walkthrough without mutating production governance.
+This contract powers the public `/demo` walkthrough without mutating production governance or the public Bluesky feed. The v3 `/api/demo/*` family remains temporarily available for active or cached clients; the reviewer UI uses `/api/demo/v4/*`.
 
-## Scope
+## Reviewer Story
 
-- `open_science_builders` is the only live shadow community in v3. Its candidate pool uses the existing `science-research`, `data-science`, `software-development`, and `open-source` topic vectors.
-- `birders_who_code` remains a preview/future secondary community. It is not the primary reviewer corpus and is not published as a Bluesky feed.
-- Other demo community IDs may be returned as degraded concepts, not live feeds.
-- Demo sessions source one corpus from live production `posts`, active `post_scores`, current epoch weights, and Bluesky AppView hydration, then freeze that comparison set at session creation. Reviewer votes change ranking math, not the compared post set.
-- UI copy should use this provenance line: "Live-scored snapshot, frozen for this demo run so rank movement is attributable to policy changes."
-- Demo state is Redis-only under `demo:session:*`, `demo:sessions:*`, `demo:corpus:*`, `demo:corpus:current:*`, `demo:idempotency:*`, `demo:lock:*`, short-lived `demo:staging:*`, and `demo:rate-limit:*` keys. It uses a dedicated localhost-only Redis on port 6381 with 64 MB, `noeviction`, no persistence, and a 96 MB container limit. Production feed/governance Redis is not used for demo state, including anonymous rate-limit counters.
-- Anonymous rate-limit identifiers are stored only as HMAC-SHA-256 digests under a dedicated `DEMO_RATE_LIMIT_HASH_SECRET`; raw reviewer IP addresses are never written to Redis, and the export anonymization salt is not reused.
-- Guided UI should default to 5 guided shadow epochs. Advanced/free-play sessions are capped at 10 shadow epochs, including the baseline epoch.
-- Shared current corpus snapshots are short-lived warming caches. Each session still receives a cloned frozen corpus.
-- Corpus rotation is automatic and lock-protected. There is no public corpus-refresh mutation; a newly created session uses the current shared snapshot and always receives its own frozen comparison boundary.
+The sole v4 community is `community_gov`, displayed as **Community Governed Feed**. A read-only capture takes the ordered top 100 entries from production `feed:current` with publication scores, epoch, publication run ID, and update time. The approved v2 manifest is committed at `src/demo/community-gov-release-snapshot.json`; it freezes each post's own score-run lineage, raw components, topic vector, and URL-dedup inputs while copying no post text.
+
+At session creation, Corgi validates the frozen inputs and hydrates public display metadata from Bluesky AppView. It does not reread mutable score decompositions. The eligible comparison set is copied into dedicated demo Redis and frozen for the session. Epoch 1 preserves the published order exactly. Later shadow epochs rerank the same eligible cohort, so movement is attributable to policy changes rather than corpus churn.
+
+Required UI language:
+
+- `Reviewer-safe snapshot of the live Community Governed Feed`
+- `Captured <timestamp> · frozen for this session`
+- `Shadow session · never changes the public feed`
+
+The separate live-proof link opens the continuously updating Community Governed Feed on Bluesky. The guided snapshot is never described as continuously live after it is frozen.
 
 ## Endpoints
 
-- `POST /api/demo/sessions`
-- `GET /api/demo/sessions/:sessionId`
-- `POST /api/demo/sessions/:sessionId/votes`
-- `POST /api/demo/sessions/:sessionId/agents/run` (compatibility path; runs deterministic synthetic community voters, not LLM agents)
-- `POST /api/demo/sessions/:sessionId/epochs/advance`
-- `GET /api/demo/sessions/:sessionId/feed?epochId=&limit=`
-- `GET /api/demo/sessions/:sessionId/receipts?epochId=&postUri=`
+- `POST /api/demo/v4/sessions`
+- `GET /api/demo/v4/sessions/:sessionId`
+- `POST /api/demo/v4/sessions/:sessionId/votes`
+- `POST /api/demo/v4/sessions/:sessionId/agents/run`
+- `POST /api/demo/v4/sessions/:sessionId/epochs/advance`
+- `GET /api/demo/v4/sessions/:sessionId/feed?epochId=&limit=`
+- `GET /api/demo/v4/sessions/:sessionId/receipts?epochId=&postUri=`
 
-All demo mutation bodies are capped at 16 KiB. Only the four Open Science topic keys are accepted. Session state is capped at 1 MiB, idempotency records at 256 KiB, and the anonymous service at 50 active sessions.
+Mutation bodies remain capped at 16 KiB. Session state remains capped at 1 MiB, idempotency records at 256 KiB, and anonymous active sessions at 50. Guided mode covers 5 guided shadow epochs; explicit free play is capped at 10 shadow epochs.
 
-## Governance Math
+## Topics And Ballots
 
-The shadow demo uses the same side-effect-free trimmed-mean helper as production aggregation, labeled `trimmed_mean_no_trim_under_10`: no trimming below ten votes, and 10 percent trimming from both ends once ten or more votes exist.
+Each session returns the frozen production topic catalog and baseline topic policy. The reviewer ballot must submit the complete catalog. The server rejects missing, unknown, overlong, duplicate-at-serialization, out-of-range, or non-finite topic values. This makes all 26 currently active production topics functional without hardcoding the catalog into the browser.
 
-The default demo electorate is one reviewer plus 24 deterministic synthetic community voters, for 25 total weight votes. That means the v3 demo actually exercises the production trim rule: two low and two high values are trimmed per component before averaging.
+The electorate is one reviewer plus 24 deterministic synthetic community voters, grouped into five transparent blocs:
 
-Synthetic voters are deterministic, seeded, inspectable, and replayable. They are grouped into five visible blocs:
+- Freshness Watchers: 5
+- Conversation Followers: 4
+- Bridge Builders: 5
+- Source Diversifiers: 5
+- Relevance Stewards: 5
 
-- Research Practitioners: 5 voters
-- Data Stewards: 5 voters
-- Current-Awareness Readers: 5 voters
-- Community Discussants: 4 voters
-- Interdisciplinary Connectors: 5 voters
+These are scripted deterministic voter archetypes, not LLM agents and not validated human-behavior models. They combine stable bloc preferences, prior-policy inertia, a bounded response to the reviewer proposal, and seeded epoch variation. Identical inputs replay exactly; prior shadow epochs create inspectable path dependence.
 
-LLM agents are out of scope for v3 because the demo needs replayability, bounded cost, deterministic receipts, and a clear explanation path for ACM RecSys reviewers. The scripted voter archetypes are not meant to impersonate real people; they are a deterministic community-governance simulator over live-scored production components.
+Aggregation uses the same side-effect-free production helper, labeled `trimmed_mean_no_trim_under_10`. With 25 ballots, two low and two high values are trimmed from each signal and topic component before averaging. `reviewerBallotShare=1/25` is ballot share, not causal influence, because scripted ballots respond partly to the proposal. The `direct_reviewer_ballot_removed` counterfactual removes the direct reviewer ballot while holding the 24 scripted ballots fixed.
 
-Each synthetic voter combines a stable bloc preference, prior-policy inertia, a bounded response to the reviewer proposal, and deterministic per-epoch variation. Replaying the same session inputs produces the same ballots. Changing the previous epoch policy changes the next electorate, so a multi-epoch run has real path dependence without opaque model calls or unbounded randomness.
+## Ranking And Receipts
 
-The open epoch always retains the policy that produced its baseline ranking. Reviewer and synthetic ballots produce a pending aggregate; advancing closes that epoch and creates the next epoch with the pending policy. This preserves a causal before/after comparison instead of applying one aggregate to both sides of the transition.
+The demo reuses stored production raw score components, topic vectors, the production relevance formula, the relevance floor, trimmed-mean aggregation, and the publication-order adjustment represented by the approved feed snapshot. It does not rerun the scorer when a reviewer clicks.
 
-Scores are recomputed as:
-
-```text
-effective relevance = production topic-vector relevance(post topics, shadow topic weights)
-demo total = sum(effective raw component score * shadow epoch signal weight)
-```
-
-The demo does not rerun the scorer and does not write `post_scores`.
-
-Applied epochs and receipts retain the authoritative aggregate (`voteCount=25`, `trimCount=2`, signal weights, and topic intent). `reviewerBallotShare=1/25` describes ballot count, not causal influence: scripted ballots respond partly to the reviewer proposal. The `direct_reviewer_ballot_removed` counterfactual removes only the direct reviewer ballot and explicitly holds all 24 scripted ballots fixed.
-
-Topic receipts return the exact scorer decomposition: weighted sum, total topic signal, confidence multiplier, base relevance, effective relevance, the default-topic-weight flag, and every contributing term. When no shadow topic policy is active, the receipt identifies that the stored production relevance component was used instead.
-
-For each finite post topic score `s_i`, the scorer selects the configured community topic weight `w_i`, or the default topic weight `d=0.2` when that topic is absent from the active policy. The receipt fields reconstruct the scorer exactly:
+Receipts distinguish:
 
 ```text
-term_i = s_i * w_i
-weightedSum = sum(term_i)
-signalSum = sum(s_i)
-
-if signalSum = 0:
-  baseRelevance = d
-  confidenceMultiplier = 1
-  effectiveRelevance = d
-else:
-  baseRelevance = weightedSum / signalSum
-  confidenceMultiplier = min(1, signalSum / confidenceThreshold)
-  effectiveRelevance = clamp(baseRelevance * confidenceMultiplier, 0, 1)
+component score = sum(raw component * shadow signal weight)
+published baseline adjustment = published score / component score
+shadow publication adjustment = one application of the frozen URL-dedup policy
+final ranking score = component score * publication adjustment
 ```
 
-`terms[]` exposes `s_i`, `w_i`, `term_i`, and whether `d` supplied `w_i`; `usedDefaultWeight` is true when any term used `d`; `confidenceThreshold` is the scorer threshold (`0.5` in v3). An active topic policy with an empty/zero-signal post vector therefore receives the scorer's neutral `0.2` effective relevance. Only when `topicIntent.topicWeights` itself is empty does `formulaApplied=false`; then `weightedSum` and `signalSum` are null and both `baseRelevance` and `effectiveRelevance` equal the stored production relevance component.
+Epoch 1 reconstructs the historical publication adjustment only to explain the immutable published baseline. Later shadow epochs do not carry that historical multiplier forward: they apply the snapshot's frozen URL-dedup policy once to the newly computed component scores. Receipts return the component score, publication adjustment, final score, published baseline rank and score, shadow rank, production epoch/run, release-bundle digest, baseline-order digest, corpus ID, and source URI.
 
-## Isolation Rules
+Topic receipts return every contributing term plus weighted sum, signal sum, confidence multiplier, base relevance, effective relevance, default-weight use, and confidence threshold. Rank and receipt annotations are Corgi UI, not native Bluesky UI.
 
-The demo must not import or call production epoch transition, production voting, scoring-pipeline, production feed-cache writer, audit-log writer, or research-export writer paths. It may read active production epochs, posts, and decomposed score components to build the frozen corpus.
+The boundary is explicit: shadow epochs rerank only the frozen published comparison corpus. They do not rescan the firehose and do not claim to reproduce every candidate that could enter a newly scored production feed.
 
-Production tables and keys that must not be written by the demo:
+## Snapshot Gates
 
-- `governance_votes`
-- `governance_epochs`
-- `governance_audit_log`
-- `feed:current`
-- `feed:current_snapshot_id`
-- research export tables
+The capture command is read-only:
 
-## Public View Rules
+```bash
+npm run demo:capture-community-gov -- \
+  --manifest /tmp/community-gov-manifest.json \
+  --report /tmp/community-gov-report.json \
+  --review-sheet /tmp/community-gov-review.html
+```
 
-Bluesky AppView hydration is used for display metadata. Rows with `!no-unauthenticated`, `!hide`, takedown, adult-only labels, deleted/unavailable records, or missing public text are returned as compact hidden rows without text, handle, avatar, or Bluesky URL.
+It emits the ordered URI manifest and digest, reviewed record CIDs, score completeness, public/withheld counts, language and media distributions, unique-author count, top-author concentration, gate failures, and a local review sheet. A release snapshot must have:
 
-The UI should display 8-12 ranked posts per shadow epoch when the frozen corpus is large enough. If the live Open Science Builders corpus cannot be loaded or fewer than ten public scored posts survive hydration, the API returns a degraded state and falls back to illustrative fixture posts with clear provenance. Live-proof claims must come from public Bluesky posts and Corgi receipt endpoints.
+- at least 40 eligible and 12 displayable public posts;
+- 100 percent score decomposition for eligible posts;
+- at least 80 percent English-tagged content, with other languages labeled;
+- top-author concentration at or below 10 percent;
+- at least 20 percent rich-media coverage;
+- zero public-view policy violations;
+- a completed manual review with no unexplained unsafe result under built-in presets.
 
-## Corpus Health Rules
+Failure returns the explicitly labeled mechanics fixture. The system never weakens thresholds silently or calls a fixture live.
 
-The live Open Science Builders corpus loader reads recent non-deleted posts from production storage and requires both (a) at least one of the four canonical topic scores at or above 0.5 and (b) a matching Open Science, research, code, or data term in post text. It keeps only posts with decomposed score components for the active production epoch, hydrates display metadata via public Bluesky AppView, and then applies the public-view rules above. The source pool metrics are computed after strict filtering but before the 80-post display-corpus limit, so the UI does not mistake the frozen sample size for total 72-hour eligible supply. Every retained post carries its matched topics and matched text terms as inclusion reasons.
+### Approved 2026-07-11 Snapshot Receipt
 
-A 2026-07-10 read-only production query found 84,831 active-epoch scored candidates from 46,652 authors over 72 hours. Of those, 2,274 posts matched two or more target topics, or about 758 cross-topic posts/day. The largest single author contributed 1.7 percent of the pool. Detailed counts and query semantics are in `docs/lab/open-science-demo-readiness.md`.
+- Manifest: 100 ordered production URIs, epoch 2, publication run `96698b9f-8933-4d54-b011-0c861ce898b3`.
+- Release-bundle digest: `80a7a0573b8ca29710830cd1ebc15791a3794ee7c7bf9793a9163e887879dbe3`; this binds the ordered entries, reviewed CIDs, per-post frozen score lineage and ranking inputs, provenance, frozen signal/topic policies, publication policy, and review metadata.
+- Baseline-order digest: `4fcc78007cf74389074df54aa809e70836e921f5d7573720dbb4a48478bb4be1`; this separately fingerprints the ordered rank/URI cohort and remains stable when only publication scores or frozen inputs change.
+- Production score receipt: 100/100 source entries carry complete five-component decompositions and their own score-run IDs.
+- Eligibility: 74 public posts passed current AppView visibility and deterministic reviewer-safety gates; 26 source positions were withheld. Hidden records expose no text, identity, media, quote, or source URL.
+- Language: 85.1 percent English-tagged. The remaining tags were 7 undetermined, 1 Catalan, 1 German, 1 Spanish, 1 French, and 1 Japanese; non-English posts remain labeled in the UI.
+- Media: 40.5 percent of displayable posts include an image, external card, or quoted-post summary.
+- Authorship: 68 unique authors; top-author concentration 2.7 percent.
+- Manual review: every one of the 74 displayable posts was inspected and bound to its immutable record CID. The CID-binding recapture retained 73 source-identical records and introduced one benign replacement, which was reviewed before approval. Two unsafe display/text results identified by the prior full review remain deterministically excluded.
+- Reviewed at: `2026-07-12T06:02:16.144Z`.
 
-The earlier broad query proves ample source supply, but v3 deliberately applies a stricter eligibility rule and reports the resulting count in corpus provenance. It does not mean Open Science Builders has been published as a native Bluesky feed; no feed record/rkey exists for it in v3.
+## Bluesky Public View
 
-## Atomicity And Recovery
+AppView hydration supports image galleries with alt text/aspect ratios, external cards, quoted-post summaries, record-with-media combinations, and non-autoplay video posters. `!no-unauthenticated`, `!hide`, takedown, adult-only, malformed, deleted, unavailable, missing-text, reviewer-safety language results, CID changes, and records withheld at review time are withheld. Recursive labels and the reviewed CID are evaluated before text, identity, nested quote, or media fields are exposed.
 
-Session mutations compute a candidate next state without writes. A 15-second ownership token then commits the session and optional idempotency record together in one Redis Lua operation. If ownership expired, the commit is rejected and the prior state remains authoritative. After an ambiguous client failure, the UI reconciles with `GET /api/demo/sessions/:sessionId`; it does not force a new session or assume the mutation failed.
+Every public row has separate **Inspect ranking** and **Open on Bluesky** actions. Hidden rows expose no text, identity, thumbnail, quote, or source URL.
+
+## Isolation And Recovery
+
+Demo state is Redis-only under `demo:session:*`, `demo:sessions:*`, `demo:corpus:*`, versioned shared-corpus keys under `demo:corpus:current:v4:*`, `demo:idempotency:*`, `demo:lock:*`, `demo:staging:*`, and `demo:rate-limit:*`. It uses the dedicated localhost-only demo Redis on port 6381 with 64 MB, `noeviction`, no persistence, and a 96 MB container limit.
+
+The demo never writes `governance_votes`, `governance_epochs`, `governance_audit_log`, `feed:current`, production snapshots, or research exports. Session mutations use a 15-second ownership token and an ownership-checked atomic Redis commit. Ambiguous client failures reconcile with `GET session`.
+
+## Release Stop
+
+PROJ-1753's CSP/304 blank-page defect is a hard prerequisite. v4 must not deploy until fresh-load and revalidation smoke tests pass. Commit, merge, and deploy remain separate approval gates.

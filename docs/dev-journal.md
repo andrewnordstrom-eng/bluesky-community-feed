@@ -1568,3 +1568,53 @@ The deploy workflow now starts and health-checks demo Redis, creates a real post
 ### Claim boundary
 
 This is local implementation and verification evidence for the isolated shadow-demo contract. It is not yet production deployment evidence, a published Open Science Bluesky feed, empirical validation of the scripted voter archetypes, or a claim that the current reviewer UI is wired to v3.
+
+## 2026-07-11 #05 - PROJ-1755 Community Governed Feed demo v4
+
+**Branch:** `dev/PROJ-1755-community-governed-demo-v4`
+**Commits:** pending Andrew approval.
+**Contract:** `2026-07-11.shadow-demo.v4` under `/api/demo/v4/*`; v3 remains temporarily available during rollout.
+
+### What changed
+
+Replaced Open Science Builders as the v4 guided corpus with a reviewer-safe snapshot of the actual published Community Governed Feed. The approved manifest contains the ordered 100 AT URIs, published scores, per-post frozen scoring lineage and ranking inputs, reviewed record CIDs, production publication metadata, the frozen production signal and 26-topic policies, the frozen publication policy, a review timestamp, a full release-bundle digest, and a separate baseline-order digest. It does not copy post text. Runtime AppView hydration must match each reviewed CID; changed records and records withheld during review cannot become visible later.
+
+Epoch 1 preserves the published feed order and reconstructs its historical adjustment only for receipt explanation. Later shadow epochs rerank the same eligible cohort with the production score decomposition, relevance calculation, trimmed-mean aggregation, relevance floor, and exactly one application of the snapshot's frozen URL-dedup policy. Receipts distinguish component score, publication adjustment, final ranking score, published rank, and shadow rank. Reviewer activity remains isolated in dedicated demo Redis and never changes production governance or the public feed.
+
+The v4 product path now starts directly with Community Governed Feed, exposes all 26 frozen topics through progressive disclosure, uses four complete policy presets, and describes the 24 scripted ballots as a replayable governance demonstration. Bluesky-style cards support sanitized image galleries, external previews, quoted records, record-with-media, and non-autoplay video treatment. Corgi ranking controls and receipts remain outside the Bluesky post chrome.
+
+### Approved snapshot receipt
+
+- Feed: `at://did:plc:amzyknmm4auxijvykyfgznw2/app.bsky.feed.generator/community-gov`
+- Production epoch: 2.
+- Production publication run: `96698b9f-8933-4d54-b011-0c861ce898b3`.
+- Source updated: `2026-07-12T05:58:39.436Z`.
+- Captured: `2026-07-12T06:01:08.660Z`.
+- Reviewed: `2026-07-12T06:02:16.144Z`.
+- Release-bundle digest: `80a7a0573b8ca29710830cd1ebc15791a3794ee7c7bf9793a9163e887879dbe3`.
+- Baseline-order digest: `4fcc78007cf74389074df54aa809e70836e921f5d7573720dbb4a48478bb4be1`.
+- All 100 source entries freeze complete five-component decompositions and their own score-run IDs; 74 were public and displayable, while 26 were withheld.
+- 100% score-decomposition completeness for the 100 source posts.
+- 85.1% English-tagged content; non-English posts remain visibly labeled.
+- 40.5% rich-media coverage.
+- 68 unique authors and 2.7% top-author concentration.
+- All 74 displayable posts were manually reviewed and bound to their record CIDs. The final CID-binding recapture retained 73 previously reviewed source records and introduced one benign replacement, which was inspected before approval. Two additional unsafe display/text results found by the prior full review remain in the deterministic reviewer-safety gate.
+
+### Verification
+
+- Root TypeScript build passed.
+- Focused backend parity, isolation, publication, and v4 contract slice passed: nine files / 129 tests.
+- `web-next` lint, TypeScript, eight demo test files / 69 tests, and static production build passed.
+- Legacy `web` lint/build, CLI build, SDK build, and SDK fixture passed.
+- Snapshot capture command passed standalone strict TypeScript validation.
+- Documentation verification and `git diff --check` passed.
+- Full production-config `npm run verify` passed on the final reviewed worktree with local loopback permission and `NODE_ENV=production`: root build, 136 files / 1,421 tests, CLI build, MCP-local skip, SDK build/fixture, legacy `web` lint/build, and `web-next` static export.
+- The final read-only AppView capture produced 100 score-complete source posts and 74 CID-bound displayable posts after visibility and reviewer-safety gates. No blocked safety term appeared in the approved review sheet.
+- Four current-diff CodeRabbit passes drove fixes for fixture provenance, cache-version rollover, public-view handle/quote safety, complete topic validation, immutable publication adjustments, HTTPS-only media, authoritative receipt equations, eligible/displayable count separation, explicit route-disable semantics, complete mock topic policies, score-independent order fingerprints, and snapshot withheld-count mapping. All valid critical/major/minor issues were fixed; recommendations to remove temporary v3 compatibility, prohibit the explicitly approved mechanics fallback, or move the versioned shared corpus outside the dedicated `demo:corpus:*` namespace were rejected as contrary to the rollout contract.
+- After the review and CID-binding hardening, root TypeScript, focused v4/backend route tests, focused backend storage/contract tests, `web-next` lint/typecheck/build, eight frontend files / 69 tests, docs verification, and diff hygiene passed. The final complete `npm run verify` then passed on the same reviewed worktree with 136 files / 1,421 tests.
+- Desktop same-origin QA completed session creation, reviewer vote, 24 scripted ballots, the 25-ballot/two-trim aggregate, epoch-2 rank movement, real Bluesky links/media, and receipt selection. That run exposed and fixed a strict-envelope mismatch for v4 `sourceRank` and `published_feed_snapshot` receipt provenance.
+- A subsequent fresh load reproduced PROJ-1753 exactly: Next static inline bootstrap was blocked by `script-src 'self'`. The page remained blank, so five-epoch, tablet, and mobile browser signoff is correctly still blocked rather than bypassed.
+
+### Release boundary
+
+No commit, merge, or deployment has occurred. Production deployment and complete browser signoff remain blocked on PROJ-1753 until fresh-load and HTTP revalidation prove the CSP/304 blank-page defect closed. The live-feed panel is proof of the public feed; the guided comparison set is deliberately frozen and does not claim to rescan the firehose or reproduce all candidates that might enter a new production scoring run.

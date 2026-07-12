@@ -37,6 +37,7 @@ import {
 import type { ContentRules } from '../governance/governance.types.js';
 import { updateScoringStatus } from '../admin/status-tracker.js';
 import { calculateAuthorConcentration } from '../transparency/metrics.js';
+import { applyFeedUrlDedup, FEED_URL_DEDUP_DECAY } from './feed-publication.js';
 
 // Maximum time allowed for a single scoring run.
 const SCORING_TIMEOUT_MS = config.SCORING_TIMEOUT_MS;
@@ -1110,41 +1111,26 @@ async function writeToRedisFromDb(epochId: number, runId: string): Promise<FeedP
     text_length: numericValue(post.text_length),
   }));
 
-  // URL deduplication: penalize reshares of the same external link.
-  // Posts are already sorted by total_score DESC, so the highest-scored post
-  // sharing a URL gets full score and later duplicates get decayed.
-  let topPosts: RedisFeedCandidate[];
-
-  if (config.FEED_DEDUP_ENABLED) {
-    const DEDUP_DECAY = [1.0, 0.7, 0.5, 0.3];
-    const urlCounts = new Map<string, number>();
-
-    const dedupedPosts = feedCandidates.map(post => {
-      // No URL or substantial original text → no penalty
-      if (!post.embed_url || post.text_length >= config.FEED_DEDUP_MIN_TEXT) {
-        return post;
-      }
-
-      const count = urlCounts.get(post.embed_url) ?? 0;
-      urlCounts.set(post.embed_url, count + 1);
-
-      const decayIndex = Math.min(count, DEDUP_DECAY.length - 1);
-      const adjustedScore = post.total_score * DEDUP_DECAY[decayIndex];
-
-      return { ...post, total_score: adjustedScore };
-    });
-
-    // Re-sort after dedup adjustment (order may have changed)
-    dedupedPosts.sort((a, b) => b.total_score - a.total_score);
-
-    const dedupedUrls = [...urlCounts.entries()].filter(([, c]) => c > 1).length;
-    if (dedupedUrls > 0) {
-      logger.info({ dedupedUrls, totalUrls: urlCounts.size }, 'URL dedup applied');
+  const publication = applyFeedUrlDedup(
+    feedCandidates.map((post) => ({
+      id: post.post_uri,
+      score: post.total_score,
+      embedUrl: post.embed_url,
+      textLength: post.text_length,
+      value: post,
+    })),
+    {
+      enabled: config.FEED_DEDUP_ENABLED,
+      minimumOriginalTextLength: config.FEED_DEDUP_MIN_TEXT,
+      decay: FEED_URL_DEDUP_DECAY,
     }
-
-    topPosts = dedupedPosts;
-  } else {
-    topPosts = feedCandidates;
+  );
+  const topPosts = publication.entries.map((entry) => ({ ...entry.value, total_score: entry.score }));
+  if (publication.dedupedUrlCount > 0) {
+    logger.info(
+      { dedupedUrls: publication.dedupedUrlCount, totalUrls: publication.totalUrlCount },
+      'URL dedup applied'
+    );
   }
 
   if (topPosts.length === 0) {

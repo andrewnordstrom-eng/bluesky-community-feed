@@ -1,10 +1,24 @@
 import { describe, expect, it } from "vitest"
 import { getCommunityFixture } from "../shadow-demo-fixtures"
 import { publicOrder, driveFullFlow } from "./_flow"
+import { formatCounterfactualRank, hasAuthoritativePublicationMath } from "@/components/demo/receipt-panel"
 
 const signal = () => new AbortController().signal
 
 describe("mock receipt — frozen corpus only, honest math", () => {
+  it("labels counterfactuals excluded by the production relevance floor", () => {
+    expect(formatCounterfactualRank(null)).toBe("Excluded by relevance floor")
+    expect(formatCounterfactualRank(7)).toBe("#7")
+  })
+
+  it("does not imply publication-adjustment math without an authoritative component score", () => {
+    expect(hasAuthoritativePublicationMath(undefined, 0.8, 0.4)).toBe(false)
+    expect(hasAuthoritativePublicationMath(null, 0.8, 0.4)).toBe(false)
+    expect(hasAuthoritativePublicationMath(0.5, 0.8, 0.4)).toBe(true)
+    expect(hasAuthoritativePublicationMath(0.5, 0.8, 0.6)).toBe(false)
+    expect(hasAuthoritativePublicationMath(0, 0, 0)).toBe(true)
+  })
+
   it("returns receipt math for a frozen-corpus post", async () => {
     const { client, sessionId, advanced } = await driveFullFlow()
     const epochId = advanced.payload.currentEpoch.id
@@ -68,9 +82,9 @@ describe("mock receipt — frozen corpus only, honest math", () => {
   it("refuses a receipt for a withheld (hidden) row", async () => {
     const { client, sessionId, advanced } = await driveFullFlow()
     const epochId = advanced.payload.currentEpoch.id
-    const hiddenEntry = getCommunityFixture("open_science_builders").corpus.find((entry) => entry.hidden !== undefined)
+    const hiddenEntry = getCommunityFixture("community_gov").corpus.find((entry) => entry.hidden !== undefined)
     if (hiddenEntry === undefined) {
-      throw new Error("Open Science Builders fixture must contain a withheld row")
+      throw new Error("Community Governed Feed fixture must contain a withheld row")
     }
 
     await expect(client.getReceipt(sessionId, { epochId, postUri: hiddenEntry.post.uri }, signal())).rejects.toThrow(

@@ -70,6 +70,24 @@ export async function hydrateCorpusItemsWithAppView(options: {
         },
       };
     }
+    if (item.reviewedCid === null) {
+      return {
+        ...item,
+        displayPost: {
+          kind: 'hidden_post',
+          reason: 'Post was withheld from the approved reviewer snapshot',
+        },
+      };
+    }
+    if (item.reviewedCid !== undefined && post.cid !== item.reviewedCid) {
+      return {
+        ...item,
+        displayPost: {
+          kind: 'hidden_post',
+          reason: 'Post changed after the approved reviewer snapshot',
+        },
+      };
+    }
     return {
       ...item,
       displayPost: publicPostFromAppView(post),

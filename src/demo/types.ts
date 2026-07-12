@@ -1,4 +1,5 @@
 export const SHADOW_DEMO_CONTRACT_VERSION = '2026-07-10.shadow-demo.v3' as const;
+export const SHADOW_DEMO_V4_CONTRACT_VERSION = '2026-07-11.shadow-demo.v4' as const;
 
 export const SHADOW_DEMO_SIGNAL_KEYS = [
   'recency',
@@ -38,6 +39,7 @@ export type ShadowDemoInternalSignalKey = (typeof SHADOW_DEMO_INTERNAL_SIGNAL_KE
 export type ShadowDemoInternalWeights = Record<ShadowDemoInternalSignalKey, number>;
 
 export const SHADOW_DEMO_COMMUNITY_IDS = [
+  'community_gov',
   'open_science_builders',
   'birders_who_code',
   'crit_fumble_pickup',
@@ -52,6 +54,11 @@ export const SHADOW_DEMO_VOTER_BLOC_IDS = [
   'current_awareness',
   'community_discussant',
   'interdisciplinary_connector',
+  'freshness_watcher',
+  'conversation_follower',
+  'bridge_builder',
+  'source_diversifier',
+  'relevance_steward',
 ] as const;
 
 export type ShadowDemoVoterBlocId = (typeof SHADOW_DEMO_VOTER_BLOC_IDS)[number];
@@ -89,7 +96,7 @@ export interface ShadowDemoWarning {
 }
 
 export interface ShadowDemoEnvelope<TPayload> {
-  contractVersion: typeof SHADOW_DEMO_CONTRACT_VERSION;
+  contractVersion: typeof SHADOW_DEMO_CONTRACT_VERSION | typeof SHADOW_DEMO_V4_CONTRACT_VERSION;
   requestId: string;
   generatedAt: string;
   sessionId: string | null;
@@ -107,26 +114,58 @@ export interface ShadowDemoCommunity {
 
 export interface ShadowDemoCorpusHealth {
   status: 'live' | 'degraded';
-  source: 'production_scores_appview' | 'fixture_fallback';
+  source: 'production_scores_appview' | 'production_feed_snapshot' | 'fixture_fallback';
   candidatePosts72h: number;
   publicScoredPosts: number;
   uniqueAuthors72h: number;
   bridgePostShare: number;
   topAuthorConcentration: number;
   sampledAt: string;
+  sourcePostCount?: number;
+  eligiblePostCount?: number;
+  englishTaggedShare?: number;
+  richMediaShare?: number;
 }
 
-export interface ShadowDemoCorpusProvenance {
-  mode: typeof SHADOW_DEMO_CORPUS_PROVENANCE.mode;
-  label: typeof SHADOW_DEMO_CORPUS_PROVENANCE.label;
-  description: typeof SHADOW_DEMO_CORPUS_PROVENANCE.description;
+export interface ShadowDemoTopicCatalogEntry {
+  slug: string;
+  name: string;
+  description: string | null;
+  baselineWeight: number;
+}
+
+interface ShadowDemoCorpusProvenanceBase {
+  description: string;
   corpusId: string;
   productionEpochId: number;
   sampledAt: string;
-  windowHours: typeof SHADOW_DEMO_CORPUS_PROVENANCE.windowHours;
-  topicScoreThreshold: typeof SHADOW_DEMO_CORPUS_PROVENANCE.topicScoreThreshold;
+  windowHours: number;
+  topicScoreThreshold: number;
   eligiblePostCount: number;
 }
+
+export type ShadowDemoCorpusProvenance =
+  | ShadowDemoCorpusProvenanceBase & {
+      mode: 'production_feed_snapshot_session_frozen';
+      label: 'Reviewer-safe snapshot of the live Community Governed Feed';
+      sourceFeedUri: string;
+      sourceFeedName: string;
+      sourceSnapshotDigest: string;
+      sourceRunId: string;
+      sourceUpdatedAt: string;
+      sourceReviewedAt?: string;
+      sourcePostCount: number;
+      selectionPolicyVersion: string;
+      baselineOrderDigest: string;
+    }
+  | ShadowDemoCorpusProvenanceBase & {
+      mode: typeof SHADOW_DEMO_CORPUS_PROVENANCE.mode;
+      label: typeof SHADOW_DEMO_CORPUS_PROVENANCE.label;
+    }
+  | ShadowDemoCorpusProvenanceBase & {
+      mode: 'illustrative_fixture_session_frozen';
+      label: 'Illustrative mechanics fixture';
+    };
 
 export interface ShadowDemoCorpusInclusionReason {
   matchedTopics: Array<{
@@ -134,6 +173,43 @@ export interface ShadowDemoCorpusInclusionReason {
     score: number;
   }>;
   matchedTerms: string[];
+  sourceRank?: number;
+  reason?: 'published_feed_snapshot';
+}
+
+export interface ShadowDemoImageMedia {
+  thumb: string;
+  fullsize: string;
+  alt: string;
+  width: number | null;
+  height: number | null;
+}
+
+export interface ShadowDemoExternalMedia {
+  uri: string;
+  title: string;
+  description: string;
+  thumb: string | null;
+}
+
+export interface ShadowDemoQuoteMedia {
+  uri: string;
+  authorHandle: string;
+  authorDisplayName: string;
+  text: string;
+}
+
+export interface ShadowDemoVideoMedia {
+  thumbnail: string | null;
+  width: number | null;
+  height: number | null;
+}
+
+export interface ShadowDemoPostMedia {
+  images: ShadowDemoImageMedia[];
+  external: ShadowDemoExternalMedia | null;
+  quote: ShadowDemoQuoteMedia | null;
+  video: ShadowDemoVideoMedia | null;
 }
 
 export interface ShadowDemoPublicPost {
@@ -152,6 +228,8 @@ export interface ShadowDemoPublicPost {
   indexedAt: string;
   createdAt: string;
   bskyUrl: string;
+  languages?: string[];
+  media?: ShadowDemoPostMedia | null;
 }
 
 export interface ShadowDemoHiddenPost {
@@ -171,6 +249,7 @@ export interface ShadowDemoRawScores {
 
 export interface ShadowDemoCorpusItem {
   postUri: string;
+  reviewedCid?: string | null;
   authorDid: string | null;
   createdAt: string;
   topicVector: Record<string, number>;
@@ -181,6 +260,18 @@ export interface ShadowDemoCorpusItem {
   componentDetails: Record<string, unknown> | null;
   inclusionReasons: ShadowDemoCorpusInclusionReason;
   displayPost: ShadowDemoDisplayPost;
+  publishedRank?: number;
+  publishedScore?: number;
+  publicationAdjustment?: number;
+  embedUrl?: string | null;
+  textLength?: number;
+}
+
+export interface ShadowDemoPublicationPolicy {
+  urlDedupEnabled: boolean;
+  minimumOriginalTextLength: number;
+  minimumRelevance: number;
+  decay: number[];
 }
 
 export interface ShadowDemoCorpus {
@@ -194,6 +285,20 @@ export interface ShadowDemoCorpus {
   items: ShadowDemoCorpusItem[];
   health: ShadowDemoCorpusHealth;
   warnings: ShadowDemoWarning[];
+  topicCatalog?: ShadowDemoTopicCatalogEntry[];
+  sourceFeedUri?: string;
+  sourceSnapshot?: {
+    feedName: string;
+    digest: string;
+    runId: string;
+    updatedAt: string;
+    capturedAt: string;
+    reviewedAt: string | null;
+    sourcePostCount: number;
+    selectionPolicyVersion: string;
+    baselineOrderDigest: string;
+    publicationPolicy: ShadowDemoPublicationPolicy;
+  };
 }
 
 interface ShadowDemoVoteBase {
@@ -279,6 +384,8 @@ export interface ShadowDemoSessionPayload {
       policyInertia: number;
     }>;
     votes: ShadowDemoVote[];
+    topicCatalog?: ShadowDemoTopicCatalogEntry[];
+    sourceFeedUri?: string;
   };
 }
 
@@ -290,6 +397,10 @@ export interface ShadowDemoRankedPost {
   weightedComponents: Record<ShadowDemoSignalKey, number> | null;
   rawScores: ShadowDemoRawScores | null;
   post: ShadowDemoDisplayPost;
+  publishedRank?: number;
+  publishedScore?: number;
+  componentScore?: number | null;
+  publicationAdjustment?: number | null;
 }
 
 export interface ShadowDemoFeedPayload {
@@ -312,8 +423,8 @@ export interface ShadowDemoReceiptContribution {
 export interface ShadowDemoCounterfactual {
   label: 'previous_epoch' | 'engagement_only' | 'direct_reviewer_ballot_removed';
   description: string;
-  rank: number;
-  deltaFromVisible: number;
+  rank: number | null;
+  deltaFromVisible: number | null;
 }
 
 export interface ShadowDemoTopicRelevanceTerm {
@@ -345,6 +456,10 @@ export interface ShadowDemoReceiptPayload {
     visibleRank: number;
     previousRank: number | null;
     score: number;
+    componentScore?: number;
+    publicationAdjustment?: number;
+    publishedRank?: number;
+    publishedScore?: number;
     scoredAt: string;
     aggregate: ShadowDemoVoteSummary;
     reviewerBallotShare: number;

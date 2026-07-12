@@ -54,8 +54,13 @@ describe("demo copy — honest boundaries", () => {
   it("keeps pre-session copy accurate when the corpus falls back", () => {
     expect(HERO.subtitle).not.toMatch(/live public posts/i)
     expect(STEP_PANELS.community.body).not.toMatch(/live public posts/i)
-    expect(DISCLOSURE.posts).toMatch(/primary path uses live public bluesky posts/i)
-    expect(DISCLOSURE.posts).toMatch(/fixture appears only if live corpus loading degrades/i)
+    expect(DISCLOSURE.posts).toMatch(/snapshot of posts published in corgi's live community governed feed/i)
+    expect(DISCLOSURE.posts).toMatch(/mechanics fixture appears only if snapshot loading degrades/i)
+  })
+
+  it("describes the hero corpus as a frozen published snapshot, not a live-now feed", () => {
+    expect(`${HERO.title} ${HERO.subtitle}`).toMatch(/frozen|snapshot/i)
+    expect(`${HERO.title} ${HERO.subtitle}`).not.toMatch(/\b(?:live|current|today)\b/i)
   })
 
   it("never claims the demo mutates the production feed or governance", () => {

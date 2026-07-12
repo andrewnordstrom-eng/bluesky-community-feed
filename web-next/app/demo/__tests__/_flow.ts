@@ -3,7 +3,7 @@
 
 import type { ShadowDemoFeed, ShadowDemoPublicFeedItem } from "../shadow-demo-view-model"
 import { createMockShadowDemoClient } from "../mock-shadow-demo-client"
-import { getPresetById } from "../shadow-demo-fixtures"
+import { completeDemoTopicIntent, getPresetById } from "../shadow-demo-fixtures"
 
 export function publicOrder(feed: ShadowDemoFeed): readonly string[] {
   return feed.items
@@ -15,7 +15,7 @@ export async function driveFullFlow(presetId = "field_notes") {
   const client = createMockShadowDemoClient()
   const signal = new AbortController().signal
   const created = await client.createSession(
-    { communityId: "open_science_builders", scenarioId: "default", clientNonce: "nonce-1", mode: "guided" },
+    { communityId: "community_gov", scenarioId: "default", clientNonce: "nonce-1", mode: "guided" },
     signal,
   )
   const sessionId = created.payload.session.id
@@ -32,7 +32,7 @@ export async function driveFullFlow(presetId = "field_notes") {
       baseEpochId: openEpochId,
       voterLabel: "You (reviewer)",
       weights: preset.weights,
-      topicIntent: preset.topicIntent,
+      topicIntent: completeDemoTopicIntent(preset.topicIntent),
     },
     signal,
   )
