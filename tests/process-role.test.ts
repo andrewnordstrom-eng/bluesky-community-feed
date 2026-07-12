@@ -1,9 +1,23 @@
-import { beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 let ConfigSchema: typeof import('../src/config.js')['ConfigSchema'];
+const originalEnvironment = { ...process.env };
+const controlledEnvironmentKeys = [
+  'PROCESS_ROLE',
+  'SCORING_TIMEOUT_MS',
+  'RANKING_COMMUNITY_ID',
+  'RANKING_WORKER_POLL_MS',
+  'RANKING_CLAIM_STALE_MS',
+  'RANKING_LEASE_TTL_MS',
+  'RANKING_LEASE_RENEW_INTERVAL_MS',
+  'RANKING_WORKER_HEARTBEAT_INTERVAL_MS',
+  'RANKING_WORKER_HEARTBEAT_TTL_MS',
+] as const;
 
 beforeAll(async () => {
-  delete process.env.PROCESS_ROLE;
+  for (const key of controlledEnvironmentKeys) {
+    delete process.env[key];
+  }
   Object.assign(process.env, {
     FEEDGEN_SERVICE_DID: 'did:plc:corgitestservice0000000000',
     FEEDGEN_PUBLISHER_DID: 'did:plc:corgitestpublisher00000000',
@@ -18,6 +32,13 @@ beforeAll(async () => {
     NODE_ENV: 'test',
   });
   ({ ConfigSchema } = await import('../src/config.js'));
+});
+
+afterAll(() => {
+  for (const key of Object.keys(process.env)) {
+    delete process.env[key];
+  }
+  Object.assign(process.env, originalEnvironment);
 });
 
 describe('process-role configuration', () => {
@@ -93,5 +114,28 @@ describe('process-role configuration', () => {
     });
     expect(parsed.RANKING_CLAIM_STALE_MS).toBe(240_001);
     expect(parsed.RANKING_LEASE_TTL_MS).toBe(240_001);
+  });
+
+  it.each([
+    { field: 'RANKING_WORKER_POLL_MS', minimum: 100 },
+    { field: 'RANKING_CLAIM_STALE_MS', minimum: 30_000 },
+    { field: 'RANKING_LEASE_TTL_MS', minimum: 5_000 },
+    { field: 'RANKING_LEASE_RENEW_INTERVAL_MS', minimum: 1_000 },
+    { field: 'RANKING_WORKER_HEARTBEAT_INTERVAL_MS', minimum: 1_000 },
+    { field: 'RANKING_WORKER_HEARTBEAT_TTL_MS', minimum: 5_000 },
+  ] as const)('rejects malformed and out-of-range $field values', ({ field, minimum }) => {
+    const invalidValues: unknown[] = [
+      String(minimum - 1),
+      `${minimum}.5`,
+      'not-a-number',
+      null,
+    ];
+    for (const value of invalidValues) {
+      const result = ConfigSchema.safeParse({ ...process.env, [field]: value });
+      expect(result.success, `${field} unexpectedly accepted ${String(value)}`).toBe(false);
+      if (!result.success) {
+        expect(result.error.issues.some((issue) => issue.path[0] === field)).toBe(true);
+      }
+    }
   });
 });
