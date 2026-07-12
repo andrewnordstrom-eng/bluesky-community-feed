@@ -91,7 +91,7 @@ Activation order after approval:
 1. Copy both reviewed unit files, run `systemctl daemon-reload`, and enable the
    worker. Do not delete or mutate the current Redis snapshot.
 2. Start/restart `corgi-ranking-worker` first. Require an active unit and a
-   fresh `corgi:ranking-worker:heartbeat` with a non-failed state.
+   fresh `corgi:ranking-worker:heartbeat:community-gov` with a non-failed state.
 3. Restart `bluesky-feed` with `PROCESS_ROLE=api`. Require `/health/ready` and
    the XRPC feed probe to pass while the worker remains active.
 4. Restart the worker while issuing feed requests; require zero serving errors

@@ -187,7 +187,7 @@ jobs:
             if [ "$HEALTHY" = "true" ] && [ "$WORKER_INSTALLED" = "true" ]; then
               WORKER_HEALTHY=false
               for i in 1 2 3; do
-                WORKER_HEARTBEAT=$(sudo docker compose -f docker-compose.prod.yml exec -T redis redis-cli --raw GET corgi:ranking-worker:heartbeat)
+                WORKER_HEARTBEAT=$(sudo docker compose -f docker-compose.prod.yml exec -T redis redis-cli --raw GET corgi:ranking-worker:heartbeat:community-gov)
                 if [ -n "$WORKER_HEARTBEAT" ] && HEARTBEAT_JSON="$WORKER_HEARTBEAT" python3 -c '
 import datetime
 import json

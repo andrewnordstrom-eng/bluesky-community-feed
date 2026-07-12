@@ -7,13 +7,14 @@ import type {
 } from './ranking-request-queue.js';
 import { scheduledRequestKey } from './ranking-request-queue.js';
 
-export const RANKING_WORKER_HEARTBEAT_KEY = 'corgi:ranking-worker:heartbeat';
+export const RANKING_WORKER_HEARTBEAT_KEY_PREFIX = 'corgi:ranking-worker:heartbeat';
 
 export type RankingWorkerState = 'starting' | 'idle' | 'running' | 'stopping' | 'failed';
 
 export interface RankingWorkerHeartbeat {
   schemaVersion: 1;
   workerId: string;
+  communityId: string;
   state: RankingWorkerState;
   updatedAt: string;
   currentRequestId: string | null;
@@ -52,12 +53,12 @@ export interface RankingWorkerQueue {
     requestedBy: string | null;
     notBefore: Date;
   }): Promise<EnqueuedRankingRequest>;
-  claimNext(workerId: string): Promise<RankingRequest | null>;
+  claimNext(workerId: string, communityId: string): Promise<RankingRequest | null>;
   complete(requestId: string, workerId: string): Promise<void>;
   fail(requestId: string, workerId: string, error: unknown): Promise<void>;
   defer(requestId: string, workerId: string, notBefore: Date): Promise<void>;
-  status(): Promise<RankingQueueStatus>;
-  requeueStaleClaims(staleBefore: Date): Promise<number>;
+  status(communityId: string): Promise<RankingQueueStatus>;
+  requeueStaleClaims(staleBefore: Date, communityId: string): Promise<number>;
 }
 
 export interface RankingWorkerLease {
@@ -107,7 +108,8 @@ export class RankingWorker {
     this.state = 'starting';
     await this.writeHeartbeat();
     const recoveredClaims = await this.options.queue.requeueStaleClaims(
-      new Date(this.options.now().getTime() - this.options.claimStaleAfterMs)
+      new Date(this.options.now().getTime() - this.options.claimStaleAfterMs),
+      this.options.communityId
     );
     if (recoveredClaims > 0) {
       logger.warn({ recoveredClaims }, 'Recovered stale ranking request claims');
@@ -225,7 +227,10 @@ export class RankingWorker {
   private async processNext(): Promise<void> {
     let request: RankingRequest | null = null;
     try {
-      request = await this.options.queue.claimNext(this.options.workerId);
+      request = await this.options.queue.claimNext(
+        this.options.workerId,
+        this.options.communityId
+      );
       if (!request) {
         this.state = 'idle';
         return;
@@ -337,6 +342,7 @@ export class RankingWorker {
     const heartbeat: RankingWorkerHeartbeat = {
       schemaVersion: 1,
       workerId: this.options.workerId,
+      communityId: this.options.communityId,
       state: this.state,
       updatedAt: this.options.now().toISOString(),
       currentRequestId: this.currentRequestId,
@@ -344,7 +350,7 @@ export class RankingWorker {
       lastError: this.lastError,
     };
     await this.options.redis.set(
-      RANKING_WORKER_HEARTBEAT_KEY,
+      rankingWorkerHeartbeatKey(this.options.communityId),
       JSON.stringify(heartbeat),
       'PX',
       this.options.heartbeatTtlMs
@@ -355,17 +361,23 @@ export class RankingWorker {
 export async function readRankingWorkerHealth(
   redisClient: RankingWorkerRedis,
   queue: RankingWorkerQueue,
+  communityId: string,
   now: Date,
   heartbeatTtlMs: number
 ): Promise<RankingWorkerHealth> {
   const [raw, queueStatus] = await Promise.all([
-    redisClient.get(RANKING_WORKER_HEARTBEAT_KEY),
-    queue.status(),
+    redisClient.get(rankingWorkerHeartbeatKey(communityId)),
+    queue.status(communityId),
   ]);
   if (!raw) {
     return { healthy: false, heartbeat: null, ageMs: null, queue: queueStatus };
   }
   const heartbeat = parseHeartbeat(raw);
+  if (heartbeat.communityId !== communityId) {
+    throw new Error(
+      `Ranking worker heartbeat community mismatch: expected ${communityId}, got ${heartbeat.communityId}`
+    );
+  }
   const ageMs = now.getTime() - new Date(heartbeat.updatedAt).getTime();
   return {
     healthy: ageMs >= 0 && ageMs <= heartbeatTtlMs && heartbeat.state !== 'failed',
@@ -379,11 +391,19 @@ export function createRankingWorkerId(): string {
   return `${hostname()}:${process.pid}`;
 }
 
+export function rankingWorkerHeartbeatKey(communityId: string): string {
+  if (!communityId.trim()) {
+    throw new Error('Ranking worker heartbeat communityId must be non-empty');
+  }
+  return `${RANKING_WORKER_HEARTBEAT_KEY_PREFIX}:${communityId}`;
+}
+
 function parseHeartbeat(raw: string): RankingWorkerHeartbeat {
   const parsed = JSON.parse(raw) as Partial<RankingWorkerHeartbeat>;
   if (
     parsed.schemaVersion !== 1
     || typeof parsed.workerId !== 'string'
+    || typeof parsed.communityId !== 'string'
     || !isWorkerState(parsed.state)
     || typeof parsed.updatedAt !== 'string'
     || (parsed.currentRequestId !== null && typeof parsed.currentRequestId !== 'string')

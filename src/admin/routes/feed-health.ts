@@ -101,6 +101,7 @@ export function registerFeedHealthRoutes(app: FastifyInstance): void {
       rankingWorker = await readRankingWorkerHealth(
         redis,
         rankingRequestQueue,
+        config.RANKING_COMMUNITY_ID,
         new Date(),
         config.RANKING_WORKER_HEARTBEAT_TTL_MS
       );

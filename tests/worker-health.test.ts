@@ -41,7 +41,7 @@ describe('ranking worker deployment contracts', () => {
       watchdog.indexOf('# Try health check with retries')
     );
 
-    expect(watchdog).toContain('corgi:ranking-worker:heartbeat');
+    expect(watchdog).toContain('corgi:ranking-worker:heartbeat:community-gov');
     expect(workerChecks).toContain('systemctl restart "$WORKER_SERVICE"');
     expect(workerChecks).not.toContain('systemctl restart "$SERVICE"');
   });

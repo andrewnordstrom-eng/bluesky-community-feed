@@ -84,8 +84,9 @@ export class RankingRequestQueue {
     }
   }
 
-  async claimNext(workerId: string): Promise<RankingRequest | null> {
+  async claimNext(workerId: string, communityId: string): Promise<RankingRequest | null> {
     assertNonEmpty(workerId, 'workerId');
+    assertNonEmpty(communityId, 'communityId');
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -94,6 +95,7 @@ export class RankingRequestQueue {
            SELECT id
              FROM ranking_run_requests
             WHERE state = 'pending'
+              AND community_id = $2
               AND not_before <= NOW()
             ORDER BY not_before ASC, requested_at ASC, id ASC
             FOR UPDATE SKIP LOCKED
@@ -110,7 +112,7 @@ export class RankingRequestQueue {
                    request.community_id, request.request_kind, request.state,
                    request.requested_by, request.requested_at,
                    request.not_before, request.claimed_by, request.claimed_at`,
-        [workerId]
+        [workerId, communityId]
       );
       await client.query('COMMIT');
       return result.rows[0] ? mapRequest(result.rows[0]) : null;
@@ -138,11 +140,16 @@ export class RankingRequestQueue {
     await this.transitionClaimed(requestId, workerId, 'pending', null, notBefore);
   }
 
-  async status(): Promise<RankingQueueStatus> {
+  async status(communityId: string): Promise<RankingQueueStatus> {
+    assertNonEmpty(communityId, 'communityId');
     const result = await this.pool.query<QueueStatusRow>(
-      `WITH newest AS (
-         SELECT id::text, state
+      `WITH filtered AS (
+         SELECT *
            FROM ranking_run_requests
+          WHERE community_id = $1
+       ), newest AS (
+         SELECT id::text, state
+           FROM filtered
           ORDER BY requested_at DESC, id DESC
           LIMIT 1
        )
@@ -152,7 +159,8 @@ export class RankingRequestQueue {
          MIN(requested_at) FILTER (WHERE state = 'pending') AS oldest_pending_at,
          (SELECT id FROM newest) AS newest_request_id,
          (SELECT state FROM newest) AS newest_request_state
-       FROM ranking_run_requests`
+       FROM filtered`,
+      [communityId]
     );
     const row = result.rows[0];
     if (!row) {
@@ -167,7 +175,8 @@ export class RankingRequestQueue {
     };
   }
 
-  async requeueStaleClaims(staleBefore: Date): Promise<number> {
+  async requeueStaleClaims(staleBefore: Date, communityId: string): Promise<number> {
+    assertNonEmpty(communityId, 'communityId');
     const result = await this.pool.query<{ id: string }>(
       `UPDATE ranking_run_requests
           SET state = 'pending',
@@ -180,8 +189,9 @@ export class RankingRequestQueue {
               )
         WHERE state = 'claimed'
           AND claimed_at < $1
+          AND community_id = $2
        RETURNING id::text`,
-      [staleBefore]
+      [staleBefore, communityId]
     );
     return result.rows.length;
   }

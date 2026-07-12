@@ -56,9 +56,13 @@ class FakeQueue implements RankingWorkerQueue {
     return { id, created: true, idempotencyKey: input.idempotencyKey };
   }
 
-  async claimNext(workerId: string): Promise<RankingRequest | null> {
+  async claimNext(workerId: string, communityId: string): Promise<RankingRequest | null> {
     const request = this.requests.shift();
-    return request ? { ...request, state: 'claimed', claimedBy: workerId } : null;
+    if (!request) {
+      return null;
+    }
+    expect(request.communityId).toBe(communityId);
+    return { ...request, state: 'claimed', claimedBy: workerId };
   }
 
   async complete(requestId: string): Promise<void> {
@@ -73,17 +77,18 @@ class FakeQueue implements RankingWorkerQueue {
     this.deferred.push(requestId);
   }
 
-  async status(): Promise<RankingQueueStatus> {
+  async status(communityId: string): Promise<RankingQueueStatus> {
+    const requests = this.requests.filter((request) => request.communityId === communityId);
     return {
-      pendingCount: this.requests.length,
+      pendingCount: requests.length,
       claimedCount: 0,
-      oldestPendingAt: this.requests[0]?.requestedAt ?? null,
-      newestRequestId: this.requests.at(-1)?.id ?? null,
-      newestRequestState: this.requests.length > 0 ? 'pending' : null,
+      oldestPendingAt: requests[0]?.requestedAt ?? null,
+      newestRequestId: requests.at(-1)?.id ?? null,
+      newestRequestState: requests.length > 0 ? 'pending' : null,
     };
   }
 
-  async requeueStaleClaims(): Promise<number> {
+  async requeueStaleClaims(_staleBefore: Date, _communityId: string): Promise<number> {
     return 0;
   }
 }
@@ -221,6 +226,7 @@ describe('ranking worker isolation', () => {
     const health = await readRankingWorkerHealth(
       redis,
       queue,
+      'community-gov',
       new Date('2026-07-12T05:00:00.000Z'),
       30_000
     );
@@ -252,7 +258,7 @@ describe('ranking worker isolation', () => {
 
     expect(runRanking).toHaveBeenCalledTimes(1);
     expect(release).not.toHaveBeenCalled();
-    expect(JSON.parse(redis.values.get('corgi:ranking-worker:heartbeat') ?? '{}'))
+    expect(JSON.parse(redis.values.get('corgi:ranking-worker:heartbeat:community-gov') ?? '{}'))
       .toEqual(expect.objectContaining({ state: 'failed' }));
 
     await worker.stop();
@@ -273,6 +279,7 @@ describe('ranking worker isolation', () => {
     const health = await readRankingWorkerHealth(
       redis,
       queue,
+      'community-gov',
       new Date('2026-07-12T05:00:05.000Z'),
       30_000
     );
@@ -286,9 +293,10 @@ describe('ranking worker isolation', () => {
   it('rejects a heartbeat timestamp from the future', async () => {
     const queue = new FakeQueue();
     const redis = new FakeRedis();
-    await redis.set('corgi:ranking-worker:heartbeat', JSON.stringify({
+    await redis.set('corgi:ranking-worker:heartbeat:community-gov', JSON.stringify({
       schemaVersion: 1,
       workerId: 'worker-1',
+      communityId: 'community-gov',
       state: 'idle',
       updatedAt: '2026-07-12T05:01:00.000Z',
       currentRequestId: null,
@@ -299,6 +307,7 @@ describe('ranking worker isolation', () => {
     const health = await readRankingWorkerHealth(
       redis,
       queue,
+      'community-gov',
       new Date('2026-07-12T05:00:00.000Z'),
       30_000
     );

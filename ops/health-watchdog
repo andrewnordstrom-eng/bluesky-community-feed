@@ -18,7 +18,7 @@ RETRY_DELAY=10
 TAG="health-watchdog"
 DISK_WARN_PCT=80
 DISK_CRIT_PCT=90
-WORKER_HEARTBEAT_KEY="corgi:ranking-worker:heartbeat"
+WORKER_HEARTBEAT_KEY="corgi:ranking-worker:heartbeat:community-gov"
 WORKER_HEARTBEAT_MAX_AGE_SECONDS=60
 FEED_MAX_AGE_SECONDS=600
 
