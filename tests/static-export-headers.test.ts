@@ -5,7 +5,10 @@ import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import fastifyStatic from '@fastify/static';
 import { afterEach, describe, expect, it } from 'vitest';
-import { applyStaticExportResponseHeaders } from '../src/feed/static-export-headers.js';
+import {
+  applyStaticExportResponseHeaders,
+  discoverStaticExportHtmlPaths,
+} from '../src/feed/static-export-headers.js';
 
 const HTML_ACCEPT = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 const HTML_SCRIPT_POLICY = "script-src 'self' 'unsafe-inline'";
@@ -30,8 +33,20 @@ describe('static-export response headers', () => {
       'utf8',
     );
     await mkdir(join(webDistDir, '_next', 'static'), { recursive: true });
+    await mkdir(join(webDistDir, 'demo'), { recursive: true });
+    await writeFile(join(webDistDir, 'demo', 'index.html'), '<!doctype html><title>Demo</title>', 'utf8');
     await writeFile(join(webDistDir, '_next', 'static', 'app.js'), 'console.log("Corgi");', 'utf8');
     await writeFile(join(webDistDir, 'data.json'), '{"name":"Corgi"}', 'utf8');
+    await writeFile(join(webDistDir, 'manifest'), 'not an HTML document', 'utf8');
+
+    const htmlDocumentPaths = discoverStaticExportHtmlPaths(webDistDir);
+    expect([...htmlDocumentPaths].sort()).toEqual([
+      '/',
+      '/demo',
+      '/demo/',
+      '/demo/index.html',
+      '/index.html',
+    ]);
 
     const app = Fastify({ logger: false });
     await app.register(helmet, {
@@ -49,7 +64,7 @@ describe('static-export response headers', () => {
       wildcard: false,
     });
     app.addHook('onSend', async (request, reply) => {
-      applyStaticExportResponseHeaders(request, reply);
+      applyStaticExportResponseHeaders(request, reply, htmlDocumentPaths);
     });
     await app.ready();
 
@@ -119,6 +134,26 @@ describe('static-export response headers', () => {
         expect(revalidatedJsonAsset.statusCode).toBe(304);
         expect(revalidatedJsonAsset.headers['cache-control']).not.toBe('no-cache');
         expect(revalidatedJsonAsset.headers['content-security-policy']).not.toContain(HTML_SCRIPT_POLICY);
+      }
+
+      const extensionlessAsset = await app.inject({
+        method: 'GET',
+        url: '/manifest',
+      });
+      expect(extensionlessAsset.statusCode).toBe(200);
+      expect(extensionlessAsset.headers.etag).toBeTypeOf('string');
+      for (const accept of [HTML_ACCEPT, 'text/html;q=0,*/*;q=1']) {
+        const revalidatedExtensionlessAsset = await app.inject({
+          method: 'GET',
+          url: '/manifest',
+          headers: {
+            accept,
+            'if-none-match': extensionlessAsset.headers.etag as string,
+          },
+        });
+        expect(revalidatedExtensionlessAsset.statusCode).toBe(304);
+        expect(revalidatedExtensionlessAsset.headers['cache-control']).not.toBe('no-cache');
+        expect(revalidatedExtensionlessAsset.headers['content-security-policy']).not.toContain(HTML_SCRIPT_POLICY);
       }
     } finally {
       await app.close();

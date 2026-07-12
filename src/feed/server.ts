@@ -34,7 +34,7 @@ import {
   type DemoRateLimitGuard,
 } from '../demo/rate-limit.js';
 import { buildRouteRateLimitConfig } from './rate-limit-config.js';
-import { applyStaticExportResponseHeaders } from './static-export-headers.js';
+import { applyStaticExportResponseHeaders, discoverStaticExportHtmlPaths } from './static-export-headers.js';
 
 // Extend FastifyRequest to include correlationId
 declare module 'fastify' {
@@ -490,6 +490,7 @@ export async function createServer(options?: CreateServerOptions) {
     });
 
     if (webRoutingMode === 'export') {
+      const staticExportHtmlPaths = discoverStaticExportHtmlPaths(webDistPath);
       // Next.js static-export HTML hydrates via inline bootstrap scripts
       // (self.__next_f.push(...)), which the strict global CSP
       // (script-src 'self') blocks — the page would render but never become
@@ -506,7 +507,7 @@ export async function createServer(options?: CreateServerOptions) {
         // overwrites): content-hashed Next assets are immutable; HTML must
         // revalidate so a deploy is picked up immediately (stale HTML
         // referencing purged chunks is the classic white-screen failure).
-        applyStaticExportResponseHeaders(request, reply);
+        applyStaticExportResponseHeaders(request, reply, staticExportHtmlPaths);
       });
     }
 

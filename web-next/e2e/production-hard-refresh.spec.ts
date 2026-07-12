@@ -33,6 +33,7 @@ function collectBrowserErrors(page: Page): BrowserErrors {
   page.on("console", (message) => {
     if (message.type() === "error") {
       const location = message.location()
+      if (isExpectedLoggedOutSessionError(message.text(), location.url)) return
       const source = location.url === "" ? "unknown source" : `${location.url}:${location.lineNumber}`
       errors.console.push(`${message.text()} (${source})`)
     }
@@ -42,6 +43,15 @@ function collectBrowserErrors(page: Page): BrowserErrors {
   })
 
   return errors
+}
+
+function isExpectedLoggedOutSessionError(message: string, sourceUrl: string): boolean {
+  if (!message.includes("401 (Unauthorized)")) return false
+  try {
+    return new URL(sourceUrl).pathname === "/api/governance/auth/session"
+  } catch {
+    return false
+  }
 }
 
 async function isRouteVisible(page: Page, route: PublicRoute): Promise<boolean> {
@@ -110,6 +120,59 @@ async function verifyConditionalHeaders(
   return failures
 }
 
+async function verifyStaticAssetHeaders(request: APIRequestContext): Promise<RouteFailure[]> {
+  const failures: RouteFailure[] = []
+  const home = await request.get("/", { headers: { accept: HTML_ACCEPT } })
+  if (home.status() !== 200) {
+    return [{ path: "/", check: "asset discovery status", actual: String(home.status()) }]
+  }
+  const html = await home.text()
+  const assetPath = html.match(/\/_next\/static\/[^"']+\.js/)?.[0]
+  if (assetPath === undefined) {
+    return [{ path: "/", check: "hashed Next asset discovery", actual: "missing" }]
+  }
+
+  const asset = await request.get(assetPath)
+  if (asset.status() !== 200) {
+    failures.push({ path: assetPath, check: "asset HTTP status", actual: String(asset.status()) })
+    return failures
+  }
+  if (asset.headers()["cache-control"] !== "public, max-age=31536000, immutable") {
+    failures.push({
+      path: assetPath,
+      check: "asset 200 cache policy",
+      actual: asset.headers()["cache-control"] ?? "missing",
+    })
+  }
+  const etag = asset.headers().etag
+  if (etag === undefined) {
+    failures.push({ path: assetPath, check: "asset ETag", actual: "missing" })
+    return failures
+  }
+
+  const conditional = await request.get(assetPath, {
+    headers: { accept: HTML_ACCEPT, "if-none-match": etag },
+  })
+  if (conditional.status() !== 304) {
+    failures.push({ path: assetPath, check: "asset conditional HTTP status", actual: String(conditional.status()) })
+  }
+  if (conditional.headers()["cache-control"] !== "public, max-age=31536000, immutable") {
+    failures.push({
+      path: assetPath,
+      check: "asset 304 cache policy",
+      actual: conditional.headers()["cache-control"] ?? "missing",
+    })
+  }
+  if (conditional.headers()["content-security-policy"]?.includes(REQUIRED_HTML_SCRIPT_POLICY)) {
+    failures.push({
+      path: assetPath,
+      check: "asset 304 CSP isolation",
+      actual: conditional.headers()["content-security-policy"] ?? "missing",
+    })
+  }
+  return failures
+}
+
 async function waitForRateLimitHeadroom(request: APIRequestContext): Promise<void> {
   const response = await request.head("/health")
   const remaining = Number(response.headers()["x-ratelimit-remaining"])
@@ -162,6 +225,10 @@ test("public routes survive revalidation and cache-bypassing refresh", async ({ 
     if (testInfo.project.name === "desktop-chrome") {
       failures.push(...(await verifyConditionalHeaders(request, route)))
     }
+  }
+
+  if (testInfo.project.name === "desktop-chrome") {
+    failures.push(...(await verifyStaticAssetHeaders(request)))
   }
 
   expect(failures, "production route failures").toEqual([])
