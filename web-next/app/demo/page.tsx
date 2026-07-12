@@ -213,14 +213,21 @@ export default function DemoPage() {
     }, null)
   }
 
-  function handleVote(weights: ShadowDemoWeights, topicIntent: ShadowDemoTopicIntent): void {
+  function handleVote(weights: ShadowDemoWeights, topicIntent: ShadowDemoTopicIntent, excludeKeywords: readonly string[]): void {
     if (session === null || openEpochId === null) {
       return
     }
     void run(async (request) => {
       const response = await client.castVote(
         session.id,
-        { idempotencyKey: `${session.id}:${openEpochId}:vote`, baseEpochId: openEpochId, voterLabel: LABELS.reviewerVoter, weights, topicIntent },
+        {
+          idempotencyKey: `${session.id}:${openEpochId}:vote`,
+          baseEpochId: openEpochId,
+          voterLabel: LABELS.reviewerVoter,
+          weights,
+          topicIntent,
+          ...(session.contentRulesEnabled === true && excludeKeywords.length > 0 ? { excludeKeywords } : {}),
+        },
         request.signal,
       )
       if (!request.isCurrent()) {
@@ -351,6 +358,7 @@ export default function DemoPage() {
     ) ?? null
   const baselineTopicIntent = baselineFeed?.aggregate.topicIntent ?? { topicWeights: {} }
   const topicCatalog = session?.topicCatalog ?? []
+  const withheldCount = feedAfter?.withheldPosts?.length ?? 0
   const baselineTopicSlugs = Object.keys(baselineTopicIntent.topicWeights)
   const topicCatalogComplete = topicCatalog.length === 26
     && new Set(topicCatalog.map((topic) => topic.slug)).size === 26
@@ -383,6 +391,9 @@ export default function DemoPage() {
         busy={busy}
         topicCatalog={topicCatalog}
         baselineTopicIntent={baselineTopicIntent}
+        contentRulesEnabled={session?.contentRulesEnabled === true}
+        suggestedExcludeKeywords={session?.suggestedExcludeKeywords ?? []}
+        contentRules={baselineFeed?.aggregate.voteSummary.contentRules ?? null}
       />
     ) : phase === "reviewer_vote_cast" || phase === "agent_votes_cast" ? (
       <AgentsPanel
@@ -413,7 +424,11 @@ export default function DemoPage() {
         <div className="rounded-[1.5rem] border border-border bg-card px-5 py-6">
           <h2 className="font-display text-xl font-bold text-foreground">{STEP_PANELS.reorder.heading}</h2>
           <p className="mt-2 text-sm leading-relaxed text-foreground/60">
-            {selectedUri !== null && busy ? "Loading the matching post receipt…" : STEP_PANELS.reorder.body}
+            {selectedUri !== null && busy
+              ? "Loading the matching post receipt…"
+              : withheldCount > 0
+                ? `The corpus is unchanged, but adopted community rules withheld ${withheldCount} post${withheldCount === 1 ? "" : "s"} and the remaining weights reordered the rest.`
+                : STEP_PANELS.reorder.body}
           </p>
         </div>
       )

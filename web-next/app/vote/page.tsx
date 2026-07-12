@@ -468,7 +468,7 @@ function VoteWorkbench({ epoch, myVote, topics, contentRules, isAuthenticated, o
                 <span className="text-[10px] font-mono text-foreground/55 uppercase tracking-widest">02 — Content rules</span>
                 <h2 className="text-lg font-semibold text-foreground leading-snug">Keywords</h2>
                 <p className="text-sm text-foreground/50 leading-relaxed">
-                  Vote on which keywords to boost or suppress. Keywords reaching {Math.round(rules.threshold * 100)}% community support take effect.
+                  Vote on which keywords to boost or suppress. Keywords take effect when backed by at least 30% of members voting on content rules.
                 </p>
               </div>
 

@@ -8,6 +8,7 @@ import type {
   ShadowDemoPublicFeedItem,
   ShadowDemoRankMovement,
   ShadowDemoScoreComponent,
+  ShadowDemoWithheldFeedItem,
 } from "@/app/demo/shadow-demo-view-model"
 import { SIGNAL_COLORS, formatRelativeTime } from "@/app/demo/shadow-demo-fixtures"
 import { LABELS } from "@/app/demo/shadow-demo-copy"
@@ -141,6 +142,52 @@ function HiddenRow({ item, reduceMotion }: { readonly item: ShadowDemoHiddenFeed
   )
 }
 
+function WithheldByRuleRow({
+  withheld,
+  electorate,
+  referenceAt,
+}: {
+  readonly withheld: ShadowDemoWithheldFeedItem
+  readonly electorate: number | null
+  readonly referenceAt: string
+}) {
+  const badge = electorate !== null
+    ? `−${withheld.keyword} · ${withheld.supportCount}/${electorate}`
+    : `−${withheld.keyword} · ${withheld.supportCount} votes`
+  return (
+    <div className="overflow-hidden rounded-xl border border-[#D9E3EE] bg-white">
+      {withheld.post !== null ? (
+        <BlueskyPostCard
+          authorDisplayName={withheld.post.authorDisplayName}
+          authorHandle={withheld.post.authorHandle}
+          timeLabel={formatRelativeTime(withheld.post.indexedAt, referenceAt)}
+          avatarUrl={withheld.post.authorAvatar}
+          bskyUrl={withheld.post.bskyUrl}
+          text={withheld.post.text}
+          replyCount={withheld.post.replyCount}
+          repostCount={withheld.post.repostCount}
+          likeCount={withheld.post.likeCount}
+          languages={withheld.post.languages}
+          media={withheld.post.media}
+          density="compact"
+        />
+      ) : (
+        <div className="px-4 py-3.5 text-sm text-[#42576C]">
+          {withheld.hiddenReason ?? "Post unavailable."}
+        </div>
+      )}
+      <div className="flex flex-wrap items-center gap-2 border-t border-[#E8EDF3] bg-[#FAFBFC] px-4 py-2.5">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-tongue/30 bg-tongue/10 px-2.5 py-1 text-[11px] font-mono font-semibold text-tongue-foreground">
+          {badge}
+        </span>
+        {withheld.previousRank !== null ? (
+          <span className="text-[11px] font-medium text-foreground/50">Previously ranked #{withheld.previousRank}</span>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
 export function CorpusFeed({
   feed,
   communityName,
@@ -160,25 +207,51 @@ export function CorpusFeed({
 }) {
   const reduceMotion = useReducedMotion() ?? false
   const referenceAt = feed.corpusHealth.collectedAt
+  const withheldPosts = feed.withheldPosts ?? []
+  const electorate = feed.aggregate.voteSummary.contentRules?.electorate ?? null
 
   return (
-    <BlueskyFeedFrame communityName={communityName} epochLabel={epochLabel}>
-      {feed.items.map((item) =>
-        item.visibility === "public" ? (
-          <PublicRow
-            key={item.post.uri}
-            item={item}
-            selected={selectedUri === item.post.uri}
-            onSelect={onSelect}
-            referenceAt={referenceAt}
-            showMovement={showMovement}
-            selectable={selectable}
-            reduceMotion={reduceMotion}
-          />
-        ) : (
-          <HiddenRow key={`hidden-${item.rank}`} item={item} reduceMotion={reduceMotion} />
-        ),
-      )}
-    </BlueskyFeedFrame>
+    <>
+      <BlueskyFeedFrame communityName={communityName} epochLabel={epochLabel}>
+        {feed.items.map((item) =>
+          item.visibility === "public" ? (
+            <PublicRow
+              key={item.post.uri}
+              item={item}
+              selected={selectedUri === item.post.uri}
+              onSelect={onSelect}
+              referenceAt={referenceAt}
+              showMovement={showMovement}
+              selectable={selectable}
+              reduceMotion={reduceMotion}
+            />
+          ) : (
+            <HiddenRow key={`hidden-${item.rank}`} item={item} reduceMotion={reduceMotion} />
+          ),
+        )}
+      </BlueskyFeedFrame>
+
+      {withheldPosts.length > 0 ? (
+        <div className="mt-4 rounded-[1.25rem] border border-tongue/25 bg-tongue/[0.04] px-4 py-4">
+          <p className="flex items-center gap-2 text-sm font-bold text-foreground">
+            <EyeOff className="h-4 w-4 text-tongue-foreground/70" aria-hidden="true" />
+            Withheld by community rule
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-foreground/55">
+            Adopted exclude-keyword rules removed these posts from the ranking above.
+          </p>
+          <div className="mt-3 flex flex-col gap-2">
+            {withheldPosts.map((withheld, index) => (
+              <WithheldByRuleRow
+                key={withheld.post?.uri ?? `withheld-${index}`}
+                withheld={withheld}
+                electorate={electorate}
+                referenceAt={referenceAt}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </>
   )
 }

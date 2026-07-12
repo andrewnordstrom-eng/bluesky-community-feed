@@ -43,12 +43,32 @@ const warningSchema = z.object({
   severity: z.enum(["info", "warning", "degraded"]),
 }).strict()
 
+const contentRuleSupportSchema = z.object({
+  keyword: z.string().min(1).max(50),
+  supportCount: z.number().int().nonnegative(),
+  adopted: z.boolean(),
+}).strict()
+
+const contentRulesSummarySchema = z.object({
+  enabled: z.literal(true),
+  threshold: z.number().int().positive(),
+  electorate: z.number().int().nonnegative(),
+  adoptedExcludeKeywords: z.array(z.string().min(1).max(50)),
+  support: z.array(contentRuleSupportSchema),
+}).strict()
+
+const suggestedExcludeKeywordSchema = z.object({
+  keyword: z.string().min(1).max(50),
+  matchCount: z.number().int().nonnegative(),
+}).strict()
+
 const voteSummarySchema = z.object({
   aggregateMethod: z.literal("trimmed_mean_no_trim_under_10"),
   voteCount: z.number().int().nonnegative(),
   trimCount: z.number().int().nonnegative(),
   weights: apiWeightsSchema,
   topicIntent: apiTopicIntentSchema,
+  contentRules: contentRulesSummarySchema.optional(),
 }).strict()
 
 const epochSchema = z.object({
@@ -68,6 +88,7 @@ const voteBaseSchema = z.object({
   label: z.string().min(1),
   weights: apiWeightsSchema,
   topicIntent: apiTopicIntentSchema,
+  excludeKeywords: z.array(z.string().min(1).max(50)).max(10).optional(),
   createdAt: isoDateTime,
 })
 
@@ -256,6 +277,8 @@ export const apiSessionPayloadSchema = z.object({
     sourceFeedUri: z.string().startsWith("at://"),
     voterProfiles: z.array(voterProfileSchema),
     votes: z.array(z.union([reviewerVoteSchema, apiSyntheticVoteSchema])),
+    contentRulesEnabled: z.literal(true).optional(),
+    suggestedExcludeKeywords: z.array(suggestedExcludeKeywordSchema).optional(),
   }).strict(),
 }).strict()
 
@@ -292,6 +315,13 @@ const rawScoresSchema = z.object({
   relevance: finiteNumber,
 }).strict()
 
+const withheldPostSchema = z.object({
+  keyword: z.string().min(1).max(50),
+  supportCount: z.number().int().nonnegative(),
+  previousRank: z.number().int().positive().nullable(),
+  post: z.discriminatedUnion("kind", [publicPostSchema, hiddenPostSchema]),
+}).strict()
+
 export const apiFeedPayloadSchema = z.object({
   epochId: z.string().min(1),
   corpusId: z.string().min(1),
@@ -312,6 +342,7 @@ export const apiFeedPayloadSchema = z.object({
     componentScore: finiteNumber.nullable().optional(),
     publicationAdjustment: finiteNumber.nullable().optional(),
   }).strict()),
+  withheldPosts: z.array(withheldPostSchema).optional(),
 }).strict()
 
 export const apiReceiptPayloadSchema = z.object({
@@ -355,6 +386,12 @@ export const apiReceiptPayloadSchema = z.object({
       rank: z.number().int().positive().nullable(),
       deltaFromVisible: z.number().int().nullable(),
     }).strict()),
+    contentRules: z.object({
+      adoptedExcludeKeywords: z.array(z.string().min(1).max(50)),
+      threshold: z.number().int().positive(),
+      electorate: z.number().int().nonnegative(),
+      matchedKeyword: z.null(),
+    }).strict().optional(),
   }).strict(),
 }).strict()
 

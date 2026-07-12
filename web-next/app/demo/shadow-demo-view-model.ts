@@ -3,10 +3,15 @@ import {
   SHADOW_DEMO_CONTRACT_VERSION,
   SHADOW_DEMO_GUIDED_EPOCHS,
   SHADOW_DEMO_MAX_EPOCHS_PER_SESSION,
+  SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS,
+  SHADOW_DEMO_MAX_EXCLUDE_KEYWORD_LENGTH,
   SHADOW_DEMO_SIGNAL_KEYS,
   SHADOW_DEMO_VOTER_BLOC_IDS,
   type ShadowDemoCommunityId,
+  type ShadowDemoContentRuleSupport,
+  type ShadowDemoContentRulesSummary,
   type ShadowDemoSignalKey,
+  type ShadowDemoSuggestedExcludeKeyword,
   type ShadowDemoTopicIntent,
   type ShadowDemoTopicCatalogEntry,
   type ShadowDemoWeights,
@@ -18,12 +23,17 @@ export {
   SHADOW_DEMO_CONTRACT_VERSION,
   SHADOW_DEMO_GUIDED_EPOCHS,
   SHADOW_DEMO_MAX_EPOCHS_PER_SESSION,
+  SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS,
+  SHADOW_DEMO_MAX_EXCLUDE_KEYWORD_LENGTH,
   SHADOW_DEMO_SIGNAL_KEYS,
   SHADOW_DEMO_VOTER_BLOC_IDS,
 }
 export type {
   ShadowDemoCommunityId,
+  ShadowDemoContentRuleSupport,
+  ShadowDemoContentRulesSummary,
   ShadowDemoSignalKey,
+  ShadowDemoSuggestedExcludeKeyword,
   ShadowDemoTopicIntent,
   ShadowDemoTopicCatalogEntry,
   ShadowDemoWeights,
@@ -102,6 +112,9 @@ export interface ShadowDemoSession {
   readonly corpusProvenance: ShadowDemoCorpusProvenance
   readonly topicCatalog?: readonly ShadowDemoTopicCatalogEntry[]
   readonly sourceFeedUri?: string | null
+  /** Present only when DEMO_CONTENT_RULES_ENABLED. */
+  readonly contentRulesEnabled?: boolean
+  readonly suggestedExcludeKeywords?: readonly ShadowDemoSuggestedExcludeKeyword[]
 }
 
 export interface ShadowDemoIsolation {
@@ -137,6 +150,8 @@ export interface CastShadowDemoVoteRequest {
   readonly voterLabel: string
   readonly weights: ShadowDemoWeights
   readonly topicIntent: ShadowDemoTopicIntent
+  /** Sent only when the reviewer proposed keywords and content rules are enabled. */
+  readonly excludeKeywords?: readonly string[]
 }
 
 export interface CastShadowDemoVoteResponse {
@@ -219,6 +234,8 @@ export interface ShadowDemoVoteSummary {
   readonly aggregateMethod: "trimmed_mean_no_trim_under_10"
   readonly trimCount: number
   readonly reviewerBallotShare: number
+  /** Present only when DEMO_CONTENT_RULES_ENABLED. Threshold rule, not trimmed mean. */
+  readonly contentRules?: ShadowDemoContentRulesSummary
 }
 
 export interface ShadowDemoAggregate {
@@ -241,6 +258,17 @@ export interface ShadowDemoFeed {
   readonly corpusHealth: ShadowDemoCorpusHealth
   readonly corpusProvenance: ShadowDemoCorpusProvenance
   readonly aggregate: ShadowDemoAggregate
+  /** Present only when DEMO_CONTENT_RULES_ENABLED and the epoch adopted rules. */
+  readonly withheldPosts?: readonly ShadowDemoWithheldFeedItem[]
+}
+
+/** A post removed from the ranking by an adopted community content rule. */
+export interface ShadowDemoWithheldFeedItem {
+  readonly keyword: string
+  readonly supportCount: number
+  readonly previousRank: number | null
+  readonly post: ShadowDemoPublicPost | null
+  readonly hiddenReason: string | null
 }
 
 export type ShadowDemoFeedItem = ShadowDemoPublicFeedItem | ShadowDemoHiddenFeedItem
@@ -422,6 +450,14 @@ export interface ShadowDemoReceipt {
   readonly counterfactuals: readonly ShadowDemoCounterfactual[]
   readonly generatedAt: string
   readonly explanationKind: "shadow_demo_receipt"
+  /** Present only when DEMO_CONTENT_RULES_ENABLED. */
+  readonly contentRules?: {
+    readonly adoptedExcludeKeywords: readonly string[]
+    readonly threshold: number
+    readonly electorate: number
+    /** Always null on a rank receipt; withheld posts have no rank receipt. */
+    readonly matchedKeyword: null
+  }
 }
 
 export interface ShadowDemoTopicRelevanceFormula {

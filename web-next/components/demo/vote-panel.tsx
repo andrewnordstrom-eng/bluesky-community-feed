@@ -3,7 +3,10 @@
 import { useMemo, useState } from "react"
 import { RotateCcw, Search, SlidersHorizontal } from "lucide-react"
 import {
+  SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS,
   SHADOW_DEMO_SIGNAL_KEYS,
+  type ShadowDemoContentRulesSummary,
+  type ShadowDemoSuggestedExcludeKeyword,
   type ShadowDemoTopicCatalogEntry,
   type ShadowDemoTopicIntent,
   type ShadowDemoWeights,
@@ -22,10 +25,14 @@ import {
   POLICY_EDIT_THRESHOLD,
   validateDemoVoteSubmission,
 } from "@/app/demo/shadow-demo-vote-policy"
+import { KeywordInput } from "@/components/ui/keyword-input"
 import { Slider } from "@/components/ui/slider"
 import { DEMO_PANEL_FRAME_CLASS, DEMO_PANEL_SCROLL_BODY_CLASS } from "./panel-layout"
 import { TopicPolicy, topicLabel } from "./topic-policy"
 import { WeightBars } from "./weight-bars"
+
+const CONTENT_RULE_FALLBACK_THRESHOLD = 8
+const CONTENT_RULE_FALLBACK_ELECTORATE = 25
 
 const FOCUS =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
@@ -103,22 +110,29 @@ export function VotePanel({
   busy,
   topicCatalog,
   baselineTopicIntent,
+  contentRulesEnabled = false,
+  suggestedExcludeKeywords = [],
+  contentRules = null,
 }: {
-  readonly onSubmit: (weights: ShadowDemoWeights, topicIntent: ShadowDemoTopicIntent) => void
+  readonly onSubmit: (weights: ShadowDemoWeights, topicIntent: ShadowDemoTopicIntent, excludeKeywords: readonly string[]) => void
   readonly busy: boolean
   readonly topicCatalog: readonly ShadowDemoTopicCatalogEntry[]
   readonly baselineTopicIntent: ShadowDemoTopicIntent
+  readonly contentRulesEnabled?: boolean
+  readonly suggestedExcludeKeywords?: readonly ShadowDemoSuggestedExcludeKeyword[]
+  readonly contentRules?: ShadowDemoContentRulesSummary | null
 }) {
   const [presetId, setPresetId] = useState<string>(DEMO_VOTE_PRESETS[0].id)
   const [custom, setCustom] = useState<ShadowDemoWeights | null>(null)
   const [topicIntent, setTopicIntent] = useState<ShadowDemoTopicIntent>(() =>
     mergeTopicPolicy(baselineTopicIntent, DEMO_VOTE_PRESETS[0].topicIntent))
   const [showFineTune, setShowFineTune] = useState(false)
-  const [fineTuneTab, setFineTuneTab] = useState<"signals" | "topics">("signals")
+  const [fineTuneTab, setFineTuneTab] = useState<"signals" | "topics" | "rules">("signals")
   const [topicQuery, setTopicQuery] = useState("")
   const [topicSort, setTopicSort] = useState<"alphabetical" | "weight">("weight")
   const [changedOnly, setChangedOnly] = useState(false)
   const [submissionError, setSubmissionError] = useState<string | null>(null)
+  const [excludeKeywords, setExcludeKeywords] = useState<string[]>([])
 
   const preset = DEMO_VOTE_PRESETS.find((entry) => entry.id === presetId) ?? DEMO_VOTE_PRESETS[0]
   const presetTopicIntent = useMemo(
@@ -186,8 +200,19 @@ export function VotePanel({
       }
       throw error
     }
-    onSubmit(submission.weights, submission.topicIntent)
+    onSubmit(submission.weights, submission.topicIntent, excludeKeywords)
   }
+
+  function toggleSuggestedKeyword(keyword: string): void {
+    const normalized = keyword.trim().toLowerCase().slice(0, 50)
+    if (normalized.length === 0) return
+    setExcludeKeywords((current) => current.includes(normalized)
+      ? current.filter((entry) => entry !== normalized)
+      : current.length >= SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS ? current : [...current, normalized])
+  }
+
+  const contentRuleThreshold = contentRules?.threshold ?? CONTENT_RULE_FALLBACK_THRESHOLD
+  const contentRuleElectorate = contentRules?.electorate ?? CONTENT_RULE_FALLBACK_ELECTORATE
 
   return (
     <div className={DEMO_PANEL_FRAME_CLASS}>
@@ -229,11 +254,15 @@ export function VotePanel({
 
           {showFineTune ? (
             <div className="mt-4 border-t border-border/60 pt-4">
-              <div className="grid grid-cols-2 rounded-lg border border-border bg-background p-1">
+              <div className={`grid rounded-lg border border-border bg-background p-1 ${contentRulesEnabled ? "grid-cols-3" : "grid-cols-2"}`}>
                 <button type="button" onClick={() => setFineTuneTab("signals")} aria-pressed={fineTuneTab === "signals"}
                   className={`min-h-10 rounded-md px-3 text-xs font-semibold ${FOCUS} ${fineTuneTab === "signals" ? "bg-biscuit/60 text-foreground" : "text-foreground/60"}`}>Signals (5)</button>
                 <button type="button" onClick={() => setFineTuneTab("topics")} aria-pressed={fineTuneTab === "topics"}
                   className={`min-h-10 rounded-md px-3 text-xs font-semibold ${FOCUS} ${fineTuneTab === "topics" ? "bg-biscuit/60 text-foreground" : "text-foreground/60"}`}>Topics ({topicCatalog.length})</button>
+                {contentRulesEnabled ? (
+                  <button type="button" onClick={() => setFineTuneTab("rules")} aria-pressed={fineTuneTab === "rules"}
+                    className={`min-h-10 rounded-md px-3 text-xs font-semibold ${FOCUS} ${fineTuneTab === "rules" ? "bg-biscuit/60 text-foreground" : "text-foreground/60"}`}>Rules</button>
+                ) : null}
               </div>
 
               {fineTuneTab === "signals" ? (
@@ -256,7 +285,7 @@ export function VotePanel({
                   ))}
                   {sum <= 0 ? <p className="text-xs font-medium text-primary">Give at least one signal some weight to cast a vote.</p> : null}
                 </div>
-              ) : (
+              ) : fineTuneTab === "topics" ? (
                 <div className="mt-4">
                   <div className="mb-3 flex items-start justify-between gap-4 text-xs leading-relaxed text-foreground/55">
                     <p>Topic weights shape the relevance signal. Every ballot carries all {topicCatalog.length} values.</p>
@@ -300,6 +329,42 @@ export function VotePanel({
                     })}
                   </div>
                   {visibleTopics.length === 0 ? <p className="mt-4 text-xs text-foreground/55">No topics match these filters.</p> : null}
+                </div>
+              ) : (
+                <div className="mt-4">
+                  <p className="text-xs leading-relaxed text-foreground/60">
+                    Propose keywords to exclude. A rule is adopted when at least {contentRuleThreshold} of {contentRuleElectorate} ballots back it.
+                  </p>
+
+                  {suggestedExcludeKeywords.length > 0 ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {suggestedExcludeKeywords.map((suggestion) => {
+                        const active = excludeKeywords.includes(suggestion.keyword)
+                        return (
+                          <button
+                            key={suggestion.keyword}
+                            type="button"
+                            onClick={() => toggleSuggestedKeyword(suggestion.keyword)}
+                            aria-pressed={active}
+                            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${FOCUS} ${active ? "border-tongue/40 bg-tongue/15 text-tongue-foreground" : "border-border bg-background text-foreground/70 hover:border-tongue/30"}`}
+                          >
+                            <span className="font-mono">−{suggestion.keyword}</span>
+                            <span className="text-foreground/45">{suggestion.matchCount} posts</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  ) : null}
+
+                  <div className="mt-4">
+                    <KeywordInput
+                      label="Exclude keywords"
+                      keywords={excludeKeywords}
+                      variant="exclude"
+                      onChange={setExcludeKeywords}
+                      maxKeywords={SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS}
+                    />
+                  </div>
                 </div>
               )}
             </div>

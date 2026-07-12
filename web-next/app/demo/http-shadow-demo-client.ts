@@ -35,6 +35,7 @@ import {
   type ShadowDemoVote,
   type ShadowDemoWarning,
   type ShadowDemoWeights,
+  type ShadowDemoWithheldFeedItem,
 } from "./shadow-demo-view-model"
 import {
   CONTRACT_VERSION,
@@ -109,6 +110,9 @@ export function createHttpShadowDemoClient(): ShadowDemoClient {
             baseEpochId: request.baseEpochId,
             weights: request.weights,
             topicIntent: { topicWeights: request.topicIntent.topicWeights },
+            ...(request.excludeKeywords !== undefined && request.excludeKeywords.length > 0
+              ? { excludeKeywords: [...request.excludeKeywords] }
+              : {}),
           }),
         },
         signal,
@@ -375,6 +379,8 @@ function mapSession(
     corpusProvenance: api.corpusProvenance,
     topicCatalog: api.topicCatalog,
     sourceFeedUri: api.sourceFeedUri ?? null,
+    contentRulesEnabled: api.contentRulesEnabled,
+    suggestedExcludeKeywords: api.suggestedExcludeKeywords,
   }
 }
 
@@ -418,6 +424,7 @@ function mapEpoch(epoch: ApiEpoch): ShadowDemoEpoch {
       aggregateMethod: "trimmed_mean_no_trim_under_10",
       trimCount: epoch.aggregate.trimCount,
       reviewerBallotShare: totalVotes > 0 ? 1 / totalVotes : 0,
+      contentRules: epoch.aggregate.contentRules,
     },
     startedAt: epoch.createdAt,
     closedAt: epoch.advancedAt,
@@ -448,6 +455,7 @@ function mapAggregate(summary: ApiVoteSummary): ShadowDemoAggregate {
       aggregateMethod: summary.aggregateMethod,
       trimCount: summary.trimCount,
       reviewerBallotShare: summary.voteCount > 0 ? 1 / summary.voteCount : 0,
+      contentRules: summary.contentRules,
     },
   }
 }
@@ -515,6 +523,44 @@ function mapFeed(payload: ApiFeedPayload, generatedAt: string): ShadowDemoFeed {
       englishTaggedShare: payload.corpusHealth.englishTaggedShare ?? null,
       richMediaShare: payload.corpusHealth.richMediaShare ?? null,
     },
+    withheldPosts: payload.withheldPosts?.map(mapWithheldPost),
+  }
+}
+
+function mapWithheldPost(withheld: NonNullable<ApiFeedPayload["withheldPosts"]>[number]): ShadowDemoWithheldFeedItem {
+  if (withheld.post.kind === "hidden_post") {
+    return {
+      keyword: withheld.keyword,
+      supportCount: withheld.supportCount,
+      previousRank: withheld.previousRank,
+      post: null,
+      hiddenReason: withheld.post.reason,
+    }
+  }
+  return {
+    keyword: withheld.keyword,
+    supportCount: withheld.supportCount,
+    previousRank: withheld.previousRank,
+    post: {
+      uri: withheld.post.uri,
+      cid: withheld.post.cid,
+      bskyUrl: withheld.post.bskyUrl,
+      authorDid: withheld.post.authorDid,
+      authorHandle: withheld.post.authorHandle,
+      authorDisplayName: withheld.post.authorDisplayName,
+      authorAvatar: withheld.post.authorAvatar,
+      text: withheld.post.text,
+      indexedAt: withheld.post.indexedAt,
+      createdAt: withheld.post.createdAt,
+      likeCount: withheld.post.likeCount,
+      repostCount: withheld.post.repostCount,
+      replyCount: withheld.post.replyCount,
+      quoteCount: withheld.post.quoteCount,
+      labels: [],
+      languages: withheld.post.languages ?? [],
+      media: withheld.post.media ?? null,
+    },
+    hiddenReason: null,
   }
 }
 
@@ -667,6 +713,7 @@ function mapReceipt(receipt: ApiReceiptPayload["receipt"], generatedAt: string):
     counterfactuals: receipt.counterfactuals.map(mapCounterfactual),
     generatedAt,
     explanationKind: "shadow_demo_receipt",
+    contentRules: receipt.contentRules,
   }
 }
 
