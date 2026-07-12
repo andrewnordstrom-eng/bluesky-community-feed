@@ -30,7 +30,7 @@ export function StatusChip({ phase, className }: StatusChipProps) {
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold
+      className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap
         bg-biscuit text-primary border border-primary/20 ${className ?? ""}`}
     >
       {config.dot && (

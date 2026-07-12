@@ -584,6 +584,31 @@ function VoteWorkbench({ epoch, myVote, topics, contentRules, isAuthenticated, o
             </div>
           )}
 
+          {/* On phones the desktop right rail is hidden — keep its context in the flow. */}
+          <div className="lg:hidden rounded-xl border border-border bg-card p-5 flex flex-col gap-4">
+            <div className="flex flex-col gap-3">
+              <p className="text-[10px] text-foreground/50 font-mono uppercase tracking-widest">Community mix · Round #{epoch.id}</p>
+              <PolicyBar weights={communityWeights} height={10} />
+              <PolicyLegend weights={communityWeights} />
+            </div>
+            <div className="h-px bg-border/60" />
+            <div className="flex flex-col gap-2.5">
+              <p className="text-[10px] text-foreground/50 font-mono uppercase tracking-widest">Active filters</p>
+              {rules.include_keywords.length === 0 && rules.exclude_keywords.length === 0 ? (
+                <p className="text-xs text-foreground/50">None this round</p>
+              ) : (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {rules.include_keywords.map((w) => (
+                    <span key={w} className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-success/10 border border-success/25 text-success">+{w}</span>
+                  ))}
+                  <ExcludeKeywordChips
+                    words={rules.exclude_keywords}
+                    chipClass="text-[11px] font-mono px-2 py-0.5 rounded-full bg-tongue/15 border border-tongue/30 text-tongue-foreground"
+                  />
+                </div>
+              )}
+            </div>
+          </div>
         </main>
 
         {/* ── RIGHT RAIL ────────────────────────────────── */}

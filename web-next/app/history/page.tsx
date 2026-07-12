@@ -358,10 +358,10 @@ function DetailPanel({ epoch, epochAudit, auditWindowNote }: { epoch: EpochView;
     <div className="flex flex-col gap-8">
 
       {/* ── Header ────────────────────────────────────────── */}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
         <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-3">
-            <h2 className="font-display text-2xl font-bold text-foreground tracking-normal">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <h2 className="whitespace-nowrap font-display text-2xl font-bold text-foreground tracking-normal">
               Round #{epoch.id}
             </h2>
             <StatusChip phase={epoch.policyActive ? "active" : "archived"} />
@@ -612,9 +612,12 @@ export default function HistoryPage() {
               <p className="text-[10px] font-mono text-foreground/50 uppercase tracking-widest px-1 mb-1">
                 Rounds · newest first
               </p>
-              <nav className="flex flex-row lg:flex-col gap-2 overflow-x-auto pb-2 lg:pb-0" aria-label="Select a round">
+              <nav
+                className="flex flex-row lg:flex-col gap-2 overflow-x-auto pb-2 lg:pb-0 snap-x snap-mandatory lg:snap-none [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                aria-label="Select a round"
+              >
                 {epochViews.map((epoch) => (
-                  <div key={epoch.id} className="flex-shrink-0 w-44 sm:w-48 lg:w-auto">
+                  <div key={epoch.id} className="flex-shrink-0 w-44 sm:w-48 lg:w-auto snap-start">
                     <EpochCard
                       epoch={epoch}
                       selected={epoch.id === selectedEpoch.id}

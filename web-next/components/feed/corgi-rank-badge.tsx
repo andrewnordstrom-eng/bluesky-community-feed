@@ -127,7 +127,7 @@ export function CorgiRankBadge({
 
   return (
     <div ref={rootRef} className="relative flex flex-col items-center text-center">
-      <span className="font-display text-[42px] font-extrabold leading-[0.8] tracking-tight text-primary">{rank}</span>
+      <span className="font-display text-[32px] font-extrabold leading-[0.8] tracking-tight text-primary sm:text-[42px]">{rank}</span>
       {showMovement ? (
         <span className="mt-1">
           <MovementPill dir={movement.dir} delta={movement.delta} title={summary.text} />

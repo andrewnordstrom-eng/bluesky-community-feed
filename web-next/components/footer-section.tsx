@@ -78,12 +78,13 @@ export function FooterSection() {
             {linkGroups.map((group) => (
               <div key={group.heading} className="flex flex-col gap-3">
                 <h3 className="text-foreground/55 text-xs font-semibold tracking-wide uppercase">{group.heading}</h3>
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-col gap-1">
+                  {/* py-1 grows each link's touch target without changing the visual rhythm (gap absorbs it) */}
                   {group.links.map((link) => (
                     <Link
                       key={link.label}
                       href={link.href}
-                      className={`text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors ${FOCUS}`}
+                      className={`py-1 text-foreground/70 text-sm font-normal leading-5 hover:text-primary transition-colors ${FOCUS}`}
                     >
                       {link.label}
                     </Link>

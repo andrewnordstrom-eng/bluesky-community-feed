@@ -216,16 +216,19 @@ function ScoringMath() {
       </div>
 
       <div className="rounded-2xl border border-border bg-card p-5 shadow-[0_2px_14px_rgba(46,38,32,0.06)] md:p-6">
+        {/* min-w-0 on both columns: without it the table's intrinsic width forces
+            the whole card past the phone viewport instead of scrolling inside it */}
         <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-          <div className="rounded-xl border border-border/70 bg-background">
+          <div className="min-w-0 rounded-xl border border-border/70 bg-background">
             <div className="border-b border-border/60 px-4 py-3">
               <p className="text-sm font-bold text-foreground">Raw signal scores</p>
               <p className="mt-1 text-xs leading-relaxed text-foreground/48">
                 These are the same post scores used by every policy in the walkthrough.
               </p>
+              <p className="mt-1 text-[11px] text-foreground/50 lg:hidden">Swipe sideways to see all five signals.</p>
             </div>
             <div className="overflow-x-auto px-4">
-              <table className="w-full min-w-[720px] text-left text-sm">
+              <table className="w-full min-w-[640px] text-left text-sm">
                 <thead>
                   <tr className="border-b border-border/70 text-xs uppercase tracking-[0.14em] text-foreground/50">
                     <th className="py-3 pr-4 font-semibold">Post</th>
@@ -250,7 +253,7 @@ function ScoringMath() {
             </div>
           </div>
 
-          <div className="flex flex-col gap-4">
+          <div className="flex min-w-0 flex-col gap-4">
             <div className="rounded-xl border border-border/70 bg-background p-5">
               <p className="text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/55">Formula</p>
               <p className="mt-3 font-mono text-sm leading-relaxed text-foreground/75">
