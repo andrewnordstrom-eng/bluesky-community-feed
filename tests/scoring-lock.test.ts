@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   OwnedRedisLease,
   RedisLeaseUnavailableError,
+  scoringLeaseKey,
   type LeaseRedisClient,
 } from '../src/scoring/owned-lease.js';
 
@@ -65,5 +66,11 @@ describe('token-owned Redis scoring lease', () => {
     evalScript.mockRejectedValue(new Error('connection reset'));
 
     await expect(lease.release('owner-a')).rejects.toBeInstanceOf(RedisLeaseUnavailableError);
+  });
+
+  it('isolates lease ownership by community', () => {
+    expect(scoringLeaseKey('community-gov')).toBe('lock:scoring:community-gov');
+    expect(scoringLeaseKey('future-feed')).toBe('lock:scoring:future-feed');
+    expect(() => scoringLeaseKey('')).toThrow('must be non-empty');
   });
 });

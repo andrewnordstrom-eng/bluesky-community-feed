@@ -32,7 +32,11 @@ export async function startScoring(): Promise<void> {
   isShuttingDown = false;
   worker = new RankingWorker({
     queue: rankingRequestQueue,
-    lease: createOwnedScoringLease(redis, config.RANKING_LEASE_TTL_MS),
+    lease: createOwnedScoringLease(
+      redis,
+      config.RANKING_COMMUNITY_ID,
+      config.RANKING_LEASE_TTL_MS
+    ),
     redis,
     workerId: createRankingWorkerId(),
     communityId: config.RANKING_COMMUNITY_ID,

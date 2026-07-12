@@ -90,8 +90,19 @@ export class OwnedRedisLease {
   }
 }
 
-export function createOwnedScoringLease(client: Redis, ttlMs: number): OwnedRedisLease {
-  return new OwnedRedisLease(client, 'lock:scoring', ttlMs);
+export function createOwnedScoringLease(
+  client: Redis,
+  communityId: string,
+  ttlMs: number
+): OwnedRedisLease {
+  return new OwnedRedisLease(client, scoringLeaseKey(communityId), ttlMs);
+}
+
+export function scoringLeaseKey(communityId: string): string {
+  if (!communityId.trim()) {
+    throw new Error('Scoring lease communityId must be non-empty');
+  }
+  return `lock:scoring:${communityId}`;
 }
 
 function assertToken(token: string): void {

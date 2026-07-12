@@ -85,6 +85,8 @@ Pre-activation evidence must prove all of the following:
    pipeline timeout must quarantine the worker, retain and renew its lease, and
    advertise a failed heartbeat until that process is stopped; it must not
    claim replacement work in the same process.
+7. Queue claims, stale recovery, heartbeat keys, and owned lease keys remain
+   scoped to `RANKING_COMMUNITY_ID`; one feed must not consume or block another.
 
 Activation order after approval:
 
