@@ -137,7 +137,12 @@ export function ReceiptPanel({
         ) : null}
       </div>
 
-      <div className={`${DEMO_PANEL_SCROLL_BODY_CLASS} flex flex-1 flex-col gap-3 px-5 py-5`}>
+      <div
+        role="region"
+        aria-label="Ranking receipt details"
+        tabIndex={0}
+        className={`${DEMO_PANEL_SCROLL_BODY_CLASS} flex flex-1 flex-col gap-3 px-5 py-5`}
+      >
         <div className="rounded-xl border border-primary/15 bg-primary/[0.055] px-4 py-3">
           <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-primary/65">Receipt math</p>
           {displayMath ? (
@@ -293,7 +298,7 @@ export function ReceiptPanel({
         </div>
       </div>
 
-      <div className="border-t border-border/70 px-5 py-4 xl:shrink-0">
+      <div data-demo-panel-footer="receipt" className="border-t border-border/70 px-5 py-4 xl:shrink-0">
         {onAnotherEpoch !== null ? (
           <button
             type="button"

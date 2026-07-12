@@ -83,7 +83,12 @@ export function AgentsPanel({
   if (!hasVoted) {
     return (
       <div className={DEMO_PANEL_FRAME_CLASS}>
-        <div className={`${DEMO_PANEL_SCROLL_BODY_CLASS} xl:pr-2`}>
+        <div
+          role="region"
+          aria-label="Community ballot simulation details"
+          tabIndex={0}
+          className={`${DEMO_PANEL_SCROLL_BODY_CLASS} xl:pr-2`}
+        >
           <h2 className="font-display text-2xl font-bold leading-tight text-foreground">{STEP_PANELS.agents.heading}</h2>
           <p className="mt-2 text-sm leading-relaxed text-foreground/60">{STEP_PANELS.agents.body}</p>
           <div className="mt-4 rounded-2xl border border-border bg-biscuit/25 px-4 py-3">
@@ -96,7 +101,7 @@ export function AgentsPanel({
             </p>
           </div>
         </div>
-        <div className="mt-5 xl:mt-0 xl:shrink-0 xl:border-t xl:border-border/70 xl:bg-background xl:pt-3">
+        <div data-demo-panel-footer="community" className="mt-5 xl:mt-0 xl:shrink-0 xl:border-t xl:border-border/70 xl:bg-background xl:pt-3">
           <button
             type="button"
             onClick={onRun}
@@ -112,7 +117,12 @@ export function AgentsPanel({
 
   return (
     <div className={DEMO_PANEL_FRAME_CLASS}>
-      <div className={`${DEMO_PANEL_SCROLL_BODY_CLASS} xl:pr-2`}>
+      <div
+        role="region"
+        aria-label="Aggregated community policy details"
+        tabIndex={0}
+        className={`${DEMO_PANEL_SCROLL_BODY_CLASS} xl:pr-2`}
+      >
         <h2 className="font-display text-2xl font-bold leading-tight text-foreground">{STEP_PANELS.epoch.heading}</h2>
         <p className="mt-2 text-sm leading-relaxed text-foreground/60">{STEP_PANELS.epoch.body}</p>
 
@@ -147,7 +157,7 @@ export function AgentsPanel({
         </div> : null}
       </div>
 
-      <div className="mt-5 xl:mt-0 xl:shrink-0 xl:border-t xl:border-border/70 xl:bg-background xl:pt-3">
+      <div data-demo-panel-footer="epoch" className="mt-5 xl:mt-0 xl:shrink-0 xl:border-t xl:border-border/70 xl:bg-background xl:pt-3">
         <button
           type="button"
           onClick={onAdvance}

@@ -194,6 +194,7 @@ export function VotePanel({
       <div
         role="region"
         aria-label="Demo policy controls"
+        tabIndex={0}
         className={`${DEMO_PANEL_SCROLL_BODY_CLASS} xl:pr-2`}
       >
         <h2 className="font-display text-2xl font-bold leading-tight text-foreground">{STEP_PANELS.vote.heading}</h2>
@@ -306,7 +307,7 @@ export function VotePanel({
         </div>
       </div>
 
-      <div className="mt-5 xl:mt-3 xl:shrink-0 xl:border-t xl:border-border/70 xl:bg-background xl:pt-3">
+      <div data-demo-panel-footer="vote" className="mt-5 xl:mt-3 xl:shrink-0 xl:border-t xl:border-border/70 xl:bg-background xl:pt-3">
         <button type="button" onClick={submitPolicy} disabled={!canSubmit}
           className={`inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-[0_2px_8px_rgba(200,97,44,0.25)] transition-colors hover:bg-primary-dark disabled:opacity-60 ${FOCUS}`}>
           {busy ? "Casting…" : STEP_PANELS.vote.cta}
