@@ -32,11 +32,11 @@ export interface ScoringComponent {
   readonly name: string;
   /** Score the post in 0..1. */
   score(post: PostForScoring, context: ScoringContext): Promise<number>;
-  /** Optional efficient scoring path for one immutable candidate batch. */
+  /** Optional efficient scoring path keyed by `${uri}\0${createdAt.toISOString()}`. */
   scoreBatch?(
     posts: readonly PostForScoring[],
     context: ScoringContext
-  ): Promise<ReadonlyMap<PostForScoring, number>>;
+  ): Promise<ReadonlyMap<string, number>>;
 }
 
 /**

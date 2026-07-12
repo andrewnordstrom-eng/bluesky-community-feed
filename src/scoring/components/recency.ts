@@ -26,6 +26,7 @@ export function scoreRecency(createdAt: Date | string, windowHours: number): num
   return scoreRecencyAt(createdAt, windowHours, new Date());
 }
 
+/** Calculate recency against the ranking run's immutable clock. */
 export function scoreRecencyAt(
   createdAt: Date | string,
   windowHours: number,

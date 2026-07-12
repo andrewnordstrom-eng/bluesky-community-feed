@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import type { Pool } from 'pg';
+import { describe, expect, it, vi } from 'vitest';
+import { ZodError } from 'zod';
 import { calculateBridgingEvidence } from '../src/scoring/components/bridging.js';
 import { scoreRecencyAt } from '../src/scoring/components/recency.js';
 import {
@@ -7,8 +9,14 @@ import {
   type RankingV2CandidateInput,
 } from '../src/scoring/ranking-v2-candidates.js';
 import type { RankingV2FeatureVector } from '../src/scoring/ranking-v2-features.js';
-import { SourceDiversitySlateReranker, diversityRaw } from '../src/scoring/ranking-v2-slate.js';
+import {
+  RANKING_V2_SLATE_LIMIT,
+  SourceDiversitySlateReranker,
+  diversityRaw,
+} from '../src/scoring/ranking-v2-slate.js';
+import { replayRankingV2Slate, runRankingV2Shadow } from '../src/scoring/ranking-v2.js';
 import type { PostForScoring } from '../src/scoring/score.types.js';
+import type { RankingRunInputEnvelope } from '../src/shared/ranking-contracts.js';
 
 const AS_OF = new Date('2026-07-11T20:00:00.000Z');
 
@@ -17,6 +25,13 @@ describe('corgi-ranking-v2', () => {
     expect(scoreRecencyAt('2026-07-11T02:00:00.000Z', 72, AS_OF)).toBeCloseTo(0.5, 12);
     expect(scoreRecencyAt('2026-07-10T08:00:00.000Z', 72, AS_OF)).toBeCloseTo(0.25, 12);
     expect(scoreRecencyAt('2026-07-12T00:00:00.000Z', 72, AS_OF)).toBe(1);
+  });
+
+  it('handles recency boundaries and rejects invalid inputs', () => {
+    expect(scoreRecencyAt('2026-07-08T20:00:00.000Z', 72, AS_OF)).toBeCloseTo(0.0625, 12);
+    expect(scoreRecencyAt('2026-07-08T19:59:59.999Z', 72, AS_OF)).toBe(0.01);
+    expect(() => scoreRecencyAt('2026-07-11T02:00:00.000Z', 0, AS_OF)).toThrow(RangeError);
+    expect(() => scoreRecencyAt('not-a-date', 72, AS_OF)).toThrow(RangeError);
   });
 
   it('builds a candidate union independent of input order', () => {
@@ -72,6 +87,16 @@ describe('corgi-ranking-v2', () => {
 
   it('uses the governed diversity schedule', () => {
     expect([0, 1, 2, 3, 10].map(diversityRaw)).toEqual([1, 0.7, 0.5, 0.3, 0.3]);
+  });
+
+  it('rejects invalid diversity weights and slate limits', () => {
+    expect(() => new SourceDiversitySlateReranker(-0.1)).toThrow(RangeError);
+    expect(() => new SourceDiversitySlateReranker(1.1)).toThrow(RangeError);
+    const reranker = new SourceDiversitySlateReranker(0.2);
+    expect(() => reranker.rerank([], -1)).toThrow(RangeError);
+    expect(() => reranker.rerank([], 1.5)).toThrow(RangeError);
+    expect(() => reranker.rerank([], RANKING_V2_SLATE_LIMIT + 1)).toThrow(RangeError);
+    expect(reranker.rerank([feature(0, 'did:plc:a', 0.9)], 0)).toEqual([]);
   });
 
   it('reduces to base-score ordering when diversity weight is zero', () => {
@@ -131,6 +156,46 @@ describe('corgi-ranking-v2', () => {
       'at://did:plc:a/app.bsky.feed.post/1',
       'at://did:plc:b/app.bsky.feed.post/2',
     ]);
+  });
+
+  it('destroys a database client when rollback leaves its state unknown', async () => {
+    const release = vi.fn();
+    const query = vi.fn()
+      .mockResolvedValueOnce({ rows: [] })
+      .mockRejectedValueOnce(new Error('policy read failed'))
+      .mockRejectedValueOnce(new Error('rollback failed'));
+    const pool = {
+      connect: vi.fn().mockResolvedValue({ query, release }),
+    } as unknown as Pool;
+
+    await expect(runRankingV2Shadow(pool, {
+      communityId: 'community-gov',
+      asOf: AS_OF,
+      codeSha: 'c'.repeat(40),
+      previousSnapshotPositions: new Map(),
+    })).rejects.toThrow(AggregateError);
+    expect(release).toHaveBeenCalledWith(expect.any(Error));
+  });
+
+  it('reports structured replay validation failures', () => {
+    const malformed = {
+      schemaVersion: 1,
+      runId: 'run',
+      communityId: 'community-gov',
+      policyHash: 'a'.repeat(64),
+      configurationHash: 'b'.repeat(64),
+      asOf: AS_OF.toISOString(),
+      sourceDiversityWeight: 2,
+      candidates: [{ uri: '', createdAt: 'not-a-date' }],
+    } as unknown as RankingRunInputEnvelope;
+
+    try {
+      replayRankingV2Slate(malformed);
+      throw new Error('Expected replay validation to fail');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ZodError);
+      expect((error as ZodError).issues.length).toBeGreaterThan(2);
+    }
   });
 });
 

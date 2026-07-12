@@ -63,10 +63,24 @@ describe('corgi-ranking-v2 shadow runner against real PostgreSQL', () => {
     try {
       const compressed = await loadRankingRunInput(client, result.context.runId);
       const envelope = decodeCompressedRankingInput(compressed);
+      expect(envelope.sourceDiversityWeight).toBe(
+        result.context.policy.weights.sourceDiversity
+      );
+      expect(envelope.candidates[0]?.immutable).toMatchObject({
+        replyRoot: null,
+        replyParent: null,
+        langs: ['en'],
+        hasMedia: false,
+        classificationMethod: 'keyword',
+      });
       const replayedSlate = replayRankingV2Slate(
         envelope,
         result.context.policy.weights.sourceDiversity
       );
+      expect(() => replayRankingV2Slate(
+        envelope,
+        result.context.policy.weights.sourceDiversity + 0.1
+      )).toThrow(/sourceDiversityWeight mismatch/);
       const replayedReceipt = buildRankingReceipt({
         runId: result.context.runId,
         communityId: result.context.communityId,

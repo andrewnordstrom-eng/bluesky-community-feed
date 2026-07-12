@@ -99,6 +99,8 @@ export interface RankingRunInputEnvelope {
   policyHash: string;
   configurationHash: string;
   asOf: string;
+  /** Required for v2 exact replay; optional only for retained v1 contract inputs. */
+  sourceDiversityWeight?: number;
   candidates: readonly JsonObject[];
 }
 

@@ -9,6 +9,16 @@ export const RANKING_V2_CANDIDATE_LIMITS = {
   total: 5000,
 } as const;
 
+if (
+  RANKING_V2_CANDIDATE_LIMITS.newest
+    + RANKING_V2_CANDIDATE_LIMITS.engagement
+    + RANKING_V2_CANDIDATE_LIMITS.policyRelevance
+    + RANKING_V2_CANDIDATE_LIMITS.previousSnapshot
+  !== RANKING_V2_CANDIDATE_LIMITS.total
+) {
+  throw new Error('RANKING_V2_CANDIDATE_LIMITS category limits must sum to total');
+}
+
 const SOURCE_ORDER: readonly CandidateSource[] = [
   'newest',
   'engagement',
@@ -28,6 +38,7 @@ export interface RankingV2Candidate extends RankingV2CandidateInput {
   candidateSources: readonly CandidateSource[];
 }
 
+/** Build the deterministic governed candidate union and retain source provenance. */
 export function buildCandidateUnion(
   inputs: readonly RankingV2CandidateInput[]
 ): readonly RankingV2Candidate[] {

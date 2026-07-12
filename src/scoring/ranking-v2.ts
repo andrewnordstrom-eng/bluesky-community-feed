@@ -1,18 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import type { Pool, PoolClient } from 'pg';
+import type { Pool, PoolClient, QueryResultRow } from 'pg';
+import { z } from 'zod';
 import { materializeActivePolicyVersion, hashCanonicalJson } from '../governance/policy-version.js';
 import { checkContentRules } from '../governance/content-filter.js';
 import { toContentRules } from '../governance/governance.types.js';
 import type { ContentRules } from '../shared/api-types.js';
-import type {
-  CandidateSource,
-  JsonObject,
-  JsonValue,
-  RankedSlateItem,
-  RankingReceipt,
-  RankingRunInputEnvelope,
-  RankingRunContext,
-} from '../shared/ranking-contracts.js';
+import type { JsonObject, RankedSlateItem, RankingReceipt, RankingRunInputEnvelope, RankingRunContext } from '../shared/ranking-contracts.js';
 import {
   buildRankingReceipt,
   createCompressedRankingInput,
@@ -27,16 +20,20 @@ import { scoreEngagement } from './components/engagement.js';
 import { scoreRecencyAt } from './components/recency.js';
 import { scoreTopicVectorRelevance } from './components/relevance.js';
 import {
+  RANKING_V2_CANDIDATE_LIMITS,
   buildCandidateUnion,
   type RankingV2CandidateInput,
 } from './ranking-v2-candidates.js';
-import { computeRankingV2Features } from './ranking-v2-features.js';
-import { SourceDiversitySlateReranker } from './ranking-v2-slate.js';
+import { computeRankingV2Features, requireWeight } from './ranking-v2-features.js';
+import {
+  RANKING_V2_SLATE_LIMIT,
+  SourceDiversitySlateReranker,
+} from './ranking-v2-slate.js';
 import { toPostForScoring, type PostForScoring } from './score.types.js';
 
 export const RANKING_V2_ALGORITHM_VERSION = 'corgi-ranking-v2';
 export const RANKING_V2_SCORING_WINDOW_HOURS = 72;
-export const RANKING_V2_SLATE_LIMIT = 1000;
+const MAX_CANDIDATE_FETCH = RANKING_V2_CANDIDATE_LIMITS.total * 10;
 
 const CONFIGURATION = {
   candidateLimits: {
@@ -50,6 +47,60 @@ const CONFIGURATION = {
   slateLimit: RANKING_V2_SLATE_LIMIT,
   tieBreak: ['utility_desc', 'base_score_desc', 'created_at_desc', 'uri_asc'],
 } as const;
+
+const CandidateSourceSchema = z.enum([
+  'newest',
+  'engagement',
+  'policy_relevance',
+  'previous_snapshot',
+  'preliminary_fill',
+]);
+const FiniteNumberSchema = z.number().finite();
+const NumericRecordSchema = z.record(FiniteNumberSchema);
+const ReplayCandidateSchema = z.object({
+  uri: z.string().min(1),
+  createdAt: z.string().datetime(),
+  authorDid: z.string().min(1),
+  candidateSources: z.array(CandidateSourceSchema),
+  immutable: z.object({
+    cid: z.string().min(1),
+    text: z.string().nullable(),
+    replyRoot: z.string().nullable(),
+    replyParent: z.string().nullable(),
+    langs: z.array(z.string()),
+    hasMedia: z.boolean(),
+    topicVector: NumericRecordSchema,
+    classificationMethod: z.enum(['keyword', 'embedding']).nullable(),
+  }),
+  eventTime: z.object({
+    likeCount: FiniteNumberSchema,
+    repostCount: FiniteNumberSchema,
+    replyCount: FiniteNumberSchema,
+  }),
+  raw: NumericRecordSchema,
+  weights: NumericRecordSchema,
+  weighted: NumericRecordSchema,
+  evidence: z.object({
+    bridging: z.object({
+      evidenceState: z.enum(['observed', 'insufficient']),
+      engagerCount: z.number().int().nonnegative(),
+      pairCount: z.number().int().nonnegative(),
+    }),
+  }),
+  baseScore: FiniteNumberSchema,
+});
+const ReplayEnvelopeSchema = z.object({
+  schemaVersion: z.literal(1),
+  runId: z.string().min(1),
+  communityId: z.string().min(1),
+  policyHash: z.string().regex(/^[a-f0-9]{64}$/),
+  configurationHash: z.string().regex(/^[a-f0-9]{64}$/),
+  asOf: z.string().datetime(),
+  sourceDiversityWeight: z.number().finite().min(0).max(1),
+  candidates: z.array(ReplayCandidateSchema),
+}).strict();
+
+type ReplayCandidate = z.infer<typeof ReplayCandidateSchema>;
 
 export interface RankingV2ShadowOptions {
   communityId: string;
@@ -66,22 +117,45 @@ export interface RankingV2ShadowResult {
   exclusionCount: number;
 }
 
+/** Reconstruct the exact v2 slate from one validated immutable replay envelope. */
 export function replayRankingV2Slate(
   envelope: RankingRunInputEnvelope,
-  sourceDiversityWeight: number
+  expectedSourceDiversityWeight?: number
 ): readonly RankedSlateItem[] {
-  const features = envelope.candidates.map((candidate, index) => replayFeature(candidate, index));
-  return new SourceDiversitySlateReranker(sourceDiversityWeight).rerank(
+  const parsed = ReplayEnvelopeSchema.parse(envelope);
+  if (
+    expectedSourceDiversityWeight !== undefined
+    && expectedSourceDiversityWeight !== parsed.sourceDiversityWeight
+  ) {
+    throw new Error(
+      `Replay sourceDiversityWeight mismatch: stored ${parsed.sourceDiversityWeight}, supplied ${expectedSourceDiversityWeight}`
+    );
+  }
+  const features = parsed.candidates.map(replayFeature);
+  return new SourceDiversitySlateReranker(parsed.sourceDiversityWeight).rerank(
     features,
     Math.min(RANKING_V2_SLATE_LIMIT, features.length)
   );
 }
 
-interface CandidateRow extends Record<string, unknown> {
+interface CandidateRow extends QueryResultRow {
   uri: string;
+  cid: string;
+  author_did: string;
+  text: string | null;
+  reply_root: string | null;
+  reply_parent: string | null;
+  langs: string[] | null;
+  has_media: boolean;
   created_at: Date | string;
+  topic_vector: Record<string, number> | null;
+  classification_method: string | null;
+  like_count: number;
+  repost_count: number;
+  reply_count: number;
 }
 
+/** Execute and persist one non-publishing v2 ranking run against a pinned policy. */
 export async function runRankingV2Shadow(
   pool: Pool,
   options: RankingV2ShadowOptions
@@ -91,6 +165,7 @@ export async function runRankingV2Shadow(
   const startedAt = Date.now();
   let context: RankingRunContext | null = null;
   let transactionOpen = false;
+  let releaseError: Error | undefined;
   try {
     await client.query('BEGIN');
     transactionOpen = true;
@@ -148,7 +223,7 @@ export async function runRankingV2Shadow(
       context.policy.topicWeights,
       bridging
     );
-    const sourceDiversityWeight = requiredWeight(context.policy.weights, 'sourceDiversity');
+    const sourceDiversityWeight = requireWeight(context.policy.weights, 'sourceDiversity');
     const slate = new SourceDiversitySlateReranker(sourceDiversityWeight).rerank(
       features,
       Math.min(RANKING_V2_SLATE_LIMIT, features.length)
@@ -160,6 +235,7 @@ export async function runRankingV2Shadow(
       policyHash: context.policy.policyHash,
       configurationHash: context.configurationHash,
       asOf: context.asOf,
+      sourceDiversityWeight,
       candidates: features.map(toReplayCandidate),
     };
     const compressed = createCompressedRankingInput(envelope);
@@ -217,14 +293,15 @@ export async function runRankingV2Shadow(
       }
     }
     if (cleanupErrors.length > 0) {
-      throw new AggregateError(
+      releaseError = new AggregateError(
         [error, ...cleanupErrors],
         `Ranking v2 failed and cleanup was incomplete: ${messageFromError(error)}`
       );
+      throw releaseError;
     }
     throw error;
   } finally {
-    client.release();
+    client.release(releaseError);
   }
 }
 
@@ -248,8 +325,9 @@ async function loadEligibleCandidates(
       WHERE p.deleted = FALSE
         AND p.created_at > $1
         AND p.created_at <= $2
-      ORDER BY p.created_at DESC, p.uri ASC`,
-    [cutoff.toISOString(), asOf.toISOString()]
+      ORDER BY p.created_at DESC, p.uri ASC
+      LIMIT $3`,
+    [cutoff.toISOString(), asOf.toISOString(), MAX_CANDIDATE_FETCH]
   );
   const inputs: RankingV2CandidateInput[] = [];
   let exclusionCount = 0;
@@ -262,11 +340,11 @@ async function loadEligibleCandidates(
     const relevance = scoreTopicVectorRelevance(post.topicVector, { ...topicWeights });
     const preliminaryScore = (
       scoreRecencyAt(post.createdAt, RANKING_V2_SCORING_WINDOW_HOURS, asOf)
-        * requiredWeight(weights, 'recency')
+        * requireWeight(weights, 'recency')
     ) + (
       scoreEngagement(post.likeCount, post.repostCount, post.replyCount)
-        * requiredWeight(weights, 'engagement')
-    ) + (relevance * requiredWeight(weights, 'relevance'));
+        * requireWeight(weights, 'engagement')
+    ) + (relevance * requireWeight(weights, 'relevance'));
     inputs.push({
       post,
       policyRelevance: relevance,
@@ -286,7 +364,12 @@ function toReplayCandidate(feature: ReturnType<typeof computeRankingV2Features>[
     immutable: {
       cid: feature.candidate.post.cid,
       text: feature.candidate.post.text,
+      replyRoot: feature.candidate.post.replyRoot,
+      replyParent: feature.candidate.post.replyParent,
+      langs: [...feature.candidate.post.langs],
+      hasMedia: feature.candidate.post.hasMedia,
       topicVector: feature.candidate.post.topicVector ?? {},
+      classificationMethod: feature.candidate.post.classificationMethod ?? null,
     },
     eventTime: {
       likeCount: feature.candidate.post.likeCount,
@@ -313,128 +396,38 @@ function policyContentRules(contentRules: JsonObject): ContentRules {
   return toContentRules(contentRules);
 }
 
-function requiredWeight(weights: Readonly<Record<string, number>>, key: string): number {
-  const value = weights[key];
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
-    throw new Error(`Pinned policy is missing weight in [0, 1] for ${key}`);
-  }
-  return value;
-}
-
-function replayFeature(candidate: JsonObject, index: number): ReturnType<typeof computeRankingV2Features>[number] {
-  const uri = requiredString(candidate.uri, `candidates[${index}].uri`);
-  const createdAt = requiredDate(candidate.createdAt, `candidates[${index}].createdAt`);
-  const authorDid = requiredString(candidate.authorDid, `candidates[${index}].authorDid`);
-  const immutable = requiredObject(candidate.immutable, `candidates[${index}].immutable`);
-  const eventTime = requiredObject(candidate.eventTime, `candidates[${index}].eventTime`);
-  const raw = numericRecord(candidate.raw, `candidates[${index}].raw`);
-  const weights = numericRecord(candidate.weights, `candidates[${index}].weights`);
-  const weighted = numericRecord(candidate.weighted, `candidates[${index}].weighted`);
-  const baseScore = requiredNumber(candidate.baseScore, `candidates[${index}].baseScore`);
-  const candidateSources = requiredCandidateSources(
-    candidate.candidateSources,
-    `candidates[${index}].candidateSources`
-  );
+function replayFeature(candidate: ReplayCandidate): ReturnType<typeof computeRankingV2Features>[number] {
+  const immutable = candidate.immutable;
+  const eventTime = candidate.eventTime;
   return {
     candidate: {
       post: {
-        uri,
-        cid: requiredString(immutable.cid, `candidates[${index}].immutable.cid`),
-        authorDid,
-        text: optionalString(immutable.text, `candidates[${index}].immutable.text`),
-        replyRoot: null,
-        replyParent: null,
-        langs: [],
-        hasMedia: false,
-        createdAt,
-        likeCount: requiredNumber(eventTime.likeCount, `candidates[${index}].eventTime.likeCount`),
-        repostCount: requiredNumber(eventTime.repostCount, `candidates[${index}].eventTime.repostCount`),
-        replyCount: requiredNumber(eventTime.replyCount, `candidates[${index}].eventTime.replyCount`),
-        topicVector: numericRecord(
-          immutable.topicVector,
-          `candidates[${index}].immutable.topicVector`
-        ),
-        classificationMethod: 'keyword',
+        uri: candidate.uri,
+        cid: immutable.cid,
+        authorDid: candidate.authorDid,
+        text: immutable.text,
+        replyRoot: immutable.replyRoot,
+        replyParent: immutable.replyParent,
+        langs: immutable.langs,
+        hasMedia: immutable.hasMedia,
+        createdAt: new Date(candidate.createdAt),
+        likeCount: eventTime.likeCount,
+        repostCount: eventTime.repostCount,
+        replyCount: eventTime.replyCount,
+        topicVector: immutable.topicVector,
+        classificationMethod: immutable.classificationMethod ?? undefined,
       },
-      policyRelevance: raw.relevance ?? 0,
+      policyRelevance: candidate.raw.relevance ?? 0,
       previousSnapshotPosition: null,
-      preliminaryScore: baseScore,
-      candidateSources,
+      preliminaryScore: candidate.baseScore,
+      candidateSources: candidate.candidateSources,
     },
-    raw,
-    weights,
-    weighted,
-    evidence: requiredObject(candidate.evidence, `candidates[${index}].evidence`),
-    baseScore,
+    raw: candidate.raw,
+    weights: candidate.weights,
+    weighted: candidate.weighted,
+    evidence: candidate.evidence,
+    baseScore: candidate.baseScore,
   };
-}
-
-function requiredObject(value: JsonValue | undefined, label: string): JsonObject {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error(`${label} must be an object`);
-  }
-  return value;
-}
-
-function requiredString(value: JsonValue | undefined, label: string): string {
-  if (typeof value !== 'string' || value.length === 0) {
-    throw new Error(`${label} must be a non-empty string`);
-  }
-  return value;
-}
-
-function optionalString(value: JsonValue | undefined, label: string): string | null {
-  if (value === null) return null;
-  if (typeof value !== 'string') {
-    throw new Error(`${label} must be a string or null`);
-  }
-  return value;
-}
-
-function requiredNumber(value: JsonValue | undefined, label: string): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new Error(`${label} must be a finite number`);
-  }
-  return value;
-}
-
-function requiredDate(value: JsonValue | undefined, label: string): Date {
-  const date = new Date(requiredString(value, label));
-  if (!Number.isFinite(date.getTime())) {
-    throw new Error(`${label} must be a valid timestamp`);
-  }
-  return date;
-}
-
-function numericRecord(value: JsonValue | undefined, label: string): Record<string, number> {
-  const object = requiredObject(value, label);
-  const output: Record<string, number> = {};
-  for (const [key, member] of Object.entries(object)) {
-    output[key] = requiredNumber(member, `${label}.${key}`);
-  }
-  return output;
-}
-
-function requiredCandidateSources(
-  value: JsonValue | undefined,
-  label: string
-): readonly CandidateSource[] {
-  if (!Array.isArray(value)) {
-    throw new Error(`${label} must be an array`);
-  }
-  const allowed = new Set<CandidateSource>([
-    'newest',
-    'engagement',
-    'policy_relevance',
-    'previous_snapshot',
-    'preliminary_fill',
-  ]);
-  return value.map((member, index) => {
-    if (typeof member !== 'string' || !allowed.has(member as CandidateSource)) {
-      throw new Error(`${label}[${index}] is not a valid candidate source`);
-    }
-    return member as CandidateSource;
-  });
 }
 
 function assertOptions(options: RankingV2ShadowOptions): void {

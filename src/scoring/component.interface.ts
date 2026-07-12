@@ -45,11 +45,11 @@ export interface ScoringComponent {
   readonly name: string;
   /** Score a post. Must return a value between 0.0 and 1.0. */
   score(post: PostForScoring, context: ScoringContext): Promise<number>;
-  /** Optional efficient path for components that can score a whole run at once. */
+  /** Optional efficient path keyed by `${uri}\0${createdAt.toISOString()}`. */
   scoreBatch?(
     posts: readonly PostForScoring[],
     context: ScoringContext
-  ): Promise<ReadonlyMap<PostForScoring, number>>;
+  ): Promise<ReadonlyMap<string, number>>;
 }
 
 export interface SlateReranker<TInput, TOutput> {

@@ -1,4 +1,8 @@
-import type { JsonObject, RankedSlateItem } from '../shared/ranking-contracts.js';
+import type {
+  ComponentEvidence,
+  JsonObject,
+  RankedSlateItem,
+} from '../shared/ranking-contracts.js';
 import type { SlateReranker } from './component.interface.js';
 import type { RankingV2FeatureVector } from './ranking-v2-features.js';
 
@@ -9,6 +13,9 @@ export interface DiversitySelectionContext {
   weighted: number;
 }
 
+export const RANKING_V2_SLATE_LIMIT = 1000;
+
+/** Apply the governed source-diversity objective during deterministic slate selection. */
 export class SourceDiversitySlateReranker implements SlateReranker<RankingV2FeatureVector, RankedSlateItem> {
   readonly key = 'sourceDiversity';
 
@@ -22,8 +29,10 @@ export class SourceDiversitySlateReranker implements SlateReranker<RankingV2Feat
     items: readonly RankingV2FeatureVector[],
     limit: number
   ): readonly RankedSlateItem[] {
-    if (!Number.isInteger(limit) || limit < 0 || limit > 1000) {
-      throw new RangeError(`slate limit must be an integer in [0, 1000], got ${limit}`);
+    if (!Number.isInteger(limit) || limit < 0 || limit > RANKING_V2_SLATE_LIMIT) {
+      throw new RangeError(
+        `slate limit must be an integer in [0, ${RANKING_V2_SLATE_LIMIT}], got ${limit}`
+      );
     }
     const remaining = [...items];
     const authorCounts = new Map<string, number>();
@@ -53,6 +62,7 @@ export const SLATE_RERANKERS: Readonly<Record<string, typeof SourceDiversitySlat
   sourceDiversity: SourceDiversitySlateReranker,
 };
 
+/** Return the governed diversity value for an author's next selected post. */
 export function diversityRaw(authorCountBeforeSelection: number): number {
   if (!Number.isInteger(authorCountBeforeSelection) || authorCountBeforeSelection < 0) {
     throw new RangeError(`author count must be a non-negative integer, got ${authorCountBeforeSelection}`);
@@ -92,20 +102,27 @@ function toRankedSlateItem(
   diversity: DiversitySelectionContext,
   position: number
 ): RankedSlateItem {
-  const componentDecomposition: JsonObject = {};
+  const scoreComponents: Record<string, ComponentEvidence> = {};
   for (const key of Object.keys(item.raw).sort()) {
-    componentDecomposition[key] = {
+    scoreComponents[key] = {
       raw: item.raw[key],
       weight: item.weights[key],
       weighted: item.weighted[key],
+      evidenceState: key === 'bridging'
+        ? item.evidence.bridging.evidenceState
+        : 'observed',
     };
   }
-  componentDecomposition.sourceDiversity = {
+  scoreComponents.sourceDiversity = {
     raw: diversity.raw,
     weight: diversity.weight,
     weighted: diversity.weighted,
+    evidenceState: 'observed',
   };
-  componentDecomposition.evidence = item.evidence;
+  const componentDecomposition: JsonObject = {
+    ...scoreComponents,
+    evidence: item.evidence,
+  };
 
   return {
     position,

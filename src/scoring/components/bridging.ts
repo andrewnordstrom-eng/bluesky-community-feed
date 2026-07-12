@@ -131,6 +131,7 @@ export async function scoreBridging(
   return Math.min(1.0, avgDistance);
 }
 
+/** Batch the engager and follow reads for all candidates in one ranking run. */
 export async function scoreBridgingBatch(
   client: PoolClient,
   posts: readonly PostForScoring[]
@@ -201,6 +202,7 @@ export async function scoreBridgingBatch(
   return output;
 }
 
+/** Compute bridging evidence from deterministic engager and follow-set inputs. */
 export function calculateBridgingEvidence(
   engagers: readonly string[],
   followSets: ReadonlyMap<string, ReadonlySet<string>>
