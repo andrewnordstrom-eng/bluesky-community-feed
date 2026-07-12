@@ -274,8 +274,8 @@ export function createMockShadowDemoClient(options: MockShadowDemoClientOptions 
         isolation: ISOLATION,
         capabilities: CAPABILITIES,
         corpusProvenance: {
-          mode: "production_sourced_session_frozen",
-          label: "Live-scored snapshot",
+          mode: "illustrative_fixture_session_frozen",
+          label: "Illustrative mechanics fixture",
           description: "Illustrative fallback frozen for deterministic mock verification.",
           corpusId: `demo_corpus_${sessionId}`,
           productionEpochId: 0,
@@ -284,6 +284,12 @@ export function createMockShadowDemoClient(options: MockShadowDemoClientOptions 
           topicScoreThreshold: 0.5,
           eligiblePostCount: fixture.corpus.length,
         },
+        topicCatalog: fixture.topics.map((topic) => ({
+          slug: topic.slug,
+          name: topic.label,
+          description: null,
+          baselineWeight: topic.baselineWeight,
+        })),
       }
       const state: SessionState = {
         session,
@@ -314,6 +320,7 @@ export function createMockShadowDemoClient(options: MockShadowDemoClientOptions 
       if (replayed) {
         return replayed
       }
+      validateMockTopicIntent(state, request.topicIntent)
       if (
         state.session.phase === "reranked" &&
         state.publishedEpoch !== null &&
@@ -630,4 +637,18 @@ export function createMockShadowDemoClient(options: MockShadowDemoClientOptions 
   }
 
   return client
+}
+
+function validateMockTopicIntent(state: SessionState, topicIntent: CastShadowDemoVoteRequest["topicIntent"]): void {
+  const catalogSlugs = (state.session.topicCatalog ?? []).map((topic) => topic.slug)
+  const submittedEntries = Object.entries(topicIntent.topicWeights)
+  if (catalogSlugs.length === 0 || new Set(catalogSlugs).size !== catalogSlugs.length) {
+    throw new ShadowDemoClientError("The frozen topic catalog must contain unique topic slugs.", "invalid_request")
+  }
+  if (
+    submittedEntries.length !== catalogSlugs.length
+    || submittedEntries.some(([slug, weight]) => !catalogSlugs.includes(slug) || !Number.isFinite(weight) || weight < 0 || weight > 1)
+  ) {
+    throw new ShadowDemoClientError("The vote must include the complete frozen topic catalog.", "invalid_request")
+  }
 }

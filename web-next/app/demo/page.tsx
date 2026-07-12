@@ -14,6 +14,12 @@ import { AgentsPanel } from "@/components/demo/agents-panel"
 import { ReceiptPanel } from "@/components/demo/receipt-panel"
 import { FlowProgress } from "@/components/demo/flow-progress"
 import { DemoDisclosure } from "@/components/demo/demo-disclosure"
+import {
+  LiveProofPanel,
+  getDegradedCorpusWarning,
+  getDemoCorpusPresentation,
+  getReceiptSelectionAnnouncement,
+} from "@/components/demo/live-proof-panel"
 import { getDemoClient } from "./demo-client"
 import { DemoRequestCoordinator } from "./demo-request-coordinator"
 import type { DemoRequestContext } from "./demo-request-coordinator"
@@ -30,6 +36,7 @@ import type {
   ShadowDemoSession,
   ShadowDemoTopicIntent,
   ShadowDemoVote,
+  ShadowDemoWarning,
   ShadowDemoWeights,
 } from "./shadow-demo-view-model"
 
@@ -78,6 +85,9 @@ export default function DemoPage() {
   const [selectedUri, setSelectedUri] = useState<string | null>(null)
   const [receipt, setReceipt] = useState<ShadowDemoReceipt | null>(null)
   const [mobileView, setMobileView] = useState<"feed" | "receipt">("feed")
+  const [sessionWarnings, setSessionWarnings] = useState<readonly ShadowDemoWarning[]>([])
+  const [receiptFocusRequest, setReceiptFocusRequest] = useState(0)
+  const [receiptAnnouncement, setReceiptAnnouncement] = useState("")
   const [freePlayEnabled, setFreePlayEnabled] = useState(false)
   const [startingNextEpoch, setStartingNextEpoch] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -90,6 +100,8 @@ export default function DemoPage() {
   const phase = startingNextEpoch ? "corpus_ready" : (session?.phase ?? null)
   const feed = feedAfter ?? baselineFeed
   const reranked = phase === "reranked" || phase === "epoch_transitioned"
+  const corpusPresentation = feed === null ? null : getDemoCorpusPresentation(feed)
+  const usesMechanicsFixture = corpusPresentation?.usesMechanicsFixture ?? false
 
   useEffect(() => () => requestCoordinator.current.cancel(), [])
 
@@ -103,6 +115,20 @@ export default function DemoPage() {
       block: "start",
     })
   }, [phase, reduceMotion, session])
+
+  useEffect(() => {
+    if (!reranked || mobileView !== "receipt" || selectedUri === null || receiptFocusRequest === 0) return
+    const frame = window.requestAnimationFrame(() => {
+      const panel = panelRef.current
+      if (panel === null) return
+      panel.focus({ preventScroll: true })
+      panel.scrollIntoView({
+        behavior: reduceMotion ? "auto" : "smooth",
+        block: "start",
+      })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [mobileView, receiptFocusRequest, reduceMotion, reranked, selectedUri])
 
   async function run(
     action: (request: DemoRequestContext) => Promise<void>,
@@ -139,8 +165,10 @@ export default function DemoPage() {
   }
 
   async function recoverSession(sessionId: string, request: DemoRequestContext): Promise<void> {
-    const { payload } = await client.getSession(sessionId, request.signal)
+    const response = await client.getSession(sessionId, request.signal)
     if (!request.isCurrent()) return
+    const { payload } = response
+    setSessionWarnings(response.warnings)
     setStartingNextEpoch(false)
     setSession(payload.session)
     setCommunity(payload.community)
@@ -165,13 +193,15 @@ export default function DemoPage() {
 
   function handleStart(communityId: ShadowDemoCommunityId): void {
     void run(async (request) => {
-      const { payload } = await client.createSession(
+      const response = await client.createSession(
         { communityId, scenarioId: "guided_default", clientNonce: uid(), mode: "guided" },
         request.signal,
       )
       if (!request.isCurrent()) {
         return
       }
+      const { payload } = response
+      setSessionWarnings(response.warnings)
       setSession(payload.session)
       setCommunity(payload.community)
       setOpenEpochId(payload.currentEpoch.id)
@@ -188,7 +218,7 @@ export default function DemoPage() {
       return
     }
     void run(async (request) => {
-      const { payload } = await client.castVote(
+      const response = await client.castVote(
         session.id,
         { idempotencyKey: `${session.id}:${openEpochId}:vote`, baseEpochId: openEpochId, voterLabel: LABELS.reviewerVoter, weights, topicIntent },
         request.signal,
@@ -196,6 +226,8 @@ export default function DemoPage() {
       if (!request.isCurrent()) {
         return
       }
+      const { payload } = response
+      setSessionWarnings(response.warnings)
       setSession(payload.session)
       setStartingNextEpoch(false)
     }, session.id)
@@ -206,7 +238,7 @@ export default function DemoPage() {
       return
     }
     void run(async (request) => {
-      const { payload } = await client.runAgents(
+      const response = await client.runAgents(
         session.id,
         { idempotencyKey: `${session.id}:${openEpochId}:voters`, baseEpochId: openEpochId },
         request.signal,
@@ -214,6 +246,8 @@ export default function DemoPage() {
       if (!request.isCurrent()) {
         return
       }
+      const { payload } = response
+      setSessionWarnings(response.warnings)
       setAgents(payload.agents)
       setAgentVotes(payload.agentVotes)
       setPendingAggregate(payload.pendingAggregate)
@@ -226,7 +260,7 @@ export default function DemoPage() {
       return
     }
     void run(async (request) => {
-      const { payload } = await client.advanceEpoch(
+      const response = await client.advanceEpoch(
         session.id,
         { idempotencyKey: `${session.id}:${openEpochId}:advance`, fromEpochId: openEpochId },
         request.signal,
@@ -234,6 +268,8 @@ export default function DemoPage() {
       if (!request.isCurrent()) {
         return
       }
+      const { payload } = response
+      setSessionWarnings(response.warnings)
       setFeedAfter(payload.feedAfter)
       setPublishedEpoch(payload.currentEpoch)
       setOpenEpochId(payload.currentEpoch.id)
@@ -253,17 +289,25 @@ export default function DemoPage() {
     postUri: string,
     request: DemoRequestContext,
   ): Promise<void> {
+    const selectedRank = feed?.items.find(
+      (item): item is ShadowDemoPublicFeedItem => item.visibility === "public" && item.post.uri === postUri,
+    )?.rank ?? null
     setSelectedUri(postUri)
     setReceipt(null)
     setMobileView("receipt")
-    const { payload } = await client.getReceipt(sessionId, { epochId, postUri }, request.signal)
+    setReceiptAnnouncement(getReceiptSelectionAnnouncement(selectedRank, false))
+    setReceiptFocusRequest((current) => current + 1)
+    const response = await client.getReceipt(sessionId, { epochId, postUri }, request.signal)
     if (!request.isCurrent()) {
       return
     }
+    const { payload } = response
+    setSessionWarnings(response.warnings)
     if (payload.receipt.postUri !== postUri || payload.receipt.epochId !== epochId) {
       throw new Error("Corgi refused a receipt that did not match the selected post and epoch.")
     }
     setReceipt(payload.receipt)
+    setReceiptAnnouncement(getReceiptSelectionAnnouncement(selectedRank, true))
   }
 
   function handleSelect(postUri: string): void {
@@ -285,6 +329,8 @@ export default function DemoPage() {
     setFreePlayEnabled(false)
     clearRoundState()
     setError(null)
+    setSessionWarnings([])
+    setReceiptAnnouncement("")
   }
 
   function handleAnotherEpoch(): void {
@@ -303,6 +349,13 @@ export default function DemoPage() {
     feed?.items.find(
       (item): item is ShadowDemoPublicFeedItem => item.visibility === "public" && item.post.uri === selectedUri,
     ) ?? null
+  const baselineTopicIntent = baselineFeed?.aggregate.topicIntent ?? { topicWeights: {} }
+  const topicCatalog = session?.topicCatalog ?? []
+  const baselineTopicSlugs = Object.keys(baselineTopicIntent.topicWeights)
+  const topicCatalogComplete = topicCatalog.length === 26
+    && new Set(topicCatalog.map((topic) => topic.slug)).size === 26
+    && baselineTopicSlugs.length === 26
+    && baselineTopicSlugs.every((slug) => topicCatalog.some((topic) => topic.slug === slug))
 
   // Which step panel the right column shows — also the AnimatePresence key, so
   // advancing fades one panel out and the next in (agents phase stays one key so
@@ -317,8 +370,20 @@ export default function DemoPage() {
           : "none"
 
   const rightPanel =
-    phase === "corpus_ready" ? (
-      <VotePanel onSubmit={handleVote} busy={busy} />
+    phase === "corpus_ready" && !topicCatalogComplete ? (
+      <div role="alert" className="rounded-[1.5rem] border border-destructive/30 bg-destructive/5 px-5 py-6">
+        <h2 className="font-display text-xl font-bold text-foreground">Policy controls unavailable</h2>
+        <p className="mt-2 text-sm leading-relaxed text-foreground/65">
+          Corgi could not verify the complete frozen 26-topic policy. Start a new session after the snapshot is repaired.
+        </p>
+      </div>
+    ) : phase === "corpus_ready" ? (
+      <VotePanel
+        onSubmit={handleVote}
+        busy={busy}
+        topicCatalog={topicCatalog}
+        baselineTopicIntent={baselineTopicIntent}
+      />
     ) : phase === "reviewer_vote_cast" || phase === "agent_votes_cast" ? (
       <AgentsPanel
         agents={agents}
@@ -327,6 +392,8 @@ export default function DemoPage() {
         onRun={handleRunAgents}
         onAdvance={handleAdvance}
         busy={busy}
+        topicCatalog={topicCatalog}
+        baselineTopicIntent={baselineTopicIntent}
       />
     ) : reranked ? (
       receipt !== null && selectedItem !== null && publishedEpoch !== null && session !== null ? (
@@ -384,7 +451,10 @@ export default function DemoPage() {
         ) : null}
 
         <p className="sr-only" aria-live="polite">
-          {busy ? "Updating the shadow demo." : session === null ? "Choose a community to begin." : `Demo phase: ${phase}.`}
+          {busy ? "Updating the shadow demo." : session === null ? "Start a Community Governed Feed demo session." : `Demo phase: ${phase}.`}
+        </p>
+        <p className="sr-only" aria-live="polite" aria-atomic="true">
+          {receiptAnnouncement}
         </p>
 
         <div className="mt-7">
@@ -436,17 +506,20 @@ export default function DemoPage() {
                     <div>
                       <h2 className="text-lg font-bold text-foreground">{community.name}</h2>
                       <p className="text-xs text-foreground/55">
-                        {feed.rankingSource === "live_public_posts_shadow_weights"
-                          ? LABELS.corpusFrozen
-                          : LABELS.corpusFallback}
+                        {corpusPresentation?.provenanceLine}
                       </p>
+                      <p className="mt-1 text-[11px] font-medium text-primary/75">Shadow session · never changes the public feed</p>
                     </div>
                     <p className="text-[11px] font-mono text-foreground/45">
-                      {feed.corpusHealth.displayedPublicPostCount} in view · {feed.corpusHealth.displayedHiddenPostCount} withheld ·{" "}
-                      {feed.corpusHealth.candidatePostCount.toLocaleString()} candidates /{" "}
-                      {feed.corpusHealth.uniqueAuthorCount.toLocaleString()} authors over 72h
+                      {corpusPresentation?.metricsLine}
                     </p>
                   </div>
+                  {usesMechanicsFixture ? (
+                    <div role="status" className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs leading-relaxed text-foreground/70">
+                      <span className="font-semibold text-foreground">Mechanics fixture:</span>{" "}
+                      {getDegradedCorpusWarning(sessionWarnings)}
+                    </div>
+                  ) : null}
                   <CorpusFeed
                     feed={feed}
                     communityName={community.name}
@@ -462,7 +535,7 @@ export default function DemoPage() {
                     sticks, so the short vote/agents panels follow the scroll
                     instead of stranding a void beside the tall feed. */}
                 <div className={`order-1 xl:order-2 ${reranked && mobileView === "feed" ? "hidden xl:block" : ""}`}>
-                  <div ref={panelRef} tabIndex={-1} className="scroll-mt-20 focus:outline-none xl:sticky xl:top-24">
+                  <div ref={panelRef} tabIndex={-1} aria-label={reranked ? "Ranking receipt" : undefined} className="scroll-mt-20 focus:outline-none xl:sticky xl:top-24">
                     <AnimatePresence mode="wait" initial={false}>
                       <motion.div
                         key={panelKey}
@@ -481,6 +554,7 @@ export default function DemoPage() {
           </AnimatePresence>
         </div>
 
+        <LiveProofPanel provenance={session?.corpusProvenance ?? null} usesMechanicsFixture={usesMechanicsFixture} />
         <DemoDisclosure />
       </Container>
       <FooterSection />

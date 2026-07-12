@@ -1,8 +1,7 @@
 "use client"
 
 import { ArrowRight } from "lucide-react"
-import { SHADOW_DEMO_COMMUNITY_IDS, type ShadowDemoCommunityId } from "@/app/demo/shadow-demo-view-model"
-import { DEMO_COMMUNITIES } from "@/app/demo/shadow-demo-fixtures"
+import type { ShadowDemoCommunityId } from "@/app/demo/shadow-demo-view-model"
 import { STEP_PANELS } from "@/app/demo/shadow-demo-copy"
 
 const FOCUS =
@@ -15,12 +14,7 @@ export function CommunityPicker({
   readonly onStart: (communityId: ShadowDemoCommunityId) => void
   readonly busy: boolean
 }) {
-  // The demo runs on the single live community; the others are still previews.
-  const activeId = SHADOW_DEMO_COMMUNITY_IDS.find((id) => !DEMO_COMMUNITIES[id].isPreview)
-  if (activeId === undefined) {
-    throw new Error("Shadow demo requires one active community configuration.")
-  }
-  const { community } = DEMO_COMMUNITIES[activeId]
+  const activeId: ShadowDemoCommunityId = "community_gov"
 
   return (
     <div>
@@ -31,10 +25,12 @@ export function CommunityPicker({
 
       <div className="mt-6 flex max-w-xl flex-col rounded-2xl border border-primary/25 bg-primary/[0.04] px-6 py-6 shadow-[0_2px_16px_rgba(46,38,32,0.06)]">
         <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-primary/65">
-          Live demo community
+          Public feed · isolated shadow session
         </span>
-        <h3 className="mt-2 font-display text-2xl font-bold text-foreground">{community.name}</h3>
-        <p className="mt-2 text-[15px] leading-relaxed text-foreground/62">{community.tagline}</p>
+        <h3 className="mt-2 font-display text-2xl font-bold text-foreground">Community Governed Feed</h3>
+        <p className="mt-2 text-[15px] leading-relaxed text-foreground/62">
+          Freeze a reviewer-safe comparison set from Corgi&apos;s published Bluesky feed, then run governance without changing what the public sees.
+        </p>
         <button
           type="button"
           onClick={() => onStart(activeId)}

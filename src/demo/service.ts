@@ -1,4 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { config } from '../config.js';
+import { applyFeedUrlDedup, FEED_URL_DEDUP_DECAY } from '../scoring/feed-publication.js';
 import { DEMO_COMMUNITIES, createDefaultCorpusLoader } from './corpus.js';
 import { createSyntheticVoterVotes, getShadowDemoVoterProfiles } from './synthetic-voters.js';
 import {
@@ -19,6 +21,7 @@ import {
   type ShadowDemoCommunityId,
   type ShadowDemoCorpus,
   type ShadowDemoCorpusItem,
+  type ShadowDemoPublicationPolicy,
   type ShadowDemoCounterfactual,
   type ShadowDemoEpoch,
   type ShadowDemoFeedPayload,
@@ -39,7 +42,11 @@ import {
   scoreFromRawWeights,
   validateShadowWeights,
 } from './weights.js';
-import { cloneShadowTopicIntent, validateShadowTopicIntent } from './topic-intent.js';
+import {
+  cloneShadowTopicIntent,
+  validateShadowTopicIntent,
+  validateShadowTopicIntentForCatalog,
+} from './topic-intent.js';
 
 const LOCK_TTL_MS = 15000;
 const CORPUS_BUILD_LOCK_TTL_MS = 15000;
@@ -227,7 +234,7 @@ export class ShadowDemoService {
       assertCurrentEpoch(state, request.baseEpochId);
       assertPhaseForReviewerVote(state);
       const weights = validateWeightsForApi(request.weights);
-      const topicIntent = validateTopicIntentForApi(request.topicIntent);
+      const topicIntent = validateTopicIntentForSession(state, request.topicIntent);
       const now = this.now().toISOString();
       const reviewerVote: ShadowDemoVote = {
         id: `vote-reviewer-${request.baseEpochId}`,
@@ -433,6 +440,10 @@ export class ShadowDemoService {
           visibleRank: rankedPost.rank,
           previousRank: rankedPost.previousRank,
           score: rankedPost.score,
+          componentScore: rankedPost.componentScore ?? rankedPost.score,
+          publicationAdjustment: rankedPost.publicationAdjustment ?? 1,
+          publishedRank: rankedPost.publishedRank,
+          publishedScore: rankedPost.publishedScore,
           scoredAt: item.scoredAt,
           aggregate: epoch.aggregate,
           reviewerBallotShare: reviewerBallotShareFor(state, epoch),
@@ -653,13 +664,55 @@ function sessionPayload(state: ShadowDemoSessionState): ShadowDemoSessionPayload
       syntheticVoterCount: SHADOW_DEMO_SYNTHETIC_VOTER_COUNT,
       totalDemoVoters: SHADOW_DEMO_TOTAL_DEMO_VOTERS,
       corpusProvenance: corpusProvenanceFor(state),
-      voterProfiles: getShadowDemoVoterProfiles(),
+      voterProfiles: getShadowDemoVoterProfiles(state.communityId),
       votes: state.votes,
+      topicCatalog: state.corpus.topicCatalog,
+      sourceFeedUri: state.corpus.sourceFeedUri,
     },
   };
 }
 
 function corpusProvenanceFor(state: ShadowDemoSessionState): ShadowDemoSessionPayload['session']['corpusProvenance'] {
+  if (state.corpus.health.source === 'fixture_fallback') {
+    return {
+      mode: 'illustrative_fixture_session_frozen',
+      label: 'Illustrative mechanics fixture',
+      description:
+        'Illustrative posts and score inputs are frozen for this session because the approved production snapshot was unavailable or did not pass its release gates.',
+      corpusId: state.corpusId,
+      productionEpochId: state.corpus.baseProductionEpochId,
+      sampledAt: state.corpus.health.sampledAt,
+      windowHours: 0,
+      topicScoreThreshold: 0,
+      eligiblePostCount: state.corpus.items.length,
+    };
+  }
+  if (state.communityId === 'community_gov' && state.corpus.sourceSnapshot) {
+    if (!state.corpus.sourceFeedUri) {
+      throw new Error(`Community Governed Feed snapshot corpus is missing its source feed URI: ${state.corpusId}`);
+    }
+    return {
+      mode: 'production_feed_snapshot_session_frozen',
+      label: 'Reviewer-safe snapshot of the live Community Governed Feed',
+      description:
+        'Posts were sourced from the published Community Governed Feed and frozen so rank movement is attributable to shadow policy changes.',
+      corpusId: state.corpusId,
+      productionEpochId: state.corpus.baseProductionEpochId,
+      sampledAt: state.corpus.health.sampledAt,
+      windowHours: 0,
+      topicScoreThreshold: 0,
+      eligiblePostCount: state.corpus.health.eligiblePostCount ?? state.corpus.items.length,
+      sourceFeedUri: state.corpus.sourceFeedUri,
+      sourceFeedName: state.corpus.sourceSnapshot.feedName,
+      sourceSnapshotDigest: state.corpus.sourceSnapshot.digest,
+      sourceRunId: state.corpus.sourceSnapshot.runId,
+      sourceUpdatedAt: state.corpus.sourceSnapshot.updatedAt,
+      sourceReviewedAt: state.corpus.sourceSnapshot.reviewedAt ?? undefined,
+      sourcePostCount: state.corpus.sourceSnapshot.sourcePostCount,
+      selectionPolicyVersion: state.corpus.sourceSnapshot.selectionPolicyVersion,
+      baselineOrderDigest: state.corpus.sourceSnapshot.baselineOrderDigest,
+    };
+  }
   return {
     ...SHADOW_DEMO_CORPUS_PROVENANCE,
     corpusId: state.corpusId,
@@ -746,6 +799,36 @@ function validateTopicIntentForApi(value: unknown): ShadowDemoTopicIntent {
   }
 }
 
+function validateTopicIntentForSession(
+  state: ShadowDemoSessionState,
+  value: unknown
+): ShadowDemoTopicIntent {
+  if (state.communityId !== 'community_gov') {
+    return validateTopicIntentForApi(value);
+  }
+  const topicSlugs = (state.corpus.topicCatalog ?? []).map((topic) => topic.slug);
+  let intent: ShadowDemoTopicIntent;
+  try {
+    intent = validateShadowTopicIntentForCatalog(value, topicSlugs);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new DemoValidationError(message);
+  }
+  const expected = new Set(topicSlugs);
+  const received = Object.keys(intent.topicWeights);
+  if (expected.size === 0) {
+    throw new DemoValidationError('Community Governed Feed topic catalog is unavailable for this session');
+  }
+  const missing = [...expected].filter((slug) => intent.topicWeights[slug] === undefined);
+  const unknown = received.filter((slug) => !expected.has(slug));
+  if (missing.length > 0 || unknown.length > 0 || received.length !== expected.size) {
+    throw new DemoValidationError(
+      `Community Governed Feed vote must include the complete frozen topic catalog; missing=${missing.join(',') || 'none'} unknown=${unknown.join(',') || 'none'}`
+    );
+  }
+  return intent;
+}
+
 function assertCurrentEpoch(state: ShadowDemoSessionState, epochId: string): void {
   if (state.currentEpochId !== epochId) {
     throw new DemoConflictError(
@@ -820,27 +903,19 @@ function rankedPosts(options: {
   limit: number;
 }): ShadowDemoRankedPost[] {
   const previousRanks = options.previousEpoch
-    ? rankMapForEpoch(options.corpus.items, options.previousEpoch)
+    ? rankMapForEpoch(options.corpus, options.previousEpoch)
     : new Map<string, number>();
-  return options.corpus.items
-    .map((item) => {
-      const scored = scoreFromRawWeights(
-        item.rawScores,
-        options.epoch.aggregate.weights,
-        item.topicVector,
-        options.epoch.aggregate.topicIntent
-      );
-      return {
-        item,
-        score: scored.score,
-        weightedComponents: scored.weightedComponents,
-        effectiveRawScores: scored.effectiveRawScores,
-      };
-    })
-    .sort((left, right) => right.score - left.score || left.item.postUri.localeCompare(right.item.postUri))
+  const isPublishedBaseline = options.corpus.communityId === 'community_gov' && options.epoch.sequence === 1;
+  return scoreAndPublishItems(
+    options.corpus.items,
+    options.epoch.aggregate.weights,
+    options.epoch.aggregate.topicIntent,
+    isPublishedBaseline,
+    publicationPolicyFor(options.corpus)
+  )
     .slice(0, options.limit)
     .map((entry, index) => {
-      const rank = index + 1;
+      const rank = isPublishedBaseline ? entry.item.publishedRank ?? index + 1 : index + 1;
       const previousRank = previousRanks.get(entry.item.postUri) ?? null;
       return {
         rank,
@@ -851,23 +926,29 @@ function rankedPosts(options: {
           entry.item.displayPost.kind === 'public_post' ? entry.weightedComponents : null,
         rawScores: entry.item.displayPost.kind === 'public_post' ? entry.effectiveRawScores : null,
         post: entry.item.displayPost,
+        publishedRank: entry.item.publishedRank,
+        publishedScore: entry.item.publishedScore,
+        componentScore: entry.item.displayPost.kind === 'public_post' ? entry.componentScore : null,
+        publicationAdjustment: entry.item.displayPost.kind === 'public_post'
+          ? entry.publicationAdjustment
+          : null,
       };
     });
 }
 
-function rankMapForEpoch(items: ShadowDemoCorpusItem[], epoch: ShadowDemoEpoch): Map<string, number> {
+function rankMapForEpoch(corpus: ShadowDemoCorpus, epoch: ShadowDemoEpoch): Map<string, number> {
   const ranks = new Map<string, number>();
-  items
-    .map((item) => ({
-      item,
-      score: scoreFromRawWeights(
-        item.rawScores,
-        epoch.aggregate.weights,
-        item.topicVector,
-        epoch.aggregate.topicIntent
-      ).score,
-    }))
-    .sort((left, right) => right.score - left.score || left.item.postUri.localeCompare(right.item.postUri))
+  if (epoch.sequence === 1 && corpus.items.every((item) => item.publishedRank !== undefined)) {
+    for (const item of corpus.items) ranks.set(item.postUri, item.publishedRank as number);
+    return ranks;
+  }
+  scoreAndPublishItems(
+    corpus.items,
+    epoch.aggregate.weights,
+    epoch.aggregate.topicIntent,
+    false,
+    publicationPolicyFor(corpus)
+  )
     .forEach((entry, index) => ranks.set(entry.item.postUri, index + 1));
   return ranks;
 }
@@ -896,16 +977,24 @@ function counterfactualsForReceipt(options: {
   const previousWeights = previousEpoch?.aggregate.weights ?? options.state.corpus.baseWeights;
   const previousTopicIntent = previousEpoch?.aggregate.topicIntent ?? options.state.corpus.baseTopicIntent;
   const directReviewerBallotRemoved = aggregateWithoutReviewerVote(options.state, options.epoch);
+  const previousCounterfactual = previousEpoch?.sequence === 1 && options.item.publishedRank !== undefined
+    ? {
+        label: 'previous_epoch' as const,
+        description: 'Published rank in the frozen Community Governed Feed baseline.',
+        rank: options.item.publishedRank,
+        deltaFromVisible: options.item.publishedRank - options.visibleRank,
+      }
+    : counterfactualForWeights({
+        label: 'previous_epoch',
+        description: 'Rank under the policy applied in the prior shadow epoch.',
+        state: options.state,
+        item: options.item,
+        weights: previousWeights,
+        topicIntent: previousTopicIntent,
+        visibleRank: options.visibleRank,
+      });
   return [
-    counterfactualForWeights({
-      label: 'previous_epoch',
-      description: 'Rank under the policy applied in the prior shadow epoch.',
-      state: options.state,
-      item: options.item,
-      weights: previousWeights,
-      topicIntent: previousTopicIntent,
-      visibleRank: options.visibleRank,
-    }),
+    previousCounterfactual,
     counterfactualForWeights({
       label: 'engagement_only',
       description: 'Rank if engagement were the only ranking signal.',
@@ -953,7 +1042,7 @@ function counterfactualForWeights(options: {
   visibleRank: number;
 }): ShadowDemoCounterfactual {
   const rank = rankForWeights(
-    options.state.corpus.items,
+    options.state.corpus,
     options.item.postUri,
     options.weights,
     options.topicIntent
@@ -962,27 +1051,98 @@ function counterfactualForWeights(options: {
     label: options.label,
     description: options.description,
     rank,
-    deltaFromVisible: rank - options.visibleRank,
+    deltaFromVisible: rank === null ? null : rank - options.visibleRank,
   };
 }
 
 function rankForWeights(
-  items: ShadowDemoCorpusItem[],
+  corpus: ShadowDemoCorpus,
   postUri: string,
   weights: ShadowDemoWeights,
   topicIntent: ShadowDemoTopicIntent
-): number {
-  const ranked = items
-    .map((item) => ({
-      postUri: item.postUri,
-      score: scoreFromRawWeights(item.rawScores, weights, item.topicVector, topicIntent).score,
-    }))
-    .sort((left, right) => right.score - left.score || left.postUri.localeCompare(right.postUri));
-  const index = ranked.findIndex((entry) => entry.postUri === postUri);
-  if (index < 0) {
-    throw new DemoValidationError(`Post URI is not rankable in this corpus: ${postUri}`);
+): number | null {
+  const ranked = scoreAndPublishItems(
+    corpus.items,
+    weights,
+    topicIntent,
+    false,
+    publicationPolicyFor(corpus)
+  );
+  const index = ranked.findIndex((entry) => entry.item.postUri === postUri);
+  return index < 0 ? null : index + 1;
+}
+
+function scoreAndPublishItems(
+  items: ShadowDemoCorpusItem[],
+  weights: ShadowDemoWeights,
+  topicIntent: ShadowDemoTopicIntent,
+  preservePublishedBaseline: boolean,
+  publicationPolicy: ShadowDemoPublicationPolicy
+): Array<{
+  item: ShadowDemoCorpusItem;
+  componentScore: number;
+  score: number;
+  publicationAdjustment: number;
+  weightedComponents: Record<keyof ShadowDemoWeights, number>;
+  effectiveRawScores: Record<keyof ShadowDemoWeights, number>;
+}> {
+  const scored = items.map((item) => {
+    const result = scoreFromRawWeights(item.rawScores, weights, item.topicVector, topicIntent);
+    return {
+      item,
+      componentScore: result.score,
+      weightedComponents: result.weightedComponents,
+      effectiveRawScores: result.effectiveRawScores,
+    };
+  });
+  if (preservePublishedBaseline) {
+    return scored
+      .map((entry) => ({
+        ...entry,
+        score: entry.item.publishedScore ?? entry.componentScore,
+        publicationAdjustment: entry.item.publishedScore !== undefined && entry.componentScore !== 0
+          ? entry.item.publishedScore / entry.componentScore
+          : 1,
+      }))
+      .sort((left, right) => (left.item.publishedRank ?? Number.MAX_SAFE_INTEGER) - (right.item.publishedRank ?? Number.MAX_SAFE_INTEGER));
   }
-  return index + 1;
+  const relevanceEligible = scored.filter(
+    (entry) => entry.effectiveRawScores.relevance >= publicationPolicy.minimumRelevance
+  );
+  relevanceEligible.sort((left, right) => right.componentScore - left.componentScore || left.item.postUri.localeCompare(right.item.postUri));
+  return applyFeedUrlDedup(
+    relevanceEligible.map((entry) => ({
+      id: entry.item.postUri,
+      score: entry.componentScore,
+      embedUrl: entry.item.embedUrl ?? null,
+      textLength: entry.item.textLength
+        ?? (entry.item.displayPost.kind === 'public_post'
+          ? entry.item.displayPost.text.length
+          : publicationPolicy.minimumOriginalTextLength),
+      value: entry,
+    })),
+    {
+      enabled: publicationPolicy.urlDedupEnabled,
+      minimumOriginalTextLength: publicationPolicy.minimumOriginalTextLength,
+      decay: publicationPolicy.decay,
+    }
+  ).entries.map((entry) => ({
+    ...entry.value,
+    score: entry.score,
+    publicationAdjustment: entry.publicationAdjustment,
+  }));
+}
+
+function publicationPolicyFor(corpus: ShadowDemoCorpus): ShadowDemoPublicationPolicy {
+  const frozen = corpus.sourceSnapshot?.publicationPolicy;
+  return frozen
+    ? { ...frozen, decay: [...frozen.decay] }
+    : {
+        urlDedupEnabled: config.FEED_DEDUP_ENABLED,
+        minimumOriginalTextLength: config.FEED_DEDUP_MIN_TEXT,
+        minimumRelevance: config.FEED_MIN_RELEVANCE,
+        decay: [...FEED_URL_DEDUP_DECAY],
+      };
 }
 
 function hashPayload(value: unknown): string {

@@ -1,4 +1,4 @@
-export const SHADOW_DEMO_CONTRACT_VERSION = '2026-07-10.shadow-demo.v3' as const;
+export const SHADOW_DEMO_CONTRACT_VERSION = '2026-07-11.shadow-demo.v4' as const;
 
 export const SHADOW_DEMO_SIGNAL_KEYS = [
   'recency',
@@ -16,18 +16,12 @@ export interface ShadowDemoTopicIntent {
   topicWeights: Record<string, number>;
 }
 
-export const SHADOW_DEMO_TOPIC_KEYS = [
-  'science-research',
-  'data-science',
-  'software-development',
-  'open-source',
-] as const;
-
-export type ShadowDemoTopicKey = (typeof SHADOW_DEMO_TOPIC_KEYS)[number];
+export type ShadowDemoTopicKey = string;
 
 export type ShadowDemoRawScores = Record<ShadowDemoSignalKey, number>;
 
 export const SHADOW_DEMO_COMMUNITY_IDS = [
+  'community_gov',
   'open_science_builders',
   'birders_who_code',
   'crit_fumble_pickup',
@@ -42,19 +36,24 @@ export const SHADOW_DEMO_VOTER_BLOC_IDS = [
   'current_awareness',
   'community_discussant',
   'interdisciplinary_connector',
+  'freshness_watcher',
+  'conversation_follower',
+  'bridge_builder',
+  'source_diversifier',
+  'relevance_steward',
 ] as const;
 
 export type ShadowDemoVoterBlocId = (typeof SHADOW_DEMO_VOTER_BLOC_IDS)[number];
 export type ShadowDemoSyntheticVoterId = `synthetic-${ShadowDemoVoterBlocId}-${number}`;
 
 export const SHADOW_DEMO_ENDPOINTS = {
-  createSession: '/api/demo/sessions',
-  readSession: '/api/demo/sessions/:sessionId',
-  castVote: '/api/demo/sessions/:sessionId/votes',
-  runSyntheticVoters: '/api/demo/sessions/:sessionId/agents/run',
-  advanceEpoch: '/api/demo/sessions/:sessionId/epochs/advance',
-  readFeed: '/api/demo/sessions/:sessionId/feed?epochId=&limit=',
-  readReceipt: '/api/demo/sessions/:sessionId/receipts?epochId=&postUri=',
+  createSession: '/api/demo/v4/sessions',
+  readSession: '/api/demo/v4/sessions/:sessionId',
+  castVote: '/api/demo/v4/sessions/:sessionId/votes',
+  runSyntheticVoters: '/api/demo/v4/sessions/:sessionId/agents/run',
+  advanceEpoch: '/api/demo/v4/sessions/:sessionId/epochs/advance',
+  readFeed: '/api/demo/v4/sessions/:sessionId/feed?epochId=&limit=',
+  readReceipt: '/api/demo/v4/sessions/:sessionId/receipts?epochId=&postUri=',
 } as const;
 
 export const SHADOW_DEMO_AGGREGATION_METHOD = 'trimmed_mean_no_trim_under_10' as const;
@@ -68,10 +67,10 @@ export const SHADOW_DEMO_SYNTHETIC_VOTER_COUNT = 24;
 export const SHADOW_DEMO_TOTAL_DEMO_VOTERS = 25;
 
 export const SHADOW_DEMO_CORPUS_PROVENANCE = {
-  mode: 'production_sourced_session_frozen',
-  label: 'Live-scored snapshot',
+  mode: 'production_feed_snapshot_session_frozen',
+  label: 'Reviewer-safe snapshot of the live Community Governed Feed',
   description:
-    'Live-scored snapshot, frozen for this demo run so rank movement is attributable to policy changes.',
+    'Published Community Governed Feed snapshot, frozen for this demo run so rank movement is attributable to policy changes.',
   windowHours: 72,
   topicScoreThreshold: 0.5,
 } as const;
@@ -86,13 +85,13 @@ export const SHADOW_DEMO_ISOLATION_CONTRACT = {
     'demo:session:',
     'demo:sessions:',
     'demo:corpus:',
-    'demo:corpus:current:',
+    'demo:corpus:current:v4:',
     'demo:idempotency:',
     'demo:lock:',
     'demo:staging:',
     'demo:rate-limit:',
   ],
-  liveShadowCommunities: ['open_science_builders'],
+  liveShadowCommunities: ['community_gov'],
 } as const;
 
 export interface ShadowDemoWarning {
@@ -110,6 +109,13 @@ export interface ShadowDemoEnvelope<TPayload> {
   warnings: ShadowDemoWarning[];
 }
 
+export interface ShadowDemoTopicCatalogEntry {
+  readonly slug: string
+  readonly name: string
+  readonly description: string | null
+  readonly baselineWeight: number
+}
+
 export interface ShadowDemoCommunity {
   id: ShadowDemoCommunityId;
   name: string;
@@ -120,26 +126,51 @@ export interface ShadowDemoCommunity {
 
 export interface ShadowDemoCorpusHealth {
   status: 'live' | 'degraded';
-  source: 'production_scores_appview' | 'fixture_fallback';
+  source: 'production_scores_appview' | 'production_feed_snapshot' | 'fixture_fallback';
   candidatePosts72h: number;
   publicScoredPosts: number;
   uniqueAuthors72h: number;
   bridgePostShare: number;
   topAuthorConcentration: number;
   sampledAt: string;
+  sourcePostCount?: number;
+  eligiblePostCount?: number;
+  englishTaggedShare?: number;
+  richMediaShare?: number;
 }
 
-export interface ShadowDemoCorpusProvenance {
-  mode: typeof SHADOW_DEMO_CORPUS_PROVENANCE.mode;
-  label: typeof SHADOW_DEMO_CORPUS_PROVENANCE.label;
-  description: typeof SHADOW_DEMO_CORPUS_PROVENANCE.description;
+interface ShadowDemoCorpusProvenanceBase {
+  description: string;
   corpusId: string;
   productionEpochId: number;
   sampledAt: string;
-  windowHours: typeof SHADOW_DEMO_CORPUS_PROVENANCE.windowHours;
-  topicScoreThreshold: typeof SHADOW_DEMO_CORPUS_PROVENANCE.topicScoreThreshold;
+  windowHours: number;
+  topicScoreThreshold: number;
   eligiblePostCount: number;
 }
+
+export type ShadowDemoCorpusProvenance =
+  | ShadowDemoCorpusProvenanceBase & {
+      mode: 'production_feed_snapshot_session_frozen';
+      label: 'Reviewer-safe snapshot of the live Community Governed Feed';
+      sourceFeedUri: string;
+      sourceFeedName: string;
+      sourceSnapshotDigest: string;
+      sourceRunId: string;
+      sourceUpdatedAt: string;
+      sourceReviewedAt?: string;
+      sourcePostCount: number;
+      selectionPolicyVersion: string;
+      baselineOrderDigest: string;
+    }
+  | ShadowDemoCorpusProvenanceBase & {
+      mode: 'production_sourced_session_frozen';
+      label: 'Live-scored snapshot';
+    }
+  | ShadowDemoCorpusProvenanceBase & {
+      mode: 'illustrative_fixture_session_frozen';
+      label: 'Illustrative mechanics fixture';
+    };
 
 export interface ShadowDemoCorpusInclusionReason {
   matchedTopics: Array<{ topic: ShadowDemoTopicKey; score: number }>;
@@ -304,8 +335,8 @@ export interface ShadowDemoReceiptPayload {
     counterfactuals: Array<{
       label: 'previous_epoch' | 'engagement_only' | 'direct_reviewer_ballot_removed';
       description: string;
-      rank: number;
-      deltaFromVisible: number;
+      rank: number | null;
+      deltaFromVisible: number | null;
     }>;
   };
 }

@@ -30,7 +30,7 @@ describe("mock ranking — votes change the order, deterministically", () => {
   })
 
   it("engine: the viral joke wins under engagement baseline but sinks under field-notes", () => {
-    const corpus = getCommunityFixture("open_science_builders").corpus
+    const corpus = getCommunityFixture("community_gov").corpus
     const viralUri = "P4" // Eli Moreno, the viral joke
 
     const baselineOrder = rankedIds(corpus, BASELINE_WEIGHTS)
@@ -53,7 +53,7 @@ describe("mock ranking — votes change the order, deterministically", () => {
   })
 
   it("rejects counterfactual requests for posts outside the frozen corpus", () => {
-    const corpus = getCommunityFixture("open_science_builders").corpus
+    const corpus = getCommunityFixture("community_gov").corpus
     expect(() => buildCounterfactuals({
       corpus,
       postId: "missing-post",

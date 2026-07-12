@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { createHttpShadowDemoClient, hiddenReason } from "../http-shadow-demo-client"
+import { corpusSourcePresentation, createHttpShadowDemoClient, hiddenReason } from "../http-shadow-demo-client"
 import { type ShadowDemoWeights } from "../shadow-demo-contract"
 import {
   apiReceiptComponentsSchema,
+  apiReceiptPayloadSchema,
+  apiPostMediaSchema,
+  apiSessionPayloadSchema,
   apiSyntheticVoteSchema,
   CONTRACT_VERSION,
 } from "../shadow-demo-api-schemas"
@@ -33,9 +36,13 @@ const TOPIC_INTENT = {
 }
 const PRODUCTION_TOPIC_INTENT = {
   topicWeights: {
-    ...TOPIC_INTENT.topicWeights,
-    music: 0.1,
-    "decentralized-social": 0.9,
+    "adult-content": 0, "ai-machine-learning": 0.7, "art-creative": 0.2, "books-reading": 0.2,
+    "climate-environment": 0.3, "cooking-food": 0.2, cybersecurity: 0.7, "data-science": 0.8,
+    "decentralized-social": 0.9, "design-ux": 0.4, "devops-infrastructure": 0.6, "dogs-pets": 0.5,
+    education: 0.4, gaming: 0.1, "health-fitness": 0.2, "mobile-development": 0.4,
+    music: 0.1, "news-journalism": 0.1, "open-source": 0.75, "politics-governance": 0.1,
+    "science-research": 0.9, "software-development": 0.7, "space-astronomy": 0.3,
+    "startups-business": 0.3, "systems-programming": 0.6, "web-development": 0.6,
   },
 }
 
@@ -52,7 +59,78 @@ describe("HTTP shadow demo client", () => {
   it("rejects synthetic voter identities that disagree with their declared bloc", () => {
     const vote = syntheticVotes("epoch-1")[0] as Record<string, unknown>
 
-    expect(apiSyntheticVoteSchema.safeParse({ ...vote, blocId: "dataset_steward" }).success).toBe(false)
+    expect(apiSyntheticVoteSchema.safeParse({ ...vote, blocId: "relevance_steward" }).success).toBe(false)
+    expect(apiSyntheticVoteSchema.safeParse({ ...vote, actorId: "synthetic-unknown_bloc-1", blocId: "unknown_bloc" }).success).toBe(false)
+  })
+
+  it("accepts each v4 synthetic voter bloc identity", () => {
+    const votes = syntheticVotes("epoch-1") as ReadonlyArray<{ readonly blocId: string }>
+    for (const blocId of ["freshness_watcher", "conversation_follower", "bridge_builder", "source_diversifier", "relevance_steward"] as const) {
+      const vote = votes.find((candidate) => candidate.blocId === blocId)
+      expect(vote).toBeDefined()
+      expect(apiSyntheticVoteSchema.safeParse(vote).success).toBe(true)
+    }
+  })
+
+  it("accepts the honestly labeled mechanics fixture provenance", () => {
+    const payload = sessionPayload("created", "epoch-1", [epoch("epoch-1", 1, BASE_WEIGHTS, 0)]) as {
+      session: Record<string, unknown>
+    }
+    payload.session.corpusHealth = {
+      ...corpusHealth() as Record<string, unknown>,
+      status: "degraded",
+      source: "fixture_fallback",
+    }
+    payload.session.corpusProvenance = {
+      mode: "illustrative_fixture_session_frozen",
+      label: "Illustrative mechanics fixture",
+      description: "Illustrative posts and score inputs frozen for this session.",
+      corpusId: "fixture-corpus",
+      productionEpochId: 0,
+      sampledAt: NOW,
+      windowHours: 0,
+      topicScoreThreshold: 0,
+      eligiblePostCount: 8,
+    }
+
+    expect(apiSessionPayloadSchema.safeParse(payload).success).toBe(true)
+  })
+
+  it("fails closed when the frozen 26-topic catalog is missing or incomplete", () => {
+    const valid = sessionPayload("created", "epoch-1", [epoch("epoch-1", 1, BASE_WEIGHTS, 0)]) as {
+      session: Record<string, unknown>
+    }
+    expect(apiSessionPayloadSchema.safeParse(valid).success).toBe(true)
+    expect(apiSessionPayloadSchema.safeParse({ session: { ...valid.session, topicCatalog: undefined } }).success).toBe(false)
+    const catalog = valid.session.topicCatalog as unknown[]
+    expect(apiSessionPayloadSchema.safeParse({ session: { ...valid.session, topicCatalog: catalog.slice(0, 25) } }).success).toBe(false)
+  })
+
+  it("accepts retained live and fallback corpus-health source values", () => {
+    const valid = sessionPayload("created", "epoch-1", [epoch("epoch-1", 1, BASE_WEIGHTS, 0)]) as {
+      session: Record<string, unknown>
+    }
+    const corpusHealth = valid.session.corpusHealth as Record<string, unknown>
+    for (const source of ["production_scores_appview", "production_feed_snapshot", "fixture_fallback"]) {
+      expect(apiSessionPayloadSchema.safeParse({
+        session: { ...valid.session, corpusHealth: { ...corpusHealth, source } },
+      }).success).toBe(true)
+    }
+  })
+
+  it("maps every retained corpus source without treating live AppView data as a fixture", () => {
+    expect(corpusSourcePresentation("production_feed_snapshot")).toMatchObject({
+      strategy: "published_feed_snapshot",
+      rankingSource: "live_public_posts_shadow_weights",
+    })
+    expect(corpusSourcePresentation("production_scores_appview")).toMatchObject({
+      strategy: "live_appview_search",
+      rankingSource: "live_public_posts_shadow_weights",
+    })
+    expect(corpusSourcePresentation("fixture_fallback")).toMatchObject({
+      strategy: "fixture_fallback",
+      rankingSource: "fixture_posts_shadow_weights",
+    })
   })
 
   it("rejects receipts that repeat a signal instead of covering all five signals", () => {
@@ -67,23 +145,136 @@ describe("HTTP shadow demo client", () => {
     expect(apiReceiptComponentsSchema.safeParse(components).success).toBe(false)
   })
 
+  it("accepts HTTPS media and rejects non-web media schemes", () => {
+    const media = {
+      images: [{
+        thumb: "https://cdn.bsky.app/thumb.jpg",
+        fullsize: "https://cdn.bsky.app/full.jpg",
+        alt: "Preview",
+        width: 800,
+        height: 600,
+      }],
+      external: {
+        uri: "https://example.com/report",
+        title: "Report",
+        description: "A public report",
+        thumb: "https://cdn.bsky.app/external.jpg",
+      },
+      quote: {
+        uri: "at://did:plc:quoted/app.bsky.feed.post/one",
+        authorHandle: "quoted.bsky.social",
+        authorDisplayName: "Quoted Author",
+        text: "Quoted context",
+      },
+      video: {
+        thumbnail: "https://cdn.bsky.app/video.jpg",
+        width: 1280,
+        height: 720,
+      },
+    }
+    expect(apiPostMediaSchema.safeParse(media).success).toBe(true)
+    expect(apiPostMediaSchema.safeParse({
+      ...media,
+      images: [{ ...media.images[0], fullsize: "javascript:alert(1)" }],
+    }).success).toBe(false)
+    expect(apiPostMediaSchema.safeParse({
+      ...media,
+      images: [{ ...media.images[0], thumb: "data:image/png;base64,abc" }],
+    }).success).toBe(false)
+    expect(apiPostMediaSchema.safeParse({
+      ...media,
+      images: [{ ...media.images[0], fullsize: "http://cdn.bsky.app/full.jpg" }],
+    }).success).toBe(false)
+    for (const invalid of [
+      { ...media, external: { ...media.external, uri: "http://example.com/report" } },
+      { ...media, external: { ...media.external, thumb: "http://cdn.bsky.app/external.jpg" } },
+      { ...media, quote: { ...media.quote, uri: "https://bsky.app/not-an-at-uri" } },
+      { ...media, video: { ...media.video, thumbnail: "http://cdn.bsky.app/video.jpg" } },
+    ]) {
+      expect(apiPostMediaSchema.safeParse(invalid).success).toBe(false)
+    }
+  })
+
+  it("accepts published-feed inclusion provenance returned by v4 receipts", () => {
+    const components = Object.entries(BASE_WEIGHTS).map(([signal, weight]) => ({
+      signal,
+      rawScore: 0.5,
+      weight,
+      contribution: 0.5 * weight,
+    }))
+    const parsed = apiReceiptPayloadSchema.safeParse({
+      receipt: {
+        type: "shadow_demo_receipt",
+        epochId: "epoch-2",
+        postUri: "at://did:plc:test/app.bsky.feed.post/one",
+        visibleRank: 1,
+        previousRank: 4,
+        score: 0.5,
+        componentScore: 0.5,
+        publicationAdjustment: 1,
+        publishedRank: 4,
+        publishedScore: 0.45,
+        scoredAt: NOW,
+        aggregate: aggregate(NEXT_WEIGHTS, 25, 2),
+        reviewerBallotShare: 0.04,
+        components,
+        topicRelevanceFormula: {
+          formulaApplied: true,
+          defaultTopicWeight: 0.2,
+          confidenceThreshold: 0.5,
+          weightedSum: 0.8,
+          signalSum: 1,
+          baseRelevance: 0.8,
+          confidenceMultiplier: 1,
+          effectiveRelevance: 0.8,
+          usedDefaultWeight: false,
+          terms: [],
+        },
+        provenance: {
+          ...corpusProvenance(),
+          shadowEpochId: "epoch-2",
+          postInclusionReasons: {
+            matchedTopics: [],
+            matchedTerms: [],
+            sourceRank: 4,
+            reason: "published_feed_snapshot",
+          },
+        },
+        counterfactuals: [{
+          label: "previous_epoch",
+          description: "Published rank in the frozen baseline.",
+          rank: null,
+          deltaFromVisible: null,
+        }],
+      },
+    })
+
+    expect(parsed.success).toBe(true)
+    if (parsed.success) {
+      expect(parsed.data.receipt.counterfactuals[0]).toMatchObject({
+        rank: null,
+        deltaFromVisible: null,
+      })
+    }
+  })
+
   it("maps a live-scored session without claiming the unpublished community is a native Bluesky feed", async () => {
     const fetchMock = vi.fn(async (input: string | URL | Request, _init?: RequestInit) => {
       const path = requestPath(input)
-      if (path === "/api/demo/sessions") return jsonEnvelope(sessionPayload("created", "epoch-1", [epoch("epoch-1", 1, BASE_WEIGHTS, 0)]))
-      if (path.startsWith(`/api/demo/sessions/${SESSION_ID}/feed`)) return jsonEnvelope(feedPayload("epoch-1", [1, 2]))
+      if (path === "/api/demo/v4/sessions") return jsonEnvelope(sessionPayload("created", "epoch-1", [epoch("epoch-1", 1, BASE_WEIGHTS, 0)]))
+      if (path.startsWith(`/api/demo/v4/sessions/${SESSION_ID}/feed`)) return jsonEnvelope(feedPayload("epoch-1", [1, 2]))
       return new Response(null, { status: 404 })
     })
     vi.stubGlobal("fetch", fetchMock)
 
     const response = await createHttpShadowDemoClient().createSession(
-      { communityId: "open_science_builders", scenarioId: "guided_default", clientNonce: "nonce", mode: "guided" },
+      { communityId: "community_gov", scenarioId: "guided_default", clientNonce: "nonce", mode: "guided" },
       new AbortController().signal,
     )
 
-    expect(response.payload.community.name).toBe("Open Science Builders")
-    expect(response.payload.community.publicBlueskyFeedUrl).toBeNull()
-    expect(response.payload.session.capabilities.canOpenNativeBlueskyFeed).toBe(false)
+    expect(response.payload.community.name).toBe("Community Governed Feed")
+    expect(response.payload.community.publicBlueskyFeedUrl).toContain("community-gov")
+    expect(response.payload.session.capabilities.canOpenNativeBlueskyFeed).toBe(true)
     expect(response.payload.session.capabilities.canAdvanceEpoch).toBe(false)
     expect(response.payload.feed.rankingSource).toBe("live_public_posts_shadow_weights")
     expect(response.payload.feed.corpusHealth.candidatePostCount).toBe(84_831)
@@ -94,17 +285,63 @@ describe("HTTP shadow demo client", () => {
       "decentralized-social": 0.9,
     })
     expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
-      communityId: "open_science_builders",
+      communityId: "community_gov",
       clientNonce: "nonce",
     })
     expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it("counts visible hidden rows when snapshot source totals are unavailable", async () => {
+    const feed = feedPayload("epoch-1", [1, 2]) as { posts: Array<Record<string, unknown>> }
+    feed.posts[0] = {
+      ...feed.posts[0],
+      score: null,
+      weightedComponents: null,
+      rawScores: null,
+      post: { kind: "hidden_post", reason: "Post unavailable from Bluesky public AppView" },
+    }
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const path = requestPath(input)
+      if (path === "/api/demo/v4/sessions") return jsonEnvelope(sessionPayload("created", "epoch-1", [epoch("epoch-1", 1, BASE_WEIGHTS, 0)]))
+      if (path.startsWith(`/api/demo/v4/sessions/${SESSION_ID}/feed`)) return jsonEnvelope(feed)
+      return new Response(null, { status: 404 })
+    }))
+
+    const response = await createHttpShadowDemoClient().createSession(
+      { communityId: "community_gov", scenarioId: "guided_default", clientNonce: "hidden-row", mode: "guided" },
+      new AbortController().signal,
+    )
+    expect(response.payload.feed.corpusHealth.displayedHiddenPostCount).toBe(1)
+  })
+
+  it("uses snapshot source totals when eligible count is omitted", async () => {
+    const feed = feedPayload("epoch-1", [1, 2]) as {
+      corpusHealth: Record<string, unknown>
+    }
+    feed.corpusHealth = {
+      ...feed.corpusHealth,
+      sourcePostCount: 100,
+      publicScoredPosts: 71,
+    }
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const path = requestPath(input)
+      if (path === "/api/demo/v4/sessions") return jsonEnvelope(sessionPayload("created", "epoch-1", [epoch("epoch-1", 1, BASE_WEIGHTS, 0)]))
+      if (path.startsWith(`/api/demo/v4/sessions/${SESSION_ID}/feed`)) return jsonEnvelope(feed)
+      return new Response(null, { status: 404 })
+    }))
+
+    const response = await createHttpShadowDemoClient().createSession(
+      { communityId: "community_gov", scenarioId: "guided_default", clientNonce: "source-total", mode: "guided" },
+      new AbortController().signal,
+    )
+    expect(response.payload.feed.corpusHealth.displayedHiddenPostCount).toBe(29)
   })
 
   it("bridges only the explicit pre-nonce server rejection during rollout", async () => {
     const bodies: unknown[] = []
     const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const path = requestPath(input)
-      if (path === "/api/demo/sessions") {
+      if (path === "/api/demo/v4/sessions") {
         bodies.push(JSON.parse(String(init?.body)))
         if (bodies.length === 1) {
           return new Response(JSON.stringify({ message: "Unrecognized key(s) in object: 'clientNonce'" }), {
@@ -114,19 +351,19 @@ describe("HTTP shadow demo client", () => {
         }
         return jsonEnvelope(sessionPayload("created", "epoch-1", [epoch("epoch-1", 1, BASE_WEIGHTS, 0)]))
       }
-      if (path.startsWith(`/api/demo/sessions/${SESSION_ID}/feed`)) return jsonEnvelope(feedPayload("epoch-1", [1, 2]))
+      if (path.startsWith(`/api/demo/v4/sessions/${SESSION_ID}/feed`)) return jsonEnvelope(feedPayload("epoch-1", [1, 2]))
       return new Response(null, { status: 404 })
     })
     vi.stubGlobal("fetch", fetchMock)
 
     await createHttpShadowDemoClient().createSession(
-      { communityId: "open_science_builders", scenarioId: "guided_default", clientNonce: "rollout-nonce", mode: "guided" },
+      { communityId: "community_gov", scenarioId: "guided_default", clientNonce: "rollout-nonce", mode: "guided" },
       new AbortController().signal,
     )
 
     expect(bodies).toEqual([
-      { communityId: "open_science_builders", clientNonce: "rollout-nonce" },
-      { communityId: "open_science_builders" },
+      { communityId: "community_gov", clientNonce: "rollout-nonce" },
+      { communityId: "community_gov" },
     ])
   })
 
@@ -156,11 +393,11 @@ describe("HTTP shadow demo client", () => {
     })
     expect(response.payload.currentEpoch.status).toBe("agent_voting")
     expect(response.payload.agents.map((profile) => profile.name)).toEqual([
-      "Research Practitioners",
-      "Data Stewards",
-      "Current-Awareness Readers",
-      "Community Discussants",
-      "Interdisciplinary Connectors",
+      "Freshness Watchers",
+      "Conversation Followers",
+      "Bridge Builders",
+      "Source Diversifiers",
+      "Relevance Stewards",
     ])
   })
 
@@ -208,7 +445,7 @@ describe("HTTP shadow demo client", () => {
     }), { status: 200, headers: { "content-type": "application/json" } })))
 
     await expect(createHttpShadowDemoClient().createSession(
-      { communityId: "open_science_builders", scenarioId: "guided_default", clientNonce: "nonce", mode: "guided" },
+      { communityId: "community_gov", scenarioId: "guided_default", clientNonce: "nonce", mode: "guided" },
       new AbortController().signal,
     )).rejects.toThrow("invalid response envelope")
   })
@@ -220,7 +457,7 @@ describe("HTTP shadow demo client", () => {
     })))
 
     const failedRequest = createHttpShadowDemoClient().createSession(
-      { communityId: "open_science_builders", scenarioId: "guided_default", clientNonce: "nonce", mode: "guided" },
+      { communityId: "community_gov", scenarioId: "guided_default", clientNonce: "nonce", mode: "guided" },
       new AbortController().signal,
     )
     await expect(failedRequest).rejects.toThrow("HTTP 503")
@@ -228,7 +465,7 @@ describe("HTTP shadow demo client", () => {
 
     vi.stubGlobal("fetch", vi.fn(async () => new Response("not-json", { status: 200 })))
     await expect(createHttpShadowDemoClient().createSession(
-      { communityId: "open_science_builders", scenarioId: "guided_default", clientNonce: "nonce", mode: "guided" },
+      { communityId: "community_gov", scenarioId: "guided_default", clientNonce: "nonce", mode: "guided" },
       new AbortController().signal,
     )).rejects.toThrow("invalid response envelope")
   })
@@ -239,7 +476,7 @@ describe("HTTP shadow demo client", () => {
     }))
 
     await expect(createHttpShadowDemoClient().createSession(
-      { communityId: "open_science_builders", scenarioId: "guided_default", clientNonce: "nonce", mode: "guided" },
+      { communityId: "community_gov", scenarioId: "guided_default", clientNonce: "nonce", mode: "guided" },
       new AbortController().signal,
     )).rejects.toThrow("temporarily unavailable")
   })
@@ -255,7 +492,7 @@ describe("HTTP shadow demo client", () => {
     }), { status: 200, headers: { "content-type": "application/json" } })))
 
     await expect(createHttpShadowDemoClient().createSession(
-      { communityId: "open_science_builders", scenarioId: "guided_default", clientNonce: "nonce", mode: "guided" },
+      { communityId: "community_gov", scenarioId: "guided_default", clientNonce: "nonce", mode: "guided" },
       new AbortController().signal,
     )).rejects.toThrow("invalid response envelope")
   })
@@ -307,7 +544,7 @@ describe("HTTP shadow demo client", () => {
     ))
 
     const request = createHttpShadowDemoClient().createSession(
-      { communityId: "open_science_builders", scenarioId: "guided_default", clientNonce: "nonce", mode: "guided" },
+      { communityId: "community_gov", scenarioId: "guided_default", clientNonce: "nonce", mode: "guided" },
       new AbortController().signal,
     )
     const rejection = expect(request).rejects.toThrow("timed out after 30000ms")
@@ -380,8 +617,8 @@ function sessionPayload(
     session: {
       sessionId: SESSION_ID,
       community: {
-        id: "open_science_builders",
-        name: "Open Science Builders",
+        id: "community_gov",
+        name: "Community Governed Feed",
         status: "live_shadow",
         description: "Research, data, software, and open-source methods.",
         liveFeedReady: true,
@@ -398,6 +635,8 @@ function sessionPayload(
       syntheticVoterCount: 24,
       totalDemoVoters: 25,
       corpusProvenance: corpusProvenance(),
+      topicCatalog: Object.entries(PRODUCTION_TOPIC_INTENT.topicWeights).map(([slug, baselineWeight]) => ({ slug, name: slug, description: null, baselineWeight })),
+      sourceFeedUri: "at://did:plc:amzyknmm4auxijvykyfgznw2/app.bsky.feed.generator/community-gov",
       voterProfiles: voterProfiles(),
       votes,
     },
@@ -444,7 +683,7 @@ function aggregate(weights: ShadowDemoWeights, voteCount: number, trimCount: num
 function corpusHealth(): unknown {
   return {
     status: "live",
-    source: "production_scores_appview",
+    source: "production_feed_snapshot",
     candidatePosts72h: 84_831,
     publicScoredPosts: 80,
     uniqueAuthors72h: 46_652,
@@ -454,27 +693,36 @@ function corpusHealth(): unknown {
   }
 }
 
-function corpusProvenance(): unknown {
+function corpusProvenance(): Record<string, unknown> {
   return {
-    mode: "production_sourced_session_frozen",
-    label: "Live-scored snapshot",
-    description: "Live-scored snapshot, frozen for this demo run so rank movement is attributable to policy changes.",
-    corpusId: "corpus-open-science",
+    mode: "production_feed_snapshot_session_frozen",
+    label: "Reviewer-safe snapshot of the live Community Governed Feed",
+    description: "Reviewer-safe snapshot of the live Community Governed Feed, frozen for this demo run so rank movement is attributable to policy changes.",
+    corpusId: "corpus-community-gov",
     productionEpochId: 7,
     sampledAt: NOW,
     windowHours: 72,
     topicScoreThreshold: 0.5,
     eligiblePostCount: 80,
+    sourceFeedUri: "at://did:plc:amzyknmm4auxijvykyfgznw2/app.bsky.feed.generator/community-gov",
+    sourceFeedName: "Community Governed Feed",
+    sourceSnapshotDigest: "7".repeat(64),
+    sourceRunId: "run-community-gov",
+    sourceUpdatedAt: NOW,
+    sourceReviewedAt: NOW,
+    sourcePostCount: 100,
+    selectionPolicyVersion: "community-gov-reviewer-safe-v1",
+    baselineOrderDigest: "a".repeat(64),
   }
 }
 
 function voterProfiles(): readonly unknown[] {
   const profiles = [
-    ["research_practitioner", "Research Practitioners", 5],
-    ["dataset_steward", "Data Stewards", 5],
-    ["current_awareness", "Current-Awareness Readers", 5],
-    ["community_discussant", "Community Discussants", 4],
-    ["interdisciplinary_connector", "Interdisciplinary Connectors", 5],
+    ["freshness_watcher", "Freshness Watchers", 5],
+    ["conversation_follower", "Conversation Followers", 4],
+    ["bridge_builder", "Bridge Builders", 5],
+    ["source_diversifier", "Source Diversifiers", 5],
+    ["relevance_steward", "Relevance Stewards", 5],
   ] as const
   return profiles.map(([id, label, voterCount]) => ({
     id,
@@ -507,8 +755,8 @@ function syntheticVotes(epochId: string): readonly unknown[] {
 function feedPayload(epochId: string, previousRanks: readonly number[]): unknown {
   return {
     epochId,
-    corpusId: "corpus-open-science",
-    communityId: "open_science_builders",
+    corpusId: "corpus-community-gov",
+    communityId: "community_gov",
     corpusHealth: corpusHealth(),
     corpusProvenance: corpusProvenance(),
     aggregate: aggregate(epochId === "epoch-1" ? BASE_WEIGHTS : NEXT_WEIGHTS, epochId === "epoch-1" ? 0 : 25, epochId === "epoch-1" ? 0 : 2),
@@ -539,7 +787,7 @@ function feedPayload(epochId: string, previousRanks: readonly number[]): unknown
         authorHandle: `researcher${index + 1}.bsky.social`,
         authorDisplayName: `Researcher ${index + 1}`,
         authorAvatar: null,
-        text: `Open-science post ${index + 1}`,
+        text: `Published feed post ${index + 1}`,
         likeCount: 10,
         repostCount: 2,
         replyCount: 1,

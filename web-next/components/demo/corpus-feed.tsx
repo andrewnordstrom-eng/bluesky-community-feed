@@ -72,10 +72,13 @@ function PublicRow({
           authorHandle={post.authorHandle}
           timeLabel={formatRelativeTime(post.indexedAt, referenceAt)}
           avatarUrl={post.authorAvatar}
+          bskyUrl={post.bskyUrl}
           text={post.text}
           replyCount={post.replyCount}
           repostCount={post.repostCount}
           likeCount={post.likeCount}
+          languages={post.languages}
+          media={post.media}
         />
         <div className="flex flex-wrap items-center gap-2 border-t border-[#E8EDF3] bg-[#FAFBFC] px-4 py-2.5">
           <button

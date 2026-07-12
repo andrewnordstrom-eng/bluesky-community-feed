@@ -2,6 +2,13 @@ import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
 import { db as defaultDb } from '../db/client.js';
 import { logger } from '../lib/logger.js';
+import {
+  createDefaultPublishedFeedSnapshotReader,
+  readApprovedCommunityGovPolicy,
+  COMMUNITY_GOV_FEED_URI,
+  DEMO_SOURCE_SNAPSHOT_LIMIT,
+  type PublishedFeedSnapshot,
+} from '../feed/demo-snapshot-source.js';
 import { readPostScore, type PostScoreRecord, type ReadPostScoreOptions } from '../scoring/score-reader.js';
 import { hydrateCorpusItemsWithAppView, type DemoFetchFunction } from './appview.js';
 import { hiddenDisplayPost } from './public-view.js';
@@ -18,12 +25,21 @@ import {
   type ShadowDemoWarning,
   type ShadowDemoTopicIntent,
   type ShadowDemoTopicKey,
+  type ShadowDemoTopicCatalogEntry,
   type ShadowDemoWeights,
 } from './types.js';
 import { equalShadowWeights, internalRawScoresToShadow, internalWeightsToShadow } from './weights.js';
 import { emptyShadowTopicIntent } from './topic-intent.js';
 
 export const DEMO_COMMUNITIES: Record<ShadowDemoCommunityId, ShadowDemoCommunity> = {
+  community_gov: {
+    id: 'community_gov',
+    name: 'Community Governed Feed',
+    status: 'live_shadow',
+    description:
+      'The real public Corgi feed, frozen into an isolated comparison corpus for a replayable governance walkthrough.',
+    liveFeedReady: true,
+  },
   open_science_builders: {
     id: 'open_science_builders',
     name: 'Open Science Builders',
@@ -61,6 +77,13 @@ export const DEMO_COMMUNITIES: Record<ShadowDemoCommunityId, ShadowDemoCommunity
 const CANDIDATE_LIMIT = 80;
 const SCORE_READ_BATCH_SIZE = 10;
 const APPVIEW_TIMEOUT_MS = 8000;
+export const COMMUNITY_GOV_SNAPSHOT_GATE = {
+  minimumEligiblePosts: 40,
+  minimumDisplayablePosts: 12,
+  minimumEnglishTaggedShare: 0.8,
+  maximumTopAuthorConcentration: 0.1,
+  minimumRichMediaShare: 0.2,
+} as const;
 const MIN_PUBLIC_SCORED_POSTS = 10;
 const OPEN_SCIENCE_TOPIC_SLUGS = SHADOW_DEMO_TOPIC_KEYS;
 const OPEN_SCIENCE_TERM_RULES = [
@@ -105,12 +128,15 @@ interface ActiveEpochRow {
 
 interface CandidatePostRow {
   uri: string;
+  reviewed_cid?: string | null;
   author_did: string;
   created_at: Date | string;
   text: string;
   topic_vector: Record<string, number> | null;
   candidate_count_72h: string | number;
   unique_authors_72h: string | number;
+  embed_url?: string | null;
+  text_length?: string | number;
 }
 
 export interface LoadShadowDemoCorpusOptions {
@@ -119,9 +145,13 @@ export interface LoadShadowDemoCorpusOptions {
   fetchFn: DemoFetchFunction;
   dbPool: Pick<Pool, 'query'>;
   readScore: (options: ReadPostScoreOptions) => Promise<PostScoreRecord | null>;
+  readPublishedSnapshot?: (limit: number) => Promise<PublishedFeedSnapshot>;
 }
 
 export async function loadShadowDemoCorpus(options: LoadShadowDemoCorpusOptions): Promise<ShadowDemoCorpus> {
+  if (options.communityId === 'community_gov') {
+    return loadCommunityGovCorpus(options);
+  }
   if (options.communityId !== 'open_science_builders') {
     return fallbackCorpus({
       communityId: options.communityId,
@@ -207,7 +237,224 @@ export function createDefaultCorpusLoader(): (options: {
     fetchFn: defaultFetch,
     dbPool: defaultDb,
     readScore: readPostScore,
+    readPublishedSnapshot: createDefaultPublishedFeedSnapshotReader(),
   });
+}
+
+async function loadCommunityGovCorpus(options: LoadShadowDemoCorpusOptions): Promise<ShadowDemoCorpus> {
+  try {
+    const approvedPolicy = readApprovedCommunityGovPolicy();
+    const readPublishedSnapshot = options.readPublishedSnapshot ?? createDefaultPublishedFeedSnapshotReader();
+    const snapshot = await readPublishedSnapshot(DEMO_SOURCE_SNAPSHOT_LIMIT);
+    const epoch = await readEpochById(options.dbPool, snapshot.productionEpochId);
+    if (!epoch) {
+      throw new Error(`Production epoch ${snapshot.productionEpochId} from feed metadata was not found`);
+    }
+    const rows = await readPublishedFeedRows(options.dbPool, snapshot);
+    const topicCatalog = approvedPolicy.topicCatalog;
+    const baseTopicIntent = topicIntentFromCatalog(null, topicCatalog);
+    const rowByUri = new Map(rows.map((row) => [row.uri, row]));
+    const orderedRows = snapshot.entries.flatMap((entry) => {
+      const row = rowByUri.get(entry.uri);
+      const frozen = entry.frozen;
+      if (!row || !frozen) return [];
+      return [{
+        ...row,
+        reviewed_cid: frozen.reviewedCid,
+        author_did: frozen.authorDid,
+        created_at: frozen.createdAt,
+        topic_vector: { ...frozen.topicVector },
+        embed_url: frozen.embedUrl,
+        text_length: frozen.textLength,
+        published: entry,
+      }];
+    });
+    const scoredItems = await buildScoredCorpusItems({
+      rows: orderedRows,
+      epochId: epoch.id,
+      readScore: options.readScore,
+    });
+    const hydrated = await hydrateCorpusItemsWithAppView({
+      items: scoredItems,
+      fetchFn: options.fetchFn,
+      timeoutMs: APPVIEW_TIMEOUT_MS,
+    });
+    const eligibleItems = hydrated.filter((item) => item.displayPost.kind === 'public_post');
+    const health = buildCommunityGovHealth(
+      new Date(snapshot.capturedAt),
+      snapshot,
+      eligibleItems,
+      eligibleItems.length
+    );
+    const gateFailures = communityGovSnapshotGateFailures(health);
+    if (gateFailures.length > 0) {
+      return fallbackCorpus({
+        communityId: options.communityId,
+        now: options.now,
+        reason: `Community Governed Feed snapshot failed reviewer-safe gates: ${gateFailures.join('; ')}`,
+        activeEpochId: epoch.id,
+        baseWeights: approvedPolicy.signalWeights,
+        baseTopicIntent,
+        topicCatalog,
+        sourceFeedUri: snapshot.feedUri,
+      });
+    }
+    return {
+      corpusId: `corpus-${randomUUID()}`,
+      communityId: options.communityId,
+      baseProductionEpochId: epoch.id,
+      baseWeights: approvedPolicy.signalWeights,
+      baseTopicIntent,
+      createdAt: options.now.toISOString(),
+      expiresAt: expiresAt(options.now).toISOString(),
+      items: eligibleItems,
+      health,
+      warnings: [],
+      topicCatalog,
+      sourceFeedUri: snapshot.feedUri,
+      sourceSnapshot: {
+        feedName: snapshot.feedName,
+        digest: snapshot.snapshotDigest,
+        runId: snapshot.sourceRunId,
+        updatedAt: snapshot.sourceUpdatedAt,
+        capturedAt: snapshot.capturedAt,
+        reviewedAt: snapshot.reviewedAt,
+        sourcePostCount: snapshot.entries.length,
+        selectionPolicyVersion: snapshot.selectionPolicyVersion,
+        baselineOrderDigest: snapshot.baselineOrderDigest,
+        publicationPolicy: {
+          ...approvedPolicy.publicationPolicy,
+          decay: [...approvedPolicy.publicationPolicy.decay],
+        },
+      },
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.warn({ err }, 'Community Governed Feed demo snapshot load failed');
+    // The v4 API requires the complete approved 26-topic policy. Snapshot-entry
+    // failures may degrade to the fixture; policy corruption fails closed.
+    const approvedPolicy = readApprovedCommunityGovPolicy();
+    return fallbackCorpus({
+      communityId: options.communityId,
+      now: options.now,
+      reason: `Community Governed Feed snapshot could not be loaded: ${message}`,
+      activeEpochId: 0,
+      baseWeights: approvedPolicy.signalWeights,
+      baseTopicIntent: {
+        topicWeights: Object.fromEntries(approvedPolicy.topicCatalog.map((topic) => [topic.slug, topic.baselineWeight])),
+      },
+      topicCatalog: approvedPolicy.topicCatalog,
+      sourceFeedUri: COMMUNITY_GOV_FEED_URI,
+    });
+  }
+}
+
+export function communityGovSnapshotGateFailures(health: ShadowDemoCorpusHealth): string[] {
+  const failures: string[] = [];
+  const eligible = health.eligiblePostCount ?? health.publicScoredPosts;
+  if (eligible < COMMUNITY_GOV_SNAPSHOT_GATE.minimumEligiblePosts) {
+    failures.push(`eligible posts ${eligible} < ${COMMUNITY_GOV_SNAPSHOT_GATE.minimumEligiblePosts}`);
+  }
+  if (health.publicScoredPosts < COMMUNITY_GOV_SNAPSHOT_GATE.minimumDisplayablePosts) {
+    failures.push(`displayable posts ${health.publicScoredPosts} < ${COMMUNITY_GOV_SNAPSHOT_GATE.minimumDisplayablePosts}`);
+  }
+  const englishShare = health.englishTaggedShare ?? 0;
+  if (englishShare < COMMUNITY_GOV_SNAPSHOT_GATE.minimumEnglishTaggedShare) {
+    failures.push(`English-tagged share ${englishShare} < ${COMMUNITY_GOV_SNAPSHOT_GATE.minimumEnglishTaggedShare}`);
+  }
+  if (health.topAuthorConcentration > COMMUNITY_GOV_SNAPSHOT_GATE.maximumTopAuthorConcentration) {
+    failures.push(`top-author concentration ${health.topAuthorConcentration} > ${COMMUNITY_GOV_SNAPSHOT_GATE.maximumTopAuthorConcentration}`);
+  }
+  const richMediaShare = health.richMediaShare ?? 0;
+  if (richMediaShare < COMMUNITY_GOV_SNAPSHOT_GATE.minimumRichMediaShare) {
+    failures.push(`rich-media share ${richMediaShare} < ${COMMUNITY_GOV_SNAPSHOT_GATE.minimumRichMediaShare}`);
+  }
+  return failures;
+}
+
+async function readEpochById(dbPool: Pick<Pool, 'query'>, epochId: number): Promise<ActiveEpochRow | null> {
+  const result = await dbPool.query<ActiveEpochRow>(
+    `SELECT id, recency_weight, engagement_weight, bridging_weight, source_diversity_weight, relevance_weight,
+            topic_weights
+     FROM governance_epochs
+     WHERE id = $1
+     LIMIT 1`,
+    [epochId]
+  );
+  return result.rows[0] ?? null;
+}
+
+async function readPublishedFeedRows(
+  dbPool: Pick<Pool, 'query'>,
+  snapshot: PublishedFeedSnapshot
+): Promise<CandidatePostRow[]> {
+  const result = await dbPool.query<CandidatePostRow>(
+    `SELECT DISTINCT ON (p.uri)
+            p.uri, p.author_did, p.created_at, p.text, p.topic_vector,
+            p.embed_url, COALESCE(LENGTH(p.text), 0) AS text_length,
+            $2::int AS candidate_count_72h,
+            0::int AS unique_authors_72h
+     FROM posts p
+     WHERE p.uri = ANY($1::text[])
+       AND p.deleted = FALSE
+     ORDER BY p.uri, p.created_at DESC`,
+    [snapshot.entries.map((entry) => entry.uri), snapshot.entries.length]
+  );
+  return result.rows;
+}
+
+function topicIntentFromCatalog(
+  epochWeights: Record<string, number> | null,
+  catalog: ShadowDemoTopicCatalogEntry[]
+): ShadowDemoTopicIntent {
+  return {
+    topicWeights: Object.fromEntries(catalog.map((topic) => [
+      topic.slug,
+      finiteTopicWeight(epochWeights?.[topic.slug] ?? topic.baselineWeight),
+    ])),
+  };
+}
+
+function finiteTopicWeight(value: number): number {
+  return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0.5;
+}
+
+function buildCommunityGovHealth(
+  now: Date,
+  snapshot: PublishedFeedSnapshot,
+  items: ShadowDemoCorpusItem[],
+  eligiblePostCount: number
+): ShadowDemoCorpusHealth {
+  const englishTagged = items.filter((item) =>
+    item.displayPost.kind === 'public_post'
+    && item.displayPost.languages?.some(isEnglishLanguageTag)
+  ).length;
+  const richMedia = items.filter((item) =>
+    item.displayPost.kind === 'public_post' && item.displayPost.media !== null && item.displayPost.media !== undefined
+  ).length;
+  return {
+    status:
+      eligiblePostCount >= COMMUNITY_GOV_SNAPSHOT_GATE.minimumEligiblePosts
+      && items.length >= COMMUNITY_GOV_SNAPSHOT_GATE.minimumDisplayablePosts
+        ? 'live'
+        : 'degraded',
+    source: 'production_feed_snapshot',
+    candidatePosts72h: snapshot.entries.length,
+    publicScoredPosts: items.length,
+    uniqueAuthors72h: uniqueAuthorCount(items),
+    bridgePostShare: bridgePostShare(items),
+    topAuthorConcentration: topAuthorConcentration(items),
+    sampledAt: now.toISOString(),
+    sourcePostCount: snapshot.entries.length,
+    eligiblePostCount,
+    englishTaggedShare: items.length === 0 ? 0 : Number((englishTagged / items.length).toFixed(3)),
+    richMediaShare: items.length === 0 ? 0 : Number((richMedia / items.length).toFixed(3)),
+  };
+}
+
+export function isEnglishLanguageTag(language: string): boolean {
+  const normalized = language.toLowerCase();
+  return normalized === 'en' || normalized.startsWith('en-');
 }
 
 async function readLatestActiveEpoch(dbPool: Pick<Pool, 'query'>): Promise<ActiveEpochRow | null> {
@@ -270,7 +517,7 @@ async function readOpenScienceCandidates(options: {
 }
 
 async function buildScoredCorpusItems(options: {
-  rows: CandidatePostRow[];
+  rows: Array<CandidatePostRow & { published?: PublishedFeedSnapshot['entries'][number] }>;
   epochId: number;
   readScore: (options: ReadPostScoreOptions) => Promise<PostScoreRecord | null>;
 }): Promise<ShadowDemoCorpusItem[]> {
@@ -278,10 +525,27 @@ async function buildScoredCorpusItems(options: {
   for (let start = 0; start < options.rows.length; start += SCORE_READ_BATCH_SIZE) {
     const batch = options.rows.slice(start, start + SCORE_READ_BATCH_SIZE);
     const scoredBatch = await Promise.all(batch.map(async (row) => {
-      const score = await options.readScore({
-        postUri: row.uri,
-        epochId: options.epochId,
-      });
+      const frozen = row.published?.frozen;
+      const score = frozen
+        ? {
+            postUri: row.uri,
+            epochId: frozen.scoreEpochId,
+            totalScore: frozen.componentScore,
+            scoredAt: new Date(frozen.scoredAt),
+            classificationMethod: 'keyword' as const,
+            componentDetails: { run_id: frozen.scoreRunId, source: 'approved_demo_snapshot' },
+            components: {
+              recency: { raw: frozen.rawScores.recency, weight: 0, weighted: 0 },
+              engagement: { raw: frozen.rawScores.engagement, weight: 0, weighted: 0 },
+              bridging: { raw: frozen.rawScores.bridging, weight: 0, weighted: 0 },
+              sourceDiversity: { raw: frozen.rawScores.source_diversity, weight: 0, weighted: 0 },
+              relevance: { raw: frozen.rawScores.relevance, weight: 0, weighted: 0 },
+            },
+          } satisfies PostScoreRecord
+        : await options.readScore({
+            postUri: row.uri,
+            epochId: options.epochId,
+          });
       if (!score) {
         return null;
       }
@@ -291,6 +555,7 @@ async function buildScoredCorpusItems(options: {
       }
       return {
         postUri: row.uri,
+        reviewedCid: row.reviewed_cid,
         authorDid: row.author_did,
         createdAt: dateToIso(row.created_at),
         topicVector: row.topic_vector ?? {},
@@ -299,8 +564,17 @@ async function buildScoredCorpusItems(options: {
         productionEpochId: score.epochId,
         scoredAt: score.scoredAt.toISOString(),
         componentDetails: score.componentDetails,
-        inclusionReasons: openScienceInclusionReasons(row.text, row.topic_vector ?? {}),
+        inclusionReasons: row.published
+          ? { matchedTopics: [], matchedTerms: [], sourceRank: row.published.publishedRank, reason: 'published_feed_snapshot' as const }
+          : openScienceInclusionReasons(row.text, row.topic_vector ?? {}),
         displayPost: hiddenDisplayPost('Post has not been hydrated from Bluesky public AppView yet'),
+        publishedRank: row.published?.publishedRank,
+        publishedScore: row.published?.publishedScore,
+        publicationAdjustment: row.published && score.totalScore !== 0
+          ? row.published.publishedScore / score.totalScore
+          : undefined,
+        embedUrl: row.embed_url,
+        textLength: row.text_length === undefined ? undefined : Number(row.text_length),
       } satisfies ShadowDemoCorpusItem;
     }));
     items.push(...scoredBatch.filter((item): item is NonNullable<typeof item> => item !== null));
@@ -337,6 +611,8 @@ function fallbackCorpus(options: {
   baseWeights?: ShadowDemoWeights;
   baseTopicIntent?: ShadowDemoTopicIntent;
   health?: ShadowDemoCorpusHealth;
+  topicCatalog?: ShadowDemoTopicCatalogEntry[];
+  sourceFeedUri?: string;
 }): ShadowDemoCorpus {
   const warning: ShadowDemoWarning = {
     code: 'shadow_demo_corpus_degraded',
@@ -344,27 +620,34 @@ function fallbackCorpus(options: {
     severity: 'degraded',
   };
   const items = fixtureCorpusItems(options.now, options.activeEpochId ?? 0);
+  const baseWeights = options.baseWeights ?? equalShadowWeights();
+  const baseTopicIntent = options.baseTopicIntent ?? emptyShadowTopicIntent();
+  const rankedItems = items;
   return {
     corpusId: `corpus-${randomUUID()}`,
     communityId: options.communityId,
     baseProductionEpochId: options.activeEpochId ?? 0,
-    baseWeights: options.baseWeights ?? equalShadowWeights(),
-    baseTopicIntent: options.baseTopicIntent ?? emptyShadowTopicIntent(),
+    baseWeights,
+    baseTopicIntent,
     createdAt: options.now.toISOString(),
     expiresAt: expiresAt(options.now).toISOString(),
-    items,
+    items: rankedItems,
     health:
-      options.health ?? {
+      options.health
+        ? { ...options.health, status: 'degraded', source: 'fixture_fallback' }
+        : {
         status: 'degraded',
         source: 'fixture_fallback',
         candidatePosts72h: 0,
-        publicScoredPosts: items.length,
-        uniqueAuthors72h: uniqueAuthorCount(items),
-        bridgePostShare: bridgePostShare(items),
-        topAuthorConcentration: topAuthorConcentration(items),
+        publicScoredPosts: rankedItems.length,
+        uniqueAuthors72h: uniqueAuthorCount(rankedItems),
+        bridgePostShare: bridgePostShare(rankedItems),
+        topAuthorConcentration: topAuthorConcentration(rankedItems),
         sampledAt: options.now.toISOString(),
       },
     warnings: [warning],
+    topicCatalog: options.topicCatalog,
+    sourceFeedUri: options.sourceFeedUri,
   };
 }
 

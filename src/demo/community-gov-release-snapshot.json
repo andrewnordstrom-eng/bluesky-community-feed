@@ -1,0 +1,2839 @@
+{
+  "schemaVersion": "2026-07-11.community-gov-snapshot.v3",
+  "feedUri": "at://did:plc:amzyknmm4auxijvykyfgznw2/app.bsky.feed.generator/community-gov",
+  "feedName": "Community Governed Feed",
+  "productionEpochId": 2,
+  "sourceRunId": "96698b9f-8933-4d54-b011-0c861ce898b3",
+  "sourceUpdatedAt": "2026-07-12T05:58:39.436Z",
+  "capturedAt": "2026-07-12T06:01:08.660Z",
+  "reviewedAt": "2026-07-12T06:02:16.144Z",
+  "selectionPolicyVersion": "community-gov-reviewer-safe-v1",
+  "baselineOrderDigest": "4fcc78007cf74389074df54aa809e70836e921f5d7573720dbb4a48478bb4be1",
+  "signalWeights": {
+    "recency": 0.25,
+    "engagement": 0.2,
+    "bridging": 0.1,
+    "source_diversity": 0.1,
+    "relevance": 0.35
+  },
+  "publicationPolicy": {
+    "urlDedupEnabled": true,
+    "minimumOriginalTextLength": 200,
+    "minimumRelevance": 0.25,
+    "decay": [
+      1,
+      0.7,
+      0.5,
+      0.3
+    ]
+  },
+  "topicCatalog": [
+    {
+      "slug": "adult-content",
+      "name": "Adult Content",
+      "description": "Sexually explicit content, pornography, NSFW material, fetish content, erotic fiction",
+      "baselineWeight": 0
+    },
+    {
+      "slug": "ai-machine-learning",
+      "name": "AI & Machine Learning",
+      "description": "Artificial intelligence, machine learning, LLMs, and neural networks",
+      "baselineWeight": 0.75
+    },
+    {
+      "slug": "art-creative",
+      "name": "Art & Creative",
+      "description": "Digital art, illustration, creative work, photography, and visual arts",
+      "baselineWeight": 0.15
+    },
+    {
+      "slug": "books-reading",
+      "name": "Books & Reading",
+      "description": "Books, reading, literature, libraries, and publishing",
+      "baselineWeight": 0.2
+    },
+    {
+      "slug": "climate-environment",
+      "name": "Climate & Environment",
+      "description": "Climate change, sustainability, renewable energy, and conservation",
+      "baselineWeight": 0.25
+    },
+    {
+      "slug": "cooking-food",
+      "name": "Cooking & Food",
+      "description": "Recipes, restaurants, cooking, baking, and food culture",
+      "baselineWeight": 0.15
+    },
+    {
+      "slug": "cybersecurity",
+      "name": "Cybersecurity",
+      "description": "Security, privacy, encryption, vulnerabilities, and infosec",
+      "baselineWeight": 0.7
+    },
+    {
+      "slug": "data-science",
+      "name": "Data Science",
+      "description": "Data analysis, statistics, visualization, and data engineering",
+      "baselineWeight": 0.7
+    },
+    {
+      "slug": "decentralized-social",
+      "name": "Decentralized Social",
+      "description": "Bluesky, AT Protocol, fediverse, Mastodon, and decentralized networks",
+      "baselineWeight": 0.9
+    },
+    {
+      "slug": "design-ux",
+      "name": "Design & UX",
+      "description": "UI/UX design, Figma, accessibility, typography, and design systems",
+      "baselineWeight": 0.35
+    },
+    {
+      "slug": "devops-infrastructure",
+      "name": "DevOps & Infrastructure",
+      "description": "Docker, Kubernetes, CI/CD, cloud computing, and infrastructure",
+      "baselineWeight": 0.6
+    },
+    {
+      "slug": "dogs-pets",
+      "name": "Dogs & Pets",
+      "description": "Dogs, puppies, corgis, pets, animal rescue, and veterinary care",
+      "baselineWeight": 0.5
+    },
+    {
+      "slug": "education",
+      "name": "Education",
+      "description": "Teaching, learning, universities, online courses, and students",
+      "baselineWeight": 0.4
+    },
+    {
+      "slug": "gaming",
+      "name": "Gaming",
+      "description": "Video games, game development, indie games, and gaming culture",
+      "baselineWeight": 0.1
+    },
+    {
+      "slug": "health-fitness",
+      "name": "Health & Fitness",
+      "description": "Exercise, nutrition, mental health, wellness, and personal fitness",
+      "baselineWeight": 0.2
+    },
+    {
+      "slug": "mobile-development",
+      "name": "Mobile Development",
+      "description": "iOS, Android, Swift, Kotlin, React Native, and mobile apps",
+      "baselineWeight": 0.35
+    },
+    {
+      "slug": "music",
+      "name": "Music",
+      "description": "Songs, albums, musicians, concerts, and music production",
+      "baselineWeight": 0.1
+    },
+    {
+      "slug": "news-journalism",
+      "name": "News & Journalism",
+      "description": "News reporting, journalism, media, and press freedom",
+      "baselineWeight": 0.1
+    },
+    {
+      "slug": "open-source",
+      "name": "Open Source",
+      "description": "Free and open source software, licensing, and community projects",
+      "baselineWeight": 0.85
+    },
+    {
+      "slug": "politics-governance",
+      "name": "Politics & Governance",
+      "description": "Government, policy, elections, democracy, and civic engagement",
+      "baselineWeight": 0.05
+    },
+    {
+      "slug": "science-research",
+      "name": "Science & Research",
+      "description": "Academic research, scientific papers, studies, and peer review",
+      "baselineWeight": 0.4
+    },
+    {
+      "slug": "software-development",
+      "name": "Software Development",
+      "description": "Programming, coding, developer tools, and software engineering",
+      "baselineWeight": 0.8
+    },
+    {
+      "slug": "space-astronomy",
+      "name": "Space & Astronomy",
+      "description": "NASA, rockets, telescopes, planets, and the cosmos",
+      "baselineWeight": 0.3
+    },
+    {
+      "slug": "startups-business",
+      "name": "Startups & Business",
+      "description": "Entrepreneurship, startups, venture capital, and business strategy",
+      "baselineWeight": 0.3
+    },
+    {
+      "slug": "systems-programming",
+      "name": "Systems Programming",
+      "description": "Rust, C, C++, low-level programming, compilers, and operating systems",
+      "baselineWeight": 0.6
+    },
+    {
+      "slug": "web-development",
+      "name": "Web Development",
+      "description": "Frontend, backend, HTML, CSS, React, and web applications",
+      "baselineWeight": 0.65
+    }
+  ],
+  "entries": [
+    {
+      "uri": "at://did:plc:eob75vcjtmbaef2tn4evc4sl/app.bsky.feed.post/3mqfypiupxs2y",
+      "publishedRank": 1,
+      "publishedScore": 0.8255736707453303,
+      "frozen": {
+        "authorDid": "did:plc:eob75vcjtmbaef2tn4evc4sl",
+        "createdAt": "2026-07-12T01:12:29.827Z",
+        "topicVector": {
+          "decentralized-social": 1
+        },
+        "embedUrl": null,
+        "textLength": 257,
+        "scoreRunId": "1523732f-5244-4a3c-a784-e2b7c4002b6c",
+        "scoreEpochId": 2,
+        "componentScore": 0.8255736707453303,
+        "scoredAt": "2026-07-12T03:53:12.523Z",
+        "rawScores": {
+          "recency": 0.9019966506394308,
+          "engagement": 0.42618953389141506,
+          "bridging": 0.9983660130718953,
+          "source_diversity": 1,
+          "relevance": 0.9
+        },
+        "reviewedCid": "bafyreigqtpztk45mqfxkpqy3s45ptnyco2a4p5g3lnssfxadu5xssd6cuu"
+      }
+    },
+    {
+      "uri": "at://did:plc:6ayddqghxhciedbaofoxkcbs/app.bsky.feed.post/3mqfdjtqzbo2l",
+      "publishedRank": 2,
+      "publishedScore": 0.8098718975537842,
+      "frozen": {
+        "authorDid": "did:plc:6ayddqghxhciedbaofoxkcbs",
+        "createdAt": "2026-07-11T18:53:31.160Z",
+        "topicVector": {
+          "decentralized-social": 1
+        },
+        "embedUrl": null,
+        "textLength": 185,
+        "scoreRunId": "b88608ef-66ba-40ef-9c78-a6f109cd5a20",
+        "scoreEpochId": 2,
+        "componentScore": 0.8098718975537842,
+        "scoredAt": "2026-07-12T04:48:34.528Z",
+        "rawScores": {
+          "recency": 0.6825580806867944,
+          "engagement": 0.6378456593159089,
+          "bridging": 0.9666324551890393,
+          "source_diversity": 1,
+          "relevance": 0.9
+        },
+        "reviewedCid": "bafyreicehzh4ns5ayv7uil6ejypg2h2sqetjfbma7gan5xxljuz643eesy"
+      }
+    },
+    {
+      "uri": "at://did:plc:acnxolycwrahppnrehghq6lp/app.bsky.feed.post/3mq7yxil44c2k",
+      "publishedRank": 3,
+      "publishedScore": 0.8039579124010869,
+      "frozen": {
+        "authorDid": "did:plc:acnxolycwrahppnrehghq6lp",
+        "createdAt": "2026-07-09T16:00:59.517Z",
+        "topicVector": {
+          "decentralized-social": 1
+        },
+        "embedUrl": null,
+        "textLength": 233,
+        "scoreRunId": "70358866-8573-4885-9138-14e2bcce25c5",
+        "scoreEpochId": 2,
+        "componentScore": 0.8039579124010869,
+        "scoredAt": "2026-07-09T19:03:57.628Z",
+        "rawScores": {
+          "recency": 0.8892035620204057,
+          "engagement": 0.3332851094799275,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.9
+        },
+        "reviewedCid": null
+      }
+    },
+    {
+      "uri": "at://did:plc:pk3vds2kiub2mduc5q6bqquw/app.bsky.feed.post/3mqdvsbmcf22r",
+      "publishedRank": 4,
+      "publishedScore": 0.7977382121129288,
+      "frozen": {
+        "authorDid": "did:plc:pk3vds2kiub2mduc5q6bqquw",
+        "createdAt": "2026-07-11T05:15:02.173Z",
+        "topicVector": {
+          "ai-machine-learning": 1,
+          "software-development": 0.2
+        },
+        "embedUrl": null,
+        "textLength": 300,
+        "scoreRunId": "e4b3c0a5-8e96-4fe1-8942-29fecc8a2a17",
+        "scoreEpochId": 2,
+        "componentScore": 0.7977382121129288,
+        "scoredAt": "2026-07-11T07:23:20.694Z",
+        "rawScores": {
+          "recency": 0.9209508869589459,
+          "engagement": 0.5104191185326288,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.7583333333333334
+        },
+        "reviewedCid": "bafyreifjzleckviuozwk53rypmm2kqlxjfaljrjwj5g34agu5juar5ffx4"
+      }
+    },
+    {
+      "uri": "at://did:plc:q5miroc5igj4anu6pc6s3u3h/app.bsky.feed.post/3mqcn4dx2gs2l",
+      "publishedRank": 5,
+      "publishedScore": 0.7971841067097769,
+      "frozen": {
+        "authorDid": "did:plc:q5miroc5igj4anu6pc6s3u3h",
+        "createdAt": "2026-07-10T17:06:56.751Z",
+        "topicVector": {
+          "decentralized-social": 1
+        },
+        "embedUrl": "https://deer.social",
+        "textLength": 217,
+        "scoreRunId": "7067f68a-2527-46fd-84d0-d2ea96a3fa82",
+        "scoreEpochId": 2,
+        "componentScore": 0.7971841067097769,
+        "scoredAt": "2026-07-10T19:14:43.948Z",
+        "rawScores": {
+          "recency": 0.9212594470982638,
+          "engagement": 0.2593462246760551,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.9
+        },
+        "reviewedCid": "bafyreibnjfwrzhwuf5iu4rjk4diua2at5jcuhnfq2ttqjylzucb26by4r4"
+      }
+    },
+    {
+      "uri": "at://did:plc:givg3amslsq46o3f25ga5esh/app.bsky.feed.post/3mqck24v3d22h",
+      "publishedRank": 6,
+      "publishedScore": 0.7952713177427206,
+      "frozen": {
+        "authorDid": "did:plc:givg3amslsq46o3f25ga5esh",
+        "createdAt": "2026-07-10T16:12:01.011Z",
+        "topicVector": {
+          "decentralized-social": 1
+        },
+        "embedUrl": "https://atproto.com/off-protocol/network-in-your-hand",
+        "textLength": 76,
+        "scoreRunId": "282f86ce-468d-4f7b-8c0d-4517ce65082e",
+        "scoreEpochId": 2,
+        "componentScore": 0.7952713177427206,
+        "scoredAt": "2026-07-10T19:44:45.689Z",
+        "rawScores": {
+          "recency": 0.8723717013020595,
+          "engagement": 0.31803481922888616,
+          "bridging": 0.9857142857142858,
+          "source_diversity": 1,
+          "relevance": 0.9
+        },
+        "reviewedCid": "bafyreigi77i6fprm2ybfeyma6xabs4ccqumgmvvreaud76btgbkbkpvhqu"
+      }
+    },
+    {
+      "uri": "at://did:plc:uuxsjzxf7wokfhwettyljhsa/app.bsky.feed.post/3mqcswhhrjc2y",
+      "publishedRank": 7,
+      "publishedScore": 0.7943294127399412,
+      "frozen": {
+        "authorDid": "did:plc:uuxsjzxf7wokfhwettyljhsa",
+        "createdAt": "2026-07-10T18:51:01.569Z",
+        "topicVector": {
+          "decentralized-social": 1
+        },
+        "embedUrl": null,
+        "textLength": 280,
+        "scoreRunId": "5a1dbfa2-129e-44c5-93e2-4ca4289aefe7",
+        "scoreEpochId": 2,
+        "componentScore": 0.7943294127399412,
+        "scoredAt": "2026-07-11T00:59:56.562Z",
+        "rawScores": {
+          "recency": 0.7891721980728206,
+          "engagement": 0.41836363429049817,
+          "bridging": 0.9836363636363636,
+          "source_diversity": 1,
+          "relevance": 0.9
+        },
+        "reviewedCid": "bafyreibvkuxagdz4e3hqivtchd4qsxatjibkydz2sg237iapeo2wo7fwq4"
+      }
+    },
+    {
+      "uri": "at://did:plc:hes7linpkmt7mpd6m76dl75f/app.bsky.feed.post/3mqcli567gs22",
+      "publishedRank": 8,
+      "publishedScore": 0.794288513624487,
+      "frozen": {
+        "authorDid": "did:plc:hes7linpkmt7mpd6m76dl75f",
+        "createdAt": "2026-07-10T16:37:44.815Z",
+        "topicVector": {
+          "decentralized-social": 1
+        },
+        "embedUrl": null,
+        "textLength": 117,
+        "scoreRunId": "d8fbe876-1b2a-4f14-84e2-f9f5a94c7894",
+        "scoreEpochId": 2,
+        "componentScore": 0.794288513624487,
+        "scoredAt": "2026-07-10T18:29:29.966Z",
+        "rawScores": {
+          "recency": 0.9307890189632961,
+          "engagement": 0.23295629441831545,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.9
+        },
+        "reviewedCid": "bafyreiduw5ql43nq5cprtfc5kmmvgijd35paihijeqsyaewkzdilqd2nea"
+      }
+    },
+    {
+      "uri": "at://did:plc:gztfhntm6vjr7azkekxz6wej/app.bsky.feed.post/3mqechkdc5s2r",
+      "publishedRank": 9,
+      "publishedScore": 0.7941949505208705,
+      "frozen": {
+        "authorDid": "did:plc:gztfhntm6vjr7azkekxz6wej",
+        "createdAt": "2026-07-11T09:01:40.860Z",
+        "topicVector": {
+          "decentralized-social": 1
+        },
+        "embedUrl": null,
+        "textLength": 294,
+        "scoreRunId": "769a5433-e45d-4b03-841a-bf723b66dcd3",
+        "scoreEpochId": 2,
+        "componentScore": 0.7941949505208705,
+        "scoredAt": "2026-07-11T09:18:01.470Z",
+        "rawScores": {
+          "recency": 0.989565874391928,
+          "engagement": 0.15901740961444308,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.9
+        },
+        "reviewedCid": null
+      }
+    },
+    {
+      "uri": "at://did:plc:5naws4kxtwj6l7qlwmu5uxx4/app.bsky.feed.post/3mqcekifqa22m",
+      "publishedRank": 10,
+      "publishedScore": 0.7930458049194813,
+      "frozen": {
+        "authorDid": "did:plc:5naws4kxtwj6l7qlwmu5uxx4",
+        "createdAt": "2026-07-10T14:33:47.513Z",
+        "topicVector": {
+          "decentralized-social": 1
+        },
+        "embedUrl": null,
+        "textLength": 186,
+        "scoreRunId": "f0d0bfc3-1d1f-46b1-9424-1b52d78ccde4",
+        "scoreEpochId": 2,
+        "componentScore": 0.7930458049194813,
+        "scoredAt": "2026-07-10T17:09:49.764Z",
+        "rawScores": {
+          "recency": 0.9047062399370815,
+          "engagement": 0.2593462246760551,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.9
+        },
+        "reviewedCid": null
+      }
+    },
+    {
+      "uri": "at://did:plc:calsyxnsirzwfie6hl6kcdn7/app.bsky.feed.post/3mqdfxn24hk2v",
+      "publishedRank": 11,
+      "publishedScore": 0.7919987240970164,
+      "frozen": {
+        "authorDid": "did:plc:calsyxnsirzwfie6hl6kcdn7",
+        "createdAt": "2026-07-11T00:31:42.062Z",
+        "topicVector": {
+          "ai-machine-learning": 1
+        },
+        "embedUrl": null,
+        "textLength": 300,
+        "scoreRunId": "4ec7e56f-1590-4dd1-a0aa-0eaaf58722bb",
+        "scoreEpochId": 2,
+        "componentScore": 0.7919987240970164,
+        "scoredAt": "2026-07-11T04:40:49.099Z",
+        "rawScores": {
+          "recency": 0.8522433337842067,
+          "engagement": 0.5901986065729019,
+          "bridging": 0.9839816933638444,
+          "source_diversity": 1,
+          "relevance": 0.75
+        },
+        "reviewedCid": null
+      }
+    },
+    {
+      "uri": "at://did:plc:drxrwpz7v2lociycdjcn5pzj/app.bsky.feed.post/3mqfsmvkjkk2h",
+      "publishedRank": 12,
+      "publishedScore": 0.7916161664582566,
+      "frozen": {
+        "authorDid": "did:plc:drxrwpz7v2lociycdjcn5pzj",
+        "createdAt": "2026-07-11T23:23:40.011Z",
+        "topicVector": {
+          "software-development": 1
+        },
+        "embedUrl": null,
+        "textLength": 281,
+        "scoreRunId": "790542f3-b8cd-43b1-9fe7-6c9689af5c56",
+        "scoreEpochId": 2,
+        "componentScore": 0.7916161664582566,
+        "scoredAt": "2026-07-12T01:11:54.810Z",
+        "rawScores": {
+          "recency": 0.9328857026068199,
+          "engagement": 0.3919737040327585,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.8
+        },
+        "reviewedCid": "bafyreieqzujguby5htcwhwmmvfnb77x7xtxntwxkbuyhafo5wzpt25qmey"
+      }
+    },
+    {
+      "uri": "at://did:plc:gltv5penrqtznhybxf4agrrt/app.bsky.feed.post/3mqcadw2mz22j",
+      "publishedRank": 13,
+      "publishedScore": 0.7915241996066165,
+      "frozen": {
+        "authorDid": "did:plc:gltv5penrqtznhybxf4agrrt",
+        "createdAt": "2026-07-10T13:18:31.980Z",
+        "topicVector": {
+          "ai-machine-learning": 1
+        },
+        "embedUrl": null,
+        "textLength": 288,
+        "scoreRunId": "d1927b01-8998-41ae-baa2-c1834d8e1cb6",
+        "scoreEpochId": 2,
+        "componentScore": 0.7915241996066165,
+        "scoredAt": "2026-07-10T16:09:43.860Z",
+        "rawScores": {
+          "recency": 0.8959471606413082,
+          "engagement": 0.541004817463479,
+          "bridging": 0.9683644595359366,
+          "source_diversity": 1,
+          "relevance": 0.75
+        },
+        "reviewedCid": "bafyreihrqzsqpkjcxug4tmmlzj3m7esuywytjiez453fipgahu43ehuf6u"
+      }
+    },
+    {
+      "uri": "at://did:plc:zbwj7kmptzt5wha6fqgbhc5f/app.bsky.feed.post/3mqccxbwle227",
+      "publishedRank": 14,
+      "publishedScore": 0.791173995841304,
+      "frozen": {
+        "authorDid": "did:plc:zbwj7kmptzt5wha6fqgbhc5f",
+        "createdAt": "2026-07-10T14:05:09.447Z",
+        "topicVector": {
+          "decentralized-social": 1
+        },
+        "embedUrl": null,
+        "textLength": 280,
+        "scoreRunId": "79544952-f702-4e7b-b8cb-03c19f699c95",
+        "scoreEpochId": 2,
+        "componentScore": 0.791173995841304,
+        "scoredAt": "2026-07-10T15:34:40.213Z",
+        "rawScores": {
+          "recency": 0.9441698792666363,
+          "engagement": 0.20065763012322413,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.9
+        },
+        "reviewedCid": "bafyreifnozq5d6ljqls75bogwsiiqc5taf4xtqdfijdrli2x3ef4lidxnm"
+      }
+    },
+    {
+      "uri": "at://did:plc:lysqukqdu6hsrhet5v2brjgo/app.bsky.feed.post/3mqcswdmi7c2e",
+      "publishedRank": 15,
+      "publishedScore": 0.790937580107522,
+      "frozen": {
+        "authorDid": "did:plc:lysqukqdu6hsrhet5v2brjgo",
+        "createdAt": "2026-07-10T18:50:56.892Z",
+        "topicVector": {
+          "decentralized-social": 1
+        },
+        "embedUrl": null,
+        "textLength": 290,
+        "scoreRunId": "2fb1e689-6f77-4fdb-b6e3-bc9688be209c",
+        "scoreEpochId": 2,
+        "componentScore": 0.790937580107522,
+        "scoredAt": "2026-07-10T22:39:50.722Z",
+        "rawScores": {
+          "recency": 0.8633752429571672,
+          "engagement": 0.3009864451848362,
+          "bridging": 0.9989648033126295,
+          "source_diversity": 1,
+          "relevance": 0.9
+        },
+        "reviewedCid": "bafyreia5byycdir7jksfyy4s73a7dznicjk2f5evf4og6e2haxtrs7frvu"
+      }
+    },
+    {
+      "uri": "at://did:plc:oio4hkxaop4ao4wz2pp3f4cr/app.bsky.feed.post/3mqg3ftzjs225",
+      "publishedRank": 16,
+      "publishedScore": 0.7905846936161293,
+      "frozen": {
+        "authorDid": "did:plc:oio4hkxaop4ao4wz2pp3f4cr",
+        "createdAt": "2026-07-12T02:00:47.200Z",
+        "topicVector": {
+          "data-science": 0.2,
+          "ai-machine-learning": 0.2,
+          "decentralized-social": 1
+        },
+        "embedUrl": null,
+        "textLength": 272,
+        "scoreRunId": "50e76ce1-f35c-4087-9725-5ea624f3617c",
+        "scoreEpochId": 2,
+        "componentScore": 0.7905846936161293,
+        "scoredAt": "2026-07-12T02:22:47.781Z",
+        "rawScores": {
+          "recency": 0.9859737389298646,
+          "engagement": 0.23295629441831545,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.85
+        },
+        "reviewedCid": "bafyreiezgugi4mntjtjrfhlosigqvq5ul323xm7ahinppnaatl5bmvdtru"
+      }
+    },
+    {
+      "uri": "at://did:plc:wnm3vhw6qqhsab6sm6xjcsgr/app.bsky.feed.post/3mqbjz34nhk2g",
+      "publishedRank": 17,
+      "publishedScore": 0.7901265291707347,
+      "frozen": {
+        "authorDid": "did:plc:wnm3vhw6qqhsab6sm6xjcsgr",
+        "createdAt": "2026-07-10T06:38:45.870Z",
+        "topicVector": {
+          "decentralized-social": 1,
+          "devops-infrastructure": 0.2
+        },
+        "embedUrl": null,
+        "textLength": 270,
+        "scoreRunId": "6fccaf22-325f-45c6-8ccb-eb4f483cb1a0",
+        "scoreEpochId": 2,
+        "componentScore": 0.7901265291707347,
+        "scoredAt": "2026-07-10T07:03:40.451Z",
+        "rawScores": {
+          "recency": 0.9841410811482866,
+          "engagement": 0.23295629441831545,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.8500000000000001
+        },
+        "reviewedCid": "bafyreigiqxl75liru7ywzk7b3uuvxytbmlhxncxpeaqasiljn727zrszmu"
+      }
+    },
+    {
+      "uri": "at://did:plc:wnm3vhw6qqhsab6sm6xjcsgr/app.bsky.feed.post/3mqbjqkzubk2g",
+      "publishedRank": 18,
+      "publishedScore": 0.7893579240781532,
+      "frozen": {
+        "authorDid": "did:plc:wnm3vhw6qqhsab6sm6xjcsgr",
+        "createdAt": "2026-07-10T06:34:00.566Z",
+        "topicVector": {
+          "open-source": 0.2,
+          "news-journalism": 0.2,
+          "decentralized-social": 1
+        },
+        "embedUrl": null,
+        "textLength": 223,
+        "scoreRunId": "85ec3820-ed18-4296-99a7-0ac954495277",
+        "scoreEpochId": 2,
+        "componentScore": 0.7893579240781532,
+        "scoredAt": "2026-07-10T11:13:00.923Z",
+        "rawScores": {
+          "recency": 0.8360505701007334,
+          "engagement": 0.5509911136472015,
+          "bridging": 0.9764705882352941,
+          "source_diversity": 1,
+          "relevance": 0.7785714285714287
+        },
+        "reviewedCid": "bafyreifpoyhkeexo4yctkavxkpx54fgpnrmpniz7tpbuclvmpwv5qp3eey"
+      }
+    },
+    {
+      "uri": "at://did:plc:uuxsjzxf7wokfhwettyljhsa/app.bsky.feed.post/3mqaw4xiv4k2g",
+      "publishedRank": 19,
+      "publishedScore": 0.7880700748208196,
+      "frozen": {
+        "authorDid": "did:plc:uuxsjzxf7wokfhwettyljhsa",
+        "createdAt": "2026-07-10T00:43:01.454Z",
+        "topicVector": {
+          "decentralized-social": 1
+        },
+        "embedUrl": null,
+        "textLength": 255,
+        "scoreRunId": "93e8728f-8f4c-4240-9725-d2907a2efb46",
+        "scoreEpochId": 2,
+        "componentScore": 0.7880700748208196,
+        "scoredAt": "2026-07-10T06:03:03.915Z",
+        "rawScores": {
+          "recency": 0.8143193326284802,
+          "engagement": 0.3712607321280215,
+          "bridging": 0.9523809523809523,
+          "source_diversity": 1,
+          "relevance": 0.9
+        },
+        "reviewedCid": "bafyreiaybwuddgp3zutpyydiqklkzeomiatdk2fkya7wwrt7iwdydzuno4"
+      }
+    },
+    {
+      "uri": "at://did:plc:tzfbv3ukqyvdq2xryuhbz42k/app.bsky.feed.post/3mqfaap2ids2s",
+      "publishedRank": 20,
+      "publishedScore": 0.7878647460091794,
+      "frozen": {
+        "authorDid": "did:plc:tzfbv3ukqyvdq2xryuhbz42k",
+        "createdAt": "2026-07-11T17:54:43.187Z",
+        "topicVector": {
+          "decentralized-social": 1
+        },
+        "embedUrl": null,
+        "textLength": 143,
+        "scoreRunId": "856ed61d-895b-4f30-8c30-3ac3bedaf0ed",
+        "scoreEpochId": 2,
+        "componentScore": 0.7878647460091794,
+        "scoredAt": "2026-07-11T19:46:13.898Z",
+        "rawScores": {
+          "recency": 0.9309328799381388,
+          "engagement": 0.20065763012322413,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.9
+        },
+        "reviewedCid": "bafyreic2vpn5yaivebeea7pnvs43nwgtrnlfnjyv76modhjsc7cpt6sd3a"
+      }
+    },
+    {
+      "uri": "at://did:plc:us2du6fsu536sdo5snr4vxu5/app.bsky.feed.post/3mqccwffcqk2p",
+      "publishedRank": 21,
+      "publishedScore": 0.7865967823524269,
+      "frozen": {
+        "authorDid": "did:plc:us2du6fsu536sdo5snr4vxu5",
+        "createdAt": "2026-07-10T14:04:39.522Z",
+        "topicVector": {
+          "decentralized-social": 1
+        },
+        "embedUrl": "https://deer.social",
+        "textLength": 243,
+        "scoreRunId": "81ba1de4-d676-43d9-abe6-ee94f3a17a37",
+        "scoreEpochId": 2,
+        "componentScore": 0.7865967823524269,
+        "scoredAt": "2026-07-10T16:04:40.957Z",
+        "rawScores": {
+          "recency": 0.9258610253111285,
+          "engagement": 0.20065763012322413,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.9
+        },
+        "reviewedCid": "bafyreiak6rzhu7xe7d2t6sl5dvkrnvwnqwwn3fxvoi5biaxtdk4stqvvua"
+      }
+    },
+    {
+      "uri": "at://did:plc:7exy3k53z33dvghn6edyayxt/app.bsky.feed.post/3mqd4kwqad22r",
+      "publishedRank": 22,
+      "publishedScore": 0.7849854368559692,
+      "frozen": {
+        "authorDid": "did:plc:7exy3k53z33dvghn6edyayxt",
+        "createdAt": "2026-07-10T21:43:32.340Z",
+        "topicVector": {
+          "decentralized-social": 1
+        },
+        "embedUrl": null,
+        "textLength": 101,
+        "scoreRunId": "ead8b55a-15d3-4d17-8236-91ebab8e4e27",
+        "scoreEpochId": 2,
+        "componentScore": 0.7849854368559692,
+        "scoredAt": "2026-07-11T07:53:23.628Z",
+        "rawScores": {
+          "recency": 0.6761057843147467,
+          "engagement": 0.5146148872057391,
+          "bridging": 0.9803601333613465,
+          "source_diversity": 1,
+          "relevance": 0.9
+        },
+        "reviewedCid": "bafyreih3lpubghr6ivq2ft5f4xg3xenaoezo3koyik5wq6iaugirq75iga"
+      }
+    },
+    {
+      "uri": "at://did:plc:lrphxvv25aibthe7xoc2eeyy/app.bsky.feed.post/3mqckxz26qk2n",
+      "publishedRank": 23,
+      "publishedScore": 0.7827626283803417,
+      "frozen": {
+        "authorDid": "did:plc:lrphxvv25aibthe7xoc2eeyy",
+        "createdAt": "2026-07-10T16:28:43.617Z",
+        "topicVector": {
+          "decentralized-social": 1
+        },
+        "embedUrl": null,
+        "textLength": 128,
+        "scoreRunId": "48ee83ef-976c-4339-b605-b7702bb02692",
+        "scoreEpochId": 2,
+        "componentScore": 0.7827626283803417,
+        "scoredAt": "2026-07-10T20:49:48.540Z",
+        "rawScores": {
+          "recency": 0.8457236392914277,
+          "engagement": 0.2816585927874237,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.9
+        },
+        "reviewedCid": "bafyreicfzjkinvlbkrousm6y7uub5u6uiczlt45gmfm45bebre7c7qhnlm"
+      }
+    },
+    {
+      "uri": "at://did:plc:34yvx4hv64znmh2i2fezoyqx/app.bsky.feed.post/3mqf2v3xw522e",
+      "publishedRank": 24,
+      "publishedScore": 0.7809079312429554,
+      "frozen": {
+        "authorDid": "did:plc:34yvx4hv64znmh2i2fezoyqx",
+        "createdAt": "2026-07-11T16:18:45.372Z",
+        "topicVector": {
+          "decentralized-social": 1
+        },
+        "embedUrl": "https://atproto.at/uri/at://did:plc:34yvx4hv64znmh2i2fezoyqx/org.designtxt.tokenCollection",
+        "textLength": 160,
+        "scoreRunId": "8e18b2e1-a0e0-4c62-ba74-590f2b3b2582",
+        "scoreEpochId": 2,
+        "componentScore": 0.7809079312429554,
+        "scoredAt": "2026-07-11T18:01:06.873Z",
+        "rawScores": {
+          "recency": 0.9364177972802675,
+          "engagement": 0.15901740961444308,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.9
+        },
+        "reviewedCid": "bafyreidhnmc7atyotw6lmqkgoamtqvumxniuizjjeslux2pcyf4xhvsthe"
+      }
+    },
+    {
+      "uri": "at://did:plc:xc3dqvyng7lx4x7kxwl37fje/app.bsky.feed.post/3mqgclh7lbk2i",
+      "publishedRank": 25,
+      "publishedScore": 0.7806893725286983,
+      "frozen": {
+        "authorDid": "did:plc:xc3dqvyng7lx4x7kxwl37fje",
+        "createdAt": "2026-07-12T04:09:11.286Z",
+        "topicVector": {
+          "ai-machine-learning": 1
+        },
+        "embedUrl": "https://neu.inc/",
+        "textLength": 124,
+        "scoreRunId": "49eaee96-46f0-4c66-918d-df5c5035a1a9",
+        "scoreEpochId": 2,
+        "componentScore": 0.7806893725286983,
+        "scoredAt": "2026-07-12T04:58:31.337Z",
+        "rawScores": {
+          "recency": 0.9688342305022313,
+          "engagement": 0.3819874078490358,
+          "bridging": 0.9958333333333333,
+          "source_diversity": 1,
+          "relevance": 0.75
+        },
+        "reviewedCid": null
+      }
+    },
+    {
+      "uri": "at://did:plc:vafqb3yhndyawabm2t2zhw5z/app.bsky.feed.post/3mqctot74us2x",
+      "publishedRank": 26,
+      "publishedScore": 0.7804793784442541,
+      "frozen": {
+        "authorDid": "did:plc:vafqb3yhndyawabm2t2zhw5z",
+        "createdAt": "2026-07-10T19:04:39.176Z",
+        "topicVector": {
+          "decentralized-social": 1
+        },
+        "embedUrl": null,
+        "textLength": 300,
+        "scoreRunId": "99a897aa-c06e-4064-badb-e330eabbed5e",
+        "scoreEpochId": 2,
+        "componentScore": 0.7804793784442541,
+        "scoredAt": "2026-07-11T02:19:48.260Z",
+        "rawScores": {
+          "recency": 0.7563275874977874,
+          "engagement": 0.3819874078490358,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.9
+        },
+        "reviewedCid": "bafyreian3rwctsodaislxbvbtqfauagyin6ye67o5dh5aqyjfmhsnalifq"
+      }
+    },
+    {
+      "uri": "at://did:plc:jn2c6bcr5rcwlmfcfn5k37sm/app.bsky.feed.post/3mqcpw5f6qc2z",
+      "publishedRank": 27,
+      "publishedScore": 0.7788456739113797,
+      "frozen": {
+        "authorDid": "did:plc:jn2c6bcr5rcwlmfcfn5k37sm",
+        "createdAt": "2026-07-10T17:57:09.774Z",
+        "topicVector": {
+          "ai-machine-learning": 1
+        },
+        "embedUrl": null,
+        "textLength": 121,
+        "scoreRunId": "48ee83ef-976c-4339-b605-b7702bb02692",
+        "scoreEpochId": 2,
+        "componentScore": 0.7788456739113797,
+        "scoredAt": "2026-07-10T20:49:38.416Z",
+        "rawScores": {
+          "recency": 0.8952121439422666,
+          "engagement": 0.4715895471896336,
+          "bridging": 0.9822472848788639,
+          "source_diversity": 1,
+          "relevance": 0.75
+        },
+        "reviewedCid": null
+      }
+    },
+    {
+      "uri": "at://did:plc:ex2wfvn7xe76tpogywr7dkjo/app.bsky.feed.post/3mqciec4mxs2t",
+      "publishedRank": 28,
+      "publishedScore": 0.7778611084034226,
+      "frozen": {
+        "authorDid": "did:plc:ex2wfvn7xe76tpogywr7dkjo",
+        "createdAt": "2026-07-10T15:41:54.564Z",
+        "topicVector": {
+          "decentralized-social": 1
+        },
+        "embedUrl": null,
+        "textLength": 126,
+        "scoreRunId": "9eb77a55-a373-4d60-b233-90363087debd",
+        "scoreEpochId": 2,
+        "componentScore": 0.7778611084034226,
+        "scoredAt": "2026-07-10T17:44:40.756Z",
+        "rawScores": {
+          "recency": 0.9242305059221363,
+          "engagement": 0.15901740961444308,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.9
+        },
+        "reviewedCid": "bafyreifjhctklwzhqbkszqpyj4hdtqv4t2cmhuxgm2jompgcexue7r3h4e"
+      }
+    },
+    {
+      "uri": "at://did:plc:yj7zpeyom5d6ak2erlvsi6ro/app.bsky.feed.post/3mqfvpr2t5k2u",
+      "publishedRank": 29,
+      "publishedScore": 0.7774612095484154,
+      "frozen": {
+        "authorDid": "did:plc:yj7zpeyom5d6ak2erlvsi6ro",
+        "createdAt": "2026-07-12T00:18:57.165Z",
+        "topicVector": {
+          "ai-machine-learning": 1
+        },
+        "embedUrl": null,
+        "textLength": 131,
+        "scoreRunId": "a5fe92a5-fef2-4966-9894-fb41e0b47a03",
+        "scoreEpochId": 2,
+        "componentScore": 0.7774612095484154,
+        "scoredAt": "2026-07-12T03:13:11.213Z",
+        "rawScores": {
+          "recency": 0.894203295873192,
+          "engagement": 0.4970486454037257,
+          "bridging": 0.9200065649937226,
+          "source_diversity": 1,
+          "relevance": 0.75
+        },
+        "reviewedCid": "bafyreihflaygndgor2vke67fzax23aortvhuak5rrbfrxshbeo56egerv4"
+      }
+    },
+    {
+      "uri": "at://did:plc:5aeagkpy2ch5eencyi2elahk/app.bsky.feed.post/3mqfoornlwk2z",
+      "publishedRank": 30,
+      "publishedScore": 0.7766431552832379,
+      "frozen": {
+        "authorDid": "did:plc:5aeagkpy2ch5eencyi2elahk",
+        "createdAt": "2026-07-11T22:13:08.058Z",
+        "topicVector": {
+          "music": 0.2,
+          "education": 0.2,
+          "data-science": 1,
+          "books-reading": 0.2,
+          "news-journalism": 0.2,
+          "software-development": 1
+        },
+        "embedUrl": null,
+        "textLength": 199,
+        "scoreRunId": "96698b9f-8933-4d54-b011-0c861ce898b3",
+        "scoreEpochId": 2,
+        "componentScore": 0.7766431552832379,
+        "scoredAt": "2026-07-12T05:58:27.931Z",
+        "rawScores": {
+          "recency": 0.7418192754656217,
+          "engagement": 0.9921258926104782,
+          "bridging": 0.8526315789473684,
+          "source_diversity": 1,
+          "relevance": 0.592857142857143
+        },
+        "reviewedCid": "bafyreidux2t5wjswdugjuju3ydtdpxtr25egvbz4blknzocflpamnm73tq"
+      }
+    },
+    {
+      "uri": "at://did:plc:oio4hkxaop4ao4wz2pp3f4cr/app.bsky.feed.post/3mqcrelncks2b",
+      "publishedRank": 31,
+      "publishedScore": 0.776639359391657,
+      "frozen": {
+        "authorDid": "did:plc:oio4hkxaop4ao4wz2pp3f4cr",
+        "createdAt": "2026-07-10T18:23:08.224Z",
+        "topicVector": {
+          "decentralized-social": 1
+        },
+        "embedUrl": "https://atproto.com/blog/relay-updates-sync-v1-1",
+        "textLength": 50,
+        "scoreRunId": "1fbe90c3-e00d-4880-aeef-17ff5dde4a7f",
+        "scoreEpochId": 2,
+        "componentScore": 0.776639359391657,
+        "scoredAt": "2026-07-10T20:34:10.070Z",
+        "rawScores": {
+          "recency": 0.9193435098750735,
+          "engagement": 0.15901740961444308,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.9
+        },
+        "reviewedCid": "bafyreihhewxpavbanqmwypzem5yaazxkdqohs6v5q4ok65oan22gonspve"
+      }
+    },
+    {
+      "uri": "at://did:plc:towvio5xdx4nhryilc33vlnp/app.bsky.feed.post/3mqegtqrf7j2x",
+      "publishedRank": 32,
+      "publishedScore": 0.7753272732347367,
+      "frozen": {
+        "authorDid": "did:plc:towvio5xdx4nhryilc33vlnp",
+        "createdAt": "2026-07-11T10:20:04.776Z",
+        "topicVector": {
+          "software-development": 1
+        },
+        "embedUrl": "https://qiita.com/taisei_sudo/items/ef59ee85da9ad7706689",
+        "textLength": 62,
+        "scoreRunId": "54931333-3bc8-4c47-8ed8-627f2fb25ede",
+        "scoreEpochId": 2,
+        "componentScore": 0.7753272732347367,
+        "scoredAt": "2026-07-11T10:27:58.654Z",
+        "rawScores": {
+          "recency": 0.9949440574042944,
+          "engagement": 0.23295629441831545,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.8
+        },
+        "reviewedCid": "bafyreihmn7iyh3yjka74hskxjoit27xu4adl32o7scm6fjjhdd4otn24yq"
+      }
+    },
+    {
+      "uri": "at://did:plc:m6qz6apx2lengur6uykjozbg/app.bsky.feed.post/3mqgbaer53s2c",
+      "publishedRank": 33,
+      "publishedScore": 0.7732314617328918,
+      "frozen": {
+        "authorDid": "did:plc:m6qz6apx2lengur6uykjozbg",
+        "createdAt": "2026-07-12T03:45:05.876Z",
+        "topicVector": {
+          "ai-machine-learning": 1
+        },
+        "embedUrl": null,
+        "textLength": 50,
+        "scoreRunId": "79c0fd7e-da85-4cda-8ceb-00898343a888",
+        "scoreEpochId": 2,
+        "componentScore": 0.7732314617328918,
+        "scoredAt": "2026-07-12T05:23:15.654Z",
+        "rawScores": {
+          "recency": 0.9389428433013204,
+          "engagement": 0.3919737040327585,
+          "bridging": 0.9760101010101009,
+          "source_diversity": 1,
+          "relevance": 0.75
+        },
+        "reviewedCid": null
+      }
+    },
+    {
+      "uri": "at://did:plc:ioc2rlq435kmzbbev2qdwfob/app.bsky.feed.post/3mqbxoypw6c2m",
+      "publishedRank": 34,
+      "publishedScore": 0.7730498855755332,
+      "frozen": {
+        "authorDid": "did:plc:ioc2rlq435kmzbbev2qdwfob",
+        "createdAt": "2026-07-10T10:43:40.198Z",
+        "topicVector": {
+          "ai-machine-learning": 1
+        },
+        "embedUrl": null,
+        "textLength": 208,
+        "scoreRunId": "b6804128-3125-472f-ab70-1b21a41b82bd",
+        "scoreEpochId": 2,
+        "componentScore": 0.7730498855755332,
+        "scoredAt": "2026-07-10T11:02:50.452Z",
+        "rawScores": {
+          "recency": 0.9877716869190244,
+          "engagement": 0.31803481922888616,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.75
+        },
+        "reviewedCid": null
+      }
+    },
+    {
+      "uri": "at://did:plc:jl5xc6vsmnmo4lhbvzb43ykc/app.bsky.feed.post/3mqc6nz5v4c2z",
+      "publishedRank": 35,
+      "publishedScore": 0.7729103096876915,
+      "frozen": {
+        "authorDid": "did:plc:jl5xc6vsmnmo4lhbvzb43ykc",
+        "createdAt": "2026-07-10T12:48:23.294Z",
+        "topicVector": {
+          "cybersecurity": 0.2,
+          "software-development": 1
+        },
+        "embedUrl": null,
+        "textLength": 297,
+        "scoreRunId": "b168e7b4-f872-462d-8398-76f92d974c04",
+        "scoreEpochId": 2,
+        "componentScore": 0.7729103096876915,
+        "scoredAt": "2026-07-10T13:07:59.485Z",
+        "rawScores": {
+          "recency": 0.9874975923432551,
+          "engagement": 0.2593462246760551,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.7833333333333334
+        },
+        "reviewedCid": "bafyreidhknxrqel6csbhifbm2h3cedyxapxz76gzhzl2j3ldbw54xevuj4"
+      }
+    },
+    {
+      "uri": "at://did:plc:ef3pb4ayru3qffqsovyl3kb5/app.bsky.feed.post/3mqd2fwfcjk2a",
+      "publishedRank": 36,
+      "publishedScore": 0.7710214349348574,
+      "frozen": {
+        "authorDid": "did:plc:ef3pb4ayru3qffqsovyl3kb5",
+        "createdAt": "2026-07-10T21:04:56.676Z",
+        "topicVector": {
+          "decentralized-social": 1
+        },
+        "embedUrl": "https://news.bitcoin.com/new-chain-hype-meets-old-scam-tactics-relay-protocol-warns-of-robinhood-chain-honeypot-coins/",
+        "textLength": 300,
+        "scoreRunId": "77e0d653-3f20-44d4-b99c-068cd35f6f37",
+        "scoreEpochId": 2,
+        "componentScore": 0.7710214349348574,
+        "scoredAt": "2026-07-10T23:54:32.025Z",
+        "rawScores": {
+          "recency": 0.8968718120478751,
+          "engagement": 0.15901740961444308,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.9
+        },
+        "reviewedCid": "bafyreihfozreddwzuv4xww6ipqaujrqtk4awplxl7zs6isgbnpiq774mhi"
+      }
+    },
+    {
+      "uri": "at://did:plc:puk5v6kcdtqowovrwj2sijlm/app.bsky.feed.post/3mqacri6zqc25",
+      "publishedRank": 37,
+      "publishedScore": 0.7698256349946329,
+      "frozen": {
+        "authorDid": "did:plc:puk5v6kcdtqowovrwj2sijlm",
+        "createdAt": "2026-07-09T18:56:35.214Z",
+        "topicVector": {
+          "dogs-pets": 0.2,
+          "software-development": 1
+        },
+        "embedUrl": null,
+        "textLength": 207,
+        "scoreRunId": "64d9b3e9-5712-4bc1-a101-abf592b6dc5b",
+        "scoreEpochId": 2,
+        "componentScore": 0.7698256349946329,
+        "scoredAt": "2026-07-10T03:38:44.229Z",
+        "rawScores": {
+          "recency": 0.7152556964570802,
+          "engagement": 0.6513199287088136,
+          "bridging": 0.9824772513860011,
+          "source_diversity": 1,
+          "relevance": 0.75
+        },
+        "reviewedCid": "bafyreifgo3couohq55qtbxccgpk7c3umqoez6ydrge6juj4tcezrf5vpe4"
+      }
+    },
+    {
+      "uri": "at://did:plc:lqi2i2w74aqvhe2jywlrmibj/app.bsky.feed.post/3mqfimwbm3224",
+      "publishedRank": 38,
+      "publishedScore": 0.7696999043840375,
+      "frozen": {
+        "authorDid": "did:plc:lqi2i2w74aqvhe2jywlrmibj",
+        "createdAt": "2026-07-11T20:24:43.349Z",
+        "topicVector": {
+          "ai-machine-learning": 1
+        },
+        "embedUrl": null,
+        "textLength": 188,
+        "scoreRunId": "edc61f15-2b87-47e2-99d8-d65d78cb4ffc",
+        "scoreEpochId": 2,
+        "componentScore": 0.7696999043840375,
+        "scoredAt": "2026-07-11T23:01:52.422Z",
+        "rawScores": {
+          "recency": 0.9040607080926699,
+          "engagement": 0.4100903034710167,
+          "bridging": 0.9916666666666667,
+          "source_diversity": 1,
+          "relevance": 0.75
+        },
+        "reviewedCid": "bafyreifvt2fkblhgfxkve5dh6qaq3xuhierdjazvof2p2xfh7rmjavlapu"
+      }
+    },
+    {
+      "uri": "at://did:plc:2w45zyhuklwihpdc7oj3mi63/app.bsky.feed.post/3mqf7phv3f22e",
+      "publishedRank": 39,
+      "publishedScore": 0.7687035021951824,
+      "frozen": {
+        "authorDid": "did:plc:2w45zyhuklwihpdc7oj3mi63",
+        "createdAt": "2026-07-11T17:45:04.000Z",
+        "topicVector": {
+          "ai-machine-learning": 1
+        },
+        "embedUrl": null,
+        "textLength": 106,
+        "scoreRunId": "96698b9f-8933-4d54-b011-0c861ce898b3",
+        "scoreEpochId": 2,
+        "componentScore": 0.7687035021951824,
+        "scoredAt": "2026-07-12T05:58:31.769Z",
+        "rawScores": {
+          "recency": 0.6245426585242928,
+          "engagement": 0.758710821630753,
+          "bridging": 0.9832567323795862,
+          "source_diversity": 1,
+          "relevance": 0.75
+        },
+        "reviewedCid": "bafyreidemvjkgan4m3oih2u5rycm5t3zibai3rqd7t7gogqtg3deu37ala"
+      }
+    },
+    {
+      "uri": "at://did:plc:4d5oqhzx4ewc5d6hoxdihvlk/app.bsky.feed.post/3mqctxkgtb22h",
+      "publishedRank": 40,
+      "publishedScore": 0.7676884371961863,
+      "frozen": {
+        "authorDid": "did:plc:4d5oqhzx4ewc5d6hoxdihvlk",
+        "createdAt": "2026-07-10T19:09:31.758Z",
+        "topicVector": {
+          "software-development": 1
+        },
+        "embedUrl": null,
+        "textLength": 300,
+        "scoreRunId": "46b23117-4cf9-4e74-94c2-afecc829b0a3",
+        "scoreEpochId": 2,
+        "componentScore": 0.7676884371961863,
+        "scoredAt": "2026-07-10T23:59:56.355Z",
+        "rawScores": {
+          "recency": 0.8299542332806594,
+          "engagement": 0.4100903034710167,
+          "bridging": 0.9818181818181818,
+          "source_diversity": 1,
+          "relevance": 0.8
+        },
+        "reviewedCid": null
+      }
+    },
+    {
+      "uri": "at://did:plc:fvfycnojwqziszul26dxfmh4/app.bsky.feed.post/3mqgapj4md22o",
+      "publishedRank": 41,
+      "publishedScore": 0.766927469014639,
+      "frozen": {
+        "authorDid": "did:plc:fvfycnojwqziszul26dxfmh4",
+        "createdAt": "2026-07-12T03:35:40.021Z",
+        "topicVector": {
+          "books-reading": 0.2,
+          "software-development": 1
+        },
+        "embedUrl": "https://www.mobilize.us/mobilize/event/984062/",
+        "textLength": 220,
+        "scoreRunId": "418c94d8-a524-4e1c-bb65-ea313a90702b",
+        "scoreEpochId": 2,
+        "componentScore": 0.766927469014639,
+        "scoredAt": "2026-07-12T04:13:03.895Z",
+        "rawScores": {
+          "recency": 0.9762853267861519,
+          "engagement": 0.3919737040327585,
+          "bridging": 0.9946139651154937,
+          "source_diversity": 1,
+          "relevance": 0.7000000000000001
+        },
+        "reviewedCid": "bafyreiehw7rdnkrguwpis5cvacxjfj5diyni324h5tc3raasehgh6d3nca"
+      }
+    },
+    {
+      "uri": "at://did:plc:qm2oyg55oyqy3sui7wpb66yg/app.bsky.feed.post/3mqcnchwrqs26",
+      "publishedRank": 42,
+      "publishedScore": 0.766120905308652,
+      "frozen": {
+        "authorDid": "did:plc:qm2oyg55oyqy3sui7wpb66yg",
+        "createdAt": "2026-07-10T17:10:22.263Z",
+        "topicVector": {
+          "decentralized-social": 1
+        },
+        "embedUrl": null,
+        "textLength": 228,
+        "scoreRunId": "4c0246f6-9af4-49be-b295-aa22a695ade9",
+        "scoreEpochId": 2,
+        "componentScore": 0.766120905308652,
+        "scoredAt": "2026-07-10T21:34:42.583Z",
+        "rawScores": {
+          "recency": 0.8439575171360287,
+          "engagement": 0.20065763012322413,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.9
+        },
+        "reviewedCid": null
+      }
+    },
+    {
+      "uri": "at://did:plc:js3rsez6n6jvfw3kqmfdjput/app.bsky.feed.post/3mqd5wcspwc2d",
+      "publishedRank": 43,
+      "publishedScore": 0.766033918555779,
+      "frozen": {
+        "authorDid": "did:plc:js3rsez6n6jvfw3kqmfdjput",
+        "createdAt": "2026-07-10T22:07:47.846Z",
+        "topicVector": {
+          "ai-machine-learning": 0.2,
+          "software-development": 1
+        },
+        "embedUrl": null,
+        "textLength": 164,
+        "scoreRunId": "f62ac2ee-aa00-4687-8084-2001dbe09b4a",
+        "scoreEpochId": 2,
+        "componentScore": 0.766033918555779,
+        "scoredAt": "2026-07-11T00:49:34.991Z",
+        "rawScores": {
+          "recency": 0.9013744855066738,
+          "engagement": 0.31803481922888616,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.7916666666666667
+        },
+        "reviewedCid": "bafyreid5unkkqyliugjpdb2lbt35qn3uoljis5t2xzlt66amr22odvtm5e"
+      }
+    },
+    {
+      "uri": "at://did:plc:3i6uzuatdyk7rwfkrybynf5j/app.bsky.feed.post/3mqenif4xfs2f",
+      "publishedRank": 44,
+      "publishedScore": 0.7642926581394802,
+      "frozen": {
+        "authorDid": "did:plc:3i6uzuatdyk7rwfkrybynf5j",
+        "createdAt": "2026-07-11T12:19:00.124Z",
+        "topicVector": {
+          "decentralized-social": 1
+        },
+        "embedUrl": null,
+        "textLength": 114,
+        "scoreRunId": "18a45c42-c3ad-4eea-8cd9-bbf87a0fc949",
+        "scoreEpochId": 2,
+        "componentScore": 0.7642926581394802,
+        "scoredAt": "2026-07-11T15:56:03.956Z",
+        "rawScores": {
+          "recency": 0.869956704866366,
+          "engagement": 0.15901740961444308,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.9
+        },
+        "reviewedCid": "bafyreibxyexwjfgbafak44orr7fs6zlgbony7u4ir3cmng4qrlxp6vxpwi"
+      }
+    },
+    {
+      "uri": "at://did:plc:vsicp7h3rpa2pbfid3zzwqoy/app.bsky.feed.post/3mqf3mqkc2m2t",
+      "publishedRank": 45,
+      "publishedScore": 0.7639935630897368,
+      "frozen": {
+        "authorDid": "did:plc:vsicp7h3rpa2pbfid3zzwqoy",
+        "createdAt": "2026-07-11T16:31:58.695Z",
+        "topicVector": {
+          "decentralized-social": 1
+        },
+        "embedUrl": "https://tangled.sh/did:plc:mncsln5prq6hz6qaknecflfq",
+        "textLength": 45,
+        "scoreRunId": "94d79558-a14a-4d3c-b8d5-89cafadb099b",
+        "scoreEpochId": 2,
+        "componentScore": 0.7639935630897368,
+        "scoredAt": "2026-07-11T20:11:11.178Z",
+        "rawScores": {
+          "recency": 0.868760324667393,
+          "engagement": 0.15901740961444308,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.9
+        },
+        "reviewedCid": "bafyreibzz3ekwzqyzrc576gv77rprg7uqg27yelvwte2po7zw6l5fzc4ra"
+      }
+    },
+    {
+      "uri": "at://did:plc:2e26ggnxnoqpbfcnbirzbpzd/app.bsky.feed.post/3mqcf4m74ac25",
+      "publishedRank": 46,
+      "publishedScore": 0.7637016108468324,
+      "frozen": {
+        "authorDid": "did:plc:2e26ggnxnoqpbfcnbirzbpzd",
+        "createdAt": "2026-07-10T14:43:55.470Z",
+        "topicVector": {
+          "software-development": 1
+        },
+        "embedUrl": null,
+        "textLength": 214,
+        "scoreRunId": "aa7a08ae-3d91-4814-9018-aa056299b627",
+        "scoreEpochId": 2,
+        "componentScore": 0.7637016108468324,
+        "scoredAt": "2026-07-10T15:24:31.417Z",
+        "rawScores": {
+          "recency": 0.9742803392887509,
+          "engagement": 0.20065763012322413,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.8
+        },
+        "reviewedCid": null
+      }
+    },
+    {
+      "uri": "at://did:plc:isex7m5cncadwinhl7wxiwwh/app.bsky.feed.post/3mqcpwt2hck27",
+      "publishedRank": 47,
+      "publishedScore": 0.7634444710814287,
+      "frozen": {
+        "authorDid": "did:plc:isex7m5cncadwinhl7wxiwwh",
+        "createdAt": "2026-07-10T17:57:32.490Z",
+        "topicVector": {
+          "ai-machine-learning": 1
+        },
+        "embedUrl": null,
+        "textLength": 288,
+        "scoreRunId": "d0dfeac5-4363-4e02-9303-a3fc79fd8961",
+        "scoreEpochId": 2,
+        "componentScore": 0.7634444710814287,
+        "scoredAt": "2026-07-10T23:49:54.689Z",
+        "rawScores": {
+          "recency": 0.7975979779707896,
+          "engagement": 0.5104191185326288,
+          "bridging": 0.9946115288220552,
+          "source_diversity": 1,
+          "relevance": 0.75
+        },
+        "reviewedCid": "bafyreibjljh2qkqreoqqychwyscqvlrig6guzeeiyieyzl4txyes7rtuoa"
+      }
+    },
+    {
+      "uri": "at://did:plc:qod2xmr6qytkppwe4dcrkpr2/app.bsky.feed.post/3mqcqgpeup22k",
+      "publishedRank": 48,
+      "publishedScore": 0.7631380231310185,
+      "frozen": {
+        "authorDid": "did:plc:qod2xmr6qytkppwe4dcrkpr2",
+        "createdAt": "2026-07-10T18:06:25.508Z",
+        "topicVector": {
+          "decentralized-social": 1
+        },
+        "embedUrl": null,
+        "textLength": 291,
+        "scoreRunId": "a5777c21-12c4-41f9-9a7d-c4ec9ebcf164",
+        "scoreEpochId": 2,
+        "componentScore": 0.7631380231310185,
+        "scoredAt": "2026-07-11T01:10:01.616Z",
+        "rawScores": {
+          "recency": 0.7619549178767973,
+          "engagement": 0.35967503973766723,
+          "bridging": 0.8571428571428571,
+          "source_diversity": 1,
+          "relevance": 0.9
+        },
+        "reviewedCid": null
+      }
+    },
+    {
+      "uri": "at://did:plc:iktipdtn2u43dcpmjh3jmdlb/app.bsky.feed.post/3mq7nuro5qey2",
+      "publishedRank": 49,
+      "publishedScore": 0.7625720095137463,
+      "frozen": {
+        "authorDid": "did:plc:iktipdtn2u43dcpmjh3jmdlb",
+        "createdAt": "2026-07-09T12:42:06.000Z",
+        "topicVector": {
+          "decentralized-social": 1
+        },
+        "embedUrl": null,
+        "textLength": 292,
+        "scoreRunId": "420b8ffa-78c6-4646-b89d-cc2e495e5639",
+        "scoreEpochId": 2,
+        "componentScore": 0.7625720095137463,
+        "scoredAt": "2026-07-09T15:29:13.179Z",
+        "rawScores": {
+          "recency": 0.8982944971583795,
+          "engagement": 0.2816585927874237,
+          "bridging": 0.6666666666666666,
+          "source_diversity": 1,
+          "relevance": 0.9
+        },
+        "reviewedCid": "bafyreicuhi6gqbk5x5eriqnpxzyithtlimcoxyv353p77d32vcdovjuhsm"
+      }
+    },
+    {
+      "uri": "at://did:plc:n4765ftlk5sxhgd5low6rqbd/app.bsky.feed.post/3mqgbzdcg6c2y",
+      "publishedRank": 50,
+      "publishedScore": 0.7624843973245563,
+      "frozen": {
+        "authorDid": "did:plc:n4765ftlk5sxhgd5low6rqbd",
+        "createdAt": "2026-07-12T03:59:03.205Z",
+        "topicVector": {
+          "ai-machine-learning": 1
+        },
+        "embedUrl": null,
+        "textLength": 142,
+        "scoreRunId": "96698b9f-8933-4d54-b011-0c861ce898b3",
+        "scoreEpochId": 2,
+        "componentScore": 0.7624843973245563,
+        "scoredAt": "2026-07-12T05:58:19.789Z",
+        "rawScores": {
+          "recency": 0.9263057277278628,
+          "engagement": 0.5950238495193444,
+          "bridging": 0.9940319548872182,
+          "source_diversity": 0.5,
+          "relevance": 0.75
+        },
+        "reviewedCid": "bafyreiaknpz4vy3zmx5da6j6iu4dlwx52oxzdozrtmqsshtbtchysqes5y"
+      }
+    },
+    {
+      "uri": "at://did:plc:izc4epknbvpf2hk3gq7evk4k/app.bsky.feed.post/3mqfq4wy44c2h",
+      "publishedRank": 51,
+      "publishedScore": 0.7623388874578247,
+      "frozen": {
+        "authorDid": "did:plc:izc4epknbvpf2hk3gq7evk4k",
+        "createdAt": "2026-07-11T22:38:57.149Z",
+        "topicVector": {
+          "ai-machine-learning": 1,
+          "software-development": 0.2
+        },
+        "embedUrl": null,
+        "textLength": 298,
+        "scoreRunId": "3900b9cf-9bdf-4388-9a54-cb363e0c5e23",
+        "scoreEpochId": 2,
+        "componentScore": 0.7623388874578247,
+        "scoredAt": "2026-07-12T03:48:22.057Z",
+        "rawScores": {
+          "recency": 0.8198927269005575,
+          "engagement": 0.46000385479927924,
+          "bridging": 0.9994826810616285,
+          "source_diversity": 1,
+          "relevance": 0.7583333333333334
+        },
+        "reviewedCid": null
+      }
+    },
+    {
+      "uri": "at://did:plc:fcuu3jreeu736nled5i7puea/app.bsky.feed.post/3mqffzevmw22p",
+      "publishedRank": 52,
+      "publishedScore": 0.7617612780787328,
+      "frozen": {
+        "authorDid": "did:plc:fcuu3jreeu736nled5i7puea",
+        "createdAt": "2026-07-11T19:38:00.109Z",
+        "topicVector": {
+          "education": 0.2,
+          "ai-machine-learning": 1
+        },
+        "embedUrl": "https://www.apaonline.org/page/TeachingHub2027CFP",
+        "textLength": 292,
+        "scoreRunId": "02a04b46-e712-46b6-9b56-99473e08b481",
+        "scoreEpochId": 2,
+        "componentScore": 0.7617612780787328,
+        "scoredAt": "2026-07-11T22:11:50.710Z",
+        "rawScores": {
+          "recency": 0.9059817079122934,
+          "engagement": 0.4659125888366309,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.6916666666666668
+        },
+        "reviewedCid": "bafyreiaqgpddfddab472z7vdhuuqqvdrxya3g5zd3z5uvgk5qe5xn5d5y4"
+      }
+    },
+    {
+      "uri": "at://did:plc:efigaqsv2uhxeqqqctzyss66/app.bsky.feed.post/3mqefvm2ugpj2",
+      "publishedRank": 53,
+      "publishedScore": 0.7616402939999272,
+      "frozen": {
+        "authorDid": "did:plc:efigaqsv2uhxeqqqctzyss66",
+        "createdAt": "2026-07-11T10:02:52.000Z",
+        "topicVector": {
+          "decentralized-social": 1
+        },
+        "embedUrl": "https://mato.social/@josemurilo/116900768783390002",
+        "textLength": 288,
+        "scoreRunId": "f7e35667-8e6d-4684-a1ce-66252741ef2e",
+        "scoreEpochId": 2,
+        "componentScore": 0.7616402939999272,
+        "scoredAt": "2026-07-11T18:56:10.990Z",
+        "rawScores": {
+          "recency": 0.7101466359320647,
+          "engagement": 0.34708067508455465,
+          "bridging": 0.996875,
+          "source_diversity": 1,
+          "relevance": 0.9
+        },
+        "reviewedCid": "bafyreihi7dried4k6pzlgrnmfnbropozds4fal3bafwtxzptugm3pbhi3e"
+      }
+    },
+    {
+      "uri": "at://did:plc:ketorhhgwxh7gqbszschd5om/app.bsky.feed.post/3mqd5alqc4c22",
+      "publishedRank": 54,
+      "publishedScore": 0.7607478520911799,
+      "frozen": {
+        "authorDid": "did:plc:ketorhhgwxh7gqbszschd5om",
+        "createdAt": "2026-07-10T21:55:39.004Z",
+        "topicVector": {
+          "cybersecurity": 0.2,
+          "ai-machine-learning": 1
+        },
+        "embedUrl": null,
+        "textLength": 268,
+        "scoreRunId": "08a460a5-6fda-42f8-804b-9e66224302be",
+        "scoreEpochId": 2,
+        "componentScore": 0.7607478520911799,
+        "scoredAt": "2026-07-11T00:54:34.746Z",
+        "rawScores": {
+          "recency": 0.8915120122380801,
+          "engagement": 0.3919737040327585,
+          "bridging": 0.9989177489177489,
+          "source_diversity": 1,
+          "relevance": 0.7416666666666667
+        },
+        "reviewedCid": null
+      }
+    },
+    {
+      "uri": "at://did:plc:mbtpq5biu5pogqhg5ar6hd2j/app.bsky.feed.post/3mqg62xzrlc2t",
+      "publishedRank": 55,
+      "publishedScore": 0.7607270218963469,
+      "frozen": {
+        "authorDid": "did:plc:mbtpq5biu5pogqhg5ar6hd2j",
+        "createdAt": "2026-07-12T02:48:23.529Z",
+        "topicVector": {
+          "education": 0.2,
+          "data-science": 0.42,
+          "web-development": 1,
+          "ai-machine-learning": 0.2,
+          "software-development": 0.42
+        },
+        "embedUrl": null,
+        "textLength": 86,
+        "scoreRunId": "bf2db97d-d65a-4186-a05f-361552925b36",
+        "scoreEpochId": 2,
+        "componentScore": 0.7607270218963469,
+        "scoredAt": "2026-07-12T05:53:17.754Z",
+        "rawScores": {
+          "recency": 0.8881008485632933,
+          "engagement": 0.5541724259706002,
+          "bridging": 0.9192982456140352,
+          "source_diversity": 1,
+          "relevance": 0.6741071428571428
+        },
+        "reviewedCid": "bafyreiddnyjvbst6n32gajfbuhspuxjc24qzovi4utm7mzdiicuizee7hm"
+      }
+    },
+    {
+      "uri": "at://did:plc:ftci5xvagtcm4dec2equhj35/app.bsky.feed.post/3mqcspl4b3c2t",
+      "publishedRank": 56,
+      "publishedScore": 0.7605987727127946,
+      "frozen": {
+        "authorDid": "did:plc:ftci5xvagtcm4dec2equhj35",
+        "createdAt": "2026-07-10T18:47:10.506Z",
+        "topicVector": {
+          "ai-machine-learning": 1
+        },
+        "embedUrl": null,
+        "textLength": 297,
+        "scoreRunId": "d3f948fe-b3f5-434c-9c96-a849d69b0593",
+        "scoreEpochId": 2,
+        "componentScore": 0.7605987727127946,
+        "scoredAt": "2026-07-10T22:09:37.903Z",
+        "rawScores": {
+          "recency": 0.8781516672686801,
+          "engagement": 0.42618953389141506,
+          "bridging": 0.9332294911734165,
+          "source_diversity": 1,
+          "relevance": 0.75
+        },
+        "reviewedCid": null
+      }
+    },
+    {
+      "uri": "at://did:plc:5zgber5npxagnqr3hg4fm4zv/app.bsky.feed.post/3mqfh7g45vs2o",
+      "publishedRank": 57,
+      "publishedScore": 0.7598658142740977,
+      "frozen": {
+        "authorDid": "did:plc:5zgber5npxagnqr3hg4fm4zv",
+        "createdAt": "2026-07-11T19:59:16.444Z",
+        "topicVector": {
+          "ai-machine-learning": 1
+        },
+        "embedUrl": null,
+        "textLength": 277,
+        "scoreRunId": "56ff115c-77e6-472f-b567-a14049cb6c79",
+        "scoreEpochId": 2,
+        "componentScore": 0.7598658142740977,
+        "scoredAt": "2026-07-12T02:43:17.383Z",
+        "rawScores": {
+          "recency": 0.7715940315020713,
+          "engagement": 0.5302781417424646,
+          "bridging": 0.9841167805008705,
+          "source_diversity": 1,
+          "relevance": 0.75
+        },
+        "reviewedCid": "bafyreihf7f2yo5wdgvibxwr2zhxsmosjqmwh4n5qeanqvclkns7vkobfoy"
+      }
+    },
+    {
+      "uri": "at://did:plc:nvqlgydvxtdy2ahpvfwaiiab/app.bsky.feed.post/3mqbzgmidpk2y",
+      "publishedRank": 58,
+      "publishedScore": 0.7598598112386497,
+      "frozen": {
+        "authorDid": "did:plc:nvqlgydvxtdy2ahpvfwaiiab",
+        "createdAt": "2026-07-10T11:14:46.414Z",
+        "topicVector": {
+          "ai-machine-learning": 1,
+          "software-development": 0.2,
+          "devops-infrastructure": 0.2
+        },
+        "embedUrl": null,
+        "textLength": 278,
+        "scoreRunId": "c8bcd1f9-c0d7-4b70-8f3f-969c3a4f559b",
+        "scoreEpochId": 2,
+        "componentScore": 0.7598598112386497,
+        "scoredAt": "2026-07-10T14:18:12.568Z",
+        "rawScores": {
+          "recency": 0.888938000944768,
+          "engagement": 0.40131526024644826,
+          "bridging": 0.9986225895316804,
+          "source_diversity": 1,
+          "relevance": 0.7357142857142858
+        },
+        "reviewedCid": null
+      }
+    },
+    {
+      "uri": "at://did:plc:pe5brsnfps5dcb4ft4fplpuq/app.bsky.feed.post/3mqfkyg5asc2j",
+      "publishedRank": 59,
+      "publishedScore": 0.7597243205245536,
+      "frozen": {
+        "authorDid": "did:plc:pe5brsnfps5dcb4ft4fplpuq",
+        "createdAt": "2026-07-11T21:06:56.566Z",
+        "topicVector": {
+          "decentralized-social": 1
+        },
+        "embedUrl": null,
+        "textLength": 133,
+        "scoreRunId": "9a243950-06a1-4c38-af71-161c33175b55",
+        "scoreEpochId": 2,
+        "componentScore": 0.7597243205245536,
+        "scoredAt": "2026-07-12T01:17:04.976Z",
+        "rawScores": {
+          "recency": 0.85168335440666,
+          "engagement": 0.15901740961444308,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.9
+        },
+        "reviewedCid": "bafyreicg7setydmzlcue6c3ohoyu6a7jpnybp6two5w25pmjbpa5skmjw4"
+      }
+    },
+    {
+      "uri": "at://did:plc:7zct5lq47etxvgyulgwnyeyb/app.bsky.feed.post/3mqg3zvyzfc2q",
+      "publishedRank": 60,
+      "publishedScore": 0.759556616361742,
+      "frozen": {
+        "authorDid": "did:plc:7zct5lq47etxvgyulgwnyeyb",
+        "createdAt": "2026-07-12T02:12:00.370Z",
+        "topicVector": {
+          "ai-machine-learning": 0.2,
+          "decentralized-social": 0.2
+        },
+        "embedUrl": null,
+        "textLength": 272,
+        "scoreRunId": "7bb4af07-2c75-4a97-80e2-ae167b7e1d16",
+        "scoreEpochId": 2,
+        "componentScore": 0.759556616361742,
+        "scoredAt": "2026-07-12T03:38:08.048Z",
+        "rawScores": {
+          "recency": 0.9462233816075446,
+          "engagement": 0.46000385479927924,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.6600000000000001
+        },
+        "reviewedCid": "bafyreib3dj3yhxa5khilzi47xgikvghqjzsiqlcu47zedyakov5mufd2vi"
+      }
+    },
+    {
+      "uri": "at://did:plc:5aeagkpy2ch5eencyi2elahk/app.bsky.feed.post/3mqgb4zm2ms2n",
+      "publishedRank": 61,
+      "publishedScore": 0.7589611839444209,
+      "frozen": {
+        "authorDid": "did:plc:5aeagkpy2ch5eencyi2elahk",
+        "createdAt": "2026-07-12T03:43:13.512Z",
+        "topicVector": {
+          "ai-machine-learning": 1
+        },
+        "embedUrl": null,
+        "textLength": 84,
+        "scoreRunId": "4e863925-6617-44df-bb52-738dc80e2eba",
+        "scoreEpochId": 2,
+        "componentScore": 0.7589611839444209,
+        "scoredAt": "2026-07-12T05:33:18.143Z",
+        "rawScores": {
+          "recency": 0.931790363120999,
+          "engagement": 0.31803481922888616,
+          "bridging": 0.9990662931839402,
+          "source_diversity": 1,
+          "relevance": 0.75
+        },
+        "reviewedCid": "bafyreibn5gbzdetxxira5q453uzxstb5sk7ebexse6gdl25ltk77pdaadu"
+      }
+    },
+    {
+      "uri": "at://did:plc:agdt777o3eknfm25dcvpueu5/app.bsky.feed.post/3mqeo2r2qgc2y",
+      "publishedRank": 62,
+      "publishedScore": 0.7587122173815777,
+      "frozen": {
+        "authorDid": "did:plc:agdt777o3eknfm25dcvpueu5",
+        "createdAt": "2026-07-11T12:29:16.595Z",
+        "topicVector": {
+          "design-ux": 0.2,
+          "decentralized-social": 1
+        },
+        "embedUrl": null,
+        "textLength": 296,
+        "scoreRunId": "0c9b1186-7ea7-41ef-876e-24f3cafb9e68",
+        "scoreEpochId": 2,
+        "componentScore": 0.7587122173815777,
+        "scoredAt": "2026-07-11T13:07:10.690Z",
+        "rawScores": {
+          "recency": 0.9759682751680894,
+          "engagement": 0.15901740961444308,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.8083333333333333
+        },
+        "reviewedCid": "bafyreiabpf5wh4ozjkwvl7eoryt72cxd5b2p4arxbjsjwvwrfrkplmioei"
+      }
+    },
+    {
+      "uri": "at://did:plc:2zmxikig2sj7gqaezl5gntae/app.bsky.feed.post/3mqg35g24u22w",
+      "publishedRank": 63,
+      "publishedScore": 0.7585549579435781,
+      "frozen": {
+        "authorDid": "did:plc:2zmxikig2sj7gqaezl5gntae",
+        "createdAt": "2026-07-12T01:56:04.104Z",
+        "topicVector": {
+          "health-fitness": 0.2,
+          "news-journalism": 0.2,
+          "ai-machine-learning": 0.2,
+          "decentralized-social": 1,
+          "software-development": 0.2
+        },
+        "embedUrl": null,
+        "textLength": 298,
+        "scoreRunId": "e8258f0e-b894-41b7-aa6d-a5b020c64c29",
+        "scoreEpochId": 2,
+        "componentScore": 0.7585549579435781,
+        "scoredAt": "2026-07-12T05:18:17.390Z",
+        "rawScores": {
+          "recency": 0.8782842360709116,
+          "engagement": 0.4659125888366309,
+          "bridging": 0.9885693671407956,
+          "source_diversity": 1,
+          "relevance": 0.7055555555555556
+        },
+        "reviewedCid": "bafyreigvfgedsogadfrwjhqmhrym63bc7v6s6y4quwuzcomrqkc7hboexy"
+      }
+    },
+    {
+      "uri": "at://did:plc:qod2xmr6qytkppwe4dcrkpr2/app.bsky.feed.post/3mqcsanlpk22k",
+      "publishedRank": 64,
+      "publishedScore": 0.7584572234771635,
+      "frozen": {
+        "authorDid": "did:plc:qod2xmr6qytkppwe4dcrkpr2",
+        "createdAt": "2026-07-10T18:38:49.793Z",
+        "topicVector": {
+          "decentralized-social": 1,
+          "devops-infrastructure": 0.2
+        },
+        "embedUrl": null,
+        "textLength": 282,
+        "scoreRunId": "d3c1f21a-40c6-48bb-99c6-d5a236829beb",
+        "scoreEpochId": 2,
+        "componentScore": 0.7584572234771635,
+        "scoredAt": "2026-07-10T20:54:29.498Z",
+        "rawScores": {
+          "recency": 0.9166149662170995,
+          "engagement": 0.15901740961444308,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.8500000000000001
+        },
+        "reviewedCid": null
+      }
+    },
+    {
+      "uri": "at://did:plc:u5stolpomsfbkgqfopef6jio/app.bsky.feed.post/3mqgfmouwwk2t",
+      "publishedRank": 65,
+      "publishedScore": 0.7582827735334934,
+      "frozen": {
+        "authorDid": "did:plc:u5stolpomsfbkgqfopef6jio",
+        "createdAt": "2026-07-12T05:03:34.107Z",
+        "topicVector": {
+          "ai-machine-learning": 1
+        },
+        "embedUrl": null,
+        "textLength": 215,
+        "scoreRunId": "72240709-b440-4cda-ba52-b30dbc0cbaa0",
+        "scoreEpochId": 2,
+        "componentScore": 0.7582827735334934,
+        "scoredAt": "2026-07-12T05:27:57.297Z",
+        "rawScores": {
+          "recency": 0.9844708865707013,
+          "engagement": 0.2816585927874237,
+          "bridging": 0.9333333333333333,
+          "source_diversity": 1,
+          "relevance": 0.75
+        },
+        "reviewedCid": "bafyreibvplgez5aeomth5a2rl5iovhtxiejkuk5hswq6q3ofqpd5wuugty"
+      }
+    },
+    {
+      "uri": "at://did:plc:of2s7m5juw4jmb3hwmqr7ruz/app.bsky.feed.post/3mqfeaxuqbs2y",
+      "publishedRank": 66,
+      "publishedScore": 0.7582684370893228,
+      "frozen": {
+        "authorDid": "did:plc:of2s7m5juw4jmb3hwmqr7ruz",
+        "createdAt": "2026-07-11T19:06:27.402Z",
+        "topicVector": {
+          "space-astronomy": 0.2,
+          "systems-programming": 0.2,
+          "software-development": 1
+        },
+        "embedUrl": null,
+        "textLength": 236,
+        "scoreRunId": "96698b9f-8933-4d54-b011-0c861ce898b3",
+        "scoreEpochId": 2,
+        "componentScore": 0.7582684370893228,
+        "scoredAt": "2026-07-12T05:58:30.813Z",
+        "rawScores": {
+          "recency": 0.658039269383296,
+          "engagement": 0.7833026680954841,
+          "bridging": 0.9209808612440192,
+          "source_diversity": 1,
+          "relevance": 0.7000000000000001
+        },
+        "reviewedCid": "bafyreig37dysxh7l4ykmqyp3uz7k5lyudnqjftyyby2caunmyij5n3s6q4"
+      }
+    },
+    {
+      "uri": "at://did:plc:w7tdwbc3lurwlpm6vftbwt3l/app.bsky.feed.post/3mqgd3xtbz22h",
+      "publishedRank": 67,
+      "publishedScore": 0.757650510896476,
+      "frozen": {
+        "authorDid": "did:plc:w7tdwbc3lurwlpm6vftbwt3l",
+        "createdAt": "2026-07-12T04:18:25.581Z",
+        "topicVector": {
+          "software-development": 1
+        },
+        "embedUrl": null,
+        "textLength": 238,
+        "scoreRunId": "db5981a4-4abe-46a7-aad4-a2f723a18442",
+        "scoreEpochId": 2,
+        "componentScore": 0.757650510896476,
+        "scoredAt": "2026-07-12T05:38:13.366Z",
+        "rawScores": {
+          "recency": 0.9500759394873248,
+          "engagement": 0.20065763012322413,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.8
+        },
+        "reviewedCid": "bafyreia7sqkkjfzfxudijngl5sx7f2d2iq4tmyn4eef54lmfoshus5rxqy"
+      }
+    },
+    {
+      "uri": "at://did:plc:ucaezectmpny7l42baeyooxi/app.bsky.feed.post/3mqct27dqik2n",
+      "publishedRank": 68,
+      "publishedScore": 0.7575385337767917,
+      "frozen": {
+        "authorDid": "did:plc:ucaezectmpny7l42baeyooxi",
+        "createdAt": "2026-07-10T18:53:07.267Z",
+        "topicVector": {
+          "decentralized-social": 1
+        },
+        "embedUrl": null,
+        "textLength": 79,
+        "scoreRunId": "a16be2d9-37ba-4ed8-acdf-baf2f9905893",
+        "scoreEpochId": 2,
+        "componentScore": 0.7575385337767917,
+        "scoredAt": "2026-07-11T05:35:56.242Z",
+        "rawScores": {
+          "recency": 0.6619532420866162,
+          "engagement": 0.3919737040327585,
+          "bridging": 0.986554824485859,
+          "source_diversity": 1,
+          "relevance": 0.9
+        },
+        "reviewedCid": "bafyreiexwgm5jb5g5zmchpv554eucmbqkothcuyuxvjp3qiekeabndmuia"
+      }
+    },
+    {
+      "uri": "at://did:plc:k644h4rq5bjfzcetgsa6tuby/app.bsky.feed.post/3mqabwmlhkc2r",
+      "publishedRank": 69,
+      "publishedScore": 0.7574169024666901,
+      "frozen": {
+        "authorDid": "did:plc:k644h4rq5bjfzcetgsa6tuby",
+        "createdAt": "2026-07-09T18:41:33.846Z",
+        "topicVector": {
+          "decentralized-social": 1
+        },
+        "embedUrl": null,
+        "textLength": 177,
+        "scoreRunId": "a491b1e5-e45e-4c70-a88d-fc2c77637bd7",
+        "scoreEpochId": 2,
+        "componentScore": 0.7574169024666901,
+        "scoredAt": "2026-07-09T23:08:40.892Z",
+        "rawScores": {
+          "recency": 0.8424536821752058,
+          "engagement": 0.15901740961444308,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.9
+        },
+        "reviewedCid": "bafyreie5pllvwzr2ljd34tgrqubsni5xtmlqj3wgkrwx46k3hfnziclyai"
+      }
+    },
+    {
+      "uri": "at://did:plc:y5md74nnnjlfq3wufouovuuz/app.bsky.feed.post/3mqa64l273k24",
+      "publishedRank": 70,
+      "publishedScore": 0.757400808382864,
+      "frozen": {
+        "authorDid": "did:plc:y5md74nnnjlfq3wufouovuuz",
+        "createdAt": "2026-07-09T17:33:18.591Z",
+        "topicVector": {
+          "ai-machine-learning": 0.2,
+          "systems-programming": 0.2,
+          "software-development": 1
+        },
+        "embedUrl": null,
+        "textLength": 233,
+        "scoreRunId": "25bf0612-00c3-4bfd-ad5a-8648d7ceb34f",
+        "scoreEpochId": 2,
+        "componentScore": 0.757400808382864,
+        "scoredAt": "2026-07-09T20:49:03.639Z",
+        "rawScores": {
+          "recency": 0.8819386934638127,
+          "engagement": 0.34708067508455465,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.7642857142857143
+        },
+        "reviewedCid": null
+      }
+    },
+    {
+      "uri": "at://did:plc:k7xouwluizlonrdxeo5obppi/app.bsky.feed.post/3mqg6jd46e22z",
+      "publishedRank": 71,
+      "publishedScore": 0.7569316229401992,
+      "frozen": {
+        "authorDid": "did:plc:k7xouwluizlonrdxeo5obppi",
+        "createdAt": "2026-07-12T02:56:24.901Z",
+        "topicVector": {
+          "dogs-pets": 1
+        },
+        "embedUrl": null,
+        "textLength": 131,
+        "scoreRunId": "5c6821a9-3ac7-4939-9f61-e4e26478d64d",
+        "scoreEpochId": 2,
+        "componentScore": 0.7569316229401992,
+        "scoredAt": "2026-07-12T05:48:15.955Z",
+        "rawScores": {
+          "recency": 0.895571022201804,
+          "engagement": 0.8059838106329513,
+          "bridging": 0.968421052631579,
+          "source_diversity": 1,
+          "relevance": 0.5
+        },
+        "reviewedCid": "bafyreidadq4dezxd3i3gzkphumocxpahkpbdwujrb26hz7ccz2tzs3f4fa"
+      }
+    },
+    {
+      "uri": "at://did:plc:o7kc3e22v7cxms67f4gbpryi/app.bsky.feed.post/3mqfy3qa5sc2z",
+      "publishedRank": 72,
+      "publishedScore": 0.7567621025328779,
+      "frozen": {
+        "authorDid": "did:plc:o7kc3e22v7cxms67f4gbpryi",
+        "createdAt": "2026-07-12T01:01:26.454Z",
+        "topicVector": {
+          "decentralized-social": 0.2,
+          "software-development": 0.2
+        },
+        "embedUrl": null,
+        "textLength": 192,
+        "scoreRunId": "fe8ba360-9d1d-439f-b0ff-c215ef92e74d",
+        "scoreEpochId": 2,
+        "componentScore": 0.7567621025328779,
+        "scoredAt": "2026-07-12T03:18:08.263Z",
+        "rawScores": {
+          "recency": 0.9160071348496988,
+          "engagement": 0.45384361090898817,
+          "bridging": 0.9899159663865545,
+          "source_diversity": 1,
+          "relevance": 0.6800000000000002
+        },
+        "reviewedCid": "bafyreidpoosrjmwjo4xxm2tlvqrqorrkl2twrh2itcbtci7q7iczded2am"
+      }
+    },
+    {
+      "uri": "at://did:plc:iairgpqp7toke3hzqlyres7i/app.bsky.feed.post/3mqfseetivs2x",
+      "publishedRank": 73,
+      "publishedScore": 0.7565982567466887,
+      "frozen": {
+        "authorDid": "did:plc:iairgpqp7toke3hzqlyres7i",
+        "createdAt": "2026-07-11T23:18:54.043Z",
+        "topicVector": {
+          "software-development": 1
+        },
+        "embedUrl": null,
+        "textLength": 298,
+        "scoreRunId": "b88608ef-66ba-40ef-9c78-a6f109cd5a20",
+        "scoreEpochId": 2,
+        "componentScore": 0.7565982567466887,
+        "scoredAt": "2026-07-12T04:48:24.810Z",
+        "rawScores": {
+          "recency": 0.8093844412843378,
+          "engagement": 0.3712607321280215,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.8
+        },
+        "reviewedCid": null
+      }
+    },
+    {
+      "uri": "at://did:plc:gr5dh2auxnbohtlju7wfxl7d/app.bsky.feed.post/3mqbvyawkac2h",
+      "publishedRank": 74,
+      "publishedScore": 0.7565304330280824,
+      "frozen": {
+        "authorDid": "did:plc:gr5dh2auxnbohtlju7wfxl7d",
+        "createdAt": "2026-07-10T10:13:03.310Z",
+        "topicVector": {
+          "ai-machine-learning": 0.2,
+          "software-development": 1
+        },
+        "embedUrl": null,
+        "textLength": 289,
+        "scoreRunId": "751e2e0f-d99c-43a5-8e5d-8c05b58828e5",
+        "scoreEpochId": 2,
+        "componentScore": 0.7565304330280824,
+        "scoredAt": "2026-07-10T10:27:48.683Z",
+        "rawScores": {
+          "recency": 0.9905744710874419,
+          "engagement": 0.15901740961444308,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.7916666666666667
+        },
+        "reviewedCid": "bafyreid2c2y7opyq2a7golhoil4644pujqeq3gwygbiuauxw6chwzz5674"
+      }
+    },
+    {
+      "uri": "at://did:plc:eidn2o5kwuaqcss7zo7ivye5/app.bsky.feed.post/3mqdlsn6qfm2j",
+      "publishedRank": 75,
+      "publishedScore": 0.7562221883139564,
+      "frozen": {
+        "authorDid": "did:plc:eidn2o5kwuaqcss7zo7ivye5",
+        "createdAt": "2026-07-11T02:16:16.745Z",
+        "topicVector": {
+          "web-development": 0.2,
+          "ai-machine-learning": 0.2,
+          "software-development": 1
+        },
+        "embedUrl": "https://github.com/addyosmani/agent-skills",
+        "textLength": 152,
+        "scoreRunId": "bc07be90-f23e-44f9-bbff-01f5a7e8896a",
+        "scoreEpochId": 2,
+        "componentScore": 0.7562221883139564,
+        "scoredAt": "2026-07-11T03:54:29.769Z",
+        "rawScores": {
+          "recency": 0.9389099008558054,
+          "engagement": 0.2593462246760551,
+          "bridging": 0.9962546816479401,
+          "source_diversity": 1,
+          "relevance": 0.7714285714285716
+        },
+        "reviewedCid": "bafyreifukyzfraqyoysckcgh3sscdgks2cgwyo4onnxps7ftj2h7kryorm"
+      }
+    },
+    {
+      "uri": "at://did:plc:4ow7ls5wogaqt4oqpwoiowin/app.bsky.feed.post/3mqfhavnnew2i",
+      "publishedRank": 76,
+      "publishedScore": 0.7562065238050723,
+      "frozen": {
+        "authorDid": "did:plc:4ow7ls5wogaqt4oqpwoiowin",
+        "createdAt": "2026-07-11T20:00:06.014Z",
+        "topicVector": {
+          "startups-business": 0.2,
+          "ai-machine-learning": 1
+        },
+        "embedUrl": null,
+        "textLength": 203,
+        "scoreRunId": "7564d769-f819-4d13-9726-abe7b25c303d",
+        "scoreEpochId": 2,
+        "componentScore": 0.7562065238050723,
+        "scoredAt": "2026-07-11T22:06:48.422Z",
+        "rawScores": {
+          "recency": 0.9218985031033556,
+          "engagement": 0.44740949014616677,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.675
+        },
+        "reviewedCid": "bafyreifrtbgzkftdjv5fbrrnup5ssgp4nqqiajrme4wo2fesrrlqbthlfu"
+      }
+    },
+    {
+      "uri": "at://did:plc:ywbm3iywnhzep3ckt6efhoh7/app.bsky.feed.post/3mqgdrhhpmc2t",
+      "publishedRank": 77,
+      "publishedScore": 0.7560866447379078,
+      "frozen": {
+        "authorDid": "did:plc:ywbm3iywnhzep3ckt6efhoh7",
+        "createdAt": "2026-07-12T04:30:26.622Z",
+        "topicVector": {
+          "web-development": 0.2,
+          "software-development": 0.2
+        },
+        "embedUrl": null,
+        "textLength": 81,
+        "scoreRunId": "96698b9f-8933-4d54-b011-0c861ce898b3",
+        "scoreEpochId": 2,
+        "componentScore": 0.7560866447379078,
+        "scoredAt": "2026-07-12T05:58:18.772Z",
+        "rawScores": {
+          "recency": 0.9451672077468736,
+          "engagement": 0.5852069435058582,
+          "bridging": 0.9975345410001765,
+          "source_diversity": 1,
+          "relevance": 0.5800000000000001
+        },
+        "reviewedCid": null
+      }
+    },
+    {
+      "uri": "at://did:plc:cyhjdt4mp7h4c2ufw3nwcqqx/app.bsky.feed.post/3mqebijp7ad2x",
+      "publishedRank": 78,
+      "publishedScore": 0.7560742524477523,
+      "frozen": {
+        "authorDid": "did:plc:cyhjdt4mp7h4c2ufw3nwcqqx",
+        "createdAt": "2026-07-11T08:44:19.970Z",
+        "topicVector": {
+          "ai-machine-learning": 1
+        },
+        "embedUrl": null,
+        "textLength": 201,
+        "scoreRunId": "009a2d53-e195-462f-9e5c-8d2abf90f179",
+        "scoreEpochId": 2,
+        "componentScore": 0.7560742524477523,
+        "scoredAt": "2026-07-11T09:03:15.082Z",
+        "rawScores": {
+          "recency": 0.9879319742563568,
+          "engagement": 0.23295629441831545,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.75
+        },
+        "reviewedCid": "bafyreiea4wlw65d2j6i4unbzt7tciqivhynbdralbs5l24vggtt77clvpu"
+      }
+    },
+    {
+      "uri": "at://did:plc:kaq6he2fwh3lqev3ujofb3lf/app.bsky.feed.post/3mqc3r4cmw222",
+      "publishedRank": 79,
+      "publishedScore": 0.7560035842341395,
+      "frozen": {
+        "authorDid": "did:plc:kaq6he2fwh3lqev3ujofb3lf",
+        "createdAt": "2026-07-10T11:56:26.033Z",
+        "topicVector": {
+          "software-development": 1
+        },
+        "embedUrl": null,
+        "textLength": 93,
+        "scoreRunId": "c73ef84e-d085-408b-8671-d4203fc82178",
+        "scoreEpochId": 2,
+        "componentScore": 0.7560035842341395,
+        "scoredAt": "2026-07-10T12:33:00.468Z",
+        "rawScores": {
+          "recency": 0.976800409245004,
+          "engagement": 0.15901740961444308,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.8
+        },
+        "reviewedCid": "bafyreifqm4cdhd3esuv4rz7tvnq7b56mm7txpdiqvrw4uzbainc53p6p5u"
+      }
+    },
+    {
+      "uri": "at://did:plc:3i6uzuatdyk7rwfkrybynf5j/app.bsky.feed.post/3mqeeg5c6c22h",
+      "publishedRank": 80,
+      "publishedScore": 0.7559341073832213,
+      "frozen": {
+        "authorDid": "did:plc:3i6uzuatdyk7rwfkrybynf5j",
+        "createdAt": "2026-07-11T09:36:41.121Z",
+        "topicVector": {
+          "decentralized-social": 1
+        },
+        "embedUrl": null,
+        "textLength": 106,
+        "scoreRunId": "e8258f0e-b894-41b7-aa6d-a5b020c64c29",
+        "scoreEpochId": 2,
+        "componentScore": 0.7559341073832213,
+        "scoredAt": "2026-07-12T05:18:27.828Z",
+        "rawScores": {
+          "recency": 0.46838350541561274,
+          "engagement": 0.6229870983538915,
+          "bridging": 0.9924081135853989,
+          "source_diversity": 1,
+          "relevance": 0.9
+        },
+        "reviewedCid": "bafyreidxpqyi5g24gb5qsyqq7jxf6otxfwlptapm6s3yxzpu27zp4b643q"
+      }
+    },
+    {
+      "uri": "at://did:plc:6qsr3ebzrptzaycswv63nnh4/app.bsky.feed.post/3mqcrbbzaxv2j",
+      "publishedRank": 81,
+      "publishedScore": 0.7557134374754548,
+      "frozen": {
+        "authorDid": "did:plc:6qsr3ebzrptzaycswv63nnh4",
+        "createdAt": "2026-07-10T18:21:14.000Z",
+        "topicVector": {
+          "software-development": 1
+        },
+        "embedUrl": "https://sinapti.ca/post/en/winget-pkgs-the-repository-with-over-10800-stars-that-powers-dp3a3l1w",
+        "textLength": 173,
+        "scoreRunId": "1fbe90c3-e00d-4880-aeef-17ff5dde4a7f",
+        "scoreEpochId": 2,
+        "componentScore": 0.7557134374754548,
+        "scoredAt": "2026-07-10T20:34:11.643Z",
+        "rawScores": {
+          "recency": 0.9182054525645922,
+          "engagement": 0.23295629441831545,
+          "bridging": 0.9957081545064378,
+          "source_diversity": 1,
+          "relevance": 0.8
+        },
+        "reviewedCid": "bafyreifciawoxk7yjyu7tdzmbj3fzv5m2wlnmain6iura55ihg42juitsi"
+      }
+    },
+    {
+      "uri": "at://did:plc:owo2l6v35uvk3axlrkz6d2wt/app.bsky.feed.post/3mqevwqrj7a23",
+      "publishedRank": 82,
+      "publishedScore": 0.7555381666447101,
+      "frozen": {
+        "authorDid": "did:plc:owo2l6v35uvk3axlrkz6d2wt",
+        "createdAt": "2026-07-11T14:50:10.000Z",
+        "topicVector": {
+          "ai-machine-learning": 1,
+          "software-development": 0.2
+        },
+        "embedUrl": "https://undercodetesting.com/7-claude-loops-that-run-your-seo-ai-visibility-a-technical-deep-dive-video/",
+        "textLength": 291,
+        "scoreRunId": "f3d014e9-1302-4637-aebf-55ea609ddb9a",
+        "scoreEpochId": 2,
+        "componentScore": 0.7555381666447101,
+        "scoredAt": "2026-07-11T15:31:01.278Z",
+        "rawScores": {
+          "recency": 0.9741209643775216,
+          "engagement": 0.23295629441831545,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.7583333333333334
+        },
+        "reviewedCid": "bafyreibezpnbxjch53iua5vhfnadouejgq5mvh477iieptmjwebj3goxqi"
+      }
+    },
+    {
+      "uri": "at://did:plc:a44nodjbqpfnplbixpfal6vo/app.bsky.feed.post/3mqcvidm6sxg2",
+      "publishedRank": 83,
+      "publishedScore": 0.7551561040759505,
+      "frozen": {
+        "authorDid": "did:plc:a44nodjbqpfnplbixpfal6vo",
+        "createdAt": "2026-07-10T19:36:43.000Z",
+        "topicVector": {
+          "decentralized-social": 1
+        },
+        "embedUrl": null,
+        "textLength": 294,
+        "scoreRunId": "8c0c2da7-f3e2-4cf9-8759-ee89b1628a9a",
+        "scoreEpochId": 2,
+        "componentScore": 0.7551561040759505,
+        "scoredAt": "2026-07-11T05:10:42.393Z",
+        "rawScores": {
+          "recency": 0.6918487651250469,
+          "engagement": 0.34708067508455465,
+          "bridging": 0.9777777777777777,
+          "source_diversity": 1,
+          "relevance": 0.9
+        },
+        "reviewedCid": "bafyreieq2eik735b6v2e3zyjtfarfffhoqt37co2xputhp2o543f3ecxf4"
+      }
+    },
+    {
+      "uri": "at://did:plc:ulg2bzgrgs7ddjjlmhtegk3v/app.bsky.feed.post/3mqd4zaaxas2z",
+      "publishedRank": 84,
+      "publishedScore": 0.7537834329520153,
+      "frozen": {
+        "authorDid": "did:plc:ulg2bzgrgs7ddjjlmhtegk3v",
+        "createdAt": "2026-07-10T21:51:31.733Z",
+        "topicVector": {
+          "decentralized-social": 1,
+          "software-development": 0.2
+        },
+        "embedUrl": null,
+        "textLength": 292,
+        "scoreRunId": "bc07be90-f23e-44f9-bbff-01f5a7e8896a",
+        "scoreEpochId": 2,
+        "componentScore": 0.7537834329520153,
+        "scoredAt": "2026-07-11T03:54:40.244Z",
+        "rawScores": {
+          "recency": 0.7921020296067421,
+          "engagement": 0.23295629441831545,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.8833333333333334
+        },
+        "reviewedCid": "bafyreibnnnm6gn2jahqydbssrzguv6oo4jl5f3escrp75pohepwf5cucbm"
+      }
+    },
+    {
+      "uri": "at://did:plc:4ldrwvpiqvoh4zw4dw7ycccx/app.bsky.feed.post/3mqd2yvz6ms2h",
+      "publishedRank": 85,
+      "publishedScore": 0.7535921004073315,
+      "frozen": {
+        "authorDid": "did:plc:4ldrwvpiqvoh4zw4dw7ycccx",
+        "createdAt": "2026-07-10T21:15:33.864Z",
+        "topicVector": {
+          "open-source": 1
+        },
+        "embedUrl": null,
+        "textLength": 104,
+        "scoreRunId": "28d992bf-946d-4ced-9adb-3069adaa7d8b",
+        "scoreEpochId": 2,
+        "componentScore": 0.7535921004073315,
+        "scoredAt": "2026-07-11T00:04:39.734Z",
+        "rawScores": {
+          "recency": 0.8971544739377716,
+          "engagement": 0.15901740961444308,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.85
+        },
+        "reviewedCid": "bafyreigcih5cr5wau52lyim7itkmtwm5gonz557b5jwglstyt65hrfapam"
+      }
+    },
+    {
+      "uri": "at://did:plc:5bh4zl7hjfbdts2ooixoen3b/app.bsky.feed.post/3mqelx3kqqk2h",
+      "publishedRank": 86,
+      "publishedScore": 0.7530199760613918,
+      "frozen": {
+        "authorDid": "did:plc:5bh4zl7hjfbdts2ooixoen3b",
+        "createdAt": "2026-07-11T11:51:25.922Z",
+        "topicVector": {
+          "ai-machine-learning": 1
+        },
+        "embedUrl": null,
+        "textLength": 246,
+        "scoreRunId": "db1fe46c-4dd3-45e6-aad3-778849a37dab",
+        "scoreEpochId": 2,
+        "componentScore": 0.7530199760613918,
+        "scoredAt": "2026-07-11T16:21:11.414Z",
+        "rawScores": {
+          "recency": 0.8410276960484091,
+          "engagement": 0.40131526024644826,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.75
+        },
+        "reviewedCid": "bafyreigfxhphqefbzysgmg2gdbiebgd56ors23iwf2vtwgd5qbrzipasy4"
+      }
+    },
+    {
+      "uri": "at://did:plc:oklkinuievllgvhrv2nia4gu/app.bsky.feed.post/3mqa7jqohri2x",
+      "publishedRank": 87,
+      "publishedScore": 0.7528817129996969,
+      "frozen": {
+        "authorDid": "did:plc:oklkinuievllgvhrv2nia4gu",
+        "createdAt": "2026-07-09T17:58:34.000Z",
+        "topicVector": {
+          "open-source": 1,
+          "software-development": 1
+        },
+        "embedUrl": null,
+        "textLength": 215,
+        "scoreRunId": "19c294f8-78f8-4eac-ac58-5096255552f0",
+        "scoreEpochId": 2,
+        "componentScore": 0.7528817129996969,
+        "scoredAt": "2026-07-09T22:13:31.966Z",
+        "rawScores": {
+          "recency": 0.8490498722579438,
+          "engagement": 0.2593462246760551,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.825
+        },
+        "reviewedCid": "bafyreihzhudcnfslvf45ytdx5vaxdazmvrmtfiwjdaf6svac5ofuatbwfm"
+      }
+    },
+    {
+      "uri": "at://did:plc:7k6ijwyigcm2nkll65f4od4c/app.bsky.feed.post/3mqf6jyhqqc2i",
+      "publishedRank": 88,
+      "publishedScore": 0.7528245897307351,
+      "frozen": {
+        "authorDid": "did:plc:7k6ijwyigcm2nkll65f4od4c",
+        "createdAt": "2026-07-11T17:24:07.566Z",
+        "topicVector": {
+          "ai-machine-learning": 1
+        },
+        "embedUrl": null,
+        "textLength": 296,
+        "scoreRunId": "f274bd06-8a7a-45db-8834-cb79a5bdf7f3",
+        "scoreEpochId": 2,
+        "componentScore": 0.7528245897307351,
+        "scoredAt": "2026-07-11T18:15:56.344Z",
+        "rawScores": {
+          "recency": 0.967293432827094,
+          "engagement": 0.2816585927874237,
+          "bridging": 0.9216951296647692,
+          "source_diversity": 1,
+          "relevance": 0.75
+        },
+        "reviewedCid": null
+      }
+    },
+    {
+      "uri": "at://did:plc:of56nmyuqzvjta7qlf7gwht6/app.bsky.feed.post/3mqfxej3bjc2a",
+      "publishedRank": 89,
+      "publishedScore": 0.7526969716636873,
+      "frozen": {
+        "authorDid": "did:plc:of56nmyuqzvjta7qlf7gwht6",
+        "createdAt": "2026-07-12T00:48:27.202Z",
+        "topicVector": {
+          "dogs-pets": 1
+        },
+        "embedUrl": null,
+        "textLength": 121,
+        "scoreRunId": "96698b9f-8933-4d54-b011-0c861ce898b3",
+        "scoreEpochId": 2,
+        "componentScore": 0.7526969716636873,
+        "scoredAt": "2026-07-12T05:58:24.328Z",
+        "rawScores": {
+          "recency": 0.8196098415995053,
+          "engagement": 0.9035236399103862,
+          "bridging": 0.9208978328173375,
+          "source_diversity": 1,
+          "relevance": 0.5
+        },
+        "reviewedCid": null
+      }
+    },
+    {
+      "uri": "at://did:plc:2uzhzy3mmmha7lvezp6ua5fl/app.bsky.feed.post/3mqg5wh7rao2m",
+      "publishedRank": 90,
+      "publishedScore": 0.7526558276033621,
+      "frozen": {
+        "authorDid": "did:plc:2uzhzy3mmmha7lvezp6ua5fl",
+        "createdAt": "2026-07-12T02:45:00.000Z",
+        "topicVector": {
+          "software-development": 1
+        },
+        "embedUrl": null,
+        "textLength": 300,
+        "scoreRunId": "b465f7da-f360-4af2-9b01-aae829fd2e88",
+        "scoreEpochId": 2,
+        "componentScore": 0.7526558276033621,
+        "scoredAt": "2026-07-12T03:43:04.906Z",
+        "rawScores": {
+          "recency": 0.9634093827218944,
+          "engagement": 0.15901740961444308,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.8
+        },
+        "reviewedCid": "bafyreifz26jqhht6vcgg3jxeufcxbwulsgjghow3gx35piceftb5rddkve"
+      }
+    },
+    {
+      "uri": "at://did:plc:6hv7rl55w2qjgaookgp6h6lr/app.bsky.feed.post/3mqcyagbbnc2z",
+      "publishedRank": 91,
+      "publishedScore": 0.7522478576794104,
+      "frozen": {
+        "authorDid": "did:plc:6hv7rl55w2qjgaookgp6h6lr",
+        "createdAt": "2026-07-10T20:26:04.559Z",
+        "topicVector": {
+          "open-source": 0.75,
+          "web-development": 0.2,
+          "ai-machine-learning": 0.2,
+          "software-development": 1
+        },
+        "embedUrl": null,
+        "textLength": 282,
+        "scoreRunId": "c9dc39fb-a8cc-4fb8-994c-a38c436dd740",
+        "scoreEpochId": 2,
+        "componentScore": 0.7522478576794104,
+        "scoredAt": "2026-07-10T23:39:42.079Z",
+        "rawScores": {
+          "recency": 0.8831423579535418,
+          "engagement": 0.2593462246760551,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.7988372093023256
+        },
+        "reviewedCid": "bafyreih3ynapa7dsznxn7ztydyktfut7mwvwzq3p7adi2jgbsc7ndwmp34"
+      }
+    },
+    {
+      "uri": "at://did:plc:5byqf3jnu6vhey54xcjm6jsl/app.bsky.feed.post/3mqfjjlgk3k27",
+      "publishedRank": 92,
+      "publishedScore": 0.7522456545496021,
+      "frozen": {
+        "authorDid": "did:plc:5byqf3jnu6vhey54xcjm6jsl",
+        "createdAt": "2026-07-11T20:40:45.054Z",
+        "topicVector": {
+          "software-development": 1
+        },
+        "embedUrl": null,
+        "textLength": 274,
+        "scoreRunId": "02a04b46-e712-46b6-9b56-99473e08b481",
+        "scoreEpochId": 2,
+        "componentScore": 0.7522456545496021,
+        "scoredAt": "2026-07-11T22:11:44.827Z",
+        "rawScores": {
+          "recency": 0.9432713289146439,
+          "engagement": 0.20065763012322413,
+          "bridging": 0.9629629629629629,
+          "source_diversity": 1,
+          "relevance": 0.8
+        },
+        "reviewedCid": null
+      }
+    },
+    {
+      "uri": "at://did:plc:6qsr3ebzrptzaycswv63nnh4/app.bsky.feed.post/3mqfshjgatb2k",
+      "publishedRank": 93,
+      "publishedScore": 0.7521476129618401,
+      "frozen": {
+        "authorDid": "did:plc:6qsr3ebzrptzaycswv63nnh4",
+        "createdAt": "2026-07-11T23:20:36.000Z",
+        "topicVector": {
+          "software-development": 1
+        },
+        "embedUrl": "https://sinapti.ca/post/en/openscad-design-3d-objects-by-writing-code-not-dragging-vert-lvkxftg5",
+        "textLength": 224,
+        "scoreRunId": "9a243950-06a1-4c38-af71-161c33175b55",
+        "scoreEpochId": 2,
+        "componentScore": 0.7521476129618401,
+        "scoredAt": "2026-07-12T01:16:55.200Z",
+        "rawScores": {
+          "recency": 0.9280643477487808,
+          "engagement": 0.20065763012322413,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.8
+        },
+        "reviewedCid": "bafyreidpk2k7st4dlzc2mizc4woanzahw4mde63qo7e54lqp4rleqfhqrq"
+      }
+    },
+    {
+      "uri": "at://did:plc:knafallh6rnqjpaghiga3p7v/app.bsky.feed.post/3mqfjxrzxo22e",
+      "publishedRank": 94,
+      "publishedScore": 0.7520439040112306,
+      "frozen": {
+        "authorDid": "did:plc:knafallh6rnqjpaghiga3p7v",
+        "createdAt": "2026-07-11T20:48:41.744Z",
+        "topicVector": {
+          "ai-machine-learning": 1
+        },
+        "embedUrl": null,
+        "textLength": 292,
+        "scoreRunId": "30951be6-42f6-49b0-b179-204f642a300c",
+        "scoreEpochId": 2,
+        "componentScore": 0.7520439040112306,
+        "scoredAt": "2026-07-11T22:37:00.236Z",
+        "rawScores": {
+          "recency": 0.9328487418149835,
+          "engagement": 0.2816585927874237,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.75
+        },
+        "reviewedCid": null
+      }
+    },
+    {
+      "uri": "at://did:plc:kkie2oc5v5iddqtygkxpz5gc/app.bsky.feed.post/3mqg6r7thqq2s",
+      "publishedRank": 95,
+      "publishedScore": 0.7520119582617981,
+      "frozen": {
+        "authorDid": "did:plc:kkie2oc5v5iddqtygkxpz5gc",
+        "createdAt": "2026-07-12T03:00:49.708Z",
+        "topicVector": {
+          "software-development": 1
+        },
+        "embedUrl": null,
+        "textLength": 276,
+        "scoreRunId": "999ccb85-8bd5-4145-8ba7-17df151724eb",
+        "scoreEpochId": 2,
+        "componentScore": 0.7520119582617981,
+        "scoredAt": "2026-07-12T04:03:04.859Z",
+        "rawScores": {
+          "recency": 0.9608339053556381,
+          "engagement": 0.15901740961444308,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.8
+        },
+        "reviewedCid": "bafyreigvewi5ymcbjxrc5vq6co23weowygksxrtcq2bqokdp6qkypu3bky"
+      }
+    },
+    {
+      "uri": "at://did:plc:gbkb664tieyip6d3lfcdsxet/app.bsky.feed.post/3mqexkpccgs2h",
+      "publishedRank": 96,
+      "publishedScore": 0.7513790160381468,
+      "frozen": {
+        "authorDid": "did:plc:gbkb664tieyip6d3lfcdsxet",
+        "createdAt": "2026-07-11T15:19:15.311Z",
+        "topicVector": {
+          "ai-machine-learning": 1
+        },
+        "embedUrl": null,
+        "textLength": 81,
+        "scoreRunId": "4acc5d93-2e8f-42ee-858f-35266d597d3c",
+        "scoreEpochId": 2,
+        "componentScore": 0.7513790160381468,
+        "scoredAt": "2026-07-11T19:56:08.176Z",
+        "rawScores": {
+          "recency": 0.8371917948219334,
+          "engagement": 0.4715895471896336,
+          "bridging": 0.8526315789473684,
+          "source_diversity": 1,
+          "relevance": 0.75
+        },
+        "reviewedCid": null
+      }
+    },
+    {
+      "uri": "at://did:plc:kqb6k62hpgwaj7wdhfyxt7f2/app.bsky.feed.post/3mqcfaihzxc22",
+      "publishedRank": 97,
+      "publishedScore": 0.7509362669172093,
+      "frozen": {
+        "authorDid": "did:plc:kqb6k62hpgwaj7wdhfyxt7f2",
+        "createdAt": "2026-07-10T14:46:05.786Z",
+        "topicVector": {
+          "software-development": 1
+        },
+        "embedUrl": null,
+        "textLength": 292,
+        "scoreRunId": "dbeab0c3-d83f-449f-ae43-e497771e504d",
+        "scoreEpochId": 2,
+        "componentScore": 0.7509362669172093,
+        "scoredAt": "2026-07-10T17:34:48.146Z",
+        "rawScores": {
+          "recency": 0.8973800321341849,
+          "engagement": 0.23295629441831545,
+          "bridging": 1,
+          "source_diversity": 1,
+          "relevance": 0.8
+        },
+        "reviewedCid": "bafyreiepsx77ofim2k2ltcx5fwrzqxja5ydcnfnawi5fudqyx4wsncvoxe"
+      }
+    },
+    {
+      "uri": "at://did:plc:p5yjdr64h7mk5l3kh6oszryk/app.bsky.feed.post/3mqcfepia2c23",
+      "publishedRank": 98,
+      "publishedScore": 0.7508996953359015,
+      "frozen": {
+        "authorDid": "did:plc:p5yjdr64h7mk5l3kh6oszryk",
+        "createdAt": "2026-07-10T14:48:27.348Z",
+        "topicVector": {
+          "decentralized-social": 1
+        },
+        "embedUrl": null,
+        "textLength": 77,
+        "scoreRunId": "c7c29e49-99e9-44eb-b316-b0ad911fab85",
+        "scoreEpochId": 2,
+        "componentScore": 0.7508996953359015,
+        "scoredAt": "2026-07-11T12:47:37.031Z",
+        "rawScores": {
+          "recency": 0.4288533869353779,
+          "engagement": 0.6447395281114626,
+          "bridging": 0.9973844297976459,
+          "source_diversity": 1,
+          "relevance": 0.9
+        },
+        "reviewedCid": null
+      }
+    },
+    {
+      "uri": "at://did:plc:dsdvlogvkts265p4ryqzwqii/app.bsky.feed.post/3mqd4im6uc22q",
+      "publishedRank": 99,
+      "publishedScore": 0.7507352214708407,
+      "frozen": {
+        "authorDid": "did:plc:dsdvlogvkts265p4ryqzwqii",
+        "createdAt": "2026-07-10T21:42:14.177Z",
+        "topicVector": {
+          "news-journalism": 0.2,
+          "decentralized-social": 1
+        },
+        "embedUrl": null,
+        "textLength": 171,
+        "scoreRunId": "46e84887-308b-4696-bfc9-dd6dafa5371e",
+        "scoreEpochId": 2,
+        "componentScore": 0.7507352214708407,
+        "scoredAt": "2026-07-11T00:14:40.185Z",
+        "rawScores": {
+          "recency": 0.9068014550344157,
+          "engagement": 0.2816585927874237,
+          "bridging": 0.9936980582141872,
+          "source_diversity": 1,
+          "relevance": 0.7666666666666667
+        },
+        "reviewedCid": "bafyreiclbdm6ik2fdrrxfkuigrjemxsu4yaaqabpxi36lictxuxl36nza4"
+      }
+    },
+    {
+      "uri": "at://did:plc:ieqql4ogk6t5zdgimr2pntnm/app.bsky.feed.post/3mqcsv3xexx2y",
+      "publishedRank": 100,
+      "publishedScore": 0.7505804354889767,
+      "frozen": {
+        "authorDid": "did:plc:ieqql4ogk6t5zdgimr2pntnm",
+        "createdAt": "2026-07-10T18:50:15.000Z",
+        "topicVector": {
+          "ai-machine-learning": 1
+        },
+        "embedUrl": "https://reut.rs/4fu1IXh",
+        "textLength": 267,
+        "scoreRunId": "89505655-1df1-42fe-9549-008e5a3dcc9a",
+        "scoreEpochId": 2,
+        "componentScore": 0.7505804354889767,
+        "scoredAt": "2026-07-10T21:54:36.312Z",
+        "rawScores": {
+          "recency": 0.8884123909016054,
+          "engagement": 0.40131526024644826,
+          "bridging": 0.8571428571428571,
+          "source_diversity": 1,
+          "relevance": 0.75
+        },
+        "reviewedCid": "bafyreigbnqlzftko33oueust3c625aibvunsykjv7ox3ds227zlh54mwsm"
+      }
+    }
+  ],
+  "snapshotDigest": "b4d0eb29dd456c881e118ebe53051bb75c3b5f810ac8e9de7badcd09913d49b5"
+}

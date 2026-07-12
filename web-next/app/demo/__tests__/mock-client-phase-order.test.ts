@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { CONTRACT_VERSION } from "../shadow-demo-api-schemas"
 import { createMockShadowDemoClient } from "../mock-shadow-demo-client"
-import { getPresetById } from "../shadow-demo-fixtures"
+import { completeDemoTopicIntent, getPresetById } from "../shadow-demo-fixtures"
 import { driveFullFlow } from "./_flow"
 
 const signal = () => new AbortController().signal
@@ -48,7 +48,7 @@ describe("mock client — phase order + nextRecommendedAction", () => {
   it("rejects out-of-order actions", async () => {
     const client = createMockShadowDemoClient()
     const created = await client.createSession(
-      { communityId: "open_science_builders", scenarioId: "s", clientNonce: "n", mode: "guided" },
+      { communityId: "community_gov", scenarioId: "s", clientNonce: "n", mode: "guided" },
       signal(),
     )
     const sessionId = created.payload.session.id
@@ -72,7 +72,7 @@ describe("mock client — phase order + nextRecommendedAction", () => {
   it("rejects a stale baseEpochId", async () => {
     const client = createMockShadowDemoClient()
     const created = await client.createSession(
-      { communityId: "open_science_builders", scenarioId: "s", clientNonce: "n", mode: "guided" },
+      { communityId: "community_gov", scenarioId: "s", clientNonce: "n", mode: "guided" },
       signal(),
     )
     await expect(
@@ -83,7 +83,7 @@ describe("mock client — phase order + nextRecommendedAction", () => {
           baseEpochId: "demo_epoch_does_not_exist",
           voterLabel: "You",
           weights: preset.weights,
-          topicIntent: preset.topicIntent,
+          topicIntent: completeDemoTopicIntent(preset.topicIntent),
         },
         signal(),
       ),
@@ -93,7 +93,7 @@ describe("mock client — phase order + nextRecommendedAction", () => {
   it("replays idempotently without double-advancing", async () => {
     const client = createMockShadowDemoClient()
     const created = await client.createSession(
-      { communityId: "open_science_builders", scenarioId: "s", clientNonce: "n", mode: "guided" },
+      { communityId: "community_gov", scenarioId: "s", clientNonce: "n", mode: "guided" },
       signal(),
     )
     const sessionId = created.payload.session.id
@@ -103,7 +103,7 @@ describe("mock client — phase order + nextRecommendedAction", () => {
       baseEpochId: openEpochId,
       voterLabel: "You",
       weights: preset.weights,
-      topicIntent: preset.topicIntent,
+      topicIntent: completeDemoTopicIntent(preset.topicIntent),
     }
     const first = await client.castVote(sessionId, request, signal())
     const second = await client.castVote(sessionId, request, signal())
@@ -117,7 +117,7 @@ describe("mock client — phase order + nextRecommendedAction", () => {
   it("namespaces idempotency keys by operation", async () => {
     const client = createMockShadowDemoClient()
     const created = await client.createSession(
-      { communityId: "open_science_builders", scenarioId: "s", clientNonce: "n", mode: "guided" },
+      { communityId: "community_gov", scenarioId: "s", clientNonce: "n", mode: "guided" },
       signal(),
     )
     const sessionId = created.payload.session.id
@@ -131,7 +131,7 @@ describe("mock client — phase order + nextRecommendedAction", () => {
         baseEpochId: openEpochId,
         voterLabel: "You",
         weights: preset.weights,
-        topicIntent: preset.topicIntent,
+        topicIntent: completeDemoTopicIntent(preset.topicIntent),
       },
       signal(),
     )
@@ -148,7 +148,7 @@ describe("mock client — phase order + nextRecommendedAction", () => {
   it("enforces and applies the backend feed limit contract", async () => {
     const client = createMockShadowDemoClient()
     const created = await client.createSession(
-      { communityId: "open_science_builders", scenarioId: "s", clientNonce: "n", mode: "guided" },
+      { communityId: "community_gov", scenarioId: "s", clientNonce: "n", mode: "guided" },
       signal(),
     )
     const sessionId = created.payload.session.id
@@ -191,7 +191,7 @@ describe("mock client — phase order + nextRecommendedAction", () => {
     controller.abort(cancelled)
     const aborted = controller.signal
     const createRequest = {
-      communityId: "open_science_builders" as const,
+      communityId: "community_gov" as const,
       scenarioId: "s",
       clientNonce: "n",
       mode: "guided" as const,
@@ -244,7 +244,7 @@ describe("mock client — phase order + nextRecommendedAction", () => {
         baseEpochId: nextEpochId,
         voterLabel: "You (reviewer)",
         weights: nextPreset.weights,
-        topicIntent: nextPreset.topicIntent,
+        topicIntent: completeDemoTopicIntent(nextPreset.topicIntent),
       },
       firstRound.signal,
     )

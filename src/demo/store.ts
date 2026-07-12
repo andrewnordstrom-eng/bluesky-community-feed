@@ -30,6 +30,35 @@ const StoredTopicIntentSchema = z.object({
   topicWeights: z.record(z.number().finite()),
 });
 
+const StoredHttpsUrlSchema = z.string().url().refine((value) => new URL(value).protocol === 'https:');
+
+const StoredPostMediaSchema = z.object({
+  images: z.array(z.object({
+    thumb: StoredHttpsUrlSchema,
+    fullsize: StoredHttpsUrlSchema,
+    alt: z.string(),
+    width: z.number().int().positive().nullable(),
+    height: z.number().int().positive().nullable(),
+  })),
+  external: z.object({
+    uri: StoredHttpsUrlSchema,
+    title: z.string(),
+    description: z.string(),
+    thumb: StoredHttpsUrlSchema.nullable(),
+  }).nullable(),
+  quote: z.object({
+    uri: z.string().startsWith('at://'),
+    authorHandle: z.string().min(1),
+    authorDisplayName: z.string().min(1),
+    text: z.string().min(1),
+  }).nullable(),
+  video: z.object({
+    thumbnail: StoredHttpsUrlSchema.nullable(),
+    width: z.number().int().positive().nullable(),
+    height: z.number().int().positive().nullable(),
+  }).nullable(),
+});
+
 const StoredDisplayPostSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('public_post'),
@@ -38,7 +67,7 @@ const StoredDisplayPostSchema = z.discriminatedUnion('kind', [
     authorDid: z.string().min(1),
     authorHandle: z.string().min(1),
     authorDisplayName: z.string().min(1),
-    authorAvatar: z.string().nullable(),
+    authorAvatar: StoredHttpsUrlSchema.nullable(),
     text: z.string().min(1),
     likeCount: z.number().int().nonnegative(),
     repostCount: z.number().int().nonnegative(),
@@ -46,7 +75,9 @@ const StoredDisplayPostSchema = z.discriminatedUnion('kind', [
     quoteCount: z.number().int().nonnegative(),
     indexedAt: z.string().min(1),
     createdAt: z.string().min(1),
-    bskyUrl: z.string().url(),
+    bskyUrl: StoredHttpsUrlSchema,
+    languages: z.array(z.string().min(1)).optional(),
+    media: StoredPostMediaSchema.nullable().optional(),
   }),
   z.object({
     kind: z.literal('hidden_post'),
@@ -70,19 +101,37 @@ const StoredCorpusItemSchema = z.object({
       score: z.number().finite(),
     })),
     matchedTerms: z.array(z.string().min(1).max(64)),
+    sourceRank: z.number().int().positive().optional(),
+    reason: z.literal('published_feed_snapshot').optional(),
   }),
   displayPost: StoredDisplayPostSchema,
+  publishedRank: z.number().int().positive().optional(),
+  publishedScore: z.number().finite().nonnegative().optional(),
+  publicationAdjustment: z.number().finite().nonnegative().optional(),
+  embedUrl: StoredHttpsUrlSchema.nullable().optional(),
+  textLength: z.number().int().nonnegative().optional(),
 });
 
 const StoredCorpusHealthSchema = z.object({
   status: z.enum(['live', 'degraded']),
-  source: z.enum(['production_scores_appview', 'fixture_fallback']),
+  source: z.enum(['production_scores_appview', 'production_feed_snapshot', 'fixture_fallback']),
   candidatePosts72h: z.number().int().nonnegative(),
   publicScoredPosts: z.number().int().nonnegative(),
   uniqueAuthors72h: z.number().int().nonnegative(),
-  bridgePostShare: z.number().finite().nonnegative(),
-  topAuthorConcentration: z.number().finite().nonnegative(),
+  bridgePostShare: z.number().finite().min(0).max(1),
+  topAuthorConcentration: z.number().finite().min(0).max(1),
   sampledAt: z.string().min(1),
+  sourcePostCount: z.number().int().nonnegative().optional(),
+  eligiblePostCount: z.number().int().nonnegative().optional(),
+  englishTaggedShare: z.number().finite().min(0).max(1).optional(),
+  richMediaShare: z.number().finite().min(0).max(1).optional(),
+});
+
+const StoredTopicCatalogEntrySchema = z.object({
+  slug: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().nullable(),
+  baselineWeight: z.number().min(0).max(1),
 });
 
 const StoredCorpusSchema = z.object({
@@ -96,6 +145,24 @@ const StoredCorpusSchema = z.object({
   items: z.array(StoredCorpusItemSchema),
   health: StoredCorpusHealthSchema,
   warnings: z.array(StoredWarningSchema),
+  topicCatalog: z.array(StoredTopicCatalogEntrySchema).optional(),
+  sourceFeedUri: z.string().startsWith('at://').optional(),
+  sourceSnapshot: z.object({
+    feedName: z.string().min(1),
+    digest: z.string().min(1),
+    runId: z.string().min(1),
+    updatedAt: z.string().min(1),
+    capturedAt: z.string().min(1),
+    reviewedAt: z.string().nullable(),
+    sourcePostCount: z.number().int().positive(),
+    selectionPolicyVersion: z.string().min(1),
+    baselineOrderDigest: z.string().min(1),
+    publicationPolicy: z.object({
+      urlDedupEnabled: z.boolean(),
+      minimumOriginalTextLength: z.number().finite().nonnegative(),
+      decay: z.array(z.number().finite().positive().max(1)).min(1),
+    }).strict(),
+  }).optional(),
 });
 
 const StoredVoteSummarySchema = z.object({
@@ -732,7 +799,7 @@ export function demoLockKeyPrefix(): string {
 }
 
 export function demoSharedCorpusKeyPrefix(): string {
-  return 'demo:corpus:current:';
+  return 'demo:corpus:current:v4:';
 }
 
 export function demoStagingKeyPrefix(): string {

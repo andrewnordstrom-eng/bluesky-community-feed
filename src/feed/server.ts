@@ -17,7 +17,8 @@ import { isPayloadTooLargeError } from './error-classification.js';
 import { registerSendInteractions } from './routes/send-interactions.js';
 import { registerGovernanceRoutes } from '../governance/server.js';
 import { registerTransparencyRoutes } from '../transparency/server.js';
-import { registerShadowDemoRoutes } from '../demo/routes.js';
+import { registerShadowDemoRoutes, registerShadowDemoV4Routes } from '../demo/routes.js';
+import { createDefaultShadowDemoService } from '../demo/service.js';
 import { registerDebugRoutes } from './routes/debug.js';
 import { registerAdminRoutes } from '../admin/routes/index.js';
 import { registerLegalRoutes } from '../legal/server.js';
@@ -273,7 +274,11 @@ export async function createServer(options?: CreateServerOptions) {
       },
     })
     : null;
-  registerShadowDemoRoutes(app, options?.shadowDemoService ?? null, shadowDemoRateLimitGuard);
+  const shadowDemoService = options?.shadowDemoService === undefined
+    ? createDefaultShadowDemoService()
+    : options.shadowDemoService;
+  registerShadowDemoRoutes(app, shadowDemoService, shadowDemoRateLimitGuard);
+  registerShadowDemoV4Routes(app, shadowDemoService, shadowDemoRateLimitGuard);
 
   // Register debug routes
   registerDebugRoutes(app);

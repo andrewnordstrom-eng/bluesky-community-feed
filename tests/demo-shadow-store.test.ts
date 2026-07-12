@@ -92,6 +92,14 @@ describe('Redis shadow demo store', () => {
     expect(get).toHaveBeenNthCalledWith(2, 'demo:session-nonce:unknown-nonce');
   });
 
+  it('uses a versioned shared-corpus key so pre-v4 cache entries are bypassed', async () => {
+    const get = vi.fn().mockResolvedValue(null);
+    const store = new RedisDemoStore({ get } as unknown as Redis);
+
+    await expect(store.readSharedCorpus('community_gov')).resolves.toBeNull();
+    expect(get).toHaveBeenCalledWith('demo:corpus:current:v4:community_gov');
+  });
+
   it('connects a cold lazy client before issuing its first store command', async () => {
     let redisStatus = 'wait';
     const connect = vi.fn(async () => {
@@ -377,6 +385,25 @@ describe('Redis shadow demo store', () => {
     expect(get).toHaveBeenNthCalledWith(2, 'demo:corpus:demo-store-corpus');
   });
 
+  it('rejects stored corpus health ratios outside the unit interval', async () => {
+    for (const field of ['bridgePostShare', 'topAuthorConcentration', 'englishTaggedShare', 'richMediaShare'] as const) {
+      for (const invalidRatio of [-0.01, 1.01]) {
+        const session = storedSession();
+        const { corpus, ...sessionHeader } = session;
+        const invalidCorpus = {
+          ...corpus,
+          health: { ...corpus.health, [field]: invalidRatio },
+        };
+        const get = vi.fn()
+          .mockResolvedValueOnce(JSON.stringify(sessionHeader))
+          .mockResolvedValueOnce(JSON.stringify(invalidCorpus));
+        const store = new RedisDemoStore({ get } as unknown as Redis);
+
+        await expect(store.readSession(session.sessionId)).rejects.toBeInstanceOf(DemoStoreCorruptionError);
+      }
+    }
+  });
+
   it('raises explicit corruption when a session references a missing corpus', async () => {
     const session = storedSession();
     const { corpus: _corpus, ...sessionHeader } = session;
@@ -405,7 +432,103 @@ describe('Redis shadow demo store', () => {
     await expect(store.readSession('invalid-vote')).rejects.toBeInstanceOf(DemoStoreCorruptionError);
     await expect(store.readSession('invalid-item')).rejects.toBeInstanceOf(DemoStoreCorruptionError);
   });
+
+  it('rejects unsafe media and quote navigation targets in persisted corpus state', async () => {
+    const session = storedSession();
+    const { corpus, ...sessionHeader } = session;
+    const validItem = storedPublicItem();
+    const invalidItems = [
+      {
+        ...validItem,
+        displayPost: {
+          ...validItem.displayPost,
+          media: {
+            ...validItem.displayPost.media,
+            images: [{ ...validItem.displayPost.media.images[0], fullsize: 'http://cdn.example/full.jpg' }],
+          },
+        },
+      },
+      {
+        ...validItem,
+        displayPost: {
+          ...validItem.displayPost,
+          media: {
+            ...validItem.displayPost.media,
+            quote: { ...validItem.displayPost.media.quote, uri: 'https://bsky.app/not-an-at-uri' },
+          },
+        },
+      },
+    ];
+
+    for (const invalidItem of invalidItems) {
+      const get = vi.fn()
+        .mockResolvedValueOnce(JSON.stringify(sessionHeader))
+        .mockResolvedValueOnce(JSON.stringify({ ...corpus, items: [invalidItem] }));
+      const store = new RedisDemoStore({ get } as unknown as Redis);
+
+      await expect(store.readSession(session.sessionId)).rejects.toBeInstanceOf(DemoStoreCorruptionError);
+    }
+  });
 });
+
+function storedPublicItem(): ShadowDemoSessionState['corpus']['items'][number] & {
+  displayPost: Extract<ShadowDemoSessionState['corpus']['items'][number]['displayPost'], { kind: 'public_post' }> & {
+    media: NonNullable<Extract<ShadowDemoSessionState['corpus']['items'][number]['displayPost'], { kind: 'public_post' }>['media']>;
+  };
+} {
+  return {
+    postUri: 'at://did:plc:author/app.bsky.feed.post/post',
+    authorDid: 'did:plc:author',
+    createdAt: '2026-07-10T00:00:00.000Z',
+    topicVector: { 'science-research': 0.8 },
+    rawScores: {
+      recency: 0.5,
+      engagement: 0.5,
+      bridging: 0.5,
+      source_diversity: 0.5,
+      relevance: 0.5,
+    },
+    productionScore: 0.5,
+    productionEpochId: 2,
+    scoredAt: '2026-07-10T00:00:00.000Z',
+    componentDetails: null,
+    inclusionReasons: { matchedTopics: [{ topic: 'science-research', score: 0.8 }], matchedTerms: [] },
+    displayPost: {
+      kind: 'public_post',
+      uri: 'at://did:plc:author/app.bsky.feed.post/post',
+      cid: 'cid-post',
+      authorDid: 'did:plc:author',
+      authorHandle: 'author.bsky.social',
+      authorDisplayName: 'Author',
+      authorAvatar: 'https://cdn.example/avatar.jpg',
+      text: 'A public post with a safe media card.',
+      likeCount: 1,
+      repostCount: 1,
+      replyCount: 1,
+      quoteCount: 0,
+      indexedAt: '2026-07-10T00:00:00.000Z',
+      createdAt: '2026-07-10T00:00:00.000Z',
+      bskyUrl: 'https://bsky.app/profile/did:plc:author/post/post',
+      media: {
+        images: [{
+          thumb: 'https://cdn.example/thumb.jpg',
+          fullsize: 'https://cdn.example/full.jpg',
+          alt: 'A chart',
+          width: 800,
+          height: 600,
+        }],
+        external: null,
+        quote: {
+          uri: 'at://did:plc:quoted/app.bsky.feed.post/quote',
+          authorHandle: 'quoted.bsky.social',
+          authorDisplayName: 'Quoted Author',
+          text: 'Quoted context',
+        },
+        video: null,
+      },
+    },
+  };
+}
 
 function storedSession(): ShadowDemoSessionState {
   return {

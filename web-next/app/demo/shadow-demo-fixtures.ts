@@ -1,7 +1,7 @@
 // Deterministic fixtures + pure ranking engine for the shadow-governance demo.
 //
 // Everything here is contract-keyed (snake_case signal keys) and pure — no React,
-// no I/O, no Math.random / Date.now. The Open Science Builders corpus, voters, and
+// no I/O, no Math.random / Date.now. The Community Governed Feed mechanics corpus, voters, and
 // presets are adapted from the shared replay model (`lib/replay-model.ts`) so the
 // numeric behavior stays consistent with the landing / how-it-works replays, but
 // re-keyed to the `shadow-demo-contract.ts` shapes the mock client returns.
@@ -104,11 +104,12 @@ function makePost(
 }
 
 /**
- * Open Science Builders corpus — 7 public posts + 1 policy-withheld row. Numeric
+ * Community Governed Feed mechanics corpus — 12 public posts + 1 policy-withheld row. Numeric
  * scores are carried over from lib/replay-model so the reorderings are already
- * tuned to read well. Topic slugs: field_notes / datasets / sightings / culture.
+ * tuned to read well. Topic slugs: science-research / data-science /
+ * software-development / open-source.
  */
-const OPEN_SCIENCE_CORPUS: readonly DemoCorpusEntry[] = [
+const MECHANICS_CORPUS: readonly DemoCorpusEntry[] = [
   {
     id: "P1",
     post: makePost("P1", "Maya Keene", "maya-keene.bsky.social", 14, "Built a tiny script to log neighborhood finch sightings from my morning walks.", { like: 164, repost: 42, reply: 18, quote: 6 }),
@@ -152,6 +153,36 @@ const OPEN_SCIENCE_CORPUS: readonly DemoCorpusEntry[] = [
     topicAffinity: { "science-research": 0.45, "data-science": 0.35, "software-development": 0.75, "open-source": 0.4 },
   },
   {
+    id: "P8",
+    post: makePost("P8", "Maya Keene", "maya-keene.bsky.social", 42, "A maintainer's notes on making small research datasets easier to cite and reuse.", { like: 143, repost: 38, reply: 12, quote: 5 }),
+    rawScores: { recency: 0.58, engagement: 0.44, bridging: 0.82, source_diversity: 0.74, relevance: 0.88 },
+    topicAffinity: { "science-research": 0.82, "data-science": 0.76, "software-development": 0.5, "open-source": 0.9 },
+  },
+  {
+    id: "P9",
+    post: makePost("P9", "Arjun Mehta", "arjunmehta.dev", 9, "Released a compact benchmark for comparing local-first sync engines.", { like: 286, repost: 74, reply: 27, quote: 12 }),
+    rawScores: { recency: 0.9, engagement: 0.6, bridging: 0.66, source_diversity: 0.77, relevance: 0.89 },
+    topicAffinity: { "data-science": 0.62, "software-development": 0.92, "open-source": 0.86 },
+  },
+  {
+    id: "P10",
+    post: makePost("P10", "Theo Kim", "thocknotes.bsky.social", 75, "What I learned turning a weekend visualization into a documented open-source tool.", { like: 198, repost: 47, reply: 19, quote: 7 }),
+    rawScores: { recency: 0.4, engagement: 0.52, bridging: 0.78, source_diversity: 0.69, relevance: 0.84 },
+    topicAffinity: { "data-science": 0.7, "software-development": 0.84, "open-source": 0.93 },
+  },
+  {
+    id: "P11",
+    post: makePost("P11", "Leila Hart", "leilahart.bsky.social", 27, "A careful thread on when a viral chart needs more context, not more confidence.", { like: 507, repost: 118, reply: 44, quote: 29 }),
+    rawScores: { recency: 0.67, engagement: 0.79, bridging: 0.7, source_diversity: 0.61, relevance: 0.8 },
+    topicAffinity: { "science-research": 0.72, "data-science": 0.88 },
+  },
+  {
+    id: "P12",
+    post: makePost("P12", "Claire Rowan", "toastwindow.bsky.social", 51, "Documented the tiny accessibility fixes that made our community map usable by keyboard.", { like: 122, repost: 31, reply: 10, quote: 4 }),
+    rawScores: { recency: 0.5, engagement: 0.38, bridging: 0.76, source_diversity: 0.8, relevance: 0.83 },
+    topicAffinity: { "software-development": 0.74, "open-source": 0.8 },
+  },
+  {
     // A policy-withheld row: exercises the compact hidden feed item. It still
     // occupies a rank slot but renders no text / handle / avatar.
     id: "H1",
@@ -165,37 +196,74 @@ const OPEN_SCIENCE_CORPUS: readonly DemoCorpusEntry[] = [
 export interface DemoTopicMeta {
   readonly slug: string
   readonly label: string
+  readonly baselineWeight: number
 }
 
 export interface DemoCommunityFixture {
   readonly community: ShadowDemoCommunity
-  /** Only Open Science Builders is fully built this pass; others are previews. */
+  /** Only Community Governed Feed is fully built this pass; others are previews. */
   readonly isPreview: boolean
   readonly corpus: readonly DemoCorpusEntry[]
   readonly topics: readonly DemoTopicMeta[]
 }
 
-const OPEN_SCIENCE_TOPICS: readonly DemoTopicMeta[] = [
-  { slug: "science-research", label: "Science & research" },
-  { slug: "data-science", label: "Data science" },
-  { slug: "software-development", label: "Software development" },
-  { slug: "open-source", label: "Open source" },
+export const MECHANICS_TOPICS: readonly DemoTopicMeta[] = [
+  { slug: "adult-content", label: "Adult content", baselineWeight: 0 },
+  { slug: "ai-machine-learning", label: "AI & machine learning", baselineWeight: 0.75 },
+  { slug: "art-creative", label: "Art & creative", baselineWeight: 0.15 },
+  { slug: "books-reading", label: "Books & reading", baselineWeight: 0.2 },
+  { slug: "climate-environment", label: "Climate & environment", baselineWeight: 0.25 },
+  { slug: "cooking-food", label: "Cooking & food", baselineWeight: 0.15 },
+  { slug: "cybersecurity", label: "Cybersecurity", baselineWeight: 0.7 },
+  { slug: "data-science", label: "Data science", baselineWeight: 0.7 },
+  { slug: "decentralized-social", label: "Decentralized social", baselineWeight: 0.9 },
+  { slug: "design-ux", label: "Design & UX", baselineWeight: 0.35 },
+  { slug: "devops-infrastructure", label: "DevOps & infrastructure", baselineWeight: 0.6 },
+  { slug: "dogs-pets", label: "Dogs & pets", baselineWeight: 0.5 },
+  { slug: "education", label: "Education", baselineWeight: 0.4 },
+  { slug: "gaming", label: "Gaming", baselineWeight: 0.1 },
+  { slug: "health-fitness", label: "Health & fitness", baselineWeight: 0.2 },
+  { slug: "mobile-development", label: "Mobile development", baselineWeight: 0.35 },
+  { slug: "music", label: "Music", baselineWeight: 0.1 },
+  { slug: "news-journalism", label: "News & journalism", baselineWeight: 0.1 },
+  { slug: "open-source", label: "Open source", baselineWeight: 0.85 },
+  { slug: "politics-governance", label: "Politics & governance", baselineWeight: 0.05 },
+  { slug: "science-research", label: "Science & research", baselineWeight: 0.4 },
+  { slug: "software-development", label: "Software development", baselineWeight: 0.8 },
+  { slug: "space-astronomy", label: "Space & astronomy", baselineWeight: 0.3 },
+  { slug: "startups-business", label: "Startups & business", baselineWeight: 0.3 },
+  { slug: "systems-programming", label: "Systems programming", baselineWeight: 0.6 },
+  { slug: "web-development", label: "Web development", baselineWeight: 0.65 },
 ] as const
 
 export const DEMO_COMMUNITIES: Readonly<Record<ShadowDemoCommunityId, DemoCommunityFixture>> = {
-  open_science_builders: {
+  community_gov: {
     isPreview: false,
     community: {
+      id: "community_gov",
+      name: "Community Governed Feed",
+      tagline: "The real public Corgi feed, frozen into a reviewer-safe comparison set for isolated shadow governance.",
+      corpusStrategy: "fixture_fallback",
+      candidateTerms: [],
+      bridgeTerms: [],
+      publicBlueskyFeedUrl: "https://bsky.app/profile/corgi-network.bsky.social/feed/community-gov",
+    },
+    corpus: MECHANICS_CORPUS,
+    topics: MECHANICS_TOPICS,
+  },
+  open_science_builders: {
+    isPreview: true,
+    community: {
       id: "open_science_builders",
-      name: "Open Science Builders",
-      tagline: "Research, reusable datasets, open-source methods, and the software that moves knowledge across disciplines.",
-      corpusStrategy: "live_appview_search",
-      candidateTerms: ["science", "research", "data science", "software development", "open source"],
-      bridgeTerms: ["dataset", "reproducible", "method", "tooling"],
+      name: "Legacy v3 compatibility community",
+      tagline: "Retained only so cached v3 sessions can complete during the v4 rollout.",
+      corpusStrategy: "fixture_fallback",
+      candidateTerms: [],
+      bridgeTerms: [],
       publicBlueskyFeedUrl: null,
     },
-    corpus: OPEN_SCIENCE_CORPUS,
-    topics: OPEN_SCIENCE_TOPICS,
+    corpus: MECHANICS_CORPUS,
+    topics: MECHANICS_TOPICS,
   },
   birders_who_code: {
     isPreview: true,
@@ -245,7 +313,7 @@ export function getCommunityFixture(id: ShadowDemoCommunityId): DemoCommunityFix
   return DEMO_COMMUNITIES[id]
 }
 
-export const DEFAULT_COMMUNITY_ID: ShadowDemoCommunityId = "open_science_builders"
+export const DEFAULT_COMMUNITY_ID: ShadowDemoCommunityId = "community_gov"
 
 // ---------------------------------------------------------------------------
 // Agents (deterministic, fixed weight vectors + checked-in rationale)
@@ -259,10 +327,10 @@ export interface DemoAgentFixture {
 export const DEMO_AGENTS: readonly DemoAgentFixture[] = [
   {
     agent: {
-      id: "research_practitioner",
-      name: "Research Practitioners",
+      id: "freshness_watcher",
+      name: "Freshness Watchers",
       role: "Want methods, observations, and field context to survive the scroll.",
-      deterministicSeed: "voter:research_practitioner",
+      deterministicSeed: "voter:freshness_watcher",
       voteRationale: "Boost source-rich notes and research that other people can inspect or reproduce.",
       voterCount: 5,
       baseWeights: { recency: 0.18, engagement: 0.07, bridging: 0.14, source_diversity: 0.31, relevance: 0.3 },
@@ -273,12 +341,12 @@ export const DEMO_AGENTS: readonly DemoAgentFixture[] = [
   },
   {
     agent: {
-      id: "dataset_steward",
-      name: "Data Stewards",
+      id: "conversation_follower",
+      name: "Conversation Followers",
       role: "Cares about reproducible data, open tooling, and reusable context.",
-      deterministicSeed: "voter:dataset_steward",
+      deterministicSeed: "voter:conversation_follower",
       voteRationale: "Raises datasets, messy CSVs, classifiers, and well-labeled observations.",
-      voterCount: 5,
+      voterCount: 4,
       baseWeights: { recency: 0.1, engagement: 0.06, bridging: 0.24, source_diversity: 0.28, relevance: 0.32 },
       reviewerBlend: 0.22,
       policyInertia: 0.3,
@@ -287,10 +355,10 @@ export const DEMO_AGENTS: readonly DemoAgentFixture[] = [
   },
   {
     agent: {
-      id: "current_awareness",
-      name: "Current-Awareness Readers",
+      id: "bridge_builder",
+      name: "Bridge Builders",
       role: "Wants the feed to notice time-sensitive findings before they go stale.",
-      deterministicSeed: "voter:current_awareness",
+      deterministicSeed: "voter:bridge_builder",
       voteRationale: "Pushes recency without letting generic virality take over the community.",
       voterCount: 5,
       baseWeights: { recency: 0.52, engagement: 0.06, bridging: 0.08, source_diversity: 0.08, relevance: 0.26 },
@@ -301,12 +369,12 @@ export const DEMO_AGENTS: readonly DemoAgentFixture[] = [
   },
   {
     agent: {
-      id: "community_discussant",
-      name: "Community Discussants",
+      id: "source_diversifier",
+      name: "Source Diversifiers",
       role: "Value popular discussions, as long as the community can rebalance them.",
-      deterministicSeed: "voter:community_discussant",
+      deterministicSeed: "voter:source_diversifier",
       voteRationale: "Gives engagement real weight so funny posts can win when the community chooses that.",
-      voterCount: 4,
+      voterCount: 5,
       baseWeights: { recency: 0.13, engagement: 0.55, bridging: 0.08, source_diversity: 0.04, relevance: 0.2 },
       reviewerBlend: 0.16,
       policyInertia: 0.2,
@@ -315,10 +383,10 @@ export const DEMO_AGENTS: readonly DemoAgentFixture[] = [
   },
   {
     agent: {
-      id: "interdisciplinary_connector",
-      name: "Interdisciplinary Connectors",
+      id: "relevance_steward",
+      name: "Relevance Stewards",
       role: "Want posts that connect researchers, developers, maintainers, and data practitioners.",
-      deterministicSeed: "voter:interdisciplinary_connector",
+      deterministicSeed: "voter:relevance_steward",
       voteRationale: "Rewards posts that carry useful context across subgroups inside the feed.",
       voterCount: 5,
       baseWeights: { recency: 0.12, engagement: 0.08, bridging: 0.42, source_diversity: 0.13, relevance: 0.25 },
@@ -345,45 +413,50 @@ export interface DemoVotePreset {
 
 export const DEMO_VOTE_PRESETS: readonly DemoVotePreset[] = [
   {
-    id: "field_notes",
-    label: "Reproducible work",
-    summary: "Methods, datasets, and inspectable results get room so they do not vanish under announcements.",
-    weights: { recency: 0.15, engagement: 0.1, bridging: 0.15, source_diversity: 0.3, relevance: 0.3 },
+    id: "open_network_builders",
+    label: "Open network builders",
+    summary: "Reward useful work that connects people and travels across familiar circles.",
+    weights: { recency: 0.15, engagement: 0.1, bridging: 0.35, source_diversity: 0.2, relevance: 0.2 },
     topicIntent: {
-      topicWeights: { "science-research": 0.9, "data-science": 0.85, "software-development": 0.55, "open-source": 0.8 },
+      topicWeights: { "decentralized-social": 1, "open-source": 0.95, "software-development": 0.85, "web-development": 0.8, "devops-infrastructure": 0.75 },
     },
   },
   {
-    id: "bridge_building",
-    label: "Bridge-building",
-    summary: "Rewards work that connects researchers, data practitioners, and software maintainers.",
-    weights: { recency: 0.15, engagement: 0.1, bridging: 0.35, source_diversity: 0.15, relevance: 0.25 },
+    id: "research_and_tooling",
+    label: "Research and tooling",
+    summary: "Prioritize research, data, software, and reusable open-source work.",
+    weights: { recency: 0.12, engagement: 0.08, bridging: 0.2, source_diversity: 0.25, relevance: 0.35 },
     topicIntent: {
-      topicWeights: { "science-research": 0.8, "data-science": 0.8, "software-development": 0.8, "open-source": 0.8 },
+      topicWeights: { "science-research": 0.95, "data-science": 0.95, "open-source": 0.9, "software-development": 0.85, "ai-machine-learning": 0.8 },
     },
   },
   {
-    id: "freshness",
-    label: "Freshness push",
-    summary: "Time-sensitive findings rise without making likes the whole policy.",
-    weights: { recency: 0.55, engagement: 0.05, bridging: 0.05, source_diversity: 0.05, relevance: 0.3 },
+    id: "broad_discovery",
+    label: "Broad discovery",
+    summary: "Spread attention across sources and topics instead of concentrating it around familiar accounts.",
+    weights: { recency: 0.15, engagement: 0.1, bridging: 0.2, source_diversity: 0.35, relevance: 0.2 },
     topicIntent: {
-      topicWeights: { "science-research": 0.9, "data-science": 0.6, "software-development": 0.45, "open-source": 0.5 },
+      topicWeights: { "art-creative": 0.6, "books-reading": 0.5, "climate-environment": 0.65, "education": 0.6, "science-research": 0.6, "decentralized-social": 0.65, "ai-machine-learning": 0.55, "software-development": 0.6 },
     },
   },
   {
-    id: "engagement",
-    label: "Engagement-heavy",
-    summary: "Lets popular announcements win, making the default failure mode easy to compare.",
-    weights: { recency: 0.05, engagement: 0.65, bridging: 0.05, source_diversity: 0.05, relevance: 0.2 },
+    id: "live_conversation",
+    label: "Live conversation",
+    summary: "Give fresh, active discussions more lift while retaining a relevance floor.",
+    weights: { recency: 0.4, engagement: 0.3, bridging: 0.08, source_diversity: 0.07, relevance: 0.15 },
     topicIntent: {
-      topicWeights: { "science-research": 0.45, "data-science": 0.45, "software-development": 0.6, "open-source": 0.5 },
+      topicWeights: { "decentralized-social": 0.95, "news-journalism": 0.4, "software-development": 0.75, "open-source": 0.8 },
     },
   },
 ]
 
 export function getPresetById(id: string): DemoVotePreset | undefined {
-  return DEMO_VOTE_PRESETS.find((preset) => preset.id === id)
+  const legacyAliases: Readonly<Record<string, string>> = {
+    field_notes: "research_and_tooling",
+    engagement: "live_conversation",
+  }
+  const resolvedId = legacyAliases[id] ?? id
+  return DEMO_VOTE_PRESETS.find((preset) => preset.id === resolvedId)
 }
 
 /** Starting policy before the reviewer votes — the engagement-heavy failure mode. */
@@ -396,7 +469,11 @@ export const BASELINE_WEIGHTS: ShadowDemoWeights = {
 }
 
 export const BASELINE_TOPIC_INTENT: ShadowDemoTopicIntent = {
-  topicWeights: { "science-research": 0.45, "data-science": 0.45, "software-development": 0.6, "open-source": 0.5 },
+  topicWeights: Object.fromEntries(MECHANICS_TOPICS.map((topic) => [topic.slug, topic.baselineWeight])),
+}
+
+export function completeDemoTopicIntent(overrides: ShadowDemoTopicIntent): ShadowDemoTopicIntent {
+  return { topicWeights: { ...BASELINE_TOPIC_INTENT.topicWeights, ...overrides.topicWeights } }
 }
 
 // ---------------------------------------------------------------------------

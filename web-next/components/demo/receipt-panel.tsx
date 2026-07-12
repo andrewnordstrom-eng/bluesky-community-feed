@@ -46,7 +46,12 @@ function DeltaChip({ delta }: { readonly delta: number | null }) {
   )
 }
 
+export function formatCounterfactualRank(rank: number | null): string {
+  return rank === null ? "Excluded by relevance floor" : `#${rank}`
+}
+
 function CounterfactualRow({ item }: { readonly item: ShadowDemoCounterfactual }) {
+  const isExcluded = item.rank === null
   return (
     <div className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-background px-4 py-2.5">
       <span className="min-w-0">
@@ -54,8 +59,16 @@ function CounterfactualRow({ item }: { readonly item: ShadowDemoCounterfactual }
         <span className="mt-0.5 block text-[11px] leading-relaxed text-foreground/55">{item.description}</span>
       </span>
       <span className="flex flex-shrink-0 items-center gap-2">
-        <span className="font-mono text-sm font-semibold text-foreground">#{item.rank}</span>
-        <DeltaChip delta={item.deltaFromVisibleRank} />
+        {isExcluded ? (
+          <span className="max-w-32 text-right text-[10px] font-semibold leading-tight text-foreground/55">
+            {formatCounterfactualRank(item.rank)}
+          </span>
+        ) : (
+          <>
+            <span className="font-mono text-sm font-semibold text-foreground">{formatCounterfactualRank(item.rank)}</span>
+            <DeltaChip delta={item.deltaFromVisibleRank} />
+          </>
+        )}
       </span>
     </div>
   )
@@ -85,8 +98,17 @@ export function ReceiptPanel({
   readonly freePlayEnabled: boolean
 }) {
   const topicInputs = receipt.topicBreakdown
-  const displayMath = tryBuildReceiptDisplayMathWithServerTotal(receipt.components, receipt.totalScore)
+  const componentReceiptTotal = receipt.componentScore ?? receipt.totalScore
+  const displayMath = tryBuildReceiptDisplayMathWithServerTotal(receipt.components, componentReceiptTotal)
+  const showPublicationAdjustment = hasAuthoritativePublicationMath(
+    receipt.componentScore,
+    receipt.publicationAdjustment,
+    receipt.totalScore,
+  )
   const formula = receipt.topicRelevanceFormula
+  const snapshotProvenance = receipt.provenance.mode === "production_feed_snapshot_session_frozen"
+    ? receipt.provenance
+    : null
 
   return (
     <aside className="flex h-full flex-col rounded-[1.5rem] border border-primary/20 bg-card shadow-[0_18px_50px_rgba(46,38,32,0.08)]">
@@ -100,7 +122,7 @@ export function ReceiptPanel({
             </p>
           </div>
           <span className="rounded-full border border-primary/20 bg-primary/10 px-3 py-1 font-mono text-xs font-semibold text-primary">
-            {displayMath ? formatReceiptScore(displayMath.serverTotalScore) : "Score unavailable"}
+            {displayMath ? formatReceiptScore(receipt.totalScore) : "Score unavailable"}
           </span>
         </div>
         {receipt.previousRank !== null ? (
@@ -121,11 +143,20 @@ export function ReceiptPanel({
             <>
               <p className="mt-1 text-sm font-semibold text-foreground">Raw signal × community weight = contribution</p>
               <p className="mt-1 text-[11px] text-foreground/55">
-                Server receipt total {formatReceiptScore(displayMath.serverTotalScore)} · displayed component sum {formatReceiptScore(displayMath.totalScore)}
+                Component score {formatReceiptScore(displayMath.serverTotalScore)} · displayed component sum {formatReceiptScore(displayMath.totalScore)}
               </p>
               {displayMath.roundingResidual !== 0 ? (
                 <p className="mt-1 text-[11px] text-foreground/55">
                   Display rounding residual {formatReceiptScore(displayMath.roundingResidual)}
+                </p>
+              ) : null}
+              {showPublicationAdjustment
+                && receipt.componentScore !== null
+                && receipt.componentScore !== undefined
+                && receipt.publicationAdjustment !== null
+                && receipt.publicationAdjustment !== undefined ? (
+                <p className="mt-1 text-[11px] font-medium text-foreground/65">
+                  {formatReceiptScore(receipt.componentScore)} × publication adjustment {formatReceiptScore(receipt.publicationAdjustment)} = final ranking score {formatReceiptScore(receipt.totalScore)}
                 </p>
               ) : null}
             </>
@@ -203,14 +234,38 @@ export function ReceiptPanel({
               <dt className="text-foreground/50">Production epoch</dt>
               <dd className="mt-0.5 font-mono text-foreground/75">{receipt.provenance.productionEpochId}</dd>
             </div>
+            {receipt.publishedRank !== null && receipt.publishedRank !== undefined ? (
+              <div>
+                <dt className="text-foreground/50">Published baseline</dt>
+                <dd className="mt-0.5 font-mono text-foreground/75">#{receipt.publishedRank}{receipt.publishedScore !== null && receipt.publishedScore !== undefined ? ` · ${formatReceiptScore(receipt.publishedScore)}` : ""}</dd>
+              </div>
+            ) : null}
+            {snapshotProvenance ? (
+              <div>
+                <dt className="text-foreground/50">Publication run</dt>
+                <dd className="mt-0.5 break-all font-mono text-foreground/75">{snapshotProvenance.sourceRunId}</dd>
+              </div>
+            ) : null}
+            {snapshotProvenance ? (
+              <div className="sm:col-span-2">
+                <dt className="text-foreground/50">Snapshot digest</dt>
+                <dd className="mt-0.5 break-all font-mono text-foreground/75">{snapshotProvenance.sourceSnapshotDigest}</dd>
+              </div>
+            ) : null}
             <div>
               <dt className="text-foreground/50">Shadow epoch</dt>
               <dd className="mt-0.5 break-all font-mono text-foreground/75">{receipt.provenance.shadowEpochId}</dd>
             </div>
             <div>
-              <dt className="text-foreground/50">Snapshot sampled</dt>
+              <dt className="text-foreground/50">Snapshot captured</dt>
               <dd className="mt-0.5 font-mono text-foreground/75">{formatReceiptTimestamp(receipt.provenance.sampledAt)}</dd>
             </div>
+            {snapshotProvenance?.sourceReviewedAt ? (
+              <div>
+                <dt className="text-foreground/50">Snapshot reviewed</dt>
+                <dd className="mt-0.5 font-mono text-foreground/75">{formatReceiptTimestamp(snapshotProvenance.sourceReviewedAt)}</dd>
+              </div>
+            ) : null}
             <div>
               <dt className="text-foreground/50">Scored</dt>
               <dd className="mt-0.5 font-mono text-foreground/75">{formatReceiptTimestamp(receipt.scoredAt)}</dd>
@@ -265,4 +320,16 @@ export function ReceiptPanel({
       </div>
     </aside>
   )
+}
+
+export function hasAuthoritativePublicationMath(
+  componentScore: number | null | undefined,
+  publicationAdjustment: number | null | undefined,
+  totalScore: number,
+): boolean {
+  if (typeof componentScore !== "number" || typeof publicationAdjustment !== "number") return false
+  return Number.isFinite(componentScore)
+    && Number.isFinite(publicationAdjustment)
+    && Number.isFinite(totalScore)
+    && Math.abs(componentScore * publicationAdjustment - totalScore) <= 0.001
 }

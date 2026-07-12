@@ -24,6 +24,30 @@ import { buildTestApp } from './helpers/index.js';
 const NOW = new Date('2026-07-09T12:00:00.000Z');
 
 describe('shadow demo routes', () => {
+  it('distinguishes omitted, disabled, and injected demo services', async () => {
+    const omitted = buildTestApp();
+    const disabled = buildTestApp();
+    const injected = buildTestApp();
+    const service = new ShadowDemoService({
+      store: new MemoryDemoStore(),
+      loadCorpus: async () => demoCorpus(),
+      now: () => NOW,
+    });
+    try {
+      registerShadowDemoRoutes(omitted, undefined, null);
+      registerShadowDemoRoutes(disabled, null, null);
+      registerShadowDemoRoutes(injected, service, null);
+
+      expect(omitted.hasRoute({ method: 'POST', url: '/api/demo/sessions' })).toBe(true);
+      expect(disabled.hasRoute({ method: 'POST', url: '/api/demo/sessions' })).toBe(false);
+      expect(injected.hasRoute({ method: 'POST', url: '/api/demo/sessions' })).toBe(true);
+    } finally {
+      await omitted.close();
+      await disabled.close();
+      await injected.close();
+    }
+  });
+
   it('preserves Fastify body-limit errors as production HTTP 413 classifications', () => {
     const byCode = Object.assign(new Error('body too large'), { code: 'FST_ERR_CTP_BODY_TOO_LARGE' });
     const byStatus = Object.assign(new Error('body too large'), { statusCode: 413 });

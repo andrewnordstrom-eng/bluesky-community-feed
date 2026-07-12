@@ -369,10 +369,12 @@ function mapSession(
       canCastReviewerVote: api.phase === "created" || api.phase === "reviewer_voted" || api.phase === "epoch_advanced",
       canRunAgents: api.phase === "reviewer_voted",
       canAdvanceEpoch: api.phase === "synthetic_voters_ran" && api.epochs.length < api.maxEpochs,
-      canOpenNativeBlueskyFeed: false,
+      canOpenNativeBlueskyFeed: api.sourceFeedUri !== undefined,
       canMutateNativeBlueskyFeed: false,
     },
     corpusProvenance: api.corpusProvenance,
+    topicCatalog: api.topicCatalog,
+    sourceFeedUri: api.sourceFeedUri ?? null,
   }
 }
 
@@ -386,14 +388,17 @@ function mapPhase(phase: ApiSessionPayload["session"]["phase"]): ShadowDemoPhase
 }
 
 function mapCommunity(community: ApiCommunity, health: ApiCorpusHealth): ShadowDemoCommunity {
+  const source = corpusSourcePresentation(health.source)
   return {
     id: community.id,
     name: community.name,
     tagline: community.description,
-    corpusStrategy: health.source === "production_scores_appview" ? "live_appview_search" : "fixture_fallback",
+    corpusStrategy: source.strategy,
     candidateTerms: [],
     bridgeTerms: [],
-    publicBlueskyFeedUrl: null,
+    publicBlueskyFeedUrl: source.hasPublicCommunityFeed
+      ? "https://bsky.app/profile/corgi-network.bsky.social/feed/community-gov"
+      : null,
   }
 }
 
@@ -480,14 +485,18 @@ function mapTopicIntent(intent: ShadowDemoTopicIntent): ShadowDemoTopicIntent {
 }
 
 function mapFeed(payload: ApiFeedPayload, generatedAt: string): ShadowDemoFeed {
+  const source = corpusSourcePresentation(payload.corpusHealth.source)
   const items = payload.posts.map((post) => mapFeedItem(post, payload.aggregate.weights))
   const publicItems = items.filter((item) => item.visibility === "public").length
+  const visibleHiddenCount = items.filter((item) => item.visibility === "hidden").length
+  const withheldCount = payload.corpusHealth.source === "production_feed_snapshot"
+    && payload.corpusHealth.sourcePostCount !== undefined
+    ? Math.max(0, payload.corpusHealth.sourcePostCount - payload.corpusHealth.publicScoredPosts)
+    : visibleHiddenCount
   return {
     epochId: payload.epochId,
     corpusId: payload.corpusId,
-    rankingSource: payload.corpusHealth.source === "production_scores_appview"
-      ? "live_public_posts_shadow_weights"
-      : "fixture_posts_shadow_weights",
+    rankingSource: source.rankingSource,
     generatedAt,
     items,
     corpusProvenance: payload.corpusProvenance,
@@ -497,11 +506,42 @@ function mapFeed(payload: ApiFeedPayload, generatedAt: string): ShadowDemoFeed {
       candidatePostCount: payload.corpusHealth.candidatePosts72h,
       publicScoredPostCount: payload.corpusHealth.publicScoredPosts,
       displayedPublicPostCount: publicItems,
-      displayedHiddenPostCount: items.filter((item) => item.visibility === "hidden").length,
+      displayedHiddenPostCount: withheldCount,
       uniqueAuthorCount: payload.corpusHealth.uniqueAuthors72h,
       collectedAt: payload.corpusHealth.sampledAt,
       frozenForSession: true,
+      sourcePostCount: payload.corpusHealth.sourcePostCount ?? null,
+      eligiblePostCount: payload.corpusHealth.eligiblePostCount ?? null,
+      englishTaggedShare: payload.corpusHealth.englishTaggedShare ?? null,
+      richMediaShare: payload.corpusHealth.richMediaShare ?? null,
     },
+  }
+}
+
+export function corpusSourcePresentation(source: ApiCorpusHealth["source"]): {
+  strategy: ShadowDemoCommunity["corpusStrategy"]
+  rankingSource: ShadowDemoFeed["rankingSource"]
+  hasPublicCommunityFeed: boolean
+} {
+  switch (source) {
+    case "production_feed_snapshot":
+      return {
+        strategy: "published_feed_snapshot",
+        rankingSource: "live_public_posts_shadow_weights",
+        hasPublicCommunityFeed: true,
+      }
+    case "production_scores_appview":
+      return {
+        strategy: "live_appview_search",
+        rankingSource: "live_public_posts_shadow_weights",
+        hasPublicCommunityFeed: false,
+      }
+    case "fixture_fallback":
+      return {
+        strategy: "fixture_fallback",
+        rankingSource: "fixture_posts_shadow_weights",
+        hasPublicCommunityFeed: false,
+      }
   }
 }
 
@@ -511,6 +551,8 @@ function mapFeedItem(post: ApiRankedPost, weights: ShadowDemoWeights): ShadowDem
     return {
       visibility: "hidden",
       rank: post.rank,
+      publishedRank: post.publishedRank ?? null,
+      publishedScore: post.publishedScore ?? null,
       previousRank: post.previousRank,
       movement,
       post: null,
@@ -523,6 +565,8 @@ function mapFeedItem(post: ApiRankedPost, weights: ShadowDemoWeights): ShadowDem
     return {
       visibility: "hidden",
       rank: post.rank,
+      publishedRank: post.publishedRank ?? null,
+      publishedScore: post.publishedScore ?? null,
       previousRank: post.previousRank,
       movement,
       post: null,
@@ -534,6 +578,8 @@ function mapFeedItem(post: ApiRankedPost, weights: ShadowDemoWeights): ShadowDem
   return {
     visibility: "public",
     rank: post.rank,
+    publishedRank: post.publishedRank ?? null,
+    publishedScore: post.publishedScore ?? null,
     previousRank: post.previousRank,
     movement,
     post: {
@@ -552,9 +598,13 @@ function mapFeedItem(post: ApiRankedPost, weights: ShadowDemoWeights): ShadowDem
       replyCount: post.post.replyCount,
       quoteCount: post.post.quoteCount,
       labels: [],
+      languages: post.post.languages ?? [],
+      media: post.post.media ?? null,
     },
     score: {
       total: post.score,
+      componentTotal: post.componentScore ?? null,
+      publicationAdjustment: post.publicationAdjustment ?? null,
       components: SHADOW_DEMO_SIGNAL_KEYS.map((key) => ({
         key,
         label: SIGNAL_LABELS[key],
@@ -591,6 +641,10 @@ function mapReceipt(receipt: ApiReceiptPayload["receipt"], generatedAt: string):
     visibleRank: receipt.visibleRank,
     previousRank: receipt.previousRank,
     totalScore: receipt.score,
+    componentScore: receipt.componentScore ?? null,
+    publicationAdjustment: receipt.publicationAdjustment ?? null,
+    publishedRank: receipt.publishedRank ?? null,
+    publishedScore: receipt.publishedScore ?? null,
     scoredAt: receipt.scoredAt,
     aggregate: mapAggregate(receipt.aggregate),
     reviewerBallotShare: receipt.reviewerBallotShare,
