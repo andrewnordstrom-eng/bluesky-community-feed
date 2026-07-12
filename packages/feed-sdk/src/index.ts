@@ -32,6 +32,11 @@ export interface ScoringComponent {
   readonly name: string;
   /** Score the post in 0..1. */
   score(post: PostForScoring, context: ScoringContext): Promise<number>;
+  /** Optional efficient scoring path for one immutable candidate batch. */
+  scoreBatch?(
+    posts: readonly PostForScoring[],
+    context: ScoringContext
+  ): Promise<ReadonlyMap<PostForScoring, number>>;
 }
 
 /**
@@ -42,8 +47,16 @@ export interface ScoringComponent {
 export interface ScoringContext {
   readonly epoch: GovernanceEpoch;
   readonly scoringWindowHours: number;
+  /** Immutable ranking clock. Required by coherent ranking runs. */
+  readonly asOf?: Date;
   /** Mutable map shared across components in a single run. */
   readonly authorCounts: Map<string, number>;
+}
+
+/** A governed slate-level objective evaluated during final selection. */
+export interface SlateReranker<TInput, TOutput> {
+  readonly key: string;
+  rerank(items: readonly TInput[], limit: number): readonly TOutput[];
 }
 
 // ────────────────────────────────────────────────────────────────────────────

@@ -23,8 +23,22 @@ import type { ScoringComponent } from '../component.interface.js';
  * @returns Score between 0.0 and 1.0 (newer = higher)
  */
 export function scoreRecency(createdAt: Date | string, windowHours: number): number {
+  return scoreRecencyAt(createdAt, windowHours, new Date());
+}
+
+export function scoreRecencyAt(
+  createdAt: Date | string,
+  windowHours: number,
+  asOf: Date | string
+): number {
   const postTime = new Date(createdAt).getTime();
-  const now = Date.now();
+  const now = new Date(asOf).getTime();
+  if (!Number.isFinite(postTime) || !Number.isFinite(now)) {
+    throw new RangeError(`Invalid recency timestamp: createdAt=${String(createdAt)}, asOf=${String(asOf)}`);
+  }
+  if (!Number.isFinite(windowHours) || windowHours <= 0) {
+    throw new RangeError(`windowHours must be positive, got ${windowHours}`);
+  }
   const ageHours = (now - postTime) / (1000 * 60 * 60);
 
   // Handle edge cases
@@ -51,6 +65,10 @@ export const recencyComponent: ScoringComponent = {
   key: 'recency',
   name: 'Recency',
   async score(post, context) {
-    return scoreRecency(post.createdAt, context.scoringWindowHours);
+    return scoreRecencyAt(
+      post.createdAt,
+      context.scoringWindowHours,
+      context.asOf ?? new Date()
+    );
   },
 };

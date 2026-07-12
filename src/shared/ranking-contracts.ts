@@ -45,6 +45,25 @@ export interface PolicyBundle extends GovernancePolicyDocument {
   createdAt: string;
 }
 
+export interface RankingRunContext {
+  runId: string;
+  communityId: string;
+  asOf: string;
+  policy: PolicyBundle;
+  algorithmVersion: string;
+  configurationHash: string;
+  codeSha: string;
+}
+
+export type EvidenceState = 'observed' | 'insufficient';
+
+export interface ComponentEvidence {
+  raw: number;
+  weight: number;
+  weighted: number;
+  evidenceState: EvidenceState;
+}
+
 export interface RankingReceipt {
   schemaVersion: 1;
   runId: string;
