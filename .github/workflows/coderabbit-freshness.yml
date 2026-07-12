@@ -41,7 +41,7 @@ jobs:
 
             const failWithAction = (reason) => {
               core.setFailed(
-                `[coderabbit-freshness:fail] ${reason}. Next action: run "@coderabbitai review" on this PR and wait for a fresh CodeRabbit update. Temporary bypass requires label "coderabbit:exempt" with audit note.`
+                `[coderabbit-freshness:fail] ${reason}. Next action: run the sanctioned pr-review-readiness wrapper and only request another review when coderabbit-request-review authorizes it. Temporary bypass requires label "coderabbit:exempt" with audit note.`
               );
             };
 
@@ -63,6 +63,59 @@ jobs:
                 return null;
               }
               return resolvedPr;
+            };
+
+            const resolveExactHeadCodeRabbitReview = async (prNumber, headSha) => {
+              const reviews = [];
+              let after = null;
+              for (let pageCount = 0; pageCount < 100; pageCount += 1) {
+                const result = await github.graphql(
+                  `query($owner: String!, $repo: String!, $prNumber: Int!, $after: String) {
+                    repository(owner: $owner, name: $repo) {
+                      pullRequest(number: $prNumber) {
+                        reviews(first: 100, after: $after) {
+                          nodes {
+                            author { login }
+                            commit { oid }
+                            state
+                            submittedAt
+                          }
+                          pageInfo {
+                            hasNextPage
+                            endCursor
+                          }
+                        }
+                      }
+                    }
+                  }`,
+                  { owner, repo, prNumber, after }
+                );
+                const pullRequest = result.repository?.pullRequest;
+                if (!pullRequest) {
+                  throw new Error(`PR #${prNumber} was not returned by the review query`);
+                }
+                const page = pullRequest.reviews;
+                reviews.push(...(page?.nodes || []));
+                if (!page?.pageInfo?.hasNextPage) {
+                  break;
+                }
+                if (!page.pageInfo.endCursor) {
+                  throw new Error("Review pagination is incomplete: missing endCursor");
+                }
+                if (pageCount === 99) {
+                  throw new Error("Review pagination exceeded the 100-page safety bound");
+                }
+                after = page.pageInfo.endCursor;
+              }
+
+              const coderabbitAuthors = new Set(["coderabbitai", "coderabbitai[bot]"]);
+              return reviews
+                .filter((review) => {
+                  const reviewAuthor = (review.author?.login || "").trim().toLowerCase();
+                  const reviewSha = (review.commit?.oid || "").trim();
+                  return coderabbitAuthors.has(reviewAuthor) && reviewSha === headSha;
+                })
+                .sort((a, b) => parseTime(b.submittedAt) - parseTime(a.submittedAt))[0] || null;
             };
 
             const pr = await resolvePullRequest();
@@ -167,7 +220,26 @@ jobs:
               (suite) => (((suite.app || {}).slug || "").trim().toLowerCase() === "coderabbitai")
             );
             if (suites.length === 0) {
-              failWithAction("Missing CodeRabbit status/check-suite for this commit");
+              let exactHeadReview;
+              try {
+                exactHeadReview = await resolveExactHeadCodeRabbitReview(pr.number, sha);
+              } catch (error) {
+                failWithAction(`Could not verify complete exact-head CodeRabbit review truth: ${error?.message || error}`);
+                return;
+              }
+              if (!exactHeadReview) {
+                failWithAction("Missing CodeRabbit status/check-suite and exact-head review for this commit");
+                return;
+              }
+
+              const reviewState = (exactHeadReview.state || "").trim().toUpperCase();
+              if (reviewState !== "APPROVED") {
+                failWithAction(`Latest exact-head CodeRabbit review state is ${reviewState || "unknown"}`);
+                return;
+              }
+              core.notice(
+                `[coderabbit-freshness:ok_review] Exact-head CodeRabbit review is APPROVED at ${exactHeadReview.submittedAt || "unknown time"}; the workflow token returned no CodeRabbit status/check-suite.`
+              );
               return;
             }
 
