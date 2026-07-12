@@ -23,6 +23,7 @@ import {
   validateDemoVoteSubmission,
 } from "@/app/demo/shadow-demo-vote-policy"
 import { Slider } from "@/components/ui/slider"
+import { DEMO_PANEL_FRAME_CLASS, DEMO_PANEL_SCROLL_BODY_CLASS } from "./panel-layout"
 import { TopicPolicy, topicLabel } from "./topic-policy"
 import { WeightBars } from "./weight-bars"
 
@@ -189,11 +190,11 @@ export function VotePanel({
   }
 
   return (
-    <div className="xl:flex xl:max-h-[calc(100dvh-7rem)] xl:min-h-0 xl:flex-col">
+    <div className={DEMO_PANEL_FRAME_CLASS}>
       <div
         role="region"
         aria-label="Demo policy controls"
-        className="xl:min-h-0 xl:flex-1 xl:overflow-y-auto xl:overscroll-contain xl:pr-2 xl:[scrollbar-gutter:stable]"
+        className={`${DEMO_PANEL_SCROLL_BODY_CLASS} xl:pr-2`}
       >
         <h2 className="font-display text-2xl font-bold leading-tight text-foreground">{STEP_PANELS.vote.heading}</h2>
         <p className="mt-2 text-sm leading-relaxed text-foreground/60">{STEP_PANELS.vote.body}</p>

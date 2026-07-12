@@ -42,6 +42,18 @@ const votePanelSource = readFileSync(
   new URL("../../../components/demo/vote-panel.tsx", import.meta.url),
   "utf8",
 )
+const agentsPanelSource = readFileSync(
+  new URL("../../../components/demo/agents-panel.tsx", import.meta.url),
+  "utf8",
+)
+const receiptPanelSource = readFileSync(
+  new URL("../../../components/demo/receipt-panel.tsx", import.meta.url),
+  "utf8",
+)
+const panelLayoutSource = readFileSync(
+  new URL("../../../components/demo/panel-layout.ts", import.meta.url),
+  "utf8",
+)
 const sliderSource = readFileSync(
   new URL("../../../components/ui/slider.tsx", import.meta.url),
   "utf8",
@@ -153,12 +165,21 @@ describe("demo v4 frontend release blockers", () => {
     expect(demoPageSource).toMatch(/aria-live="polite" aria-atomic="true"[\s\S]*?\{receiptAnnouncement\}/)
   })
 
-  it("keeps expanded desktop voting controls independently scrollable with the action visible", () => {
-    expect(votePanelSource).toMatch(/xl:max-h-\[calc\(100dvh-7rem\)\]/)
-    expect(votePanelSource).toMatch(/xl:overflow-y-auto/)
-    expect(votePanelSource).toMatch(/xl:overscroll-contain/)
-    expect(votePanelSource).toMatch(/xl:\[scrollbar-gutter:stable\]/)
+  it("keeps every desktop workflow panel bounded with independently scrolling content", () => {
+    expect(panelLayoutSource).toMatch(/xl:max-h-\[calc\(100dvh-7rem\)\]/)
+    expect(panelLayoutSource).toMatch(/xl:overflow-y-auto/)
+    expect(panelLayoutSource).toMatch(/xl:overscroll-contain/)
+    expect(panelLayoutSource).toMatch(/xl:\[scrollbar-gutter:stable\]/)
+    expect(votePanelSource).toMatch(/DEMO_PANEL_FRAME_CLASS/)
+    expect(votePanelSource).toMatch(/DEMO_PANEL_SCROLL_BODY_CLASS/)
+    expect(agentsPanelSource.match(/DEMO_PANEL_FRAME_CLASS/g)).toHaveLength(3)
+    expect(agentsPanelSource.match(/DEMO_PANEL_SCROLL_BODY_CLASS/g)).toHaveLength(3)
+    expect(receiptPanelSource).toMatch(/DEMO_PANEL_FRAME_CLASS/)
+    expect(receiptPanelSource).toMatch(/DEMO_PANEL_SCROLL_BODY_CLASS/)
     expect(votePanelSource).toMatch(/xl:shrink-0[\s\S]*?STEP_PANELS\.vote\.cta/)
+    expect(agentsPanelSource).toMatch(/xl:shrink-0[\s\S]*?STEP_PANELS\.agents\.cta/)
+    expect(agentsPanelSource).toMatch(/xl:shrink-0[\s\S]*?STEP_PANELS\.epoch\.cta/)
+    expect(receiptPanelSource).toMatch(/xl:shrink-0[\s\S]*?Run another epoch/)
   })
 
   it("submits a complete 26-topic policy and preserves a fine-tuned value", () => {
