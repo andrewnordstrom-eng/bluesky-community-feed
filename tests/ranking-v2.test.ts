@@ -8,7 +8,10 @@ import {
   type RankingV2Candidate,
   type RankingV2CandidateInput,
 } from '../src/scoring/ranking-v2-candidates.js';
-import type { RankingV2FeatureVector } from '../src/scoring/ranking-v2-features.js';
+import {
+  computeRankingV2Features,
+  type RankingV2FeatureVector,
+} from '../src/scoring/ranking-v2-features.js';
 import {
   RANKING_V2_SLATE_LIMIT,
   SourceDiversitySlateReranker,
@@ -83,6 +86,21 @@ describe('corgi-ranking-v2', () => {
     expect(evidence.evidenceState).toBe('observed');
     expect(evidence.raw).toBeCloseTo(2 / 3, 12);
     expect(evidence.pairCount).toBe(1);
+  });
+
+  it('rejects a candidate with missing bridging evidence', () => {
+    const candidate: RankingV2Candidate = {
+      ...candidateInput(0),
+      candidateSources: ['newest'],
+    };
+    expect(() => computeRankingV2Features(
+      [candidate],
+      AS_OF,
+      72,
+      { recency: 0.2, engagement: 0.2, bridging: 0.2, relevance: 0.2 },
+      { corgi: 1 },
+      new Map()
+    )).toThrow(/Missing bridging evidence/);
   });
 
   it('uses the governed diversity schedule', () => {
@@ -197,7 +215,69 @@ describe('corgi-ranking-v2', () => {
       expect((error as ZodError).issues.length).toBeGreaterThan(2);
     }
   });
+
+  it('rejects unknown replay candidate sources and classification methods', () => {
+    const candidate = replayCandidate();
+    const invalidSource = replayEnvelope({
+      ...candidate,
+      candidateSources: ['unknown_source'],
+    });
+    const invalidClassification = replayEnvelope({
+      ...candidate,
+      immutable: {
+        ...candidate.immutable,
+        classificationMethod: 'unknown_classifier',
+      },
+    });
+
+    expect(() => replayRankingV2Slate(invalidSource)).toThrow(ZodError);
+    expect(() => replayRankingV2Slate(invalidClassification)).toThrow(ZodError);
+  });
 });
+
+function replayCandidate() {
+  return {
+    uri: 'at://did:plc:a/app.bsky.feed.post/replay',
+    createdAt: AS_OF.toISOString(),
+    authorDid: 'did:plc:a',
+    candidateSources: ['newest'],
+    immutable: {
+      cid: 'cid-replay',
+      text: 'replay post',
+      replyRoot: null,
+      replyParent: null,
+      langs: ['en'],
+      hasMedia: false,
+      topicVector: { corgi: 1 },
+      classificationMethod: 'keyword',
+    },
+    eventTime: { likeCount: 1, repostCount: 0, replyCount: 0 },
+    raw: { recency: 1, engagement: 0.1, bridging: 0.3, relevance: 1 },
+    weights: { recency: 0.2, engagement: 0.2, bridging: 0.2, relevance: 0.2 },
+    weighted: { recency: 0.2, engagement: 0.02, bridging: 0.06, relevance: 0.2 },
+    evidence: {
+      bridging: {
+        evidenceState: 'insufficient',
+        engagerCount: 1,
+        pairCount: 0,
+      },
+    },
+    baseScore: 0.48,
+  };
+}
+
+function replayEnvelope(candidate: ReturnType<typeof replayCandidate>): RankingRunInputEnvelope {
+  return {
+    schemaVersion: 1,
+    runId: 'run-replay',
+    communityId: 'community-gov',
+    policyHash: 'a'.repeat(64),
+    configurationHash: 'b'.repeat(64),
+    asOf: AS_OF.toISOString(),
+    sourceDiversityWeight: 0.2,
+    candidates: [candidate],
+  } as unknown as RankingRunInputEnvelope;
+}
 
 function candidateInput(index: number): RankingV2CandidateInput {
   return {

@@ -4,6 +4,8 @@ import { scoreRecencyAt } from './components/recency.js';
 import { scoreTopicVectorRelevance } from './components/relevance.js';
 import type { RankingV2Candidate } from './ranking-v2-candidates.js';
 
+export const BRIDGING_COMPONENT_KEY = 'bridging';
+
 export interface BridgingEvidence {
   raw: number;
   evidenceState: EvidenceState;
@@ -48,7 +50,7 @@ export function computeRankingV2Features(
         candidate.post.repostCount,
         candidate.post.replyCount
       ),
-      bridging: bridging.raw,
+      [BRIDGING_COMPONENT_KEY]: bridging.raw,
       relevance: scoreTopicVectorRelevance(candidate.post.topicVector, { ...topicWeights }),
     };
     for (const [key, value] of Object.entries(raw)) {

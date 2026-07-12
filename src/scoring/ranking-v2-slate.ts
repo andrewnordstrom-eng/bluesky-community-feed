@@ -4,7 +4,10 @@ import type {
   RankedSlateItem,
 } from '../shared/ranking-contracts.js';
 import type { SlateReranker } from './component.interface.js';
-import type { RankingV2FeatureVector } from './ranking-v2-features.js';
+import {
+  BRIDGING_COMPONENT_KEY,
+  type RankingV2FeatureVector,
+} from './ranking-v2-features.js';
 
 export interface DiversitySelectionContext {
   authorCountBeforeSelection: number;
@@ -108,7 +111,7 @@ function toRankedSlateItem(
       raw: item.raw[key],
       weight: item.weights[key],
       weighted: item.weighted[key],
-      evidenceState: key === 'bridging'
+      evidenceState: key === BRIDGING_COMPONENT_KEY
         ? item.evidence.bridging.evidenceState
         : 'observed',
     };

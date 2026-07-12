@@ -5,7 +5,14 @@ import { materializeActivePolicyVersion, hashCanonicalJson } from '../governance
 import { checkContentRules } from '../governance/content-filter.js';
 import { toContentRules } from '../governance/governance.types.js';
 import type { ContentRules } from '../shared/api-types.js';
-import type { JsonObject, RankedSlateItem, RankingReceipt, RankingRunInputEnvelope, RankingRunContext } from '../shared/ranking-contracts.js';
+import {
+  CANDIDATE_SOURCES,
+  type JsonObject,
+  type RankedSlateItem,
+  type RankingReceipt,
+  type RankingRunInputEnvelope,
+  type RankingRunContext,
+} from '../shared/ranking-contracts.js';
 import {
   buildRankingReceipt,
   createCompressedRankingInput,
@@ -29,7 +36,11 @@ import {
   RANKING_V2_SLATE_LIMIT,
   SourceDiversitySlateReranker,
 } from './ranking-v2-slate.js';
-import { toPostForScoring, type PostForScoring } from './score.types.js';
+import {
+  CLASSIFICATION_METHODS,
+  toPostForScoring,
+  type PostForScoring,
+} from './score.types.js';
 
 export const RANKING_V2_ALGORITHM_VERSION = 'corgi-ranking-v2';
 export const RANKING_V2_SCORING_WINDOW_HOURS = 72;
@@ -48,13 +59,7 @@ const CONFIGURATION = {
   tieBreak: ['utility_desc', 'base_score_desc', 'created_at_desc', 'uri_asc'],
 } as const;
 
-const CandidateSourceSchema = z.enum([
-  'newest',
-  'engagement',
-  'policy_relevance',
-  'previous_snapshot',
-  'preliminary_fill',
-]);
+const CandidateSourceSchema = z.enum(CANDIDATE_SOURCES);
 const FiniteNumberSchema = z.number().finite();
 const NumericRecordSchema = z.record(FiniteNumberSchema);
 const ReplayCandidateSchema = z.object({
@@ -70,7 +75,7 @@ const ReplayCandidateSchema = z.object({
     langs: z.array(z.string()),
     hasMedia: z.boolean(),
     topicVector: NumericRecordSchema,
-    classificationMethod: z.enum(['keyword', 'embedding']).nullable(),
+    classificationMethod: z.enum(CLASSIFICATION_METHODS).nullable(),
   }),
   eventTime: z.object({
     likeCount: FiniteNumberSchema,

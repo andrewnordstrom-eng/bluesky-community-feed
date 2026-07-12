@@ -14,12 +14,15 @@ export type RankingRunState =
   | 'superseded'
   | 'rejected';
 
-export type CandidateSource =
-  | 'newest'
-  | 'engagement'
-  | 'policy_relevance'
-  | 'previous_snapshot'
-  | 'preliminary_fill';
+export const CANDIDATE_SOURCES = [
+  'newest',
+  'engagement',
+  'policy_relevance',
+  'previous_snapshot',
+  'preliminary_fill',
+] as const;
+
+export type CandidateSource = typeof CANDIDATE_SOURCES[number];
 
 export interface PolicyProvenanceReference {
   kind: string;
