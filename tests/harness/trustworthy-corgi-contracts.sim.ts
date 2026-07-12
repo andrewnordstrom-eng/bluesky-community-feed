@@ -3,6 +3,7 @@ import { db } from '../../src/db/client.js';
 import { materializeActivePolicyVersion } from '../../src/governance/policy-version.js';
 import {
   buildRankingReceipt,
+  cleanupExpiredRankingData,
   createCompressedRankingInput,
   createRankingRun,
   persistRankedSlate,
@@ -18,7 +19,7 @@ import { insertActiveEpoch, resetHarnessData } from './helpers.js';
 const RUN_ID = '00000000-0000-4000-8000-000000001758';
 const CONFIGURATION_HASH = 'b'.repeat(64);
 const CODE_SHA = 'c'.repeat(40);
-const AS_OF = '2026-07-11T20:00:00.000Z';
+const AS_OF = new Date(Date.now() - 60_000).toISOString();
 
 async function seedGovernedPolicyEvidence(): Promise<number> {
   const epochId = await insertActiveEpoch('Trustworthy Corgi integration epoch');
@@ -143,6 +144,8 @@ describe('Trustworthy Corgi contracts against real PostgreSQL', () => {
       await client.query('ROLLBACK TO SAVEPOINT mismatched_input');
       await persistRankingRunInput(client, RUN_ID, compressed);
       await persistRankedSlate(client, RUN_ID, items);
+      await persistRankingRunInput(client, RUN_ID, compressed);
+      await persistRankedSlate(client, RUN_ID, items);
 
       const receipt = buildRankingReceipt({
         runId: RUN_ID,
@@ -237,6 +240,14 @@ describe('Trustworthy Corgi contracts against real PostgreSQL', () => {
           WHERE id = $1`,
         [RUN_ID]
       );
+      const inputCount = await db.query<{ count: number }>(
+        'SELECT COUNT(*)::int AS count FROM ranking_run_inputs WHERE run_id = $1',
+        [RUN_ID]
+      );
+      const itemCount = await db.query<{ count: number }>(
+        'SELECT COUNT(*)::int AS count FROM ranking_run_items WHERE run_id = $1',
+        [RUN_ID]
+      );
       expect(policyCount.rows[0].count).toBe(1);
       expect(reconciliationCount.rows[0].count).toBe(1);
       expect(run.rows[0]).toEqual({
@@ -244,6 +255,8 @@ describe('Trustworthy Corgi contracts against real PostgreSQL', () => {
         snapshot_id: 'snapshot-integration-1',
         receipt_checksum: receipt.receiptChecksum,
       });
+      expect(inputCount.rows[0].count).toBe(1);
+      expect(itemCount.rows[0].count).toBe(1);
     } catch (error: unknown) {
       await client.query('ROLLBACK');
       throw error;
@@ -376,10 +389,20 @@ describe('Trustworthy Corgi contracts against real PostgreSQL', () => {
          VALUES ('weights_changed', $1, $2::jsonb)`,
         [epochId, JSON.stringify({ reason: 'stale-policy-regression' })]
       );
+      const cutoffResult = await client.query<{ cutoff: Date | string }>(
+        'SELECT NOW() AS cutoff'
+      );
+      const cutoff = new Date(cutoffResult.rows[0].cutoff).toISOString();
       const replacementPolicy = await materializeActivePolicyVersion(client, {
         communityId: 'community-gov',
         algorithmVersion: 'corgi-ranking-v2',
-        effectiveAt: '2026-07-11T21:00:00.000Z',
+        effectiveAt: cutoff,
+        provenanceReferences: [],
+      });
+      await materializeActivePolicyVersion(client, {
+        communityId: 'community-gov',
+        algorithmVersion: 'corgi-ranking-v2',
+        effectiveAt: new Date(new Date(cutoff).getTime() + 1).toISOString(),
         provenanceReferences: [],
       });
 
@@ -387,7 +410,7 @@ describe('Trustworthy Corgi contracts against real PostgreSQL', () => {
         client,
         RUN_ID,
         'integration-test',
-        '2026-07-11T21:00:01.000Z'
+        new Date(new Date(cutoff).getTime() + 2).toISOString()
       );
       expect(result).toEqual({
         publishable: false,
@@ -463,14 +486,74 @@ describe('Trustworthy Corgi contracts against real PostgreSQL', () => {
         [RUN_ID]
       );
       await transitionRankingRun(client, RUN_ID, 'failed', { reason: 'retention-test' });
-      const deleted = await client.query<{ id: string }>(
-        `DELETE FROM ranking_runs
-          WHERE id = $1
-          RETURNING id::text`,
+      const deleted = await cleanupExpiredRankingData(client, new Date().toISOString());
+      expect(deleted).toEqual({ deletedInputs: 0, deletedRuns: 1 });
+      const events = await client.query<{ count: number }>(
+        'SELECT COUNT(*)::int AS count FROM ranking_run_events WHERE run_id = $1',
         [RUN_ID]
       );
-      expect(deleted.rows).toEqual([{ id: RUN_ID }]);
+      expect(events.rows[0].count).toBe(0);
       await client.query('COMMIT');
+    } catch (error: unknown) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  });
+
+  it('retains expired replay input while its ranking run is active', async () => {
+    await seedGovernedPolicyEvidence();
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+      const materialized = await materializeActivePolicyVersion(client, {
+        communityId: 'community-gov',
+        algorithmVersion: 'corgi-ranking-v2',
+        effectiveAt: AS_OF,
+        provenanceReferences: [],
+      });
+      await createRankingRun(client, {
+        runId: RUN_ID,
+        communityId: 'community-gov',
+        policyVersionId: materialized.bundle.policyVersionId,
+        policyHash: materialized.bundle.policyHash,
+        algorithmVersion: materialized.bundle.algorithmVersion,
+        configurationHash: CONFIGURATION_HASH,
+        codeSha: CODE_SHA,
+        asOf: AS_OF,
+      });
+      await transitionRankingRun(client, RUN_ID, 'running', null);
+      const compressed = createCompressedRankingInput({
+        schemaVersion: 1,
+        runId: RUN_ID,
+        communityId: 'community-gov',
+        policyHash: materialized.bundle.policyHash,
+        configurationHash: CONFIGURATION_HASH,
+        asOf: AS_OF,
+        candidates: [],
+      });
+      await client.query(
+        `INSERT INTO ranking_run_inputs (
+           run_id, payload, checksum, candidate_count,
+           uncompressed_bytes, compressed_bytes, retained_until
+         ) VALUES ($1, $2, $3, $4, $5, $6, NOW() - INTERVAL '1 minute')`,
+        [
+          RUN_ID,
+          compressed.payload,
+          compressed.checksum,
+          compressed.candidateCount,
+          compressed.uncompressedBytes,
+          compressed.compressedBytes,
+        ]
+      );
+
+      await expect(cleanupExpiredRankingData(client, new Date().toISOString()))
+        .resolves.toEqual({ deletedInputs: 0, deletedRuns: 0 });
+      await transitionRankingRun(client, RUN_ID, 'failed', { reason: 'retention-test' });
+      await expect(cleanupExpiredRankingData(client, new Date().toISOString()))
+        .resolves.toEqual({ deletedInputs: 1, deletedRuns: 0 });
+      await client.query('ROLLBACK');
     } catch (error: unknown) {
       await client.query('ROLLBACK');
       throw error;

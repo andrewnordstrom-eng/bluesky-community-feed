@@ -21,7 +21,7 @@ describe('Trustworthy Corgi migration contract', () => {
       expect(sql).toContain(`CREATE TABLE IF NOT EXISTS ${table}`);
     }
     expect(sql).not.toMatch(/\bDROP\s+TABLE\b/i);
-    expect(sql).not.toMatch(/\bALTER\s+TABLE\s+(posts|post_scores|governance_epochs)\b/i);
+    expect(sql).not.toMatch(/\bALTER\s+TABLE\b/i);
   });
 
   it('enforces immutable policies, run transitions, and retention windows in the database', async () => {

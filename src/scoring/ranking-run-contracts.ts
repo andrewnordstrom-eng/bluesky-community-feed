@@ -57,6 +57,15 @@ interface RankingItemIdentityRow {
   post_created_at: Date | string;
 }
 
+interface StoredRankingItemRow extends RankingItemIdentityRow {
+  author_did: string;
+  component_decomposition: unknown;
+  candidate_sources: string[];
+  diversity_context: unknown;
+  base_score: number;
+  final_score: number;
+}
+
 export interface CompressedRankingInput {
   payload: Buffer;
   checksum: string;
@@ -289,11 +298,13 @@ export async function persistRankingRunInput(
   }
   const envelope = decodeCompressedRankingInput(compressed);
   assertInputEnvelopeMatchesRun(envelope, current);
-  await client.query(
+  const inserted = await client.query<{ run_id: string }>(
     `INSERT INTO ranking_run_inputs (
        run_id, payload, checksum, candidate_count,
        uncompressed_bytes, compressed_bytes
-     ) VALUES ($1, $2, $3, $4, $5, $6)`,
+     ) VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT (run_id) DO NOTHING
+     RETURNING run_id::text`,
     [
       runId,
       compressed.payload,
@@ -303,6 +314,19 @@ export async function persistRankingRunInput(
       compressed.compressedBytes,
     ]
   );
+  if (inserted.rowCount !== 0) {
+    return;
+  }
+  const stored = await loadRankingRunInput(client, runId);
+  const storedEnvelope = decodeCompressedRankingInput(stored);
+  if (
+    stored.checksum !== compressed.checksum
+    || stored.candidateCount !== compressed.candidateCount
+    || stored.uncompressedBytes !== compressed.uncompressedBytes
+    || canonicalJson(storedEnvelope) !== canonicalJson(envelope)
+  ) {
+    throw new Error(`Ranking run ${runId} already has a different replay input`);
+  }
 }
 
 export async function persistRankedSlate(
@@ -317,6 +341,12 @@ export async function persistRankedSlate(
   validateRankedItems(items);
   if (items.length === 0) {
     throw new Error(`Ranking run ${runId} cannot persist an empty published slate`);
+  }
+
+  const existing = await loadStoredRankingItems(client, runId);
+  if (existing.length > 0) {
+    assertStoredSlateMatches(runId, items, existing);
+    return;
   }
 
   const placeholders: string[] = [];
@@ -347,9 +377,12 @@ export async function persistRankedSlate(
        run_id, position, post_uri, post_created_at, author_did,
        component_decomposition, candidate_sources, diversity_context,
        base_score, final_score
-     ) VALUES ${placeholders.join(', ')}`,
+     ) VALUES ${placeholders.join(', ')}
+     ON CONFLICT DO NOTHING`,
     values
   );
+  const stored = await loadStoredRankingItems(client, runId);
+  assertStoredSlateMatches(runId, items, stored);
 }
 
 export async function validateRankingRun(
@@ -464,6 +497,7 @@ export async function prepareRankingRunPublication(
     return { publishable: true, currentPolicyHash, replacementRequestId: null };
   }
 
+  assertRankingRunTransition(current.state, 'superseded');
   await client.query(
     `UPDATE ranking_runs
         SET state = 'superseded'
@@ -514,6 +548,7 @@ export async function reconcilePublishedRankingRun(
     );
   }
 
+  assertRankingRunTransition(current.state, 'published');
   await client.query(
     `UPDATE ranking_runs
         SET state = 'published',
@@ -595,9 +630,12 @@ export async function cleanupExpiredRankingData(
 ): Promise<CleanupRankingDataResult> {
   assertIsoTimestamp(asOf, 'cleanup asOf');
   const inputs = await client.query<{ run_id: string }>(
-    `DELETE FROM ranking_run_inputs
-      WHERE retained_until <= $1
-      RETURNING run_id::text`,
+    `DELETE FROM ranking_run_inputs AS input
+      USING ranking_runs AS run
+      WHERE input.run_id = run.id
+        AND input.retained_until <= $1
+        AND run.state IN ('published', 'failed', 'superseded', 'rejected')
+      RETURNING input.run_id::text`,
     [asOf]
   );
   const runs = await client.query<{ id: string }>(
@@ -611,6 +649,51 @@ export async function cleanupExpiredRankingData(
     deletedInputs: inputs.rows.length,
     deletedRuns: runs.rows.length,
   };
+}
+
+async function loadStoredRankingItems(
+  client: PoolClient,
+  runId: string
+): Promise<StoredRankingItemRow[]> {
+  const result = await client.query<StoredRankingItemRow>(
+    `SELECT position, post_uri, post_created_at, author_did,
+            component_decomposition, candidate_sources, diversity_context,
+            base_score, final_score
+       FROM ranking_run_items
+      WHERE run_id = $1
+      ORDER BY position ASC`,
+    [runId]
+  );
+  return result.rows;
+}
+
+function assertStoredSlateMatches(
+  runId: string,
+  expected: readonly RankedSlateItem[],
+  stored: readonly StoredRankingItemRow[]
+): void {
+  if (stored.length !== expected.length) {
+    throw new Error(
+      `Ranking run ${runId} already has a different slate length: stored ${stored.length}, supplied ${expected.length}`
+    );
+  }
+  for (let index = 0; index < expected.length; index += 1) {
+    const item = expected[index];
+    const row = stored[index];
+    const matches = row.position === item.position
+      && row.post_uri === item.postUri
+      && toIsoTimestamp(row.post_created_at, `ranking item ${row.position} post_created_at`)
+        === toIsoTimestamp(item.postCreatedAt, `ranking item ${item.position} postCreatedAt`)
+      && row.author_did === item.authorDid
+      && canonicalJson(row.component_decomposition) === canonicalJson(item.componentDecomposition)
+      && canonicalJson(row.candidate_sources) === canonicalJson(item.candidateSources)
+      && canonicalJson(row.diversity_context) === canonicalJson(item.diversityContext)
+      && Number(row.base_score) === item.baseScore
+      && Number(row.final_score) === item.finalScore;
+    if (!matches) {
+      throw new Error(`Ranking run ${runId} already has a different slate item at position ${item.position}`);
+    }
+  }
 }
 
 function validateInputEnvelope(value: unknown): asserts value is RankingRunInputEnvelope {

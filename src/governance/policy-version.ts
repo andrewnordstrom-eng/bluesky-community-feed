@@ -287,7 +287,7 @@ function latestAuditWeights(
       continue;
     }
     const candidate = row.details.new_weights;
-    if (candidate === undefined) {
+    if (candidate === undefined || candidate === null) {
       continue;
     }
     return normalizeNumericRecord(candidate, `audit weights for epoch ${epochId}, event ${row.id}`);

@@ -79,7 +79,13 @@ describe('ranking replay inputs', () => {
     expect(compressed.checksum).toMatch(/^[0-9a-f]{64}$/);
     expect(compressed.candidateCount).toBe(2);
     expect(compressed.compressedBytes).toBeLessThan(compressed.uncompressedBytes);
-    expect(createCompressedRankingInput(original).payload.equals(compressed.payload)).toBe(true);
+  });
+
+  it('round-trips an empty candidate set', () => {
+    const original = envelope([]);
+    const compressed = createCompressedRankingInput(original);
+    expect(decodeCompressedRankingInput(compressed)).toEqual(original);
+    expect(compressed.candidateCount).toBe(0);
   });
 
   it('rejects a checksum mismatch', () => {
@@ -88,6 +94,18 @@ describe('ranking replay inputs', () => {
       ...compressed,
       checksum: HASH_C,
     })).toThrow('checksum mismatch');
+  });
+
+  it.each([
+    ['compressed byte count', 'compressedBytes', 1, 'Compressed ranking input byte count mismatch'],
+    ['uncompressed byte count', 'uncompressedBytes', 1, 'Uncompressed ranking input byte count mismatch'],
+    ['candidate count', 'candidateCount', 1, 'Ranking input candidate count mismatch'],
+  ] as const)('rejects a tampered %s', (_label, field, delta, message) => {
+    const compressed = createCompressedRankingInput(envelope([]));
+    expect(() => decodeCompressedRankingInput({
+      ...compressed,
+      [field]: compressed[field] + delta,
+    })).toThrow(message);
   });
 });
 
@@ -124,11 +142,29 @@ describe('ranking receipts and reconciliation', () => {
     expect(first.receiptChecksum).not.toBe(second.receiptChecksum);
   });
 
+  it('rejects a directly tampered receipt checksum', () => {
+    const input = createCompressedRankingInput(envelope([]));
+    const receipt = buildRankingReceipt({
+      runId: '00000000-0000-4000-8000-000000000001',
+      communityId: 'community-gov',
+      policyVersionId: '00000000-0000-4000-8000-000000000002',
+      policyHash: HASH_A,
+      algorithmVersion: 'corgi-ranking-v2',
+      configurationHash: HASH_B,
+      codeSha: 'd'.repeat(40),
+      asOf: '2026-07-11T20:00:00.000Z',
+      inputChecksum: input.checksum,
+      items: [],
+    });
+    expect(() => validateRankingReceipt({ ...receipt, receiptChecksum: HASH_C }))
+      .toThrow('Ranking receipt checksum mismatch');
+  });
+
   it('repairs validated DB state from matching Redis publication metadata', async () => {
     const queries: string[] = [];
     const query = vi.fn(async (sql: string) => {
       queries.push(sql);
-      if (sql.includes('FROM ranking_runs')) {
+      if (sql.includes('SELECT id::text') && sql.includes('FOR UPDATE')) {
         return {
           rows: [{
             id: '00000000-0000-4000-8000-000000000001',
@@ -163,7 +199,10 @@ describe('ranking receipts and reconciliation', () => {
   });
 
   it('refuses reconciliation when Redis metadata does not match the DB receipt', async () => {
-    const query = vi.fn(async () => ({
+    const query = vi.fn(async (sql: string) => {
+      expect(sql).toContain('SELECT id::text');
+      expect(sql).toContain('FOR UPDATE');
+      return {
       rows: [{
         id: '00000000-0000-4000-8000-000000000001',
         community_id: 'community-gov',
@@ -178,7 +217,8 @@ describe('ranking receipts and reconciliation', () => {
         snapshot_id: null,
         receipt_checksum: HASH_C,
       }],
-    }));
+      };
+    });
 
     await expect(reconcilePublishedRankingRun(asClient(query), {
       runId: '00000000-0000-4000-8000-000000000001',
@@ -188,5 +228,69 @@ describe('ranking receipts and reconciliation', () => {
       snapshotId: 'snapshot-123',
       receiptChecksum: HASH_C,
     })).rejects.toThrow('itemCount');
+  });
+
+  it('accepts matching metadata for an already-published run without repairing it', async () => {
+    const query = vi.fn(async (sql: string) => {
+      expect(sql).toContain('SELECT id::text');
+      expect(sql).toContain('FOR UPDATE');
+      return {
+        rows: [{
+          id: '00000000-0000-4000-8000-000000000001',
+          community_id: 'community-gov',
+          policy_version_id: '00000000-0000-4000-8000-000000000002',
+          policy_hash: HASH_A,
+          algorithm_version: 'corgi-ranking-v2',
+          configuration_hash: HASH_B,
+          code_sha: 'd'.repeat(40),
+          as_of: '2026-07-11T20:00:00.000Z',
+          state: 'published',
+          selected_count: 1000,
+          snapshot_id: 'snapshot-123',
+          receipt_checksum: HASH_C,
+        }],
+      };
+    });
+
+    await expect(reconcilePublishedRankingRun(asClient(query), {
+      runId: '00000000-0000-4000-8000-000000000001',
+      policyHash: HASH_A,
+      configurationHash: HASH_B,
+      itemCount: 1000,
+      snapshotId: 'snapshot-123',
+      receiptChecksum: HASH_C,
+    })).resolves.toEqual({ repaired: false });
+  });
+
+  it('rejects reconciliation from a non-validated active state', async () => {
+    const query = vi.fn(async (sql: string) => {
+      expect(sql).toContain('SELECT id::text');
+      expect(sql).toContain('FOR UPDATE');
+      return {
+        rows: [{
+          id: '00000000-0000-4000-8000-000000000001',
+          community_id: 'community-gov',
+          policy_version_id: '00000000-0000-4000-8000-000000000002',
+          policy_hash: HASH_A,
+          algorithm_version: 'corgi-ranking-v2',
+          configuration_hash: HASH_B,
+          code_sha: 'd'.repeat(40),
+          as_of: '2026-07-11T20:00:00.000Z',
+          state: 'running',
+          selected_count: 1000,
+          snapshot_id: null,
+          receipt_checksum: HASH_C,
+        }],
+      };
+    });
+
+    await expect(reconcilePublishedRankingRun(asClient(query), {
+      runId: '00000000-0000-4000-8000-000000000001',
+      policyHash: HASH_A,
+      configurationHash: HASH_B,
+      itemCount: 1000,
+      snapshotId: 'snapshot-123',
+      receiptChecksum: HASH_C,
+    })).rejects.toThrow('Cannot reconcile');
   });
 });
