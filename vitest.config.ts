@@ -122,6 +122,48 @@ export default function Link(props) {
   'next/link.js': `
 export { default } from 'next/link';
 `,
+  'next/image': `
+export default function Image(props) {
+  return {
+    type: 'img',
+    props,
+  };
+}
+`,
+  'next/image.js': `
+export { default } from 'next/image';
+`,
+  'lucide-react': `
+function Icon(props) {
+  return {
+    type: 'svg',
+    props,
+  };
+}
+
+export const AlertCircle = Icon;
+export const ArrowDown = Icon;
+export const ArrowRight = Icon;
+export const ArrowUp = Icon;
+export const Bot = Icon;
+export const Check = Icon;
+export const ChevronDown = Icon;
+export const ExternalLink = Icon;
+export const EyeOff = Icon;
+export const FileSearch = Icon;
+export const Heart = Icon;
+export const ListOrdered = Icon;
+export const MessageCircle = Icon;
+export const Minus = Icon;
+export const Play = Icon;
+export const Radio = Icon;
+export const Repeat2 = Icon;
+export const RotateCcw = Icon;
+export const ScanSearch = Icon;
+export const Search = Icon;
+export const SlidersHorizontal = Icon;
+export const Users = Icon;
+`,
   'react/jsx-runtime': `
 export const Fragment = 'fragment';
 
