@@ -8,9 +8,11 @@ Validated implementation head before this receipt: `9ff14a7722c3c1509510f1ddb35a
 ## Delivered behavior
 
 The CodeRabbit freshness workflow recognizes the exact-head `CodeRabbit` check
-run only when GitHub attributes it to the `coderabbitai` GitHub App. This covers
-the production API shape where the Actions token can list the check run but the
-corresponding check-suite query returns no CodeRabbit suite.
+run only when GitHub attributes it to the `coderabbitai` GitHub App. It checks
+both the REST check-run endpoint and the exact commit's GraphQL status rollup.
+This covers the production API shape where the Actions token's REST check and
+check-suite queries hide the CodeRabbit result while GitHub's branch-protection
+rollup still exposes it.
 
 If neither a legacy status nor that authenticated check run nor a check suite is
 visible, the workflow can use a complete exact-head review. The fallback
@@ -35,12 +37,13 @@ The workflow harness executes the production script and covers:
 - commit-status and GraphQL review pagination;
 - authenticated check-run success plus failure, neutral, skipped, pending, and
   lookalike-app rejection;
+- exact-head status-rollup fallback and lookalike-app rejection;
 - nullable review data, a missing pull-request node, incomplete pagination,
   the 100-page safety bound, and GraphQL failure.
 
 ## Verification
 
-- Focused workflow harness: 29 tests passed.
+- Focused workflow harness: 31 tests passed.
 - `actionlint .github/workflows/coderabbit-freshness.yml`: passed.
 - `npm run build`: passed.
 - `npm run docs:verify`: passed.

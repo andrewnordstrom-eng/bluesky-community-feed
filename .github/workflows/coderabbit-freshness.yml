@@ -138,6 +138,64 @@ jobs:
               };
             };
 
+            const resolveExactHeadCodeRabbitRollup = async (headSha) => {
+              const runs = [];
+              let after = null;
+              for (let pageCount = 0; pageCount < 100; pageCount += 1) {
+                const result = await github.graphql(
+                  `query($owner: String!, $repo: String!, $headSha: GitObjectID!, $after: String) {
+                    repository(owner: $owner, name: $repo) {
+                      object(oid: $headSha) {
+                        oid
+                        ... on Commit {
+                          statusCheckRollup {
+                            contexts(first: 100, after: $after) {
+                              nodes {
+                                __typename
+                                ... on CheckRun {
+                                  name
+                                  status
+                                  conclusion
+                                  startedAt
+                                  completedAt
+                                  checkSuite { app { slug } }
+                                }
+                              }
+                              pageInfo {
+                                hasNextPage
+                                endCursor
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }`,
+                  { owner, repo, headSha, after }
+                );
+                const commit = result.repository?.object;
+                if (!commit || commit.oid !== headSha) {
+                  throw new Error(`Exact-head commit ${headSha} was not returned by the status rollup query`);
+                }
+                const contexts = commit.statusCheckRollup?.contexts;
+                if (!contexts) {
+                  return [];
+                }
+                runs.push(...(contexts.nodes || []).filter((node) => node?.__typename === "CheckRun"));
+                if (!contexts.pageInfo?.hasNextPage) {
+                  break;
+                }
+                if (!contexts.pageInfo.endCursor) {
+                  throw new Error("Status rollup pagination is incomplete: missing endCursor");
+                }
+                if (pageCount === 99) {
+                  throw new Error("Status rollup pagination exceeded the 100-page safety bound");
+                }
+                after = contexts.pageInfo.endCursor;
+              }
+              return runs;
+            };
+
             const pr = await resolvePullRequest();
             if (!pr) {
               return;
@@ -247,6 +305,39 @@ jobs:
                 const bTs = parseTime(b.completed_at || b.started_at || b.created_at || "");
                 return bTs - aTs;
               });
+
+            if (checkRuns.length === 0) {
+              try {
+                const rollupRuns = await resolveExactHeadCodeRabbitRollup(sha);
+                checkRuns.push(
+                  ...rollupRuns
+                    .filter((run) => {
+                      const appSlug = (((run.checkSuite || {}).app || {}).slug || "")
+                        .trim()
+                        .toLowerCase();
+                      const runName = ((run.name || "").trim().toLowerCase());
+                      return appSlug === "coderabbitai" && runName === "coderabbit";
+                    })
+                    .map((run) => ({
+                      name: run.name,
+                      status: run.status,
+                      conclusion: run.conclusion,
+                      started_at: run.startedAt,
+                      completed_at: run.completedAt,
+                      app: run.checkSuite?.app || null,
+                    }))
+                );
+                checkRuns.sort((a, b) => {
+                  const aTs = parseTime(a.completed_at || a.started_at || a.created_at || "");
+                  const bTs = parseTime(b.completed_at || b.started_at || b.created_at || "");
+                  return bTs - aTs;
+                });
+              } catch (error) {
+                core.info(
+                  `[coderabbit-freshness:rollup_unavailable] ${error?.message || error}; continuing to check-suite and review fallbacks.`
+                );
+              }
+            }
 
             if (checkRuns.length > 0) {
               const latestRun = checkRuns[0];

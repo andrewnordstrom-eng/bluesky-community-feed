@@ -47,12 +47,36 @@ interface CheckRun {
   completed_at: string | null;
 }
 
+interface RollupCheckRun {
+  __typename: 'CheckRun';
+  name: string;
+  status: string;
+  conclusion: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  checkSuite: {
+    app: {
+      slug: string;
+    } | null;
+  } | null;
+}
+
+interface RollupPage {
+  nodes: Array<RollupCheckRun | null | undefined>;
+  pageInfo: {
+    hasNextPage: boolean;
+    endCursor: string | null;
+  };
+}
+
 interface ScenarioOptions {
   pages?: ReviewPage[];
   graphqlError?: Error;
   missingPullRequest?: boolean;
   statusPages?: CommitStatus[][];
   checkRunPages?: CheckRun[][];
+  rollupPages?: RollupPage[];
+  rollupError?: Error;
 }
 
 type WorkflowExecutor = (
@@ -127,6 +151,7 @@ async function runScenario(
   const failures: string[] = [];
   const notices: string[] = [];
   let pageIndex = 0;
+  let rollupPageIndex = 0;
   let statusPageCount = 0;
   const listCommitStatusesForRef = (): undefined => undefined;
   const listForRef = (): undefined => undefined;
@@ -217,6 +242,38 @@ async function runScenario(
       throw new Error('Unexpected pagination method in freshness workflow test');
     },
     graphql: async (query: unknown, variables: unknown) => {
+      if (typeof query === 'string' && query.includes('statusCheckRollup')) {
+        const priorCursor = rollupPageIndex === 0
+          ? null
+          : options?.rollupPages?.[rollupPageIndex - 1]?.pageInfo.endCursor ?? null;
+        expect(variables).toEqual({
+          owner: 'andrewnordstrom-eng',
+          repo: 'bluesky-community-feed',
+          headSha: 'head',
+          after: priorCursor,
+        });
+        if (options?.rollupError !== undefined) {
+          throw options.rollupError;
+        }
+        const page = options?.rollupPages?.[rollupPageIndex] ?? {
+          nodes: [],
+          pageInfo: {
+            hasNextPage: false,
+            endCursor: null,
+          },
+        };
+        rollupPageIndex += 1;
+        return {
+          repository: {
+            object: {
+              oid: 'head',
+              statusCheckRollup: {
+                contexts: page,
+              },
+            },
+          },
+        };
+      }
       expect(query).toEqual(expect.stringContaining('author { __typename login }'));
       expect(query).toEqual(expect.stringContaining('reviews(first: 100, after: $after)'));
       const priorCursor = pageIndex === 0
@@ -279,6 +336,48 @@ async function runScenario(
 }
 
 describe('coderabbit freshness exact-head review identity', () => {
+  it('accepts the authenticated CodeRabbit check run from the exact-head status rollup', async () => {
+    const now = new Date().toISOString();
+    const result = await runScenario([], {
+      rollupPages: [{
+        nodes: [{
+          __typename: 'CheckRun',
+          name: 'CodeRabbit',
+          status: 'COMPLETED',
+          conclusion: 'SUCCESS',
+          startedAt: now,
+          completedAt: now,
+          checkSuite: { app: { slug: 'coderabbitai' } },
+        }],
+        pageInfo: { hasNextPage: false, endCursor: null },
+      }],
+    });
+
+    expect(result.failures).toEqual([]);
+    expect(result.notices[0]).toMatch(/\[coderabbit-freshness:ok_run\]/);
+    expect(result.pageCount).toBe(0);
+  });
+
+  it('ignores a status-rollup lookalike not owned by the CodeRabbit GitHub App', async () => {
+    const now = new Date().toISOString();
+    const result = await runScenario([], {
+      rollupPages: [{
+        nodes: [{
+          __typename: 'CheckRun',
+          name: 'CodeRabbit',
+          status: 'COMPLETED',
+          conclusion: 'SUCCESS',
+          startedAt: now,
+          completedAt: now,
+          checkSuite: { app: { slug: 'untrusted-app' } },
+        }],
+        pageInfo: { hasNextPage: false, endCursor: null },
+      }],
+    });
+
+    expect(result.failures[0]).toMatch(/exact-head review/);
+  });
+
   it('accepts an exact-head successful check run from the CodeRabbit GitHub App', async () => {
     const now = new Date().toISOString();
     const result = await runScenario([], {
