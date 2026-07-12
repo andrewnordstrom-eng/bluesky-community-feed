@@ -18,7 +18,7 @@ interface RouteFailure {
 
 const PUBLIC_ROUTES: readonly PublicRoute[] = [
   { path: "/", heading: /Make Bluesky care about what your community cares about/i },
-  { path: "/demo/", heading: /Watch a community re-rank its own feed/i },
+  { path: "/demo/", heading: /Re-rank a frozen Community Governed Feed snapshot/i },
   { path: "/how-it-works/", heading: /Watch the same posts become a different feed/i },
   { path: "/start/", heading: /Add the Corgi feed in Bluesky/i },
 ]
