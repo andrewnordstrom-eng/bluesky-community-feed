@@ -33,6 +33,7 @@ export const ConfigSchema = z.object({
   // Server
   FEEDGEN_PORT: z.coerce.number().default(3000),
   FEEDGEN_LISTENHOST: z.string().default('0.0.0.0'),
+  PROCESS_ROLE: z.enum(['api', 'ranking-worker', 'all']).default('all'),
 
   // Jetstream
   JETSTREAM_URL: z.string().url(),
@@ -60,6 +61,13 @@ export const ConfigSchema = z.object({
   SCORING_FULL_RESCORE_INTERVAL: z.coerce.number().int().min(1).default(6),
   SCORING_CANDIDATE_LIMIT: z.coerce.number().min(100).default(5_000),
   SCORING_TIMEOUT_MS: z.coerce.number().min(30_000).default(240_000),
+  RANKING_COMMUNITY_ID: z.string().min(1).default('community-gov'),
+  RANKING_WORKER_POLL_MS: z.coerce.number().int().min(100).default(1_000),
+  RANKING_CLAIM_STALE_MS: z.coerce.number().int().min(30_000).default(360_000),
+  RANKING_LEASE_TTL_MS: z.coerce.number().int().min(5_000).default(300_000),
+  RANKING_LEASE_RENEW_INTERVAL_MS: z.coerce.number().int().min(1_000).default(60_000),
+  RANKING_WORKER_HEARTBEAT_INTERVAL_MS: z.coerce.number().int().min(1_000).default(10_000),
+  RANKING_WORKER_HEARTBEAT_TTL_MS: z.coerce.number().int().min(5_000).default(30_000),
   /**
    * Max posts scored concurrently in the pipeline loop (PROJ-917). Each in-flight
    * post holds at most ONE DB connection at a time (components run sequentially
@@ -230,6 +238,38 @@ export const ConfigSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ['DISK_CRITICAL_PERCENT'],
       message: `DISK_CRITICAL_PERCENT (${cfg.DISK_CRITICAL_PERCENT}) must be less than DISK_EMERGENCY_PERCENT (${cfg.DISK_EMERGENCY_PERCENT})`,
+    });
+  }
+
+  if (cfg.RANKING_LEASE_RENEW_INTERVAL_MS * 2 >= cfg.RANKING_LEASE_TTL_MS) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['RANKING_LEASE_RENEW_INTERVAL_MS'],
+      message: 'RANKING_LEASE_RENEW_INTERVAL_MS must be less than half RANKING_LEASE_TTL_MS.',
+    });
+  }
+
+  if (cfg.RANKING_WORKER_HEARTBEAT_INTERVAL_MS >= cfg.RANKING_WORKER_HEARTBEAT_TTL_MS) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['RANKING_WORKER_HEARTBEAT_INTERVAL_MS'],
+      message: 'RANKING_WORKER_HEARTBEAT_INTERVAL_MS must be less than RANKING_WORKER_HEARTBEAT_TTL_MS.',
+    });
+  }
+
+  if (cfg.RANKING_CLAIM_STALE_MS <= cfg.SCORING_TIMEOUT_MS) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['RANKING_CLAIM_STALE_MS'],
+      message: 'RANKING_CLAIM_STALE_MS must exceed SCORING_TIMEOUT_MS.',
+    });
+  }
+
+  if (cfg.RANKING_LEASE_TTL_MS <= cfg.SCORING_TIMEOUT_MS) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['RANKING_LEASE_TTL_MS'],
+      message: 'RANKING_LEASE_TTL_MS must exceed SCORING_TIMEOUT_MS.',
     });
   }
 

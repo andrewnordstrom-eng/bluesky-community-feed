@@ -14,15 +14,30 @@ BACKUP_GUARD_CONTEXT="install"
 BACKUP_GUARD_LIBRARY="${APP_DIR}/ops/lib/backup-path-guards.sh"
 BACKUP_GUARD_INSTALL_DIR="/opt/backups/lib"
 BACKUP_GUARD_INSTALL_LIBRARY="${BACKUP_GUARD_INSTALL_DIR}/backup-path-guards.sh"
+RANKING_READINESS_LIBRARY="${APP_DIR}/ops/lib/ranking-worker-readiness.sh"
 DEPLOYMENT_RECEIPT="/opt/backups/DEPLOYMENT_RECEIPT"
+INSTALL_RANKING_WORKER="${INSTALL_RANKING_WORKER:-false}"
+
+if [ "$INSTALL_RANKING_WORKER" != "true" ] && [ "$INSTALL_RANKING_WORKER" != "false" ]; then
+  echo "ERROR: INSTALL_RANKING_WORKER must be true or false" >&2
+  exit 1
+fi
 
 if [ ! -r "${BACKUP_GUARD_LIBRARY}" ]; then
   echo "ERROR: required backup guard library missing: ${BACKUP_GUARD_LIBRARY}" >&2
   exit 1
 fi
+if [ ! -r "${RANKING_READINESS_LIBRARY}" ]; then
+  echo "ERROR: required ranking worker readiness library missing: ${RANKING_READINESS_LIBRARY}" >&2
+  exit 1
+fi
 
 # shellcheck source=/dev/null
 source "${BACKUP_GUARD_LIBRARY}"
+# shellcheck source=/dev/null
+source "${RANKING_READINESS_LIBRARY}"
+
+reject_shared_process_role "${APP_DIR}/.env"
 
 # ── Make ops scripts executable ──────────────────────────────────
 SCRIPTS="db redis logs deploy feed-check status health-watchdog daily-backup.sh bluesky-ops-retention.sh"
@@ -41,6 +56,19 @@ echo "=== Installing systemd units ==="
 if [ -f "$APP_DIR/ops/bluesky-feed.service" ]; then
   cp "$APP_DIR/ops/bluesky-feed.service" /etc/systemd/system/bluesky-feed.service
   echo "✓ bluesky-feed.service"
+fi
+
+if [ "$INSTALL_RANKING_WORKER" = "true" ] && [ -f "$APP_DIR/ops/corgi-ranking-worker.service" ]; then
+  validate_ranking_worker_stop_timeout \
+    "$APP_DIR/ops/corgi-ranking-worker.service" \
+    "$APP_DIR/.env"
+  cp "$APP_DIR/ops/corgi-ranking-worker.service" /etc/systemd/system/corgi-ranking-worker.service
+  echo "✓ corgi-ranking-worker.service"
+elif [ "$INSTALL_RANKING_WORKER" = "true" ]; then
+  echo "ERROR: approved worker activation requested but source unit is missing" >&2
+  exit 1
+else
+  echo "○ corgi-ranking-worker.service installation skipped (set INSTALL_RANKING_WORKER=true after approval)"
 fi
 
 # Health watchdog timer
@@ -98,6 +126,20 @@ echo "✓ systemctl daemon-reload"
 systemctl enable bluesky-feed 2>/dev/null || true
 echo "✓ bluesky-feed enabled"
 
+if [ "$INSTALL_RANKING_WORKER" = "true" ]; then
+  if ! systemctl list-unit-files corgi-ranking-worker.service --no-legend 2>/dev/null | grep -q '^corgi-ranking-worker.service'; then
+    echo "ERROR: corgi-ranking-worker.service is not installed; cannot enable it" >&2
+    exit 1
+  fi
+  if ! systemctl enable corgi-ranking-worker 2>/dev/null; then
+    echo "ERROR: failed to enable corgi-ranking-worker.service" >&2
+    exit 1
+  fi
+  echo "✓ corgi-ranking-worker enabled (not started by installer)"
+else
+  echo "○ corgi-ranking-worker enable skipped pending approved activation"
+fi
+
 systemctl enable --now health-watchdog.timer 2>/dev/null || true
 echo "✓ health-watchdog.timer enabled"
 
@@ -115,5 +157,6 @@ echo "  /usr/local/bin/bluesky-ops-retention.sh"
 echo ""
 echo "Systemd units:"
 echo "  systemctl status bluesky-feed"
+echo "  systemctl status corgi-ranking-worker"
 echo "  systemctl list-timers health-watchdog.timer"
 echo "  journalctl -t health-watchdog --since '1 hour ago'"

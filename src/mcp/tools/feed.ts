@@ -21,7 +21,7 @@ export function registerFeedTools(
   server.registerTool(
     'get_feed_health',
     {
-      description: 'Get feed health status including database, scoring pipeline, Jetstream, and subscriber counts',
+      description: 'Get feed health including API ingestion, ranking-worker heartbeat, durable queue state, and feed snapshot size',
     },
     async () => {
       const res = await app.inject({ method: 'GET', url: '/api/admin/feed-health', headers: { cookie } });
@@ -32,7 +32,7 @@ export function registerFeedTools(
   server.registerTool(
     'trigger_rescore',
     {
-      description: 'Trigger an immediate scoring pipeline run to re-score all posts',
+      description: 'Queue an idempotent durable scoring request for the independent ranking worker',
       annotations: { destructiveHint: false, readOnlyHint: false },
     },
     async () => {

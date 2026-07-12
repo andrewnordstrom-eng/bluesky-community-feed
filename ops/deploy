@@ -5,6 +5,15 @@
 set -euo pipefail
 cd /opt/bluesky-feed
 
+RANKING_READINESS_LIBRARY="ops/lib/ranking-worker-readiness.sh"
+if [ ! -r "$RANKING_READINESS_LIBRARY" ]; then
+  echo "ERROR: required ranking worker readiness library is missing: ${RANKING_READINESS_LIBRARY}" >&2
+  exit 1
+fi
+# shellcheck source=/dev/null
+source "$RANKING_READINESS_LIBRARY"
+reject_shared_process_role ".env"
+
 echo "=== Pulling latest ==="
 git pull --ff-only origin main
 
@@ -15,11 +24,59 @@ echo "=== Building ==="
 npx tsc
 
 if [ "${1:-}" != "--skip-migrate" ]; then
+  backup_target=""
+  if ! backup_target=$(findmnt -n -o TARGET --target /mnt/host-backups); then
+    echo "ERROR: could not inspect dedicated backup mount; refusing migration" >&2
+    exit 1
+  fi
+  if [ "$backup_target" != "/mnt/host-backups" ]; then
+    echo "ERROR: dedicated backup mount missing; refusing migration" >&2
+    exit 1
+  fi
+  latest_backup=""
+  if ! latest_backup=$(find /mnt/host-backups/postgres -maxdepth 1 -type f -name 'dump-*.sql.gz' -printf '%T@ %p\n' | sort -nr | sed -n '1p' | cut -d' ' -f2-); then
+    echo "ERROR: could not inspect PostgreSQL backups; refusing migration" >&2
+    exit 1
+  fi
+  if [ -z "$latest_backup" ]; then
+    echo "ERROR: no PostgreSQL backup exists; refusing migration" >&2
+    exit 1
+  fi
+  if ! gzip -t "$latest_backup"; then
+    echo "ERROR: newest PostgreSQL backup failed gzip validation; refusing migration" >&2
+    exit 1
+  fi
   echo "=== Running migrations ==="
   npm run migrate
 fi
 
-echo "=== Restarting service ==="
+if systemctl cat corgi-ranking-worker.service > /dev/null 2>&1; then
+  validate_ranking_worker_stop_timeout \
+    <(systemctl cat corgi-ranking-worker.service) \
+    ".env"
+  echo "=== Restarting ranking worker ==="
+  worker_restart_epoch_ms=$(date +%s%3N)
+  if ! systemctl restart corgi-ranking-worker; then
+    echo "ERROR: ranking worker restart failed; API was not touched" >&2
+    exit 1
+  fi
+
+  ranking_community_id=""
+  if ! ranking_community_id=$(resolve_ranking_community_id ".env"); then
+    exit 1
+  fi
+  PROBE_TIMEOUT_SECONDS=5
+  ranking_worker_heartbeat_probe() {
+    local heartbeat_key="$1"
+    probe_ranking_worker_heartbeat_with_docker "$PROBE_TIMEOUT_SECONDS" bluesky-feed-redis "$heartbeat_key"
+  }
+  if ! wait_for_ranking_worker_ready "$ranking_community_id" "$worker_restart_epoch_ms" 3 10 ranking_worker_heartbeat_probe; then
+    echo "ERROR: ranking worker did not become ready; API was not touched" >&2
+    exit 1
+  fi
+fi
+
+echo "=== Restarting API service ==="
 systemctl restart bluesky-feed
 sleep 3
 
@@ -29,3 +86,6 @@ echo ""
 
 echo "=== Status ==="
 systemctl is-active bluesky-feed
+if systemctl cat corgi-ranking-worker.service > /dev/null 2>&1; then
+  systemctl is-active corgi-ranking-worker
+fi

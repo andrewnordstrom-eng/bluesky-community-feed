@@ -1,147 +1,102 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-
-// --- Mocks (vi.hoisted runs before imports) ---
-const { redisSetMock, redisDelMock, runScoringPipelineMock } = vi.hoisted(() => ({
-  redisSetMock: vi.fn(),
-  redisDelMock: vi.fn(),
-  runScoringPipelineMock: vi.fn(),
-}));
-
-vi.mock('../src/db/redis.js', () => ({
-  redis: {
-    set: redisSetMock,
-    del: redisDelMock,
-  },
-}));
-
-vi.mock('../src/lib/logger.js', () => ({
-  logger: {
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
-  },
-}));
-
-vi.mock('../src/config.js', () => ({
-  config: {
-    SCORING_INTERVAL_MS: 300_000,
-  },
-}));
-
-vi.mock('../src/scoring/pipeline.js', () => ({
-  runScoringPipeline: runScoringPipelineMock,
-}));
-
 import {
-  startScoring,
-  stopScoring,
-  tryTriggerManualScoringRun,
-  isScoringInProgress,
-} from '../src/scoring/scheduler.js';
+  OwnedRedisLease,
+  RedisLeaseUnavailableError,
+  scoringLeaseKey,
+  type LeaseRedisClient,
+} from '../src/scoring/owned-lease.js';
 
-describe('scoring Redis distributed lock', () => {
+describe('token-owned Redis scoring lease', () => {
+  const set = vi.fn<LeaseRedisClient['set']>();
+  const evalScript = vi.fn<LeaseRedisClient['eval']>();
+  const client: LeaseRedisClient = { set, eval: evalScript };
+  let lease: OwnedRedisLease;
+
   beforeEach(() => {
     vi.clearAllMocks();
-    runScoringPipelineMock.mockResolvedValue(undefined);
+    lease = new OwnedRedisLease(client, 'lock:scoring', 60_000);
   });
 
-  it('acquires lock via Redis SET NX EX', async () => {
-    // First call: SET NX succeeds (lock acquired)
-    redisSetMock.mockResolvedValue('OK');
-    redisDelMock.mockResolvedValue(1);
+  it('acquires with one unique token, PX expiry, and NX ownership', async () => {
+    set.mockResolvedValue('OK');
 
-    const triggered = await tryTriggerManualScoringRun();
+    await expect(lease.acquire('owner-a')).resolves.toBe(true);
 
-    expect(triggered).toBe(true);
-    expect(redisSetMock).toHaveBeenCalledWith(
+    expect(set).toHaveBeenCalledWith('lock:scoring', 'owner-a', 'PX', 60_000, 'NX');
+  });
+
+  it('returns false when another owner already holds the lease', async () => {
+    set.mockResolvedValue(null);
+
+    await expect(lease.acquire('owner-b')).resolves.toBe(false);
+  });
+
+  it('fails closed when Redis cannot establish ownership', async () => {
+    set.mockRejectedValue(new Error('redis unavailable'));
+
+    await expect(lease.acquire('owner-a')).rejects.toBeInstanceOf(RedisLeaseUnavailableError);
+  });
+
+  it('renews only when the stored token still matches', async () => {
+    evalScript.mockResolvedValueOnce(1).mockResolvedValueOnce(0);
+
+    await expect(lease.renew('owner-a')).resolves.toBe(true);
+    await expect(lease.renew('stale-owner')).resolves.toBe(false);
+
+    expect(evalScript.mock.calls[0]?.[0]).toContain("redis.call('pexpire'");
+    expect(evalScript.mock.calls[0]?.slice(1)).toEqual([
+      1,
       'lock:scoring',
-      expect.any(String),
-      'EX',
-      300,
-      'NX'
-    );
+      'owner-a',
+      60_000,
+    ]);
   });
 
-  it('returns false when Redis SET NX returns null (lock held)', async () => {
-    // SET NX returns null when key already exists
-    redisSetMock.mockResolvedValue(null);
+  it('releases only when the stored token still matches', async () => {
+    evalScript.mockResolvedValueOnce(1).mockResolvedValueOnce(0);
 
-    const triggered = await tryTriggerManualScoringRun();
+    await expect(lease.release('owner-a')).resolves.toBe(true);
+    await expect(lease.release('stale-owner')).resolves.toBe(false);
 
-    expect(triggered).toBe(false);
+    expect(evalScript.mock.calls[0]?.[0]).toContain("redis.call('del'");
+    expect(evalScript.mock.calls[0]?.slice(1)).toEqual([1, 'lock:scoring', 'owner-a']);
   });
 
-  it('releases lock by deleting the Redis key', async () => {
-    redisSetMock.mockResolvedValue('OK');
-    redisDelMock.mockResolvedValue(1);
-    runScoringPipelineMock.mockResolvedValue(undefined);
+  it('rejects stale-owner release attempts without falling back', async () => {
+    evalScript.mockRejectedValue(new Error('connection reset'));
 
-    // Use triggerManualRun (awaitable) via startScoring + stopScoring
-    // Or just trigger and wait for the fire-and-forget to settle
-    await tryTriggerManualScoringRun();
-
-    // Give the fire-and-forget pipeline time to complete
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
-    expect(redisDelMock).toHaveBeenCalledWith('lock:scoring');
+    await expect(lease.release('owner-a')).rejects.toBeInstanceOf(RedisLeaseUnavailableError);
   });
 
-  it('releases lock even when scoring pipeline throws', async () => {
-    redisSetMock.mockResolvedValue('OK');
-    redisDelMock.mockResolvedValue(1);
-    runScoringPipelineMock.mockRejectedValue(new Error('pipeline crashed'));
-
-    await tryTriggerManualScoringRun();
-
-    // Give the fire-and-forget pipeline time to complete
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
-    // Lock should still be released despite pipeline failure
-    expect(redisDelMock).toHaveBeenCalledWith('lock:scoring');
+  it('isolates lease ownership by community', () => {
+    expect(scoringLeaseKey('community-gov')).toBe('lock:scoring:community-gov');
+    expect(scoringLeaseKey('future-feed')).toBe('lock:scoring:future-feed');
+    expect(() => scoringLeaseKey('')).toThrow('must be non-empty');
   });
 
-  it('falls back to local boolean when Redis SET fails', async () => {
-    redisSetMock.mockRejectedValue(new Error('redis connection refused'));
-    redisDelMock.mockResolvedValue(1);
-
-    // Should still acquire (local fallback)
-    const triggered = await tryTriggerManualScoringRun();
-    expect(triggered).toBe(true);
+  it('rejects invalid TTL and empty ownership tokens at every operation', async () => {
+    expect(() => new OwnedRedisLease(client, 'lock:scoring', 999)).toThrow('>= 1000');
+    expect(() => new OwnedRedisLease(client, 'lock:scoring', 1_000)).not.toThrow();
+    await expect(lease.acquire('')).rejects.toThrow('token must be non-empty');
+    await expect(lease.renew('  ')).rejects.toThrow('token must be non-empty');
+    await expect(lease.release('')).rejects.toThrow('token must be non-empty');
   });
 
-  it('updates local isScoring mirror for health checks', async () => {
-    redisSetMock.mockResolvedValue('OK');
-    redisDelMock.mockResolvedValue(1);
+  it('allows only one of two concurrent contenders to acquire ownership', async () => {
+    set.mockResolvedValueOnce('OK').mockResolvedValueOnce(null);
 
-    // Create a long-running pipeline to check isScoring mid-run
-    let resolvePipeline: () => void;
-    runScoringPipelineMock.mockImplementation(
-      () => new Promise<void>((resolve) => { resolvePipeline = resolve; })
-    );
+    const results = await Promise.all([
+      lease.acquire('owner-a'),
+      lease.acquire('owner-b'),
+    ]);
 
-    await tryTriggerManualScoringRun();
-
-    // While pipeline is running, isScoring should be true
-    expect(isScoringInProgress()).toBe(true);
-
-    // Complete the pipeline
-    resolvePipeline!();
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
-    // After completion, isScoring should be false
-    expect(isScoringInProgress()).toBe(false);
+    expect(results).toEqual([true, false]);
+    expect(set).toHaveBeenCalledTimes(2);
   });
 
-  it('rejects when scheduler is shutting down', async () => {
-    redisSetMock.mockResolvedValue('OK');
-    redisDelMock.mockResolvedValue(1);
+  it('fails closed when Redis cannot renew ownership', async () => {
+    evalScript.mockRejectedValue(new Error('connection reset'));
 
-    // Start and immediately stop to set isShuttingDown = true
-    await startScoring();
-    await stopScoring();
-
-    const triggered = await tryTriggerManualScoringRun();
-    expect(triggered).toBe(false);
+    await expect(lease.renew('owner-a')).rejects.toBeInstanceOf(RedisLeaseUnavailableError);
   });
 });

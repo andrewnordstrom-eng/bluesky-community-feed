@@ -26,6 +26,14 @@ jobs:
             PREV_COMMIT=$(git rev-parse HEAD)
 
             git pull origin main
+            RANKING_READINESS_LIBRARY="ops/lib/ranking-worker-readiness.sh"
+            if [ ! -r "$RANKING_READINESS_LIBRARY" ]; then
+              echo "Required ranking worker readiness library is missing: ${RANKING_READINESS_LIBRARY}"
+              exit 1
+            fi
+            # shellcheck source=/dev/null
+            source "$RANKING_READINESS_LIBRARY"
+            reject_shared_process_role ".env"
             npm ci --ignore-scripts
             node scripts/audit-allowlist.mjs --audit-level=high
             npm run build
@@ -72,6 +80,32 @@ jobs:
             cd ..
             cd cli && npm ci && npx tsc
             cd ..
+            # Migrations are forward-only and must be applied before either
+            # process is cut over. Fail closed unless the dedicated backup
+            # mount and newest logical dump are present and readable.
+            BACKUP_TARGET=""
+            if ! BACKUP_TARGET=$(findmnt -n -o TARGET --target /mnt/host-backups); then
+              echo "Could not inspect the dedicated backup mount; refusing migration"
+              exit 1
+            fi
+            if [ "$BACKUP_TARGET" != "/mnt/host-backups" ]; then
+              echo "Dedicated backup mount is missing; refusing migration"
+              exit 1
+            fi
+            LATEST_BACKUP=""
+            if ! LATEST_BACKUP=$(sudo find /mnt/host-backups/postgres -maxdepth 1 -type f -name 'dump-*.sql.gz' -printf '%T@ %p\n' | sort -nr | sed -n '1p' | cut -d' ' -f2-); then
+              echo "Could not inspect PostgreSQL backups; refusing migration"
+              exit 1
+            fi
+            if [ -z "$LATEST_BACKUP" ]; then
+              echo "No PostgreSQL backup exists; refusing migration"
+              exit 1
+            fi
+            if ! sudo gzip -t "$LATEST_BACKUP"; then
+              echo "Newest PostgreSQL backup failed gzip validation; refusing migration"
+              exit 1
+            fi
+            npm run migrate
             sudo docker compose -f docker-compose.prod.yml up -d --no-deps demo-redis
             for i in 1 2 3 4 5; do
               if sudo docker compose -f docker-compose.prod.yml exec -T demo-redis redis-cli ping | grep -q PONG; then
@@ -84,6 +118,35 @@ jobs:
               fi
               sleep 2
             done
+            # The split worker is activated only by the separately approved
+            # systemd packet. Until then the installed API unit still runs the
+            # rollback-compatible PROCESS_ROLE=all default.
+            WORKER_INSTALLED=false
+            if sudo systemctl cat corgi-ranking-worker.service > /dev/null 2>&1; then
+              WORKER_INSTALLED=true
+              validate_ranking_worker_stop_timeout \
+                <(sudo systemctl cat corgi-ranking-worker.service) \
+                ".env"
+              WORKER_RESTART_EPOCH_MS=$(date +%s%3N)
+              if ! sudo systemctl restart corgi-ranking-worker; then
+                echo "Ranking worker restart failed; API was not touched"
+                exit 1
+              fi
+
+              RANKING_COMMUNITY_ID=""
+              if ! RANKING_COMMUNITY_ID=$(resolve_ranking_community_id ".env"); then
+                exit 1
+              fi
+              PROBE_TIMEOUT_SECONDS=5
+              ranking_worker_heartbeat_probe() {
+                local HEARTBEAT_KEY="$1"
+                probe_ranking_worker_heartbeat_with_compose "$PROBE_TIMEOUT_SECONDS" docker-compose.prod.yml "$HEARTBEAT_KEY"
+              }
+              if ! wait_for_ranking_worker_ready "$RANKING_COMMUNITY_ID" "$WORKER_RESTART_EPOCH_MS" 3 10 ranking_worker_heartbeat_probe; then
+                echo "Ranking worker did not become ready; API was not touched"
+                exit 1
+              fi
+            fi
             sudo systemctl restart bluesky-feed
 
             # Post-deploy health verification (3 retries, 10s apart)
@@ -174,6 +237,9 @@ jobs:
               (cd web && npm ci && npm run build) || echo "WARNING: web rollback rebuild failed; serving prior artifacts"
               (cd web-next && npm ci && npm run build) || echo "WARNING: web-next rollback rebuild failed; serving prior artifacts"
               sudo systemctl restart bluesky-feed
+              if [ "$WORKER_INSTALLED" = "true" ]; then
+                sudo systemctl restart corgi-ranking-worker || true
+              fi
               sleep 5
               echo "Rollback complete. Current health:"
               curl -s http://localhost:3001/health || echo "Still unhealthy after rollback"

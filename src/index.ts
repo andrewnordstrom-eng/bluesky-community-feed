@@ -24,7 +24,7 @@ import { loadGovernanceGateWeights } from './ingestion/governance-gate.js';
 import { sdNotifyReady, startWatchdog, stopWatchdog } from './lib/watchdog.js';
 
 async function main() {
-  logger.info('Starting Community Feed Generator...');
+  logger.info({ processRole: config.PROCESS_ROLE }, 'Starting Community Feed Generator...');
 
   // 0. Run startup checks (fail fast if dependencies are down)
   try {
@@ -32,6 +32,13 @@ async function main() {
   } catch (err) {
     logger.fatal({ err }, 'Startup checks failed');
     process.exit(1);
+  }
+
+  if (config.PROCESS_ROLE === 'ranking-worker') {
+    await startScoring();
+    registerRankingWorkerShutdown();
+    logger.info({ processRole: config.PROCESS_ROLE }, 'Ranking worker operational');
+    return;
   }
 
   // 1. Create and configure the HTTP server
@@ -117,6 +124,12 @@ async function main() {
 
   // 5. Register scoring health check (before starting scoring so it's available during initial run)
   registerScoringHealth((): ScoringHealth => {
+    if (config.PROCESS_ROLE === 'api') {
+      return {
+        status: 'healthy',
+        is_running: false,
+      };
+    }
     const isRunning = isScoringInProgress();
     const lastRunAt = getLastScoringRunAt();
 
@@ -134,12 +147,14 @@ async function main() {
   });
 
   // 6. Start scoring pipeline
-  try {
-    await startScoring();
-    logger.info('Scoring pipeline started');
-  } catch (err) {
-    logger.fatal({ err }, 'Failed to start scoring pipeline');
-    process.exit(1);
+  if (config.PROCESS_ROLE === 'all') {
+    try {
+      await startScoring();
+      logger.info('Scoring pipeline started');
+    } catch (err) {
+      logger.fatal({ err }, 'Failed to start scoring pipeline');
+      process.exit(1);
+    }
   }
 
   // 6.5. Initialize announcement bot (if enabled, non-fatal)
@@ -167,7 +182,7 @@ async function main() {
   // 7. Register graceful shutdown handlers
   registerShutdownHandlers({
     server: app,
-    stopScoring,
+    stopScoring: config.PROCESS_ROLE === 'all' ? stopScoring : async () => undefined,
     stopJetstream,
     stopEpochScheduler,
     stopMaintenanceWorkerSupervisor,
@@ -180,10 +195,32 @@ async function main() {
 
   // 8. Log startup complete
   logger.info({
+    processRole: config.PROCESS_ROLE,
     serviceDid: config.FEEDGEN_SERVICE_DID,
     publisherDid: config.FEEDGEN_PUBLISHER_DID,
     hostname: config.FEEDGEN_HOSTNAME,
   }, 'All systems operational (Phase 6: Hardening)');
+}
+
+function registerRankingWorkerShutdown(): void {
+  let shuttingDown = false;
+  const shutdown = (signal: NodeJS.Signals): void => {
+    if (shuttingDown) {
+      return;
+    }
+    shuttingDown = true;
+    logger.info({ signal }, 'Stopping ranking worker');
+    void stopScoring()
+      .then(() => {
+        process.exit(0);
+      })
+      .catch((error) => {
+        logger.error({ err: error, signal }, 'Ranking worker shutdown failed');
+        process.exit(1);
+      });
+  };
+  process.once('SIGTERM', () => shutdown('SIGTERM'));
+  process.once('SIGINT', () => shutdown('SIGINT'));
 }
 
 // Handle unhandled rejections

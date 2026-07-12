@@ -62,3 +62,66 @@ Supporting ops signals:
 - `docs/DEPLOYMENT.md` for deployment/bootstrap details
 - `docs/runbooks/operator-quickstart.md` for the shortest safe operator flow
 - `docs/runbooks/incident-response.md` for failure handling and evidence capture
+
+## Governed ranking-worker activation
+
+`PROCESS_ROLE=all` remains the rollback-compatible application default. The
+tracked service files are not production activation by themselves. Installing
+or starting `corgi-ranking-worker.service`, or replacing the installed API unit
+with the tracked `PROCESS_ROLE=api` unit, requires the explicit PROJ-1769
+production gate.
+
+The shared `/opt/bluesky-feed/.env` must never define `PROCESS_ROLE`. systemd
+`EnvironmentFile=` values override the explicit role in both unit files, which
+could disable ranking or run it twice. `ops/install.sh`, `ops/deploy`, and the
+hosted deploy workflow reject that configuration before restarting either
+service. They also require the worker unit's `TimeoutStopSec` to exceed the
+effective `SCORING_TIMEOUT_MS` by at least 60 seconds.
+
+Pre-activation evidence must prove all of the following:
+
+1. The VPS checkout matches the reviewed merge SHA and CI/deploy receipts are green.
+2. `findmnt -n -o TARGET --target /mnt/host-backups` returns exactly
+   `/mnt/host-backups`; the newest `dump-*.sql.gz` exists and passes `gzip -t`.
+3. Additive migrations complete before either service is restarted.
+4. `npm run verify`, `npm run sim:core`, lease failure injection, queue
+   idempotency, and process-isolation tests pass at the reviewed SHA.
+5. The existing Redis snapshot has 1,000 items and the Community Governed Feed
+   XRPC probe succeeds before activation; Birders still returns disabled.
+6. `RANKING_LEASE_TTL_MS` remains greater than `SCORING_TIMEOUT_MS`. A legacy
+   pipeline timeout must quarantine the worker, retain and renew its lease, and
+   advertise a failed heartbeat until that process is stopped; it must not
+   claim replacement work in the same process.
+7. Queue claims, stale recovery, heartbeat keys, and owned lease keys remain
+   scoped to `RANKING_COMMUNITY_ID`; one feed must not consume or block another.
+
+Activation order after approval:
+
+1. Copy both reviewed unit files, run `systemctl daemon-reload`, and enable the
+   worker. Do not delete or mutate the current Redis snapshot.
+2. Start/restart `corgi-ranking-worker` first. Require an active unit and a
+   fresh `corgi:ranking-worker:heartbeat:${RANKING_COMMUNITY_ID}` with a
+   non-failed state. For example, a deployment configured with
+   `RANKING_COMMUNITY_ID=future-feed` must check
+   `corgi:ranking-worker:heartbeat:future-feed`, matching the worker and watchdog.
+3. Restart `bluesky-feed` with `PROCESS_ROLE=api`. Require `/health/ready` and
+   the XRPC feed probe to pass while the worker remains active.
+4. Restart the worker while issuing feed requests; require zero serving errors
+   and preservation of the prior snapshot.
+5. Restart the API during an owned worker run; require the worker heartbeat and
+   request claim to survive independently.
+6. Confirm snapshot size/freshness, request state, service memory, restart
+   counts, and warning/error journals independently for both units.
+
+Immediate rollback is unit-level and does not require a database rollback:
+
+1. Stop and disable `corgi-ranking-worker`.
+2. Restore the previous installed `bluesky-feed.service` or remove its
+   `PROCESS_ROLE=api` setting so the default `all` role resumes.
+3. Run `systemctl daemon-reload` and restart `bluesky-feed`.
+4. Confirm the last-known-good Redis snapshot, API readiness, Community
+   Governed Feed XRPC response, and disabled Birders behavior.
+
+Forward-only additive migrations and ranking request rows may remain after this
+rollback. Any destructive database rollback requires restore from the verified
+backup in a controlled maintenance window.
