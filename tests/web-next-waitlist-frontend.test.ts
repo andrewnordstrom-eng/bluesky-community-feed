@@ -4,7 +4,7 @@ import {
   participantAddResponseSchema,
   participantListResponseSchema,
   participantRemoveResponseSchema,
-} from '../web-next/lib/api/admin';
+} from '../web-next/lib/api/participant-contract';
 import {
   waitlistApproveResponseSchema,
   waitlistJoinResponseSchema,
