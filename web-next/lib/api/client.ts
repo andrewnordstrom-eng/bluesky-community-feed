@@ -51,6 +51,23 @@ export const authApi = {
   },
 };
 
+// Waitlist API
+export interface WaitlistJoinResponse {
+  success: boolean;
+  message: string;
+}
+
+export const waitlistApi = {
+  join: async (handle: string, note?: string): Promise<WaitlistJoinResponse> => {
+    const trimmedNote = note?.trim();
+    const response = await api.post<WaitlistJoinResponse>('/api/governance/waitlist', {
+      handle,
+      ...(trimmedNote ? { note: trimmedNote } : {}),
+    });
+    return response.data;
+  },
+};
+
 // Topic catalog types
 export interface TopicCatalogEntry {
   slug: string;

@@ -69,6 +69,11 @@ export function AppShell({ user = null, children }: AppShellProps) {
   const pathname = usePathname()
   const { session, isAuthenticated, logout } = useAuth()
   const [signInOpen, setSignInOpen] = useState(false)
+  const [dialogMode, setDialogMode] = useState<"signin" | "waitlist">("signin")
+  const openDialog = (mode: "signin" | "waitlist") => {
+    setDialogMode(mode)
+    setSignInOpen(true)
+  }
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [logoutPending, setLogoutPending] = useState(false)
   const [logoutError, setLogoutError] = useState<string | null>(null)
@@ -210,17 +215,17 @@ export function AppShell({ user = null, children }: AppShellProps) {
               /* Logged-out state */
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setSignInOpen(true)}
+                  onClick={() => openDialog("signin")}
                   className="hidden sm:block text-sm font-medium text-foreground/60 hover:text-foreground transition-colors"
                 >
                   Sign in
                 </button>
                 <Button
                   size="sm"
-                  onClick={() => setSignInOpen(true)}
+                  onClick={() => openDialog("waitlist")}
                   className="hidden sm:flex bg-primary text-primary-foreground hover:bg-primary-dark rounded-full px-4 text-sm shadow-[0_2px_8px_rgba(200,97,44,0.3)] hover:shadow-[0_4px_14px_rgba(200,97,44,0.4)] transition-all"
                 >
-                  Connect Bluesky
+                  Join the waitlist
                 </Button>
               </div>
             )}
@@ -305,16 +310,16 @@ export function AppShell({ user = null, children }: AppShellProps) {
               ) : (
                 <>
                   <button
-                    onClick={() => { setMobileMenuOpen(false); setSignInOpen(true) }}
+                    onClick={() => { setMobileMenuOpen(false); openDialog("signin") }}
                     className="px-4 py-3 text-sm font-medium text-foreground/70 hover:text-foreground text-left rounded-xl hover:bg-accent/60 transition-colors"
                   >
-                    Sign in
+                    Already approved? Sign in
                   </button>
                   <Button
-                    onClick={() => { setMobileMenuOpen(false); setSignInOpen(true) }}
+                    onClick={() => { setMobileMenuOpen(false); openDialog("waitlist") }}
                     className="w-full bg-primary text-primary-foreground hover:bg-primary-dark rounded-full text-sm shadow-[0_2px_8px_rgba(200,97,44,0.28)] transition-all"
                   >
-                    Connect Bluesky
+                    Join the waitlist
                   </Button>
                 </>
               )}
@@ -350,7 +355,7 @@ export function AppShell({ user = null, children }: AppShellProps) {
         </div>
       ) : null}
 
-      <SignInDialog open={signInOpen} onOpenChange={setSignInOpen} />
+      <SignInDialog open={signInOpen} onOpenChange={setSignInOpen} initialMode={dialogMode} />
     </div>
   )
 }

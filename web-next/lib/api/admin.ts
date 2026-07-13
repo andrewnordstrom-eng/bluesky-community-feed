@@ -79,9 +79,21 @@ export interface Participant {
   added_at: string;
 }
 
+export interface WaitlistRequest {
+  id: number;
+  handle: string;
+  did: string | null;
+  note: string | null;
+  status: 'pending' | 'approved' | 'rejected';
+  created_at: string;
+  decided_at: string | null;
+  decided_by: string | null;
+}
+
 export interface AdminStatus {
   isAdmin: boolean;
   feedPrivateMode: boolean;
+  loginAllowlistEnabled?: boolean;
   system: {
     currentEpoch: {
       id: number;
@@ -585,6 +597,24 @@ export const adminApi = {
 
   async removeParticipant(did: string): Promise<{ success: boolean }> {
     const response = await api.delete(`/api/admin/participants/${encodeURIComponent(did)}`);
+    return response.data;
+  },
+
+  // Waitlist management
+  async getWaitlist(
+    status: 'pending' | 'approved' | 'rejected' | 'all' = 'pending',
+  ): Promise<{ requests: WaitlistRequest[]; total: number }> {
+    const response = await api.get('/api/admin/waitlist', { params: { status } });
+    return response.data;
+  },
+
+  async approveWaitlist(id: number): Promise<{ success: boolean; did: string; handle: string }> {
+    const response = await api.post(`/api/admin/waitlist/${id}/approve`);
+    return response.data;
+  },
+
+  async rejectWaitlist(id: number): Promise<{ success: boolean }> {
+    const response = await api.post(`/api/admin/waitlist/${id}/reject`);
     return response.data;
   },
 

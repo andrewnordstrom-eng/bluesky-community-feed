@@ -869,12 +869,223 @@ const PHASE_META: Record<EpochPhase, { label: string; color: string; dot: string
 
 // ── Nav items ─────────────────────────────────────────────────────────────────
 
+// ── Panel: Access (waitlist queue + approved participants) ─────────────────────
+
+function PanelAccess({ status }: { status: AdminStatus }) {
+  const queryClient = useQueryClient()
+  const waitlistQuery = useQuery({
+    queryKey: ["admin", "waitlist", "pending"],
+    queryFn: () => adminApi.getWaitlist("pending"),
+    retry: false,
+  })
+  const participantsQuery = useQuery({
+    queryKey: ["admin", "participants"],
+    queryFn: adminApi.getParticipants,
+    retry: false,
+  })
+
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [addHandle, setAddHandle] = useState("")
+  const [addNotes, setAddNotes] = useState("")
+  const [confirmRemove, setConfirmRemove] = useState<{ did: string; handle: string | null } | null>(null)
+
+  const invalidateAll = () => {
+    void queryClient.invalidateQueries({ queryKey: ["admin", "waitlist"] })
+    void queryClient.invalidateQueries({ queryKey: ["admin", "participants"] })
+  }
+
+  const approveMutation = useMutation({
+    mutationFn: (id: number) => adminApi.approveWaitlist(id),
+    onSuccess: () => { setActionError(null); invalidateAll() },
+    onError: (err) => {
+      setActionError(
+        axios.isAxiosError(err) && err.response?.status === 400
+          ? "Couldn't resolve that handle. Add the account by DID below."
+          : "Approve failed — try again.",
+      )
+    },
+  })
+  const rejectMutation = useMutation({
+    mutationFn: (id: number) => adminApi.rejectWaitlist(id),
+    onSuccess: () => { setActionError(null); invalidateAll() },
+    onError: () => setActionError("Reject failed — try again."),
+  })
+  const addMutation = useMutation({
+    mutationFn: () => {
+      const value = addHandle.trim()
+      const payload = value.startsWith("did:") ? { did: value } : { handle: value }
+      return adminApi.addParticipant({ ...payload, notes: addNotes.trim() || undefined })
+    },
+    onSuccess: () => {
+      setActionError(null)
+      setAddHandle("")
+      setAddNotes("")
+      invalidateAll()
+    },
+    onError: (err) => {
+      setActionError(
+        axios.isAxiosError(err) && err.response?.status === 400
+          ? "Couldn't resolve that handle. Try a DID (did:plc:…)."
+          : "Add failed — try again.",
+      )
+    },
+  })
+  const removeMutation = useMutation({
+    mutationFn: (did: string) => adminApi.removeParticipant(did),
+    onSuccess: () => { setActionError(null); setConfirmRemove(null); invalidateAll() },
+    onError: () => setActionError("Remove failed — try again."),
+  })
+
+  const pending = waitlistQuery.data?.requests ?? []
+  const participants = participantsQuery.data?.participants ?? []
+  const allowlistOn = status.loginAllowlistEnabled === true
+
+  return (
+    <div className="flex flex-col gap-8">
+      <div className="flex items-center justify-between gap-3">
+        <SectionHeader title="Access" sub="Approve pilot voting accounts and manage the login allowlist." />
+        <span
+          className={`shrink-0 text-[10px] font-mono font-semibold uppercase tracking-widest px-2.5 py-1 rounded-full border ${
+            allowlistOn ? "bg-success/10 border-success/25 text-success" : "bg-biscuit border-border text-foreground/55"
+          }`}
+        >
+          Login allowlist: {allowlistOn ? "Enforced" : "Off"}
+        </span>
+      </div>
+
+      {actionError && (
+        <p role="alert" className="text-status-error text-sm font-medium -mt-3">{actionError}</p>
+      )}
+
+      {/* ── Waitlist queue ─────────────────────────────────── */}
+      <section className="flex flex-col gap-3">
+        <p className="text-[10px] font-mono uppercase tracking-widest text-foreground/50">Waitlist · pending</p>
+        {waitlistQuery.isLoading ? (
+          <div className="rounded-xl border border-border overflow-hidden divide-y divide-border/60" aria-busy="true">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="flex items-center justify-between px-4 py-3.5">
+                <Skeleton className="h-4 w-48" /><Skeleton className="h-8 w-32 rounded-full" />
+              </div>
+            ))}
+          </div>
+        ) : waitlistQuery.isError ? (
+          <ErrorCard heading="Waitlist unavailable" body="We couldn't load pending requests." onRetry={() => void waitlistQuery.refetch()} />
+        ) : pending.length === 0 ? (
+          <EmptyState heading="No pending requests" body="New waitlist requests will appear here." showCorgi={false} />
+        ) : (
+          <div className="rounded-xl border border-border overflow-hidden divide-y divide-border/60">
+            {pending.map((r) => {
+              const busy = (approveMutation.isPending && approveMutation.variables === r.id)
+                || (rejectMutation.isPending && rejectMutation.variables === r.id)
+              return (
+                <div key={r.id} className="flex flex-col sm:flex-row sm:items-center gap-3 px-4 py-3.5">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-mono text-sm text-foreground truncate">{r.handle}</p>
+                    {r.note && <p className="mt-0.5 text-xs text-foreground/55 line-clamp-2" title={r.note}>{r.note}</p>}
+                    <p className="mt-0.5 text-[10px] font-mono text-foreground/40">Requested {relTime(r.created_at)}</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => approveMutation.mutate(r.id)}
+                      disabled={busy}
+                      className="text-xs font-semibold px-3.5 py-1.5 rounded-full bg-success/12 border border-success/25 text-success hover:bg-success/20 transition-colors disabled:opacity-50"
+                    >
+                      {busy && approveMutation.variables === r.id ? "Approving…" : "Approve"}
+                    </button>
+                    <button
+                      onClick={() => rejectMutation.mutate(r.id)}
+                      disabled={busy}
+                      className="text-xs font-semibold px-3.5 py-1.5 rounded-full bg-biscuit border border-border text-foreground/60 hover:text-foreground hover:bg-tongue/10 transition-colors disabled:opacity-50"
+                    >
+                      Reject
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* ── Approved participants ──────────────────────────── */}
+      <section className="flex flex-col gap-3">
+        <p className="text-[10px] font-mono uppercase tracking-widest text-foreground/50">Approved participants</p>
+        {participantsQuery.isLoading ? (
+          <Skeleton className="h-24 w-full rounded-xl" />
+        ) : participantsQuery.isError ? (
+          <ErrorCard heading="Participants unavailable" body="We couldn't load approved participants." onRetry={() => void participantsQuery.refetch()} />
+        ) : participants.length === 0 ? (
+          <EmptyState heading="No approved participants" body="Approve a waitlist request or add an account directly below." showCorgi={false} />
+        ) : (
+          <div className="rounded-xl border border-border overflow-hidden divide-y divide-border/60">
+            {participants.map((p) => (
+              <div key={p.did} className="flex items-center justify-between gap-3 px-4 py-3">
+                <div className="min-w-0">
+                  <p className="text-sm text-foreground truncate">{p.handle ?? p.did}</p>
+                  <p className="text-[10px] font-mono text-foreground/40 truncate">{p.notes ? `${p.notes} · ` : ""}{p.did}</p>
+                </div>
+                <button
+                  onClick={() => setConfirmRemove({ did: p.did, handle: p.handle })}
+                  className="shrink-0 text-xs font-semibold px-3 py-1 rounded-full border border-border text-foreground/55 hover:text-tongue-foreground hover:bg-tongue/10 transition-colors"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Add directly — escape hatch for unresolvable handles / DID-only adds */}
+        <form
+          onSubmit={(e) => { e.preventDefault(); if (addHandle.trim()) addMutation.mutate() }}
+          className="flex flex-col sm:flex-row gap-2 rounded-xl border border-border bg-biscuit/25 p-3"
+        >
+          <input
+            value={addHandle}
+            onChange={(e) => setAddHandle(e.target.value)}
+            placeholder="handle or did:plc:…"
+            aria-label="Handle or DID to approve directly"
+            className="flex-1 h-9 rounded-lg border border-border bg-background px-3 text-sm font-mono focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+          />
+          <input
+            value={addNotes}
+            onChange={(e) => setAddNotes(e.target.value)}
+            placeholder="notes (optional)"
+            aria-label="Notes"
+            className="flex-1 h-9 rounded-lg border border-border bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+          />
+          <Button
+            type="submit"
+            disabled={!addHandle.trim() || addMutation.isPending}
+            className="h-9 bg-primary text-primary-foreground hover:bg-primary-dark rounded-lg px-4 text-sm disabled:opacity-50"
+          >
+            {addMutation.isPending ? "Adding…" : "Add directly"}
+          </Button>
+        </form>
+      </section>
+
+      {confirmRemove && (
+        <ConfirmModal
+          title={`Remove ${confirmRemove.handle ?? "this account"}?`}
+          body="They will lose voting access on their next sign-in. Existing sessions expire within 24 hours."
+          confirmLabel="Remove access"
+          danger
+          loading={removeMutation.isPending}
+          onConfirm={() => removeMutation.mutate(confirmRemove.did)}
+          onCancel={() => setConfirmRemove(null)}
+        />
+      )}
+    </div>
+  )
+}
+
 const NAV_PANELS = [
   { id: "overview", label: "Overview" },
   { id: "current-round", label: "Current round" },
   { id: "weights", label: "Weights override" },
   { id: "filters", label: "Content filters" },
   { id: "topics", label: "Topics" },
+  { id: "access", label: "Access" },
   { id: "audit", label: "Audit log" },
   { id: "feed-health", label: "Feed health" },
   { id: "announcements", label: "Announcements" },
@@ -894,6 +1105,7 @@ function AdminConsole({ status }: { status: AdminStatus }) {
     "weights": <PanelWeightsOverride status={status} />,
     "filters": <PanelContentFilters status={status} />,
     "topics": <PanelTopics />,
+    "access": <PanelAccess status={status} />,
     "audit": <PanelAuditLog />,
     "feed-health": <PanelFeedHealth />,
     "announcements": <PanelAnnouncements />,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DemoCTA, SignInCTA } from '../web-next/components/landing-ctas';
+import { DemoCTA, WaitlistCTA } from '../web-next/components/landing-ctas';
 
 type ElementType = string | ((props: ElementProps) => RenderedNode);
 type RenderedNode =
@@ -106,8 +106,8 @@ describe('web-next landing CTAs', () => {
     expect(markup).toContain('bg-primary');
   });
 
-  it('renders SignInCTA as one sign-in anchor without a nested button', () => {
-    const markup = renderToStaticMarkup(createElement(SignInCTA, { className: 'qa-sign-in-class' }));
+  it('renders WaitlistCTA as one waitlist anchor without a nested button', () => {
+    const markup = renderToStaticMarkup(createElement(WaitlistCTA, { className: 'qa-sign-in-class' }));
 
     expect(countMatches(markup, /<a\b/g)).toBe(1);
     expect(markup).toContain('href="/sign-in"');
@@ -119,7 +119,7 @@ describe('web-next landing CTAs', () => {
 
   it('keeps required base CTA classes when optional className adds layout tokens', () => {
     const demoMarkup = renderToStaticMarkup(createElement(DemoCTA, { className: 'qa-demo-wide sm:px-8' }));
-    const signInMarkup = renderToStaticMarkup(createElement(SignInCTA, { className: 'qa-sign-in-wide sm:px-6' }));
+    const signInMarkup = renderToStaticMarkup(createElement(WaitlistCTA, { className: 'qa-sign-in-wide sm:px-6' }));
 
     expect(demoMarkup).toContain('qa-demo-wide');
     expect(demoMarkup).toContain('sm:px-8');

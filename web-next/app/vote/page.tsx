@@ -771,7 +771,7 @@ export default function VotePage() {
   return (
     <AppShell>
       {content}
-      <SignInDialog open={signInOpen} onOpenChange={setSignInOpen} />
+      <SignInDialog open={signInOpen} onOpenChange={setSignInOpen} initialMode="waitlist" />
     </AppShell>
   )
 }

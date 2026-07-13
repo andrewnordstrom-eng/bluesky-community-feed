@@ -24,7 +24,7 @@ const linkGroups = [
     links: [
       { label: "Vote", href: "/vote" },
       { label: "Proposals", href: "/proposals" },
-      { label: "Sign in", href: "/sign-in" },
+      { label: "Join the waitlist", href: "/sign-in" },
     ],
   },
   {
