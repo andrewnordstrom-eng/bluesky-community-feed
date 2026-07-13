@@ -148,7 +148,14 @@ export function registerAuthRoute(app: FastifyInstance): void {
           try {
             await invalidateSession(session.accessJwt);
           } catch (invalidateErr) {
-            logger.warn({ err: invalidateErr, did: session.did }, 'Failed to invalidate unapproved session');
+            // We can't guarantee the just-minted session is dead — refuse with
+            // 503 (matching this file's SessionStoreUnavailable handling)
+            // rather than a 403 that leaves a live session behind.
+            logger.error({ err: invalidateErr, did: session.did }, 'Failed to invalidate unapproved session');
+            return reply.code(503).send({
+              error: 'SessionStoreUnavailable',
+              message: 'Authentication service is temporarily unavailable. Please try again.',
+            });
           }
           logger.info({ did: session.did, handle: session.handle }, 'Login denied: not an approved pilot participant');
           return reply.code(403).send({

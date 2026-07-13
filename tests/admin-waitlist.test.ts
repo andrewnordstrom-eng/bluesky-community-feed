@@ -64,10 +64,11 @@ describe('admin waitlist routes', () => {
     invalidateCacheMock.mockReset();
     invalidateCacheMock.mockResolvedValue(undefined);
     // Transactional client: BEGIN/upsert/audit/COMMIT succeed by default; the
-    // atomic-claim UPDATE returns a claimed row unless a test overrides it.
+    // atomic-claim UPDATE returns a claimed row (with id + handle so both the
+    // approve and reject handlers read what they expect) unless a test overrides it.
     clientQueryMock.mockImplementation((sql: string) => {
       if (/UPDATE waitlist_requests/i.test(sql) && /RETURNING/i.test(sql)) {
-        return Promise.resolve({ rows: [{ id: 7 }] });
+        return Promise.resolve({ rows: [{ id: 7, handle: 'alice.bsky.social' }] });
       }
       return Promise.resolve({ rows: [] });
     });
@@ -155,6 +156,27 @@ describe('admin waitlist routes', () => {
     expect(releaseMock).toHaveBeenCalledTimes(1);
   });
 
+  it('approve: an error after the claim (upsert throws) rolls back, releases, and propagates', async () => {
+    resolveHandleMock.mockResolvedValue({ did: 'did:plc:alice', handle: 'alice.bsky.social' });
+    queryMock.mockResolvedValueOnce({ rows: [{ handle: 'alice.bsky.social', status: 'pending' }] }); // pre-check
+    clientQueryMock.mockImplementation((sql: string) => {
+      if (/UPDATE waitlist_requests/i.test(sql) && /RETURNING/i.test(sql)) return Promise.resolve({ rows: [{ id: 7 }] }); // claim wins
+      if (/INSERT INTO approved_participants/i.test(sql)) return Promise.reject(new Error('constraint violation'));
+      return Promise.resolve({ rows: [] });
+    });
+    const app = buildApp();
+
+    const response = await app.inject({ method: 'POST', url: '/waitlist/7/approve' });
+
+    expect(response.statusCode).toBeGreaterThanOrEqual(500);
+    const sqls = clientQueryMock.mock.calls.map((c) => String(c[0]).trim());
+    expect(sqls).toContain('ROLLBACK');
+    expect(sqls).not.toContain('COMMIT');
+    expect(releaseMock).toHaveBeenCalledTimes(1);
+    // Never invalidate the cache for a transaction that didn't commit.
+    expect(invalidateCacheMock).not.toHaveBeenCalled();
+  });
+
   it('approve: 404 for an unknown id (no network resolve, no transaction)', async () => {
     queryMock.mockResolvedValueOnce({ rows: [] });
     const app = buildApp();
@@ -190,34 +212,37 @@ describe('admin waitlist routes', () => {
     expect(invalidateCacheMock).not.toHaveBeenCalled();
   });
 
-  it('reject: marks pending row rejected and audits', async () => {
-    queryMock
-      .mockResolvedValueOnce({ rows: [{ handle: 'alice.bsky.social' }] }) // update returning
-      .mockResolvedValueOnce({ rows: [] });                               // audit insert
+  it('reject: marks pending row rejected and audits inside a transaction', async () => {
+    // Default clientQueryMock claims the row (returns id + handle) and commits.
     const app = buildApp();
 
     const response = await app.inject({ method: 'POST', url: '/waitlist/7/reject' });
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ success: true });
-    expect(queryMock.mock.calls[0][0]).toContain("SET status = 'rejected'");
-    expect(queryMock.mock.calls[1][1][0]).toBe('waitlist_rejected');
+    const sqls = clientQueryMock.mock.calls.map((c) => String(c[0]).trim());
+    expect(sqls[0]).toBe('BEGIN');
+    expect(sqls[sqls.length - 1]).toBe('COMMIT');
+    const update = clientQueryMock.mock.calls.find((c) => /UPDATE waitlist_requests/i.test(String(c[0])))!;
+    expect(String(update[0])).toContain("SET status = 'rejected'");
+    const audit = clientQueryMock.mock.calls.find((c) => /governance_audit_log/i.test(String(c[0])))!;
+    expect(audit[1][0]).toBe('waitlist_rejected');
+    expect(releaseMock).toHaveBeenCalledTimes(1);
   });
 
-  it('reject: 404 unknown id, 409 already decided', async () => {
-    const app = buildApp();
+  it('reject: 404 unknown id, 409 already decided (rolls back the empty claim)', async () => {
+    // Claim matches nothing → ROLLBACK, then the existence check decides 404 vs 409.
+    clientQueryMock.mockImplementation((sql: string) => {
+      if (/UPDATE waitlist_requests/i.test(sql) && /RETURNING/i.test(sql)) return Promise.resolve({ rows: [] });
+      return Promise.resolve({ rows: [] });
+    });
 
-    queryMock
-      .mockResolvedValueOnce({ rows: [] })  // update matched nothing
-      .mockResolvedValueOnce({ rows: [] }); // existence check: not found
-    const notFound = await app.inject({ method: 'POST', url: '/waitlist/999/reject' });
+    queryMock.mockResolvedValueOnce({ rows: [] }); // existence check: not found
+    const notFound = await buildApp().inject({ method: 'POST', url: '/waitlist/999/reject' });
     expect(notFound.statusCode).toBe(404);
 
-    queryMock.mockReset();
-    queryMock
-      .mockResolvedValueOnce({ rows: [] })                          // update matched nothing
-      .mockResolvedValueOnce({ rows: [{ status: 'approved' }] });   // exists but decided
-    const conflict = await app.inject({ method: 'POST', url: '/waitlist/7/reject' });
+    queryMock.mockResolvedValueOnce({ rows: [{ status: 'approved' }] }); // exists but decided
+    const conflict = await buildApp().inject({ method: 'POST', url: '/waitlist/7/reject' });
     expect(conflict.statusCode).toBe(409);
   });
 });

@@ -123,27 +123,42 @@ describe('login allowlist gate', () => {
     const savedToken = saveSessionMock.mock.calls[0][0];
     expect(deleteSessionMock).toHaveBeenCalledWith(savedToken);
 
-    // No session cookie may leak on the deny path.
+    // No set-cookie header carrying a session token may be emitted on the deny
+    // path — assert unconditionally, not only when the header happens to exist.
     const setCookie = response.headers['set-cookie'];
-    if (setCookie !== undefined) {
-      const cookies = Array.isArray(setCookie) ? setCookie : [setCookie];
-      for (const cookie of cookies) {
-        expect(cookie).not.toMatch(/governance_session=[^;]+/);
-      }
-    }
+    const cookies = setCookie === undefined ? [] : (Array.isArray(setCookie) ? setCookie : [setCookie]);
+    expect(cookies.some((c) => /governance_session=[^;]+/.test(c))).toBe(false);
   });
 
-  it('flag on: allowlist lookup failure fails closed (fail-closed contract)', async () => {
+  it('flag on: an allowlist lookup that throws denies fail-closed with no cookie', async () => {
     (config as { LOGIN_ALLOWLIST_ENABLED: boolean }).LOGIN_ALLOWLIST_ENABLED = true;
     isAdminMock.mockReturnValue(false);
-    // isParticipantApproved itself catches storage errors and returns false —
-    // mirror that contract here.
-    isParticipantApprovedMock.mockResolvedValue(false);
+    // If isParticipantApproved's internal fail-closed contract ever regressed
+    // and it threw, the route must still deny (never grant) — verify the route
+    // itself doesn't leak a session on that path.
+    isParticipantApprovedMock.mockRejectedValue(new Error('redis + postgres both down'));
 
     const response = await login(buildApp());
 
-    expect(response.statusCode).toBe(403);
-    expect(response.json().error).toBe('NotApproved');
+    expect(response.statusCode).toBeGreaterThanOrEqual(400);
+    const setCookie = response.headers['set-cookie'];
+    const cookies = setCookie === undefined ? [] : (Array.isArray(setCookie) ? setCookie : [setCookie]);
+    expect(cookies.some((c) => /governance_session=[^;]+/.test(c))).toBe(false);
+  });
+
+  it('flag on: if invalidating the minted session fails, denies with 503 (never 403 + live session)', async () => {
+    (config as { LOGIN_ALLOWLIST_ENABLED: boolean }).LOGIN_ALLOWLIST_ENABLED = true;
+    isAdminMock.mockReturnValue(false);
+    isParticipantApprovedMock.mockResolvedValue(false);
+    deleteSessionMock.mockRejectedValue(new Error('redis del failed'));
+
+    const response = await login(buildApp());
+
+    // Can't prove the session is dead → 503, not a 403 that implies a clean deny.
+    expect(response.statusCode).toBe(503);
+    const setCookie = response.headers['set-cookie'];
+    const cookies = setCookie === undefined ? [] : (Array.isArray(setCookie) ? setCookie : [setCookie]);
+    expect(cookies.some((c) => /governance_session=[^;]+/.test(c))).toBe(false);
   });
 
   it('flag defaults to false', () => {

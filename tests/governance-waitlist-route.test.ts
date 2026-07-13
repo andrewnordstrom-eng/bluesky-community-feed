@@ -62,6 +62,21 @@ describe('POST /api/governance/waitlist', () => {
     expect(duplicate.json()).toEqual(fresh.json());
   });
 
+  it('accepts the exact boundary values (500-char note, long valid handle)', async () => {
+    const app = buildApp();
+    const note = 'x'.repeat(500);
+    // A valid multi-label handle near the 253-char cap (63-char labels).
+    const longHandle = `${'a'.repeat(60)}.${'b'.repeat(60)}.${'c'.repeat(60)}.bsky.social`;
+
+    const noteResponse = await submit(app, { handle: 'alice.bsky.social', note });
+    expect(noteResponse.statusCode).toBe(200);
+    expect(queryMock.mock.calls[0][1]).toEqual(['alice.bsky.social', note]);
+
+    const handleResponse = await submit(app, { handle: longHandle });
+    expect(handleResponse.statusCode).toBe(200);
+    expect(longHandle.length).toBeLessThanOrEqual(253);
+  });
+
   it('rejects malformed handles, DIDs, and oversized notes with 400', async () => {
     const app = buildApp();
 

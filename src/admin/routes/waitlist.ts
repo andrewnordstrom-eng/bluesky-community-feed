@@ -21,6 +21,7 @@ import { invalidateParticipantCache } from '../../feed/access-control.js';
 import { getAdminDid } from '../../auth/admin.js';
 import { adminSecurity, ErrorResponseSchema } from '../../lib/openapi.js';
 import { resolveHandleToDid } from './resolve-handle.js';
+import { upsertApprovedParticipant } from './participant-upsert.js';
 
 const ListQuerySchema = z.object({
   status: z.enum(['pending', 'approved', 'rejected', 'all']).default('pending'),
@@ -187,18 +188,12 @@ export function registerWaitlistRoutes(app: FastifyInstance): void {
       } else {
         claimed = true;
 
-        // Same upsert as the participants route: re-activates a soft-removed row.
-        await client.query(
-          `INSERT INTO approved_participants (did, handle, added_by, notes)
-           VALUES ($1, $2, $3, $4)
-           ON CONFLICT (did) DO UPDATE SET
-             removed_at = NULL,
-             handle = COALESCE($2, approved_participants.handle),
-             added_by = $3,
-             notes = $4,
-             added_at = NOW()`,
-          [did, handle, adminDid, `waitlist #${id}`]
-        );
+        await upsertApprovedParticipant(client, {
+          did,
+          handle,
+          addedBy: adminDid,
+          notes: `waitlist #${id}`,
+        });
 
         await client.query(
           `INSERT INTO governance_audit_log (action, actor_did, details)
@@ -264,15 +259,40 @@ export function registerWaitlistRoutes(app: FastifyInstance): void {
     const { id } = parsed.data;
     const adminDid = getAdminDid(request);
 
-    const result = await db.query(
-      `UPDATE waitlist_requests
-       SET status = 'rejected', decided_at = NOW(), decided_by = $2
-       WHERE id = $1 AND status = 'pending'
-       RETURNING handle`,
-      [id, adminDid]
-    );
+    // Transactional like approve: the atomic status flip and its audit row
+    // commit together, so a rejected request can never lose its audit entry.
+    const client = await db.connect();
+    let rejectedHandle: string | undefined;
+    try {
+      await client.query('BEGIN');
 
-    if (result.rows.length === 0) {
+      const result = await client.query(
+        `UPDATE waitlist_requests
+         SET status = 'rejected', decided_at = NOW(), decided_by = $2
+         WHERE id = $1 AND status = 'pending'
+         RETURNING handle`,
+        [id, adminDid]
+      );
+
+      if (result.rows.length === 0) {
+        await client.query('ROLLBACK');
+      } else {
+        rejectedHandle = result.rows[0].handle;
+        await client.query(
+          `INSERT INTO governance_audit_log (action, actor_did, details)
+           VALUES ($1, $2, $3)`,
+          ['waitlist_rejected', adminDid, JSON.stringify({ id, handle: rejectedHandle })]
+        );
+        await client.query('COMMIT');
+      }
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    if (rejectedHandle === undefined) {
       const exists = await db.query(`SELECT status FROM waitlist_requests WHERE id = $1`, [id]);
       if (exists.rows.length === 0) {
         throw Errors.NOT_FOUND('Waitlist request');
@@ -280,13 +300,7 @@ export function registerWaitlistRoutes(app: FastifyInstance): void {
       throw Errors.CONFLICT('Request already decided');
     }
 
-    await db.query(
-      `INSERT INTO governance_audit_log (action, actor_did, details)
-       VALUES ($1, $2, $3)`,
-      ['waitlist_rejected', adminDid, JSON.stringify({ id, handle: result.rows[0].handle })]
-    );
-
-    logger.info({ id, handle: result.rows[0].handle, adminDid }, 'Waitlist request rejected');
+    logger.info({ id, handle: rejectedHandle, adminDid }, 'Waitlist request rejected');
 
     return reply.send({ success: true });
   });
