@@ -8,6 +8,13 @@ import {
   getReceiptSelectionAnnouncement,
 } from "@/components/demo/live-proof-panel"
 import type { ShadowDemoCorpusProvenance, ShadowDemoFeed } from "../shadow-demo-view-model"
+import {
+  createDemoVoteSubmission,
+  formatPolicySliderValue,
+  getEditedTopicSlugs,
+  POLICY_EDIT_THRESHOLD,
+  validateDemoVoteSubmission,
+} from "../shadow-demo-vote-policy"
 
 const snapshotProvenance: ShadowDemoCorpusProvenance = {
   mode: "production_feed_snapshot_session_frozen",
@@ -33,6 +40,22 @@ const snapshotProvenance: ShadowDemoCorpusProvenance = {
 const demoPageSource = readFileSync(new URL("../page.tsx", import.meta.url), "utf8")
 const votePanelSource = readFileSync(
   new URL("../../../components/demo/vote-panel.tsx", import.meta.url),
+  "utf8",
+)
+const agentsPanelSource = readFileSync(
+  new URL("../../../components/demo/agents-panel.tsx", import.meta.url),
+  "utf8",
+)
+const receiptPanelSource = readFileSync(
+  new URL("../../../components/demo/receipt-panel.tsx", import.meta.url),
+  "utf8",
+)
+const panelLayoutSource = readFileSync(
+  new URL("../../../components/demo/panel-layout.ts", import.meta.url),
+  "utf8",
+)
+const sliderSource = readFileSync(
+  new URL("../../../components/ui/slider.tsx", import.meta.url),
   "utf8",
 )
 
@@ -142,11 +165,149 @@ describe("demo v4 frontend release blockers", () => {
     expect(demoPageSource).toMatch(/aria-live="polite" aria-atomic="true"[\s\S]*?\{receiptAnnouncement\}/)
   })
 
-  it("keeps expanded desktop voting controls independently scrollable with the action visible", () => {
-    expect(votePanelSource).toMatch(/xl:max-h-\[calc\(100dvh-7rem\)\]/)
-    expect(votePanelSource).toMatch(/xl:overflow-y-auto/)
-    expect(votePanelSource).toMatch(/xl:overscroll-contain/)
-    expect(votePanelSource).toMatch(/xl:\[scrollbar-gutter:stable\]/)
-    expect(votePanelSource).toMatch(/xl:shrink-0[\s\S]*?STEP_PANELS\.vote\.cta/)
+  it("keeps every desktop workflow panel bounded with independently scrolling content", () => {
+    expect(panelLayoutSource).toMatch(/xl:max-h-\[calc\(100dvh-7rem\)\]/)
+    expect(panelLayoutSource).toMatch(/xl:overflow-y-auto/)
+    expect(panelLayoutSource).toMatch(/xl:overscroll-contain/)
+    expect(panelLayoutSource).toMatch(/xl:\[scrollbar-gutter:stable\]/)
+    expect(votePanelSource.match(/className=\{DEMO_PANEL_FRAME_CLASS\}/g)).toHaveLength(1)
+    expect(votePanelSource.match(/className=\{`\$\{DEMO_PANEL_SCROLL_BODY_CLASS\}/g)).toHaveLength(1)
+    expect(agentsPanelSource.match(/className=\{DEMO_PANEL_FRAME_CLASS\}/g)).toHaveLength(2)
+    expect(agentsPanelSource.match(/className=\{`\$\{DEMO_PANEL_SCROLL_BODY_CLASS\}/g)).toHaveLength(2)
+    expect(receiptPanelSource.match(/<aside className=\{`\$\{DEMO_PANEL_FRAME_CLASS\}/g)).toHaveLength(1)
+    expect(receiptPanelSource.match(/className=\{`\$\{DEMO_PANEL_SCROLL_BODY_CLASS\}/g)).toHaveLength(1)
+    expect(votePanelSource).toMatch(/data-demo-panel-footer="vote"[^>]*xl:shrink-0[\s\S]{0,700}STEP_PANELS\.vote\.cta/)
+    expect(agentsPanelSource).toMatch(/data-demo-panel-footer="community"[^>]*xl:shrink-0[\s\S]{0,700}STEP_PANELS\.agents\.cta/)
+    expect(agentsPanelSource).toMatch(/data-demo-panel-footer="epoch"[^>]*xl:shrink-0[\s\S]{0,700}STEP_PANELS\.epoch\.cta/)
+    expect(receiptPanelSource).toMatch(/data-demo-panel-footer="receipt"[^>]*xl:shrink-0[\s\S]{0,700}Run another epoch/)
+  })
+
+  it("makes every independent desktop scrollport keyboard-focusable and named", () => {
+    expect(votePanelSource).toMatch(/role="region"[\s\S]{0,120}aria-label="Demo policy controls"[\s\S]{0,80}tabIndex=\{0\}/)
+    expect(agentsPanelSource).toMatch(/aria-label="Community ballot simulation details"[\s\S]{0,80}tabIndex=\{0\}/)
+    expect(agentsPanelSource).toMatch(/aria-label="Aggregated community policy details"[\s\S]{0,80}tabIndex=\{0\}/)
+    expect(receiptPanelSource).toMatch(/aria-label="Ranking receipt details"[\s\S]{0,80}tabIndex=\{0\}/)
+    expect(panelLayoutSource).toMatch(/xl:focus-visible:ring-2/)
+  })
+
+  it("submits a complete 26-topic policy and preserves a fine-tuned value", () => {
+    const topicCatalog = Array.from({ length: 26 }, (_, index) => ({
+      slug: `topic-${index}`,
+      name: `Topic ${index}`,
+      description: null,
+      baselineWeight: 0.5,
+    }))
+    const presetTopicIntent = {
+      topicWeights: Object.fromEntries(topicCatalog.map((topic) => [topic.slug, 0.5])),
+    }
+    const editedTopicIntent = {
+      topicWeights: { ...presetTopicIntent.topicWeights, "topic-7": 0.83 },
+    }
+
+    expect(getEditedTopicSlugs(editedTopicIntent, presetTopicIntent, topicCatalog)).toEqual(["topic-7"])
+    expect(getEditedTopicSlugs(presetTopicIntent, presetTopicIntent, topicCatalog)).toEqual([])
+
+    const submission = createDemoVoteSubmission(
+      { recency: 0.4, engagement: 0.4, bridging: 0.4, source_diversity: 0.4, relevance: 0.4 },
+      editedTopicIntent,
+      topicCatalog,
+    )
+
+    expect(Object.keys(submission.topicIntent.topicWeights)).toHaveLength(26)
+    expect(submission.topicIntent.topicWeights["topic-7"]).toBe(0.83)
+    expect(Object.values(submission.weights).reduce((total, value) => total + value, 0)).toBeCloseTo(1)
+  })
+
+  it("uses one shared edit threshold and resets edited topics to the preset", () => {
+    const topicCatalog = [{
+      slug: "research",
+      name: "Research",
+      description: null,
+      baselineWeight: 0.5,
+    }]
+    const presetTopicIntent = { topicWeights: { research: 0.5 } }
+
+    expect(getEditedTopicSlugs(
+      { topicWeights: { research: 0.5 + POLICY_EDIT_THRESHOLD } },
+      presetTopicIntent,
+      topicCatalog,
+    )).toEqual(["research"])
+    expect(getEditedTopicSlugs(
+      { topicWeights: { research: 0.5049 } },
+      presetTopicIntent,
+      topicCatalog,
+    )).toEqual([])
+    expect(getEditedTopicSlugs(presetTopicIntent, presetTopicIntent, topicCatalog)).toEqual([])
+  })
+
+  it("shows the raw relative signal setting and validates with the shared ballot rules", () => {
+    const weights = {
+      recency: 0.4,
+      engagement: 0.2,
+      bridging: 0.2,
+      source_diversity: 0.1,
+      relevance: 0.1,
+    }
+    const topicCatalog = [{
+      slug: "research",
+      name: "Research",
+      description: null,
+      baselineWeight: 0.5,
+    }]
+    const validation = validateDemoVoteSubmission(
+      weights,
+      { topicWeights: { research: 0.5 } },
+      topicCatalog,
+    )
+
+    expect(formatPolicySliderValue(weights.recency)).toBe("40%")
+    expect(validation.valid).toBe(true)
+    expect(votePanelSource).toMatch(/displayValue=\{rawWeights\[key\]\}/)
+    expect(votePanelSource).toMatch(/Corgi normalizes them to 100%/)
+  })
+
+  it("fails closed when a demo ballot omits a topic", () => {
+    const topicCatalog = Array.from({ length: 26 }, (_, index) => ({
+      slug: `topic-${index}`,
+      name: `Topic ${index}`,
+      description: null,
+      baselineWeight: 0.5,
+    }))
+    const incompleteTopicIntent = {
+      topicWeights: Object.fromEntries(topicCatalog.slice(0, 25).map((topic) => [topic.slug, 0.5])),
+    }
+
+    expect(() => createDemoVoteSubmission(
+      { recency: 0.2, engagement: 0.2, bridging: 0.2, source_diversity: 0.2, relevance: 0.2 },
+      incompleteTopicIntent,
+      topicCatalog,
+    )).toThrow(/exactly the 26 catalog topics/i)
+  })
+
+  it("fails closed when a demo signal weight is outside the slider contract", () => {
+    const topicCatalog = Array.from({ length: 26 }, (_, index) => ({
+      slug: `topic-${index}`,
+      name: `Topic ${index}`,
+      description: null,
+      baselineWeight: 0.5,
+    }))
+    const topicIntent = {
+      topicWeights: Object.fromEntries(topicCatalog.map((topic) => [topic.slug, 0.5])),
+    }
+
+    expect(() => createDemoVoteSubmission(
+      { recency: -0.1, engagement: 0.2, bridging: 0.3, source_diversity: 0.3, relevance: 0.3 },
+      topicIntent,
+      topicCatalog,
+    )).toThrow(/signal recency has invalid weight/i)
+  })
+
+  it("uses one accessible slider system for signals and topics", () => {
+    expect(votePanelSource).toMatch(/import \{ Slider \} from "@\/components\/ui\/slider"/)
+    expect(votePanelSource).not.toMatch(/<input type="range"/)
+    expect(votePanelSource).toMatch(/Your custom policy/)
+    expect(votePanelSource).toMatch(/Every ballot carries all/)
+    expect(votePanelSource).toMatch(/onClick=\{submitPolicy\}/)
+    expect(sliderSource).toMatch(/thumbValues\.map/)
   })
 })
