@@ -10,6 +10,10 @@ Linear issue: PROJ-1818
 PR: https://github.com/andrewnordstrom-eng/bluesky-community-feed/pull/355
 Decision: apply the audited `coderabbit:exempt` path.
 
+Outcome: invalidated before merge. CodeRabbit published a delayed current-code-head
+review immediately after this receipt was pushed. The exemption label was removed
+before implementing those findings, and this receipt no longer authorizes a merge.
+
 ## CodeRabbit Gate Snapshot
 
 - Reviewed code head at timeout: `38a8e88f679e578bf5230aac4e25fa5e36882f6a`.

@@ -99,6 +99,26 @@ async function runEmptyCycle(epochId = 2) {
   await runScoringPipeline();
 }
 
+async function runPublishedCycle(epochId = 2) {
+  dbQueryMock
+    .mockResolvedValueOnce({ rows: [makeEpochRow(epochId)] })
+    .mockResolvedValueOnce({ rows: [] })
+    .mockResolvedValueOnce({
+      rows: [{
+        post_uri: 'at://did:plc:author/app.bsky.feed.post/1',
+        total_score: 0.8,
+        author_did: 'did:plc:author',
+        bridging_score: 0.5,
+        engagement_score: 0.4,
+        embed_url: null,
+        text_length: 120,
+      }],
+    })
+    .mockResolvedValueOnce({ rows: [] })
+    .mockResolvedValueOnce({ rows: [] });
+  await runScoringPipeline();
+}
+
 /** Check whether the posts query used full mode (no UNION ALL) or incremental (UNION ALL). */
 function getPostsQueryMode(): 'full' | 'incremental' {
   const postsQuery = String(dbQueryMock.mock.calls[1][0]);
@@ -225,7 +245,7 @@ describe('periodic full rescore for recency decay', () => {
 
     dbQueryMock.mockReset();
     setupDefaultMocks();
-    await runEmptyCycle(2);
+    await runPublishedCycle(2);
     expect(getPostsQueryMode()).toBe('full');
 
     dbQueryMock.mockReset();
@@ -240,7 +260,7 @@ describe('periodic full rescore for recency decay', () => {
 
     dbQueryMock.mockReset();
     setupDefaultMocks();
-    await runEmptyCycle(3);
+    await runPublishedCycle(3);
     expect(getPostsQueryMode()).toBe('full');
 
     dbQueryMock.mockReset();
@@ -256,7 +276,7 @@ describe('periodic full rescore for recency decay', () => {
 
     dbQueryMock.mockReset();
     setupDefaultMocks();
-    await runEmptyCycle(2);
+    await runPublishedCycle(2);
     expect(getPostsQueryMode()).toBe('full');
 
     dbQueryMock.mockReset();
@@ -278,6 +298,31 @@ describe('periodic full rescore for recency decay', () => {
     setupDefaultMocks();
     await runEmptyCycle(2);
     expect(getPostsQueryMode()).toBe('full');
+  });
+
+  it('keeps an in-memory policy rescore pending until feed publication succeeds', async () => {
+    await runEmptyCycle(2);
+    requestFullRescore();
+
+    dbQueryMock.mockReset();
+    setupDefaultMocks();
+    await runEmptyCycle(2);
+    expect(getPostsQueryMode()).toBe('full');
+
+    dbQueryMock.mockReset();
+    setupDefaultMocks();
+    await runEmptyCycle(2);
+    expect(getPostsQueryMode()).toBe('full');
+
+    dbQueryMock.mockReset();
+    setupDefaultMocks();
+    await runPublishedCycle(2);
+    expect(getPostsQueryMode()).toBe('full');
+
+    dbQueryMock.mockReset();
+    setupDefaultMocks();
+    await runEmptyCycle(2);
+    expect(getPostsQueryMode()).toBe('incremental');
   });
 
   it('does not consume a policy change requested during an in-flight run', async () => {

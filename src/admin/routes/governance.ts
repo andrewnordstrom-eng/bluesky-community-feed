@@ -27,9 +27,11 @@ import {
   aggregateVotes,
 } from '../../governance/aggregation.js';
 import {
+  InvalidStoredTopicWeightsError,
   parseStoredProposedTopicWeights,
   parseStoredTopicWeights,
 } from '../../governance/topic-weights.js';
+import { readGovernanceVoteCounts } from '../../governance/vote-counts.js';
 import {
   readEpochWeightsForMultipleEpochs,
   writeEpochWeights,
@@ -414,35 +416,6 @@ async function enqueuePolicyRescore(client: PoolClient, epochId: number): Promis
   return generation;
 }
 
-async function getVoteCounts(
-  client: PoolClient,
-  epochId: number
-): Promise<{ total: number; content: number; topic: number }> {
-  const result = await client.query<{ total: string; content: string; topic: string }>(
-    `SELECT
-      COUNT(*)::int AS total,
-      COUNT(*) FILTER (
-        WHERE
-          (include_keywords IS NOT NULL AND array_length(include_keywords, 1) > 0)
-          OR
-          (exclude_keywords IS NOT NULL AND array_length(exclude_keywords, 1) > 0)
-      )::int AS content,
-      COUNT(*) FILTER (
-        WHERE topic_weight_votes IS NOT NULL
-          AND topic_weight_votes != '{}'::jsonb
-      )::int AS topic
-     FROM governance_votes
-     WHERE epoch_id = $1`,
-    [epochId]
-  );
-
-  return {
-    total: parseInt(result.rows[0]?.total ?? '0', 10),
-    content: parseInt(result.rows[0]?.content ?? '0', 10),
-    topic: parseInt(result.rows[0]?.topic ?? '0', 10),
-  };
-}
-
 function mapScheduledVote(row: ScheduledVoteRow) {
   return {
     id: row.id,
@@ -474,6 +447,7 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
             autoTransition: { type: 'boolean' },
           },
         },
+        500: ErrorResponseSchema,
       },
     },
   }, async (_request: FastifyRequest, reply: FastifyReply) => {
@@ -508,9 +482,21 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
 
     const roundEpochIds = roundsResult.rows.map((row) => row.id);
     const weightsByEpoch = await readEpochWeightsForMultipleEpochs({ epochIds: roundEpochIds });
-    const rounds = roundsResult.rows.map((row) =>
-      mapRound(row, parseInt(row.vote_count, 10), weightsByEpoch[row.id])
-    );
+    let rounds: ReturnType<typeof mapRound>[];
+    try {
+      rounds = roundsResult.rows.map((row) =>
+        mapRound(row, Number.parseInt(row.vote_count, 10), weightsByEpoch[row.id])
+      );
+    } catch (error) {
+      if (!(error instanceof InvalidStoredTopicWeightsError)) {
+        throw error;
+      }
+      logger.error({ error }, 'Stored governance policy is invalid in overview');
+      return reply.code(500).send({
+        error: 'InvalidGovernancePolicy',
+        message: 'Stored governance policy is invalid',
+      });
+    }
     const currentRound = rounds.find((round) => round.status === 'active' || round.status === 'voting') ?? null;
 
     return reply.send({
@@ -605,7 +591,7 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
         [durationHours, epoch.id]
       );
 
-      const voteCounts = await getVoteCounts(client, epoch.id);
+      const voteCounts = await readGovernanceVoteCounts(client, epoch.id);
 
       await client.query(
         `INSERT INTO governance_audit_log (action, actor_did, epoch_id, details)
@@ -701,7 +687,7 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
         });
       }
 
-      const voteCounts = await getVoteCounts(client, epoch.id);
+      const voteCounts = await readGovernanceVoteCounts(client, epoch.id);
       const previousWeights = toWeights(epoch);
       const previousTopicWeights = parseStoredTopicWeights(
         epoch.topic_weights,
@@ -897,7 +883,7 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
         await writeEpochWeights(client, epoch.id, newWeights);
       }
 
-      const voteCounts = await getVoteCounts(client, epoch.id);
+      const voteCounts = await readGovernanceVoteCounts(client, epoch.id);
       const rescoreGeneration = await enqueuePolicyRescore(client, epoch.id);
 
       await client.query(
@@ -921,6 +907,9 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
 
       await client.query('COMMIT');
 
+      // The durable rescore worker invalidates both policy caches before it
+      // reads this generation. Keeping invalidation there makes post-commit
+      // failures retryable instead of masking an already-approved policy.
       const rescoreTriggered = await triggerManualRescore('admin_approve_results');
 
       if (announce) {
@@ -1009,7 +998,7 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
         [epoch.id]
       );
 
-      const voteCounts = await getVoteCounts(client, epoch.id);
+      const voteCounts = await readGovernanceVoteCounts(client, epoch.id);
 
       await client.query(
         `INSERT INTO governance_audit_log (action, actor_did, epoch_id, details)
@@ -1885,6 +1874,8 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
 
       await client.query('COMMIT');
 
+      // Cache invalidation belongs to the durable worker for the same
+      // post-commit retry guarantee as the canonical approval route.
       const rescoreTriggered = await triggerManualRescore('admin_apply_results');
 
       return reply.send({
@@ -1960,6 +1951,7 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
         },
         400: ErrorResponseSchema,
         404: ErrorResponseSchema,
+        500: ErrorResponseSchema,
       },
     },
   }, async (request: FastifyRequest, reply: FastifyReply) => {
@@ -2069,8 +2061,22 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
     const endMs = round.closed_at ? new Date(round.closed_at).getTime() : nowMs;
     const durationMs = Math.max(0, endMs - startMs);
 
+    let mappedRound: ReturnType<typeof mapRound>;
+    try {
+      mappedRound = mapRound(round, voteCount);
+    } catch (error) {
+      if (!(error instanceof InvalidStoredTopicWeightsError)) {
+        throw error;
+      }
+      logger.error({ error, roundId }, 'Stored governance policy is invalid in round detail');
+      return reply.code(500).send({
+        error: 'InvalidGovernancePolicy',
+        message: 'Stored governance policy is invalid',
+      });
+    }
+
     return reply.send({
-      round: mapRound(round, voteCount),
+      round: mappedRound,
       startingWeights,
       endingWeights,
       startingRules,

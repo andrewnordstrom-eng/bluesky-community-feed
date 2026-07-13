@@ -44,7 +44,10 @@ vi.mock('../src/lib/logger.js', () => ({
 
 import { registerVoteRoute } from '../src/governance/routes/vote.js';
 import { registerTopicRoutes } from '../src/governance/routes/topics.js';
-import { parseStoredTopicWeights } from '../src/governance/topic-weights.js';
+import {
+  parseStoredProposedTopicWeights,
+  parseStoredTopicWeights,
+} from '../src/governance/topic-weights.js';
 
 interface TopicVoteEpoch {
   id: number;
@@ -217,6 +220,31 @@ describe('GET /api/governance/topics', () => {
 });
 
 describe('stored topic-weight policy parsing', () => {
+  it('returns a validated copy for a well-formed policy', () => {
+    const raw = { 'science-research': 0.5 };
+
+    const parsed = parseStoredTopicWeights(raw, 'test epoch');
+
+    expect(parsed).toEqual(raw);
+    expect(parsed).not.toBe(raw);
+  });
+
+  it('returns an empty active policy for null and undefined', () => {
+    expect(parseStoredTopicWeights(null, 'test epoch')).toEqual({});
+    expect(parseStoredTopicWeights(undefined, 'test epoch')).toEqual({});
+  });
+
+  it('preserves the null sentinel for a missing proposed policy', () => {
+    expect(parseStoredProposedTopicWeights(null, 'test epoch')).toBeNull();
+    expect(parseStoredProposedTopicWeights(undefined, 'test epoch')).toBeNull();
+  });
+
+  it('validates proposed policies with the same strict schema', () => {
+    expect(() => parseStoredProposedTopicWeights([0.5], 'test epoch')).toThrow(
+      'Invalid stored topic weights for test epoch'
+    );
+  });
+
   it.each([
     ['primitive', 'science'],
     ['array', [0.5]],

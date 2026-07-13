@@ -9,7 +9,6 @@
 
 import cron from 'node-cron';
 import type { ScheduledTask } from 'node-cron';
-import type { PoolClient } from 'pg';
 import { db } from '../db/client.js';
 import {
   aggregateContentVotes,
@@ -19,6 +18,7 @@ import {
 import { readEpochWeights } from '../governance/weight-longtable.js';
 import { toContentRules, type ContentRules, type GovernanceWeights } from '../governance/governance.types.js';
 import { parseStoredTopicWeights } from '../governance/topic-weights.js';
+import { readGovernanceVoteCounts } from '../governance/vote-counts.js';
 import {
   announceVotingClosed,
   announceVotingOpen,
@@ -78,35 +78,6 @@ function toDbContentRules(rules: ContentRules): { include_keywords: string[]; ex
   return {
     include_keywords: rules.includeKeywords,
     exclude_keywords: rules.excludeKeywords,
-  };
-}
-
-async function getVoteCounts(
-  client: PoolClient,
-  epochId: number
-): Promise<{ total: number; content: number; topic: number }> {
-  const result = await client.query<{ total: string; content: string; topic: string }>(
-    `SELECT
-      COUNT(*)::int AS total,
-      COUNT(*) FILTER (
-        WHERE
-          (include_keywords IS NOT NULL AND array_length(include_keywords, 1) > 0)
-          OR
-          (exclude_keywords IS NOT NULL AND array_length(exclude_keywords, 1) > 0)
-      )::int AS content,
-      COUNT(*) FILTER (
-        WHERE topic_weight_votes IS NOT NULL
-          AND topic_weight_votes != '{}'::jsonb
-      )::int AS topic
-     FROM governance_votes
-     WHERE epoch_id = $1`,
-    [epochId]
-  );
-
-  return {
-    total: parseInt(result.rows[0]?.total ?? '0', 10),
-    content: parseInt(result.rows[0]?.content ?? '0', 10),
-    topic: parseInt(result.rows[0]?.topic ?? '0', 10),
   };
 }
 
@@ -233,7 +204,7 @@ async function closeExpiredVotingWindows(): Promise<{ transitioned: number; erro
         continue;
       }
 
-      const voteCounts = await getVoteCounts(client, epoch.id);
+      const voteCounts = await readGovernanceVoteCounts(client, epoch.id);
       // Read current epoch weights via the storage-agnostic helper. Behind
       // GOVERNANCE_LONGTABLE_READ_ENABLED this queries governance_epoch_weights;
       // off, it projects from the wide columns. The autocommit pool used by

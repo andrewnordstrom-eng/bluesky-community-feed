@@ -44,6 +44,16 @@ describe('startup migration checks', () => {
     );
   });
 
+  it('fails startup checks when latest migration is one below 034', async () => {
+    dbQueryMock
+      .mockResolvedValueOnce({ rows: [{ ok: 1 }] })
+      .mockResolvedValueOnce({ rows: [{ max_migration: 33 }] });
+
+    await expect(runStartupChecks()).rejects.toThrow(
+      /Migration startup check failed: database migrations are behind \(max=33, required=34\)/
+    );
+  });
+
   it('passes startup checks when latest migration is 034', async () => {
     dbQueryMock
       .mockResolvedValueOnce({ rows: [{ ok: 1 }] }) // checkPostgres

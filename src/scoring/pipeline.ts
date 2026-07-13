@@ -438,7 +438,7 @@ async function runScoringPipelineInternal(): Promise<void> {
     }
     await updateCurrentRunScope(runId, epoch.id, elapsed, posts.length, allPosts.length - posts.length);
 
-    if (!useIncremental && policyRescoreDue) {
+    if (!useIncremental && policyRescoreDue && feedPublication.published) {
       completedFullRescoreRequestGeneration = Math.max(
         completedFullRescoreRequestGeneration,
         requestedFullRescoreGeneration

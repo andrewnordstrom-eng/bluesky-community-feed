@@ -162,6 +162,46 @@ describe('admin governance routes', () => {
     await app.close();
   });
 
+  it('returns a bounded error when overview policy data is malformed', async () => {
+    dbQueryMock.mockResolvedValueOnce({
+      rows: [{ ...epochRow({ topic_weights: 'malformed' }), vote_count: '1' }],
+    });
+
+    const app = Fastify();
+    registerGovernanceRoutes(app);
+
+    const response = await app.inject({ method: 'GET', url: '/governance' });
+
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toEqual({
+      error: 'InvalidGovernancePolicy',
+      message: 'Stored governance policy is invalid',
+    });
+
+    await app.close();
+  });
+
+  it('returns a bounded error when round detail policy data is malformed', async () => {
+    dbQueryMock
+      .mockResolvedValueOnce({ rows: [epochRow({ topic_weights: 'malformed' })] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ count: '1' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const app = Fastify();
+    registerGovernanceRoutes(app);
+
+    const response = await app.inject({ method: 'GET', url: '/governance/rounds/7' });
+
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toEqual({
+      error: 'InvalidGovernancePolicy',
+      message: 'Stored governance policy is invalid',
+    });
+
+    await app.close();
+  });
+
   it('returns 409 when adding duplicate keyword', async () => {
     clientQueryMock
       .mockResolvedValueOnce({ rows: [] })
@@ -575,6 +615,12 @@ describe('admin governance routes', () => {
     expect(response.json()).toMatchObject({ success: true, rescoreTriggered: false });
     expect(clientQueryMock).toHaveBeenCalledWith('COMMIT');
     expect(requestFullRescoreMock).toHaveBeenCalledTimes(1);
+    expect(tryTriggerManualScoringRunMock).toHaveBeenCalledTimes(1);
+    const commitCallIndex = clientQueryMock.mock.calls.findIndex(([sql]) => sql === 'COMMIT');
+    expect(commitCallIndex).toBeGreaterThanOrEqual(0);
+    expect(tryTriggerManualScoringRunMock.mock.invocationCallOrder[0]).toBeGreaterThan(
+      clientQueryMock.mock.invocationCallOrder[commitCallIndex]
+    );
 
     await app.close();
   });
