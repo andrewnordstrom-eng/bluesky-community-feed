@@ -72,6 +72,10 @@ jobs:
             cd ..
             cd cli && npm ci && npx tsc
             cd ..
+            # Rollback restores PREV_COMMIT without a down migration. Keep every
+            # deploy migration additive and backward-compatible with that prior
+            # application, and run it only after every build/test gate passes.
+            npm run migrate
             sudo docker compose -f docker-compose.prod.yml up -d --no-deps demo-redis
             for i in 1 2 3 4 5; do
               if sudo docker compose -f docker-compose.prod.yml exec -T demo-redis redis-cli ping | grep -q PONG; then
