@@ -20,6 +20,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - Dedicated support guide (`SUPPORT.md`) and issue-template contact links for support/security routing
 
 ### Changed
+- Production governance now closes voting into an explicit results-review phase, applies approved signal weights, topic weights, and content rules together, and performs a full same-epoch rescore before the updated policy is treated as active.
 - Public `web-next` homepage refreshed around the reviewer-safe live snapshot, anonymized receipt copy, and demo-first CTA path.
 - README command examples and tooling descriptions updated to match current CLI and MCP behavior
 - PR template and contributing checklist now enforce changelog and security/audit validation gates
