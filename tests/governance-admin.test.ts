@@ -6,8 +6,11 @@ const {
   dbConnectMock,
   clientQueryMock,
   invalidateContentRulesCacheMock,
+  invalidateGovernanceGateCacheMock,
   aggregateVotesMock,
   aggregateContentVotesMock,
+  aggregateTopicWeightsMock,
+  writeEpochWeightsMock,
   tryTriggerManualScoringRunMock,
   forceEpochTransitionMock,
   triggerEpochTransitionMock,
@@ -16,8 +19,11 @@ const {
   dbConnectMock: vi.fn(),
   clientQueryMock: vi.fn(),
   invalidateContentRulesCacheMock: vi.fn(),
+  invalidateGovernanceGateCacheMock: vi.fn(),
   aggregateVotesMock: vi.fn(),
   aggregateContentVotesMock: vi.fn(),
+  aggregateTopicWeightsMock: vi.fn(),
+  writeEpochWeightsMock: vi.fn(),
   tryTriggerManualScoringRunMock: vi.fn(),
   forceEpochTransitionMock: vi.fn(),
   triggerEpochTransitionMock: vi.fn(),
@@ -38,9 +44,19 @@ vi.mock('../src/governance/content-filter.js', () => ({
   invalidateContentRulesCache: invalidateContentRulesCacheMock,
 }));
 
+vi.mock('../src/ingestion/governance-gate.js', () => ({
+  invalidateGovernanceGateCache: invalidateGovernanceGateCacheMock,
+}));
+
 vi.mock('../src/governance/aggregation.js', () => ({
   aggregateVotes: aggregateVotesMock,
   aggregateContentVotes: aggregateContentVotesMock,
+  aggregateTopicWeights: aggregateTopicWeightsMock,
+}));
+
+vi.mock('../src/governance/weight-longtable.js', () => ({
+  readEpochWeightsForMultipleEpochs: vi.fn().mockResolvedValue({}),
+  writeEpochWeights: writeEpochWeightsMock,
 }));
 
 vi.mock('../src/scoring/scheduler.js', () => ({
@@ -69,6 +85,12 @@ function epochRow(overrides: Partial<Record<string, unknown>> = {}) {
       include_keywords: ['ai'],
       exclude_keywords: ['spam'],
     },
+    topic_weights: {
+      'software-development': 0.5,
+    },
+    proposed_weights: null,
+    proposed_topic_weights: null,
+    proposed_content_rules: null,
     created_at: '2026-02-08T00:00:00.000Z',
     closed_at: null,
     ...overrides,
@@ -81,8 +103,11 @@ describe('admin governance routes', () => {
     dbConnectMock.mockReset();
     clientQueryMock.mockReset();
     invalidateContentRulesCacheMock.mockReset();
+    invalidateGovernanceGateCacheMock.mockReset();
     aggregateVotesMock.mockReset();
     aggregateContentVotesMock.mockReset();
+    aggregateTopicWeightsMock.mockReset();
+    writeEpochWeightsMock.mockReset();
     tryTriggerManualScoringRunMock.mockReset();
     forceEpochTransitionMock.mockReset();
     triggerEpochTransitionMock.mockReset();
@@ -93,9 +118,12 @@ describe('admin governance routes', () => {
     });
 
     invalidateContentRulesCacheMock.mockResolvedValue(undefined);
+    invalidateGovernanceGateCacheMock.mockResolvedValue(undefined);
     tryTriggerManualScoringRunMock.mockReturnValue(true);
     aggregateVotesMock.mockResolvedValue(null);
     aggregateContentVotesMock.mockResolvedValue({ includeKeywords: [], excludeKeywords: [] });
+    aggregateTopicWeightsMock.mockResolvedValue({});
+    writeEpochWeightsMock.mockResolvedValue(undefined);
     forceEpochTransitionMock.mockResolvedValue(8);
     triggerEpochTransitionMock.mockResolvedValue({ success: true, newEpochId: 8 });
   });
@@ -250,12 +278,12 @@ describe('admin governance routes', () => {
     await app.close();
   });
 
-  it('apply results without votes keeps existing weights and logs audit entry', async () => {
+  it('legacy apply-results alias requires reviewed results and keeps policy without votes', async () => {
     clientQueryMock
       .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [epochRow()] })
+      .mockResolvedValueOnce({ rows: [epochRow({ phase: 'results' })] })
       .mockResolvedValueOnce({ rows: [{ count: '0' }] })
-      .mockResolvedValueOnce({ rows: [epochRow()] })
+      .mockResolvedValueOnce({ rows: [epochRow({ phase: 'running' })] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] });
 
@@ -286,6 +314,144 @@ describe('admin governance routes', () => {
       (call) => typeof call[0] === 'string' && call[0].includes('INSERT INTO governance_audit_log')
     );
     expect(auditInsert).toBeTruthy();
+
+    await app.close();
+  });
+
+  it('does not let the legacy apply-results alias bypass results review', async () => {
+    clientQueryMock
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [epochRow({ phase: 'voting' })] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const app = Fastify();
+    registerGovernanceRoutes(app);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/governance/apply-results',
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ error: 'ResultsNotPending' });
+    expect(aggregateVotesMock).not.toHaveBeenCalled();
+    expect(aggregateTopicWeightsMock).not.toHaveBeenCalled();
+    expect(aggregateContentVotesMock).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it('reviews and applies signal, topic, and content-rule proposals before rescoring', async () => {
+    const proposedWeights = {
+      recency: 0.1,
+      engagement: 0.2,
+      bridging: 0.25,
+      sourceDiversity: 0.15,
+      relevance: 0.3,
+    };
+    const proposedTopicWeights = {
+      'science-research': 0.9,
+      'software-development': 0.75,
+    };
+    const proposedContentRules = {
+      include_keywords: ['research'],
+      exclude_keywords: ['spam'],
+    };
+
+    aggregateVotesMock.mockResolvedValue(proposedWeights);
+    aggregateTopicWeightsMock.mockResolvedValue(proposedTopicWeights);
+    aggregateContentVotesMock.mockResolvedValue({
+      includeKeywords: proposedContentRules.include_keywords,
+      excludeKeywords: proposedContentRules.exclude_keywords,
+    });
+
+    clientQueryMock
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [epochRow({ phase: 'voting' })] })
+      .mockResolvedValueOnce({ rows: [{ total: '25', content: '8', topic: '25' }] })
+      .mockResolvedValueOnce({
+        rows: [epochRow({
+          phase: 'results',
+          proposed_weights: proposedWeights,
+          proposed_topic_weights: proposedTopicWeights,
+          proposed_content_rules: proposedContentRules,
+        })],
+      })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const app = Fastify();
+    registerGovernanceRoutes(app);
+
+    const closed = await app.inject({
+      method: 'POST',
+      url: '/governance/end-voting',
+      payload: { announce: false },
+    });
+
+    expect(closed.statusCode).toBe(200);
+    expect(closed.json()).toMatchObject({
+      voteCount: 25,
+      proposedWeights,
+      proposedTopicWeights,
+      proposedContentRules: {
+        includeKeywords: ['research'],
+        excludeKeywords: ['spam'],
+      },
+    });
+
+    clientQueryMock.mockReset();
+    clientQueryMock
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({
+        rows: [epochRow({
+          phase: 'results',
+          proposed_weights: proposedWeights,
+          proposed_topic_weights: proposedTopicWeights,
+          proposed_content_rules: proposedContentRules,
+        })],
+      })
+      .mockResolvedValueOnce({
+        rows: [epochRow({
+          phase: 'running',
+          recency_weight: proposedWeights.recency,
+          engagement_weight: proposedWeights.engagement,
+          bridging_weight: proposedWeights.bridging,
+          source_diversity_weight: proposedWeights.sourceDiversity,
+          relevance_weight: proposedWeights.relevance,
+          topic_weights: proposedTopicWeights,
+          content_rules: proposedContentRules,
+        })],
+      })
+      .mockResolvedValueOnce({ rows: [{ total: '25', content: '8', topic: '25' }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const approved = await app.inject({
+      method: 'POST',
+      url: '/governance/approve-results',
+      payload: { announce: false },
+    });
+
+    expect(approved.statusCode).toBe(200);
+    expect(approved.json()).toMatchObject({
+      weights: proposedWeights,
+      topicWeights: proposedTopicWeights,
+      contentRules: {
+        includeKeywords: ['research'],
+        excludeKeywords: ['spam'],
+      },
+      rescoreTriggered: true,
+    });
+    expect(writeEpochWeightsMock).toHaveBeenCalledWith(expect.anything(), 7, proposedWeights);
+    expect(invalidateContentRulesCacheMock).toHaveBeenCalledTimes(1);
+    expect(invalidateGovernanceGateCacheMock).toHaveBeenCalledTimes(1);
+    expect(tryTriggerManualScoringRunMock).toHaveBeenCalledWith();
+
+    const update = clientQueryMock.mock.calls.find(
+      (call) => typeof call[0] === 'string' && call[0].includes('topic_weights = $6')
+    );
+    expect(update?.[1]).toContain(JSON.stringify(proposedTopicWeights));
 
     await app.close();
   });

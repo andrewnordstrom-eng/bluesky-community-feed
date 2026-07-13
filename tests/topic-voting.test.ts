@@ -49,6 +49,7 @@ const ACTIVE_EPOCH = {
   id: 5,
   status: 'voting',
   phase: 'voting',
+  voting_ends_at: '2099-01-01T00:00:00.000Z',
   topic_weights: { 'software-development': 0.7, 'dogs-pets': 0.4 },
 };
 
@@ -65,8 +66,9 @@ const ACTIVE_TOPICS = [
 function setupDbMock(opts?: {
   hasSubscriber?: boolean;
   hasExistingVote?: boolean;
+  closesBeforeInsert?: boolean;
 }): void {
-  const { hasSubscriber = true, hasExistingVote = false } = opts ?? {};
+  const { hasSubscriber = true, hasExistingVote = false, closesBeforeInsert = false } = opts ?? {};
 
   dbQueryMock.mockImplementation((sql: string, _params?: unknown[]) => {
     // Subscriber check
@@ -74,6 +76,10 @@ function setupDbMock(opts?: {
       return Promise.resolve({
         rows: hasSubscriber ? [{ did: 'did:plc:voter' }] : [],
       });
+    }
+    // Atomic vote insert locks the still-open epoch in the same statement.
+    if (sql.includes('WITH open_epoch')) {
+      return Promise.resolve({ rows: closesBeforeInsert ? [] : [{ id: 1, is_new_vote: true }] });
     }
     // Active epoch for voting
     if (sql.includes('governance_epochs') && sql.includes('status')) {
@@ -225,6 +231,27 @@ describe('POST /api/governance/vote (topic_weights)', () => {
     expect(response.statusCode).toBe(200);
     const body = response.json();
     expect(body.topicWeights).toEqual({ 'software-development': 0.9, 'dogs-pets': 0.4 });
+
+    await app.close();
+  });
+
+  it('rejects a ballot when voting closes between the initial check and atomic insert', async () => {
+    getAuthenticatedDidMock.mockResolvedValue('did:plc:voter');
+    setupDbMock({ closesBeforeInsert: true });
+
+    const app = Fastify();
+    registerVoteRoute(app);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/governance/vote',
+      payload: {
+        topic_weights: { 'software-development': 0.9 },
+      },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ error: 'VotingClosed' });
 
     await app.close();
   });

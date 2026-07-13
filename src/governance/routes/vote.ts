@@ -320,7 +320,7 @@ export function registerVoteRoute(app: FastifyInstance): void {
 
     // 5. Get current epoch (must be active or voting)
     const epoch = await db.query(
-      `SELECT id, status, phase FROM governance_epochs
+      `SELECT id, status, phase, voting_ends_at FROM governance_epochs
        WHERE status IN ('active', 'voting')
        ORDER BY id DESC LIMIT 1`
     );
@@ -334,8 +334,9 @@ export function registerVoteRoute(app: FastifyInstance): void {
 
     const epochId = epoch.rows[0].id;
     const epochPhase = epoch.rows[0].phase as string | null;
+    const votingEndsAt = epoch.rows[0].voting_ends_at as string | null;
 
-    if (epochPhase !== 'voting') {
+    if (epochPhase !== 'voting' || (votingEndsAt !== null && new Date(votingEndsAt).getTime() <= Date.now())) {
       return reply.code(409).send({
         error: 'VotingClosed',
         message: 'Voting is currently closed for this round.',
@@ -352,13 +353,23 @@ export function registerVoteRoute(app: FastifyInstance): void {
           : null;
 
       const voteResult = await db.query(
-        `INSERT INTO governance_votes (
+        `WITH open_epoch AS (
+          SELECT id
+          FROM governance_epochs
+          WHERE id = $2
+            AND phase = 'voting'
+            AND (voting_ends_at IS NULL OR voting_ends_at > NOW())
+          FOR SHARE
+        )
+        INSERT INTO governance_votes (
           voter_did, epoch_id,
           recency_weight, engagement_weight, bridging_weight,
           source_diversity_weight, relevance_weight,
           include_keywords, exclude_keywords,
           topic_weight_votes
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        )
+        SELECT $1, open_epoch.id, $3, $4, $5, $6, $7, $8, $9, $10
+        FROM open_epoch
         ON CONFLICT (voter_did, epoch_id) DO UPDATE SET
           recency_weight = COALESCE($3, governance_votes.recency_weight),
           engagement_weight = COALESCE($4, governance_votes.engagement_weight),
@@ -381,6 +392,13 @@ export function registerVoteRoute(app: FastifyInstance): void {
           topicWeightsJson,
         ]
       );
+
+      if (voteResult.rows.length === 0) {
+        return reply.code(409).send({
+          error: 'VotingClosed',
+          message: 'Voting closed before this ballot could be recorded.',
+        });
+      }
 
       const isNewVote = voteResult.rows[0].is_new_vote;
       const voteId = voteResult.rows[0].id as string;
