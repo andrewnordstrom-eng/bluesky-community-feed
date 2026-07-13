@@ -26,7 +26,7 @@ Corgi Commons is a production Bluesky custom feed shaped through a limited gover
 
 ## Try It
 
-**No coding required** — just a Bluesky account.
+**No coding required.** Anyone can use the anonymous demo; a Bluesky account is needed only to save or subscribe to the feed.
 
 1. **Open Corgi Commons** — view or subscribe to the public feed without a Corgi account:
    [Open Corgi Commons on Bluesky](https://bsky.app/profile/corgi-network.bsky.social/feed/community-gov)

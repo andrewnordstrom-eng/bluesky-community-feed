@@ -23,6 +23,7 @@ const PUBLIC_STORY_FILES = [
   'web-next/app/proposals/page.tsx',
   'web-next/app/vote/page.tsx',
   'web-next/app/dashboard/page.tsx',
+  'web-next/app/admin/page.tsx',
   'web-next/components/bento-section.tsx',
   'web-next/components/community-examples-section.tsx',
   'web-next/components/footer-section.tsx',
@@ -42,9 +43,14 @@ const PUBLIC_STORY_FILES = [
 
 const CURRENT_DOC_FILES = [
   'README.md',
+  'docs/PRD.md',
   'docs/SYSTEM_OVERVIEW.md',
   'docs/agent/REPO_CONTRACT.md',
+  'docs/docs-site/openapi.json',
+  'scripts/publish-feed.ts',
+  'src/bot/announcements.ts',
   'src/feed/server.ts',
+  'src/governance/routes/epochs.ts',
 ] as const;
 
 describe('Corgi cold-start product story', () => {
@@ -73,8 +79,13 @@ describe('Corgi cold-start product story', () => {
     expect(currentStory).not.toMatch(/each vote counts equally/i);
     expect(currentStory).not.toMatch(/aggregated weights become the next/i);
     expect(currentStory).not.toMatch(/when the round closes[^.]{0,100}(?:go live|reranks?|becomes? the feed)/i);
+    expect(currentStory).not.toMatch(/creates? the next active epoch/i);
+    expect(currentStory).not.toMatch(/transition to the next round/i);
+    expect(currentStory).not.toMatch(/voting closes when[^.]*subscribers/i);
+    expect(currentStory).not.toMatch(/subscribers can vote/i);
     expect(currentStory).toMatch(/results review/i);
     expect(currentStory).toMatch(/operator approval/i);
+    expect(currentStory).toMatch(/approved pilot participants/i);
   });
 
   it('does not overclaim universal receipt coverage or read-only interactivity', () => {
@@ -96,6 +107,17 @@ describe('Corgi cold-start product story', () => {
     expect(docs).toMatch(/Topic preferences are separate/i);
     expect(docs).toMatch(/Content rules determine eligibility/i);
     expect(about).toMatch(/signals, topic priorities, and content rules/i);
+  });
+
+  it('keeps the operator UI on the reviewed lifecycle instead of the rejected transition bypass', () => {
+    const adminPage = read('web-next/app/admin/page.tsx');
+
+    expect(adminPage).toContain('adminApi.startVoting(72, true)');
+    expect(adminPage).toContain('adminApi.endVoting(false)');
+    expect(adminPage).toContain('adminApi.approveResults(true)');
+    expect(adminPage).toContain('adminApi.rejectResults()');
+    expect(adminPage).not.toContain('adminApi.transitionEpoch');
+    expect(adminPage).toContain('signal weights, topic priorities, and adopted content rules');
   });
 
   it('updates the Bluesky feed record by compare-and-swap without rebuilding it', () => {

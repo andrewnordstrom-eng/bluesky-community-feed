@@ -9,11 +9,16 @@
 
 import cron from 'node-cron';
 import type { ScheduledTask } from 'node-cron';
-import type { PoolClient } from 'pg';
 import { db } from '../db/client.js';
-import { aggregateContentVotes, aggregateVotes } from '../governance/aggregation.js';
+import {
+  aggregateContentVotes,
+  aggregateTopicWeights,
+  aggregateVotes,
+} from '../governance/aggregation.js';
 import { readEpochWeights } from '../governance/weight-longtable.js';
 import { toContentRules, type ContentRules, type GovernanceWeights } from '../governance/governance.types.js';
+import { parseStoredTopicWeights } from '../governance/topic-weights.js';
+import { readGovernanceVoteCounts } from '../governance/vote-counts.js';
 import {
   announceVotingClosed,
   announceVotingOpen,
@@ -26,6 +31,7 @@ interface ActiveEpochRow {
   phase: string | null;
   voting_ends_at: string | null;
   content_rules: unknown;
+  topic_weights: unknown;
   recency_weight: number | string;
   engagement_weight: number | string;
   bridging_weight: number | string;
@@ -75,27 +81,6 @@ function toDbContentRules(rules: ContentRules): { include_keywords: string[]; ex
   };
 }
 
-async function getVoteCounts(client: PoolClient, epochId: number): Promise<{ total: number; content: number }> {
-  const result = await client.query<{ total: string; content: string }>(
-    `SELECT
-      COUNT(*)::int AS total,
-      COUNT(*) FILTER (
-        WHERE
-          (include_keywords IS NOT NULL AND array_length(include_keywords, 1) > 0)
-          OR
-          (exclude_keywords IS NOT NULL AND array_length(exclude_keywords, 1) > 0)
-      )::int AS content
-     FROM governance_votes
-     WHERE epoch_id = $1`,
-    [epochId]
-  );
-
-  return {
-    total: parseInt(result.rows[0]?.total ?? '0', 10),
-    content: parseInt(result.rows[0]?.content ?? '0', 10),
-  };
-}
-
 async function startDueScheduledVotes(): Promise<{ started: number; errors: number }> {
   const dueVotes = await db.query<ScheduledVoteRow>(
     `SELECT id, starts_at, duration_hours
@@ -142,6 +127,7 @@ async function startDueScheduledVotes(): Promise<{ started: number; errors: numb
              voting_ends_at = NOW() + make_interval(hours => $1),
              auto_transition = TRUE,
              proposed_weights = NULL,
+             proposed_topic_weights = NULL,
              proposed_content_rules = NULL
          WHERE id = $2`,
         [scheduled.duration_hours, epoch.id]
@@ -203,6 +189,11 @@ async function closeExpiredVotingWindows(): Promise<{ transitioned: number; erro
         `SELECT *
          FROM governance_epochs
          WHERE id = $1
+           AND status = 'active'
+           AND phase = 'voting'
+           AND auto_transition = TRUE
+           AND voting_ends_at IS NOT NULL
+           AND voting_ends_at <= NOW()
          FOR UPDATE`,
         [row.id]
       );
@@ -213,7 +204,7 @@ async function closeExpiredVotingWindows(): Promise<{ transitioned: number; erro
         continue;
       }
 
-      const voteCounts = await getVoteCounts(client, epoch.id);
+      const voteCounts = await readGovernanceVoteCounts(client, epoch.id);
       // Read current epoch weights via the storage-agnostic helper. Behind
       // GOVERNANCE_LONGTABLE_READ_ENABLED this queries governance_epoch_weights;
       // off, it projects from the wide columns. The autocommit pool used by
@@ -223,9 +214,14 @@ async function closeExpiredVotingWindows(): Promise<{ transitioned: number; erro
       // committed atomically by the previous scheduler tick / PATCH route.
       const currentWeights = (await readEpochWeights({ epochId: epoch.id })) ?? toWeights(epoch);
       const currentRules = toContentRules((epoch.content_rules ?? null) as any);
+      const currentTopicWeights = parseStoredTopicWeights(
+        epoch.topic_weights,
+        `governance epoch ${epoch.id} active policy`
+      );
 
       let proposedWeights = currentWeights;
       let proposedRules = currentRules;
+      let proposedTopicWeights = currentTopicWeights;
 
       if (voteCounts.total > 0) {
         const aggregatedWeights = await aggregateVotes(epoch.id);
@@ -238,15 +234,25 @@ async function closeExpiredVotingWindows(): Promise<{ transitioned: number; erro
         proposedRules = await aggregateContentVotes(epoch.id);
       }
 
+      if (voteCounts.topic > 0) {
+        proposedTopicWeights = await aggregateTopicWeights(epoch.id);
+      }
+
       await client.query(
         `UPDATE governance_epochs
          SET phase = 'results',
              voting_closed_at = NOW(),
              auto_transition = FALSE,
              proposed_weights = $1,
-             proposed_content_rules = $2
-         WHERE id = $3`,
-        [JSON.stringify(proposedWeights), JSON.stringify(toDbContentRules(proposedRules)), epoch.id]
+             proposed_content_rules = $2,
+             proposed_topic_weights = $3
+         WHERE id = $4`,
+        [
+          JSON.stringify(proposedWeights),
+          JSON.stringify(toDbContentRules(proposedRules)),
+          JSON.stringify(proposedTopicWeights),
+          epoch.id,
+        ]
       );
 
       await client.query(
@@ -257,7 +263,9 @@ async function closeExpiredVotingWindows(): Promise<{ transitioned: number; erro
           JSON.stringify({
             vote_count: voteCounts.total,
             content_vote_count: voteCounts.content,
+            topic_vote_count: voteCounts.topic,
             proposed_weights: proposedWeights,
+            proposed_topic_weights: proposedTopicWeights,
             proposed_content_rules: toDbContentRules(proposedRules),
           }),
         ]
@@ -330,7 +338,7 @@ async function sendVotingReminders(): Promise<{ reminders: number; errors: numbe
   return { reminders, errors };
 }
 
-async function checkScheduledTransitions(): Promise<{
+export async function checkScheduledTransitions(): Promise<{
   startedVotes: number;
   transitionedToResults: number;
   remindersSent: number;

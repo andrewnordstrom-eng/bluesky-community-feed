@@ -107,7 +107,7 @@ Content-rule keywords use a separate threshold: at least 30% support among ballo
 1. A vote is scheduled or opened manually with a configurable voting window.
 2. The window closes and ballots are aggregated into proposed signals, topics, and content rules.
 3. Results enter review; an operator approves or rejects the complete proposal.
-4. Approval applies all three policy channels, creates the next active epoch, and triggers a rescore.
+4. Approval applies all three policy channels to the active epoch, returns it to the running phase, and queues a durable rescore.
 5. Bluesky receives the resulting ordered post URIs; Corgi exposes policy and receipt metadata.
 
 ---

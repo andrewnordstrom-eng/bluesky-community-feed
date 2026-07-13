@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkContentRules } from '../src/governance/content-filter.js';
+import { checkContentRules } from '../src/governance/content-rule-matcher.js';
 
 describe('content filter keyword matching', () => {
   it('does not match partial words for ASCII keywords', () => {

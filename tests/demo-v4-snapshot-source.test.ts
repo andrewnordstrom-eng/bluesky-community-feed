@@ -29,7 +29,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('Community Governed Feed release snapshot', () => {
+describe('Corgi Commons release snapshot', () => {
   it('provides safe temporary output paths for the documented capture command', () => {
     const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
       scripts: Record<string, string>;
@@ -37,6 +37,7 @@ describe('Community Governed Feed release snapshot', () => {
     expect(packageJson.scripts['demo:capture-community-gov']).toContain('--manifest /tmp/');
     expect(packageJson.scripts['demo:capture-community-gov']).toContain('--report /tmp/');
     expect(packageJson.scripts['demo:capture-community-gov']).toContain('--review-sheet /tmp/');
+    expect(packageJson.scripts['demo:approve-community-gov']).toBe('tsx scripts/approve-demo-snapshot.ts');
   });
 
   it('removes tracking and fragment data from frozen external preview URLs', () => {
@@ -50,6 +51,7 @@ describe('Community Governed Feed release snapshot', () => {
   it('loads the approved manifest with exact contiguous ranks and a verified digest', () => {
     const snapshot = readApprovedCommunityGovSnapshot(DEMO_SOURCE_SNAPSHOT_LIMIT);
 
+    expect(snapshot.feedName).toBe('Corgi Commons');
     expect(snapshot.entries).toHaveLength(100);
     expect(snapshot.entries.map((entry) => entry.publishedRank)).toEqual(
       Array.from({ length: 100 }, (_unused, index) => index + 1)
@@ -154,7 +156,7 @@ describe('Community Governed Feed release snapshot', () => {
     }
   });
 
-  it('requires exactly 26 active frozen Community Governed Feed topics', () => {
+  it('requires exactly 26 active frozen Corgi Commons topics', () => {
     const approved = readManifestFixture() as { topicCatalog: unknown[] };
     expect(() => parseApprovedSnapshotManifest({ ...approved, topicCatalog: approved.topicCatalog.slice(0, 25) })).toThrow(/26/);
     expect(() => parseApprovedSnapshotManifest({ ...approved, topicCatalog: [...approved.topicCatalog, approved.topicCatalog[0]] })).toThrow(/26/);
@@ -414,16 +416,10 @@ describe('Community Governed Feed release snapshot', () => {
 });
 
 function readManifestFixture(): unknown {
-  const snapshot = readApprovedCommunityGovSnapshot(DEMO_SOURCE_SNAPSHOT_LIMIT);
-  const policy = readApprovedCommunityGovPolicy();
-  return {
-    schemaVersion: '2026-07-11.community-gov-snapshot.v3',
-    ...snapshot,
-    reviewedAt: snapshot.reviewedAt,
-    signalWeights: policy.signalWeights,
-    topicCatalog: policy.topicCatalog,
-    publicationPolicy: policy.publicationPolicy,
-  };
+  return JSON.parse(readFileSync(
+    new URL('../src/demo/community-gov-release-snapshot.json', import.meta.url),
+    'utf8'
+  )) as unknown;
 }
 
 function scoreRecord(): PostScoreRecord {

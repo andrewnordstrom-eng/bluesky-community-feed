@@ -208,10 +208,8 @@ export async function writeEpochWeights(
  * Mirrors COALESCE semantics from the wide-row UPSERT: keys with null/undefined
  * values are skipped (preserves prior long-table rows on a partial update).
  *
- * Uses the autocommit pool `db` since the caller in routes/vote.ts is not
- * already inside a transaction. A failure here does not roll back the wide
- * row — the same eventual-consistency contract that PROJ-814 (P1) established
- * for scoring decomposition. Backfill converges any gap.
+ * Transactional callers should use writeVoteWeightsWithClient so the wide row
+ * and normalized rows either commit together or both roll back.
  */
 export async function writeVoteWeights(
   voteId: string,
@@ -229,6 +227,35 @@ export async function writeVoteWeights(
   const { placeholders, params } = buildWeightRows(voteId, fullWeights);
 
   await db.query(
+    `INSERT INTO governance_vote_weights (vote_id, component_key, weight)
+     VALUES ${placeholders}
+     ON CONFLICT (vote_id, component_key) DO UPDATE SET weight = EXCLUDED.weight`,
+    params
+  );
+}
+
+/**
+ * Transactional variant used by the public ballot route. Keeping the
+ * normalized rows in the same transaction prevents result closure from
+ * observing a new wide ballot before its component rows exist.
+ */
+export async function writeVoteWeightsWithClient(
+  client: PoolClient,
+  voteId: string,
+  weights: Partial<Record<GovernanceWeightKey, number | null | undefined>>
+): Promise<void> {
+  const nonNull = Object.entries(weights).filter(
+    ([, weight]) => typeof weight === 'number' && Number.isFinite(weight)
+  ) as Array<[GovernanceWeightKey, number]>;
+
+  if (nonNull.length === 0) {
+    return;
+  }
+
+  const fullWeights = Object.fromEntries(nonNull) as Record<GovernanceWeightKey, number>;
+  const { placeholders, params } = buildWeightRows(voteId, fullWeights);
+
+  await client.query(
     `INSERT INTO governance_vote_weights (vote_id, component_key, weight)
      VALUES ${placeholders}
      ON CONFLICT (vote_id, component_key) DO UPDATE SET weight = EXCLUDED.weight`,

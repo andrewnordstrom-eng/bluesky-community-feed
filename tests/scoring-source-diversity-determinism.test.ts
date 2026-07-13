@@ -14,6 +14,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   dbQueryMock,
+  dbConnectMock,
+  clientQueryMock,
+  clientReleaseMock,
   redisPipelineFactoryMock,
   pipelineDelMock,
   pipelineZaddMock,
@@ -26,6 +29,9 @@ const {
   configMock,
 } = vi.hoisted(() => ({
   dbQueryMock: vi.fn(),
+  dbConnectMock: vi.fn(),
+  clientQueryMock: vi.fn(),
+  clientReleaseMock: vi.fn(),
   redisPipelineFactoryMock: vi.fn(),
   pipelineDelMock: vi.fn(),
   pipelineZaddMock: vi.fn(),
@@ -51,7 +57,9 @@ const {
   },
 }));
 
-vi.mock('../src/db/client.js', () => ({ db: { query: dbQueryMock } }));
+vi.mock('../src/db/client.js', () => ({
+  db: { query: dbQueryMock, connect: dbConnectMock },
+}));
 vi.mock('../src/db/redis.js', () => ({
   redis: {
     pipeline: redisPipelineFactoryMock,
@@ -98,6 +106,14 @@ function sourceDiversityByUri(): Map<string, number> {
  * B first. Everything else returns empty.
  */
 function installMock() {
+  clientQueryMock.mockImplementation((sql: string) => {
+    if (sql.includes('pending_rescore_generation')) {
+      return Promise.resolve({ rows: [{ pending_rescore_generation: null }] });
+    }
+    return Promise.resolve({ rows: [] });
+  });
+  dbConnectMock.mockResolvedValue({ query: clientQueryMock, release: clientReleaseMock });
+
   const engagerDelayMs: Record<string, number> = { [URI_A]: 60, [URI_B]: 5, [URI_C]: 30 };
   dbQueryMock.mockImplementation(async (sql: unknown, params?: unknown[]) => {
     const text = String(sql);

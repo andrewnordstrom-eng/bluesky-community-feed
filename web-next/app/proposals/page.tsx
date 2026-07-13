@@ -61,7 +61,7 @@ export default function ProposalsPage() {
           <p className="mt-3 max-w-2xl text-base leading-relaxed text-foreground/60">
             Every governance round proposes a complete policy: five global signal weights, topic priorities, and content
             rules. When the voting window closes, ballots are aggregated for results review. An operator approves or
-            rejects the proposal before any new epoch is applied and rescored. Enacted proposals are recorded below and in the{" "}
+            rejects the proposal before the active policy is changed and rescored. Enacted proposals are recorded below and in the{" "}
             <Link
               href="/history"
               className="rounded text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"

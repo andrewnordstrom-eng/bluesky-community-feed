@@ -10,7 +10,7 @@ import { redis } from '../db/redis.js';
 import { logger } from './logger.js';
 
 const STARTUP_CHECK_TIMEOUT = 5000; // 5 seconds per check
-const MIN_REQUIRED_MIGRATION = 14;
+const MIN_REQUIRED_MIGRATION = 34;
 
 /**
  * Run all startup checks.

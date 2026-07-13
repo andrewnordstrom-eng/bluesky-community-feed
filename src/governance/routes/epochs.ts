@@ -15,7 +15,6 @@ import { logger } from '../../lib/logger.js';
 import { ErrorResponseSchema, governanceSecurity } from '../../lib/openapi.js';
 import { toEpochInfo, toContentRules, ContentRulesRow } from '../governance.types.js';
 import { getAuthenticatedDid, SessionStoreUnavailableError } from '../auth.js';
-import { triggerEpochTransition, forceEpochTransition, getCurrentEpochStatus } from '../epoch-manager.js';
 
 const EpochListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
@@ -188,7 +187,7 @@ export function registerEpochsRoute(app: FastifyInstance): void {
             phase: { type: 'string' },
             weights: weightsSchema,
             vote_count: { type: 'integer' },
-            subscriber_count: { type: 'integer', description: 'Active subscribers (potential voters)' },
+            subscriber_count: { type: 'integer', description: 'Approved active governance participants' },
             created_at: { type: 'string', format: 'date-time' },
             voting_started_at: { type: 'string', format: 'date-time', nullable: true },
             voting_ends_at: { type: 'string', format: 'date-time', nullable: true },
@@ -441,10 +440,9 @@ export function registerEpochsRoute(app: FastifyInstance): void {
   app.post('/api/governance/epochs/transition', {
     schema: {
       tags: ['Admin'],
-      summary: 'Trigger epoch transition',
+      summary: 'Direct transition disabled',
       description:
-        'Triggers a governance epoch transition (admin only). Tallies votes, creates a new epoch with updated weights. ' +
-        'Use force=true to skip vote count validation.',
+        'Direct epoch transitions are disabled. Use the reviewed voting lifecycle to start voting, close voting, inspect the proposed policy, and approve results.',
       security: governanceSecurity,
       querystring: {
         type: 'object',
@@ -465,6 +463,7 @@ export function registerEpochsRoute(app: FastifyInstance): void {
           required: ['success', 'newEpochId', 'forced'],
         },
         400: ErrorResponseSchema,
+        409: ErrorResponseSchema,
         401: ErrorResponseSchema,
         403: ErrorResponseSchema,
         503: ErrorResponseSchema,
@@ -507,60 +506,9 @@ export function registerEpochsRoute(app: FastifyInstance): void {
         details: queryParseResult.error.issues,
       });
     }
-    const { force } = queryParseResult.data;
-
-    try {
-      // Get current status first
-      const status = await getCurrentEpochStatus();
-      if (!status) {
-        return reply.code(400).send({
-          error: 'NoActiveEpoch',
-          message: 'No active epoch to transition',
-        });
-      }
-
-      if (force) {
-        logger.warn(
-          { adminDid: requesterDid, epochId: status.epochId, voteCount: status.voteCount },
-          'Admin forcing epoch transition'
-        );
-        const newEpochId = await forceEpochTransition();
-        return reply.send({
-          success: true,
-          newEpochId,
-          forced: true,
-          previousEpochId: status.epochId,
-          voteCount: status.voteCount,
-        });
-      }
-
-      const result = await triggerEpochTransition();
-      if (!result.success) {
-        return reply.code(400).send({
-          error: 'TransitionFailed',
-          message: result.error,
-          currentStatus: status,
-        });
-      }
-
-      logger.info(
-        { adminDid: requesterDid, newEpochId: result.newEpochId },
-        'Admin triggered epoch transition'
-      );
-
-      return reply.send({
-        success: true,
-        newEpochId: result.newEpochId,
-        forced: false,
-        previousEpochId: status.epochId,
-        voteCount: status.voteCount,
-      });
-    } catch (err) {
-      logger.error({ err, adminDid: requesterDid }, 'Failed to trigger epoch transition');
-      return reply.code(500).send({
-        error: 'InternalError',
-        message: 'Failed to trigger epoch transition',
-      });
-    }
+    return reply.code(409).send({
+      error: 'DirectTransitionDisabled',
+      message: 'Direct epoch transitions are disabled. Start voting, close voting, review the proposed policy, and approve results.',
+    });
   });
 }

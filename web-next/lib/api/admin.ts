@@ -349,35 +349,6 @@ export const adminApi = {
     return response.data;
   },
 
-  async updateEpoch(data: {
-    votingOpen?: boolean;
-    votingEndsAt?: string | null;
-    autoTransition?: boolean;
-  }): Promise<{ success: boolean; epoch: Partial<Epoch> }> {
-    const response = await api.patch('/api/admin/epochs/current', data);
-    return response.data;
-  },
-
-  async transitionEpoch(options: { force?: boolean; announceResults?: boolean } = {}): Promise<{
-    success: boolean;
-    previousEpoch: { id: number; totalVotes: number };
-    newEpoch: { id: number };
-    announcement: { postUrl: string } | null;
-  }> {
-    const response = await api.post('/api/admin/epochs/transition', options);
-    return response.data;
-  },
-
-  async closeVoting(): Promise<{ success: boolean }> {
-    const response = await api.post('/api/admin/epochs/close-voting');
-    return response.data;
-  },
-
-  async openVoting(): Promise<{ success: boolean }> {
-    const response = await api.post('/api/admin/epochs/open-voting');
-    return response.data;
-  },
-
   async getAnnouncements(): Promise<{ announcements: Announcement[] }> {
     const response = await api.get('/api/admin/announcements');
     return response.data;
@@ -482,26 +453,8 @@ export const adminApi = {
     return response.data;
   },
 
-  async applyResults(): Promise<{
-    success: boolean;
-    voteCount: number;
-    appliedWeights: boolean;
-    weights: GovernanceWeights;
-    contentRules: ContentRules;
-    round: RoundSummary;
-    rescoreTriggered: boolean;
-  }> {
-    const response = await api.post('/api/admin/governance/apply-results');
-    return response.data;
-  },
-
   async getRoundDetails(id: number): Promise<RoundDetails> {
     const response = await api.get(`/api/admin/governance/rounds/${id}`);
-    return response.data;
-  },
-
-  async endRound(force = false): Promise<{ success: boolean; newRoundId: number }> {
-    const response = await api.post('/api/admin/governance/end-round', { force });
     return response.data;
   },
 
@@ -517,6 +470,7 @@ export const adminApi = {
     success: boolean;
     voteCount: number;
     proposedWeights: GovernanceWeights;
+    proposedTopicWeights: Record<string, number>;
     proposedContentRules: ContentRules;
     round: RoundSummary;
   }> {
@@ -529,6 +483,7 @@ export const adminApi = {
   async approveResults(announce = true): Promise<{
     success: boolean;
     weights: GovernanceWeights;
+    topicWeights: Record<string, number>;
     contentRules: ContentRules;
     rescoreTriggered: boolean;
     round: RoundSummary;

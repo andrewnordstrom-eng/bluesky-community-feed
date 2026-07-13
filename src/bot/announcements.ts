@@ -65,13 +65,13 @@ export function generateVotingOpenedText(payload: VotingOpenedPayload): string {
   const feedUrl = `https://${config.FEEDGEN_HOSTNAME}/vote`;
 
   let text = `Voting is now open for Epoch ${payload.epochId}!\n\n`;
-  text += `Your vote shapes what appears in this feed. Cast your preferences:\n${feedUrl}\n\n`;
+  text += `Approved pilot participants can propose how this feed ranks posts:\n${feedUrl}\n\n`;
 
   if (payload.weights) {
     text += `Current weights:\n${formatWeights(payload.weights)}\n\n`;
   }
 
-  text += `Voting closes when ${config.GOVERNANCE_MIN_VOTES}+ subscribers have voted.`;
+  text += 'Voting closes at the configured deadline. Results are reviewed before an approved policy can affect the feed.';
 
   return text;
 }

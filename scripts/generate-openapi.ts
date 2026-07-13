@@ -71,6 +71,11 @@ async function main(): Promise<void> {
     console.log(`  Mode: ${publicOnly ? 'public-only' : 'full'}`);
   } finally {
     await app.close();
+    const [{ db }, { redis }] = await Promise.all([
+      import('../src/db/client.js'),
+      import('../src/db/redis.js'),
+    ]);
+    await Promise.allSettled([db.end(), redis.quit()]);
   }
 }
 

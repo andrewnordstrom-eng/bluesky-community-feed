@@ -89,7 +89,7 @@ const SECTIONS = [
           window is configurable. Fewer than 10 ballots use an arithmetic mean; 10 or more use a 10% trimmed mean.
           Closing the window does not apply policy automatically: results are reviewed, an operator approves or rejects
           the complete proposal, and approval applies signal weights, topic priorities, and adopted content rules before
-          rescoring. Every epoch is retained so policy changes remain inspectable.
+          rescoring. Approved policy versions and governance actions are retained so changes remain inspectable.
         </P>
       </>
     ),

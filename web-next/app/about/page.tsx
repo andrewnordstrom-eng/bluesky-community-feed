@@ -57,7 +57,7 @@ const SECTIONS = [
           <LI><Strong>Vote</Strong> — approved participants can submit five global signal weights, topic priorities that shape relevance, and include or exclude content rules.</LI>
           <LI><Strong>Aggregate</Strong> — fewer than 10 ballots use an arithmetic mean; 10 or more use a 10% trimmed mean. Content rules require at least 30% support among content-rule ballots.</LI>
           <LI><Strong>Review &amp; approve</Strong> — closed-round results are reviewed before an operator approves or rejects the complete proposed policy.</LI>
-          <LI><Strong>Apply &amp; rescore</Strong> — approval applies signals, topics, and adopted rules together, creates the next <Strong>epoch</Strong>, and triggers a feed rescore.</LI>
+          <LI><Strong>Apply &amp; rescore</Strong> — approval applies signals, topics, and adopted rules together to the active <Strong>epoch</Strong>, returns it to running, and queues a durable feed rescore.</LI>
           <LI><Strong>Record</Strong> — policy changes and operator actions are written to the governance audit trail.</LI>
         </UL>
         <P>

@@ -211,10 +211,14 @@ export async function checkGovernanceGate(topicVector: TopicVector): Promise<Gat
  * Invalidate the governance gate topic weights cache.
  * Call when epoch changes or topic weights are updated.
  */
+export async function invalidateGovernanceGateCacheStrict(): Promise<void> {
+  await redis.del(CACHE_KEY);
+  logger.debug('Governance gate topic weights cache invalidated');
+}
+
 export async function invalidateGovernanceGateCache(): Promise<void> {
   try {
-    await redis.del(CACHE_KEY);
-    logger.debug('Governance gate topic weights cache invalidated');
+    await invalidateGovernanceGateCacheStrict();
   } catch (error) {
     logger.error({ error }, 'Failed to invalidate governance gate cache');
   }
