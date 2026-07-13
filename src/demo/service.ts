@@ -540,7 +540,9 @@ export class ShadowDemoService {
 
   private validateExcludeKeywordsForApi(value: unknown): string[] {
     if (!this.contentRulesEnabled) {
-      if (value !== undefined && value !== null) {
+      // Reject any explicitly supplied value (including null); only an omitted
+      // field is treated as "no content-rule ballot".
+      if (value !== undefined) {
         throw new DemoValidationError('Shadow demo content rules are not enabled on this deployment');
       }
       return [];
@@ -748,7 +750,7 @@ function sessionPayload(
       totalDemoVoters: SHADOW_DEMO_TOTAL_DEMO_VOTERS,
       corpusProvenance: corpusProvenanceFor(state),
       voterProfiles: getShadowDemoVoterProfiles(state.communityId),
-      votes: state.votes,
+      votes: state.votes.map((vote) => publicVote(vote, contentRulesEnabled)),
       topicCatalog: state.corpus.topicCatalog,
       sourceFeedUri: state.corpus.sourceFeedUri,
       ...(contentRulesEnabled
@@ -1039,6 +1041,16 @@ function publicAggregate(
 function publicEpoch(epoch: ShadowDemoEpoch, contentRulesEnabled: boolean): ShadowDemoEpoch {
   const aggregate = publicAggregate(epoch.aggregate, contentRulesEnabled);
   return aggregate === epoch.aggregate ? epoch : { ...epoch, aggregate };
+}
+
+// Strip the persisted per-ballot excludeKeywords from a vote when the flag is
+// off, so flipped-off session payloads leak no rule-ballot metadata.
+function publicVote(vote: ShadowDemoVote, contentRulesEnabled: boolean): ShadowDemoVote {
+  if (contentRulesEnabled || vote.excludeKeywords === undefined) {
+    return vote;
+  }
+  const { excludeKeywords: _omitted, ...rest } = vote;
+  return rest;
 }
 
 function rankedPosts(options: {

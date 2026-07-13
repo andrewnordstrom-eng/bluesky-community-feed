@@ -167,6 +167,18 @@ describe('shadow demo content rules disabled (v4 parity)', () => {
       })
     ).rejects.toThrow(/not enabled/);
 
+    // An explicitly supplied null (not an omitted field) is also rejected.
+    await expect(
+      service.castVote({
+        sessionId: session.sessionId,
+        baseEpochId: session.currentEpochId,
+        weights: equalWeights(),
+        topicIntent: fullTopicIntent(),
+        excludeKeywords: null,
+        idempotencyKey: 'rules-off-null',
+      })
+    ).rejects.toThrow(/not enabled/);
+
     const advanced = await runFullEpoch(service, session.sessionId, session.currentEpochId, undefined, 'off');
     const epoch = advanced.payload.session.epochs.find(
       (candidate) => candidate.id === advanced.payload.session.currentEpochId
@@ -200,6 +212,8 @@ describe('shadow demo content rules disabled (v4 parity)', () => {
     expect('contentRules' in feed.payload.aggregate).toBe(false);
     const disabledSession = await disabled.getSession(session.sessionId);
     expect(disabledSession.payload.session.epochs.some((e) => 'contentRules' in e.aggregate)).toBe(false);
+    // Per-ballot rule metadata must not leak through the votes array either.
+    expect(disabledSession.payload.session.votes.some((vote) => 'excludeKeywords' in vote)).toBe(false);
     // getReceipt ranks the full corpus and throws for a withheld post; resolving
     // for the atproto-matching post proves the persisted rule is not applied.
     const receipt = await disabled.getReceipt({ sessionId: session.sessionId, epochId: shadowEpochId, postUri: postUri(2) });
