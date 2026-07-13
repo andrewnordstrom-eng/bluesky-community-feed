@@ -61,6 +61,7 @@ describe('admin status route', () => {
       .mockResolvedValueOnce({ rows: [{ count: '4' }] })
       .mockResolvedValueOnce({ rows: [{ total_posts: '100', posts_24h: '20' }] })
       .mockResolvedValueOnce({ rows: [{ count: '7' }] })
+      .mockResolvedValueOnce({ rows: [{ count: '3' }] })
       .mockResolvedValueOnce({
         rows: [{ value: { timestamp: '2026-02-09T01:00:00.000Z', duration_ms: 1200, posts_scored: 8 } }],
       });
@@ -82,9 +83,15 @@ describe('admin status route', () => {
       system: {
         feed: {
           scoredPosts: 12,
+          subscriberCount: 7,
+          approvedParticipantCount: 3,
         },
       },
     });
+    const approvedParticipantQuery = dbQueryMock.mock.calls.find(([sql]) =>
+      String(sql).includes('INNER JOIN approved_participants')
+    );
+    expect(approvedParticipantQuery).toBeDefined();
 
     await app.close();
   });

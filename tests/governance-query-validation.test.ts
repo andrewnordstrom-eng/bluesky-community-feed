@@ -166,6 +166,68 @@ describe('governance route query validation', () => {
     await app.close();
   });
 
+  it('preserves null approval provenance for a round awaiting operator review', async () => {
+    const app = Fastify();
+    app.setValidatorCompiler(() => () => true);
+    registerEpochsRoute(app);
+    dbQueryMock
+      .mockResolvedValueOnce({
+        rows: [{
+          id: 5,
+          status: 'active',
+          phase: 'results',
+          recency_weight: 0.2,
+          engagement_weight: 0.2,
+          bridging_weight: 0.2,
+          source_diversity_weight: 0.2,
+          relevance_weight: 0.2,
+          created_at: '2026-07-13T00:00:00.000Z',
+          closed_at: null,
+          results_approved_at: null,
+          description: null,
+          content_rules: null,
+        }],
+      })
+      .mockResolvedValueOnce({ rows: [{ count: '0' }] });
+
+    const response = await app.inject({ method: 'GET', url: '/api/governance/epochs?limit=1' });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().epochs[0].results_approved_at).toBeNull();
+    await app.close();
+  });
+
+  it('returns zero when no approved active governance participants exist', async () => {
+    const app = Fastify();
+    app.setValidatorCompiler(() => () => true);
+    registerEpochsRoute(app);
+    dbQueryMock
+      .mockResolvedValueOnce({
+        rows: [{
+          id: 5,
+          status: 'active',
+          phase: 'running',
+          recency_weight: 0.2,
+          engagement_weight: 0.2,
+          bridging_weight: 0.2,
+          source_diversity_weight: 0.2,
+          relevance_weight: 0.2,
+          created_at: '2026-07-13T00:00:00.000Z',
+          closed_at: null,
+          description: null,
+          content_rules: null,
+        }],
+      })
+      .mockResolvedValueOnce({ rows: [{ count: '0' }] })
+      .mockResolvedValueOnce({ rows: [{ count: '0' }] });
+
+    const response = await app.inject({ method: 'GET', url: '/api/governance/epochs/current' });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ vote_count: 0, subscriber_count: 0 });
+    await app.close();
+  });
+
   it('rejects the authenticated direct transition endpoint', async () => {
     const app = Fastify();
     app.setValidatorCompiler(() => () => true);

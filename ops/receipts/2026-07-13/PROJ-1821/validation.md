@@ -39,17 +39,20 @@ Bluesky-style post chrome.
 
 ## Deterministic verification
 
-- Full repository verification passed with 1,667 tests.
+- Full repository verification passed with 1,689 tests.
 - Root/backend, SDK, CLI, legacy web, and `web-next` builds passed.
 - `web-next` lint and TypeScript checks passed.
 - Documentation verification passed.
 - GitHub backend, frontend, docs, report-script, quality, security, secret-scan,
   CodeQL, Linear-policy, and review-thread checks passed on the PR head.
-- Focused cold-start product-story tests passed 9 of 9 after the final contract
-  guard correction.
+- Focused review-fix verification passed 92 backend and contract tests plus 14
+  demo release-blocker checks.
 - The initial CodeRabbit review reported 16 actionable findings. Every finding
   was verified, corrected where valid, tested, replied to, and resolved before
   the final exact-head review request.
+- A subsequent exact-head review reported 14 additional findings. The valid
+  contract, concurrency, provenance, documentation, and admin-state findings
+  were corrected and covered by the final verification run.
 
 ## Browser acceptance
 

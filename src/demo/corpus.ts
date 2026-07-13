@@ -320,6 +320,7 @@ async function loadCommunityGovCorpus(
       eligibleItems.length
     );
     const gateFailures = communityGovSnapshotGateFailures(health);
+    const reviewedHealth = applyCommunityGovSnapshotGateStatus(health);
     if (gateFailures.length > 0 && behavior.gateFailureMode === 'fixture_fallback') {
       return fallbackCorpus({
         communityId: options.communityId,
@@ -348,7 +349,7 @@ async function loadCommunityGovCorpus(
       createdAt: options.now.toISOString(),
       expiresAt: expiresAt(options.now).toISOString(),
       items: eligibleItems,
-      health,
+      health: reviewedHealth,
       warnings: warning,
       topicCatalog,
       sourceFeedUri: snapshot.feedUri,
@@ -413,6 +414,13 @@ export function communityGovSnapshotGateFailures(health: ShadowDemoCorpusHealth)
     failures.push(`rich-media share ${richMediaShare} < ${COMMUNITY_GOV_SNAPSHOT_GATE.minimumRichMediaShare}`);
   }
   return failures;
+}
+
+export function applyCommunityGovSnapshotGateStatus(
+  health: ShadowDemoCorpusHealth
+): ShadowDemoCorpusHealth {
+  if (communityGovSnapshotGateFailures(health).length === 0) return health;
+  return { ...health, status: 'degraded' };
 }
 
 async function readEpochById(dbPool: Pick<Pool, 'query'>, epochId: number): Promise<ActiveEpochRow | null> {

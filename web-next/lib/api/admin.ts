@@ -104,6 +104,7 @@ export interface AdminStatus {
     currentEpoch: {
       id: number;
       status: string;
+      phase?: 'running' | 'voting' | 'results';
       votingOpen: boolean;
       votingEndsAt: string | null;
       autoTransition: boolean;
@@ -119,6 +120,7 @@ export interface AdminStatus {
       lastScoringRun: string | null;
       lastScoringDuration: number | null;
       subscriberCount: number;
+      approvedParticipantCount: number;
     };
     contentRules: {
       includeKeywords: string[];

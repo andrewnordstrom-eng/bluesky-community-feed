@@ -153,7 +153,8 @@ export function registerVoteRoute(app: FastifyInstance): void {
       summary: 'Submit or update a vote',
       description:
         'Cast or update your vote for the current epoch. You can vote on algorithm weights, ' +
-        'content keywords, topic weights, or any combination. Weights must sum to 1.0. Requires authentication and active subscription.',
+        'content keywords, topic weights, or any combination. Weights must sum to 1.0. Requires authentication, ' +
+        'an active feed subscription, and approved pilot participation when allowlisting is enabled.',
       security: governanceSecurity,
       body: {
         type: 'object',
@@ -358,6 +359,28 @@ export function registerVoteRoute(app: FastifyInstance): void {
     try {
       await client.query('BEGIN');
       transactionOpen = true;
+
+      // The cached preflight check gives a fast denial, but the database row is
+      // authoritative. Lock it in the vote transaction so a concurrent
+      // revocation either completes first (and denies this ballot) or waits
+      // until this already-approved ballot commits.
+      if (config.LOGIN_ALLOWLIST_ENABLED) {
+        const participantApproval = await client.query(
+          `SELECT did
+           FROM approved_participants
+           WHERE did = $1 AND removed_at IS NULL
+           FOR SHARE`,
+          [voterDid]
+        );
+        if (participantApproval.rows.length === 0) {
+          await client.query('ROLLBACK');
+          transactionOpen = false;
+          return reply.code(403).send({
+            error: 'Forbidden',
+            message: 'Governance voting pilot: approved participants only.',
+          });
+        }
+      }
 
       // 6. UPSERT vote with weights, keywords, and/or topic weights
       // Use xmax = 0 to detect if this was an INSERT (new) or UPDATE (existing)

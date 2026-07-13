@@ -10,6 +10,7 @@ import { WeightBar } from "@/components/ui/weight-bar"
 import { Button } from "@/components/ui/button"
 import { EmptyState, ErrorCard, Skeleton } from "@/components/ui/state-kit"
 import { adminApi, type AdminStatus } from "@/lib/api/admin"
+import { approvedParticipationPercent, completeAdminLifecycleRefresh } from "@/lib/admin-lifecycle"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -150,15 +151,13 @@ function PanelOverview({ status }: { status: AdminStatus }) {
     )
   }
 
-  const participation = feed.subscriberCount > 0
-    ? Math.round((epoch.voteCount / feed.subscriberCount) * 100)
-    : 0
+  const participation = approvedParticipationPercent(epoch.voteCount, feed.approvedParticipantCount)
 
   const stats = [
     { label: "Total posts scored", value: feed.scoredPosts.toLocaleString() },
     { label: "Votes this round", value: epoch.voteCount.toLocaleString() },
     { label: "Participation", value: `${participation}%` },
-    { label: "Subscribers", value: feed.subscriberCount.toLocaleString() },
+    { label: "Approved participants", value: feed.approvedParticipantCount.toLocaleString() },
   ]
 
   return (
@@ -200,16 +199,19 @@ function PanelCurrentRound({ status }: { status: AdminStatus }) {
   const phase = epochPhase(epoch)
   const [confirm, setConfirm] = useState<null | "open" | "close" | "approve" | "reject">(null)
 
-  const invalidate = () => {
-    void queryClient.invalidateQueries({ queryKey: ["admin", "status"] })
-    void queryClient.invalidateQueries({ queryKey: ["admin", "epochs"] })
-    void queryClient.invalidateQueries({ queryKey: ["admin", "feed-health"] })
+  const invalidate = async (): Promise<void> => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["admin", "status"] }),
+      queryClient.invalidateQueries({ queryKey: ["admin", "epochs"] }),
+      queryClient.invalidateQueries({ queryKey: ["admin", "feed-health"] }),
+    ])
   }
 
-  const openMutation = useMutation({ mutationFn: () => adminApi.startVoting(72, true), onSuccess: () => { invalidate(); setConfirm(null) } })
-  const closeMutation = useMutation({ mutationFn: () => adminApi.endVoting(false), onSuccess: () => { invalidate(); setConfirm(null) } })
-  const approveMutation = useMutation({ mutationFn: () => adminApi.approveResults(true), onSuccess: () => { invalidate(); setConfirm(null) } })
-  const rejectMutation = useMutation({ mutationFn: () => adminApi.rejectResults(), onSuccess: () => { invalidate(); setConfirm(null) } })
+  const refreshThenClose = () => completeAdminLifecycleRefresh(invalidate, () => setConfirm(null))
+  const openMutation = useMutation({ mutationFn: () => adminApi.startVoting(72, true), onSuccess: refreshThenClose })
+  const closeMutation = useMutation({ mutationFn: () => adminApi.endVoting(false), onSuccess: refreshThenClose })
+  const approveMutation = useMutation({ mutationFn: () => adminApi.approveResults(true), onSuccess: refreshThenClose })
+  const rejectMutation = useMutation({ mutationFn: () => adminApi.rejectResults(), onSuccess: refreshThenClose })
 
   const prepareConfirmation = (action: NonNullable<typeof confirm>): void => {
     if (action === "open") openMutation.reset()
@@ -228,7 +230,7 @@ function PanelCurrentRound({ status }: { status: AdminStatus }) {
     )
   }
 
-  const pct = feed.subscriberCount > 0 ? Math.round((epoch.voteCount / feed.subscriberCount) * 100) : 0
+  const pct = approvedParticipationPercent(epoch.voteCount, feed.approvedParticipantCount)
 
   // One row per lifecycle stage (no duplicate `running` row — only one is active).
   const LIFECYCLE: Array<{ phase: EpochPhase; label: string; action?: "open" | "close" | "approve"; actionLabel?: string; danger?: boolean }> = [
@@ -245,7 +247,7 @@ function PanelCurrentRound({ status }: { status: AdminStatus }) {
       <div className="rounded-xl border border-border bg-card p-5 flex flex-col gap-3">
         <div className="flex items-center justify-between gap-3">
           <p className="text-sm font-semibold text-foreground">Participation</p>
-          <span className="text-sm font-mono font-semibold text-foreground tabular-nums">{epoch.voteCount} / {feed.subscriberCount}</span>
+          <span className="text-sm font-mono font-semibold text-foreground tabular-nums">{epoch.voteCount} / {feed.approvedParticipantCount}</span>
         </div>
         <div className="h-2 rounded-full bg-biscuit overflow-hidden">
           <div className="h-2 rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} />
@@ -1247,7 +1249,7 @@ function AdminConsole({ status }: { status: AdminStatus }) {
         </span>
         {epoch && (
           <span className="ml-auto text-[10px] font-mono opacity-50 hidden md:block">
-            {epoch.voteCount} / {status.system.feed.subscriberCount} voted
+            {epoch.voteCount} / {status.system.feed.approvedParticipantCount} voted
           </span>
         )}
       </div>

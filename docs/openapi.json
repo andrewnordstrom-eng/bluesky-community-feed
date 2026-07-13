@@ -805,7 +805,7 @@
         "tags": [
           "Governance"
         ],
-        "description": "Cast or update your vote for the current epoch. You can vote on algorithm weights, content keywords, topic weights, or any combination. Weights must sum to 1.0. Requires authentication and active subscription.",
+        "description": "Cast or update your vote for the current epoch. You can vote on algorithm weights, content keywords, topic weights, or any combination. Weights must sum to 1.0. Requires authentication, an active feed subscription, and approved pilot participation when allowlisting is enabled.",
         "requestBody": {
           "required": true,
           "content": {
@@ -4950,7 +4950,7 @@
         "tags": [
           "Admin"
         ],
-        "description": "Returns a full system overview for the admin dashboard: epoch state, feed stats, scoring info, content rules, and subscriber count.",
+        "description": "Returns a full system overview for the admin dashboard: epoch state, feed stats, scoring info, content rules, subscriber count, and approved pilot participant count.",
         "security": [
           {
             "cookieAuth": []
@@ -5044,8 +5044,19 @@
                             },
                             "subscriberCount": {
                               "type": "integer"
+                            },
+                            "approvedParticipantCount": {
+                              "type": "integer",
+                              "description": "Approved active feed subscribers currently eligible for pilot governance"
                             }
-                          }
+                          },
+                          "required": [
+                            "totalPosts",
+                            "postsLast24h",
+                            "scoredPosts",
+                            "subscriberCount",
+                            "approvedParticipantCount"
+                          ]
                         },
                         "contentRules": {
                           "type": "object",

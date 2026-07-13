@@ -316,9 +316,11 @@ See `docs/OPERABILITY.md`, `docs/runbooks/operator-quickstart.md`, and
    must contain a Linear key. Enforcement happens in org-policy / CI checks and
    any local hook configuration that may be installed by the workspace.
 
-3. **Two install targets.** Backend and frontend have separate `node_modules`.
-   Run `npm install` at repo root AND `cd web && npm install` for the frontend.
-   The `npm run verify` command covers both.
+3. **Separate install targets.** Backend and frontends have separate
+   `node_modules`. Run `npm install` at repo root and `cd web-next && npm
+   install` for the canonical frontend. Install `web/` dependencies only when
+   working on the legacy compatibility frontend. The `npm run verify` command
+   covers both frontend packages.
 
 4. **PostgreSQL port offset in production.** Docker Compose binds PostgreSQL to
    `127.0.0.1:5433` (not standard 5432) and Redis to `127.0.0.1:6380` (not

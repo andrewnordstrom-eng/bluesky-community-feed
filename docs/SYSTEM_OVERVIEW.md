@@ -115,9 +115,11 @@ Content-rule keywords use a separate threshold: at least 30% support among ballo
 ## Database Schema (Key Tables)
 
 ### posts
+
 Stores all ingested Bluesky posts with `deleted` flag for soft deletes.
 
 ### post_scores (GOLDEN RULE)
+
 Stores **decomposed scores** - 15 columns per post per epoch:
 - 5 raw scores (recency_score, engagement_score, etc.)
 - 5 weights from governance epoch
@@ -126,18 +128,23 @@ Stores **decomposed scores** - 15 columns per post per epoch:
 - epoch_id (critical for measuring governance impact)
 
 ### governance_epochs
+
 Current and historical governance periods with weight distribution.
 
 ### governance_votes
+
 Individual approved-participant ballots (one per voter per epoch, updatable while open).
 
 ### governance_audit_log
+
 **Append-only** record of all governance actions (trust anchor).
 
 ### subscribers
+
 Tracks feed subscriptions and participant state; pilot voting eligibility is separately allowlisted.
 
 ### jetstream_cursor
+
 Persists cursor every 1000 events to resume without gaps.
 
 ---
@@ -165,7 +172,7 @@ The React frontend provides:
 
 ## Content-Rule Governance
 
-Content rules are part of the current ballot. Include keywords form an allowlist, exclude keywords take precedence, and adopted rules are applied with the approved signal and topic policy before rescoring. The public shadow demo exposes only bounded exclusion-rule mechanics for this release.
+Content rules are part of the current ballot. Include-keyword rules form an allowlist, exclude-keyword rules take precedence, and adopted rules are applied with the approved signal and topic policy before rescoring. The public shadow demo exposes only bounded exclusion-rule mechanics for this release.
 
 ---
 

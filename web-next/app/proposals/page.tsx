@@ -8,7 +8,7 @@ import { PolicyBar, PolicyLegend } from "@/components/ui/policy-bar"
 import { ErrorCard, Skeleton } from "@/components/ui/state-kit"
 import { SIGNAL_KEYS, SIGNAL_LABELS } from "@/lib/signals"
 import { weightsApi, transparencyApi, type EpochResponse } from "@/lib/api/client"
-import { votingState, votingClosedDate } from "@/lib/governance-status"
+import { policyApplied, votingState, votingClosedDate } from "@/lib/governance-status"
 
 function pct(value: number): string {
   return `${Math.round(value * 100)}%`
@@ -25,10 +25,6 @@ function phaseLabel(epoch: EpochResponse): string {
   if (votingState(epoch) === "review") return "Under review"
   // Voting is over; if the policy is still applied, say so.
   return policyApplied(epoch) ? "Active policy" : "Closed"
-}
-
-function policyApplied(epoch: EpochResponse): boolean {
-  return epoch.status === "active" && epoch.phase === "running"
 }
 
 function wasEnacted(epoch: EpochResponse): boolean {

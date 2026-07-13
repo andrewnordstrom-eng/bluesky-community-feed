@@ -66,6 +66,13 @@ export async function clearSnapshotCaptureArtifacts(paths: SnapshotCaptureArtifa
   ]);
 }
 
+async function clearSnapshotApprovalArtifacts(paths: SnapshotCaptureArtifactPaths): Promise<void> {
+  await Promise.all([
+    rm(paths.manifest, { force: true }),
+    rm(paths.reviewSheet, { force: true }),
+  ]);
+}
+
 export async function writeSnapshotCaptureArtifacts(options: {
   paths: SnapshotCaptureArtifactPaths;
   report: SnapshotCaptureReport;
@@ -75,10 +82,13 @@ export async function writeSnapshotCaptureArtifacts(options: {
   await clearSnapshotCaptureArtifacts(options.paths);
   await writeFile(options.paths.report, `${JSON.stringify(options.report, null, 2)}\n`, 'utf8');
   if (!options.report.approvable) return;
-  await Promise.all([
-    writeFile(options.paths.manifest, options.manifestJson, 'utf8'),
-    writeFile(options.paths.reviewSheet, options.reviewSheetHtml, 'utf8'),
-  ]);
+  try {
+    await writeFile(options.paths.manifest, options.manifestJson, 'utf8');
+    await writeFile(options.paths.reviewSheet, options.reviewSheetHtml, 'utf8');
+  } catch (error) {
+    await clearSnapshotApprovalArtifacts(options.paths);
+    throw error;
+  }
 }
 
 export function parseSnapshotCaptureReport(input: unknown): SnapshotCaptureReport {

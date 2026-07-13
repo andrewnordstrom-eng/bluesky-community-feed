@@ -107,6 +107,9 @@ describe('votable-params record shape (PROJ-816)', () => {
       if (text.includes('FROM governance_epochs')) {
         return { rows: [{ id: 1, status: 'active', phase: 'voting' }] };
       }
+      if (text.includes('FROM approved_participants') && text.includes('FOR SHARE')) {
+        return { rows: [{ did: 'did:plc:alice' }] };
+      }
       if (text.includes('INSERT INTO governance_votes')) {
         return { rows: [{ id: 'vote-uuid-1', is_new_vote: true }] };
       }

@@ -10,6 +10,7 @@ import {
 } from '../src/feed/demo-snapshot-source.js';
 import {
   COMMUNITY_GOV_SNAPSHOT_GATE,
+  applyCommunityGovSnapshotGateStatus,
   communityGovSnapshotGateFailures,
   isEnglishLanguageTag,
   loadCommunityGovCaptureCorpus,
@@ -109,6 +110,31 @@ describe('Corgi Commons release snapshot', () => {
       expect(captureReportApprovalFailures(report, report.manifestDigest)).toContain(
         'capture report is marked non-approvable'
       );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('removes both approval artifacts when either approvable write fails', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'corgi-snapshot-partial-write-'));
+    const paths = {
+      manifest: join(directory, 'manifest.json'),
+      report: join(directory, 'report.json'),
+      reviewSheet: join(directory, 'missing', 'review.html'),
+    };
+    const report = captureReport({ approvable: true });
+
+    try {
+      await expect(writeSnapshotCaptureArtifacts({
+        paths,
+        report,
+        manifestJson: '{"approved":true}\n',
+        reviewSheetHtml: '<p>reviewed</p>',
+      })).rejects.toMatchObject({ code: 'ENOENT' });
+
+      expect(JSON.parse(await readFile(paths.report, 'utf8'))).toMatchObject({ approvable: true });
+      await expect(access(paths.manifest)).rejects.toMatchObject({ code: 'ENOENT' });
+      await expect(access(paths.reviewSheet)).rejects.toMatchObject({ code: 'ENOENT' });
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -453,6 +479,49 @@ describe('Corgi Commons release snapshot', () => {
     expect(communityGovSnapshotGateFailures({ ...passing, englishTaggedShare: 0.79 })[0]).toContain('English-tagged share');
     expect(communityGovSnapshotGateFailures({ ...passing, topAuthorConcentration: 0.11 })[0]).toContain('top-author concentration');
     expect(communityGovSnapshotGateFailures({ ...passing, richMediaShare: 0.19 })[0]).toContain('rich-media share');
+  });
+
+  it.each([
+    [{ englishTaggedShare: 0.79 }, 'English-tagged share'],
+    [{ richMediaShare: 0.19 }, 'rich-media share'],
+    [{ topAuthorConcentration: 0.11 }, 'top-author concentration'],
+  ] as const)('degrades capture health for an independent %s failure', (override, expectedFailure) => {
+    const passing = {
+      status: 'live' as const,
+      source: 'production_feed_snapshot' as const,
+      candidatePosts72h: 100,
+      publicScoredPosts: 40,
+      uniqueAuthors72h: 40,
+      bridgePostShare: 0.4,
+      topAuthorConcentration: COMMUNITY_GOV_SNAPSHOT_GATE.maximumTopAuthorConcentration,
+      sampledAt: '2026-07-11T22:22:13.710Z',
+      eligiblePostCount: 40,
+      englishTaggedShare: COMMUNITY_GOV_SNAPSHOT_GATE.minimumEnglishTaggedShare,
+      richMediaShare: COMMUNITY_GOV_SNAPSHOT_GATE.minimumRichMediaShare,
+    };
+    const health = { ...passing, ...override };
+
+    expect(communityGovSnapshotGateFailures(health)[0]).toContain(expectedFailure);
+    expect(applyCommunityGovSnapshotGateStatus(health).status).toBe('degraded');
+  });
+
+  it('keeps capture health live at every reviewer-safe quality boundary', () => {
+    const health = {
+      status: 'live' as const,
+      source: 'production_feed_snapshot' as const,
+      candidatePosts72h: 100,
+      publicScoredPosts: COMMUNITY_GOV_SNAPSHOT_GATE.minimumDisplayablePosts,
+      uniqueAuthors72h: 40,
+      bridgePostShare: 0.4,
+      topAuthorConcentration: COMMUNITY_GOV_SNAPSHOT_GATE.maximumTopAuthorConcentration,
+      sampledAt: '2026-07-11T22:22:13.710Z',
+      eligiblePostCount: COMMUNITY_GOV_SNAPSHOT_GATE.minimumEligiblePosts,
+      englishTaggedShare: COMMUNITY_GOV_SNAPSHOT_GATE.minimumEnglishTaggedShare,
+      richMediaShare: COMMUNITY_GOV_SNAPSHOT_GATE.minimumRichMediaShare,
+    };
+
+    expect(communityGovSnapshotGateFailures(health)).toEqual([]);
+    expect(applyCommunityGovSnapshotGateStatus(health)).toBe(health);
   });
 
   it('uses the same ordered URL decay for production publication and shadow reranking', () => {

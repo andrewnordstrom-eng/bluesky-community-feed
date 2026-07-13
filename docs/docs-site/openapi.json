@@ -805,7 +805,7 @@
         "tags": [
           "Governance"
         ],
-        "description": "Cast or update your vote for the current epoch. You can vote on algorithm weights, content keywords, topic weights, or any combination. Weights must sum to 1.0. Requires authentication and active subscription.",
+        "description": "Cast or update your vote for the current epoch. You can vote on algorithm weights, content keywords, topic weights, or any combination. Weights must sum to 1.0. Requires authentication, an active feed subscription, and approved pilot participation when allowlisting is enabled.",
         "requestBody": {
           "required": true,
           "content": {
@@ -1861,6 +1861,11 @@
                             "format": "date-time"
                           },
                           "closed_at": {
+                            "type": "string",
+                            "format": "date-time",
+                            "nullable": true
+                          },
+                          "results_approved_at": {
                             "type": "string",
                             "format": "date-time",
                             "nullable": true

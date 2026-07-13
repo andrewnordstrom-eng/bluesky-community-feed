@@ -6,14 +6,15 @@
  */
 
 import Fastify from 'fastify';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // --- Mocks (vi.hoisted runs before imports) ---
-const { dbQueryMock, dbConnectMock, clientReleaseMock, getAuthenticatedDidMock } = vi.hoisted(() => ({
+const { dbQueryMock, dbConnectMock, clientReleaseMock, getAuthenticatedDidMock, participantLockMock } = vi.hoisted(() => ({
   dbQueryMock: vi.fn(),
   dbConnectMock: vi.fn(),
   clientReleaseMock: vi.fn(),
   getAuthenticatedDidMock: vi.fn(),
+  participantLockMock: vi.fn(),
 }));
 
 vi.mock('../src/db/client.js', () => ({
@@ -47,6 +48,7 @@ vi.mock('../src/lib/logger.js', () => ({
 
 import { registerVoteRoute } from '../src/governance/routes/vote.js';
 import { registerTopicRoutes } from '../src/governance/routes/topics.js';
+import { config } from '../src/config.js';
 import {
   parseStoredProposedTopicWeights,
   parseStoredTopicWeights,
@@ -61,6 +63,7 @@ interface TopicVoteEpoch {
 }
 
 const DATABASE_NOW = '2026-07-12T12:00:00.000Z';
+const ORIGINAL_LOGIN_ALLOWLIST_ENABLED = config.LOGIN_ALLOWLIST_ENABLED;
 
 const ACTIVE_EPOCH: TopicVoteEpoch = {
   id: 5,
@@ -111,6 +114,9 @@ function setupDbMock(opts?: {
       });
     }
     // Atomic vote insert locks the still-open epoch in the same statement.
+    if (sql.includes('FROM approved_participants') && sql.includes('FOR SHARE')) {
+      return participantLockMock(sql, _params);
+    }
     if (sql.includes('WITH open_epoch')) {
       expect(sql).toContain("AND status IN ('active', 'voting')");
       expect(sql).toContain("AND phase = 'voting'");
@@ -284,6 +290,12 @@ describe('stored topic-weight policy parsing', () => {
 describe('POST /api/governance/vote (topic_weights)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    participantLockMock.mockResolvedValue({ rows: [{ did: 'did:plc:voter' }] });
+    (config as { LOGIN_ALLOWLIST_ENABLED: boolean }).LOGIN_ALLOWLIST_ENABLED = false;
+  });
+
+  afterEach(() => {
+    (config as { LOGIN_ALLOWLIST_ENABLED: boolean }).LOGIN_ALLOWLIST_ENABLED = ORIGINAL_LOGIN_ALLOWLIST_ENABLED;
   });
 
   it('returns 401 without authentication', async () => {
@@ -325,6 +337,61 @@ describe('POST /api/governance/vote (topic_weights)', () => {
     expect(dbQueryMock.mock.calls.some(([sql]) => String(sql) === 'BEGIN')).toBe(true);
     expect(dbQueryMock.mock.calls.some(([sql]) => String(sql) === 'COMMIT')).toBe(true);
     expect(clientReleaseMock).toHaveBeenCalledTimes(1);
+
+    await app.close();
+  });
+
+  it('rejects a ballot when participant access is revoked before the transactional write', async () => {
+    getAuthenticatedDidMock.mockResolvedValue('did:plc:voter');
+    setupDbMock();
+    (config as { LOGIN_ALLOWLIST_ENABLED: boolean }).LOGIN_ALLOWLIST_ENABLED = true;
+    participantLockMock.mockResolvedValue({ rows: [] });
+
+    const app = Fastify();
+    registerVoteRoute(app);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/governance/vote',
+      payload: { topic_weights: { 'software-development': 0.9 } },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toMatchObject({ error: 'Forbidden' });
+    expect(participantLockMock).toHaveBeenCalledTimes(1);
+    expect(String(participantLockMock.mock.calls[0]?.[0])).toContain('FOR SHARE');
+    expect(dbQueryMock.mock.calls.some(([sql]) => String(sql).includes('WITH open_epoch'))).toBe(false);
+    expect(dbQueryMock.mock.calls.some(([sql]) => String(sql) === 'ROLLBACK')).toBe(true);
+
+    await app.close();
+  });
+
+  it('waits for the participant row lock before attempting a concurrent ballot write', async () => {
+    getAuthenticatedDidMock.mockResolvedValue('did:plc:voter');
+    setupDbMock();
+    (config as { LOGIN_ALLOWLIST_ENABLED: boolean }).LOGIN_ALLOWLIST_ENABLED = true;
+    let resolveApproval!: (value: { rows: Array<{ did: string }> }) => void;
+    participantLockMock.mockReturnValue(new Promise((resolve) => {
+      resolveApproval = resolve;
+    }));
+
+    const app = Fastify();
+    registerVoteRoute(app);
+    const responsePromise = app.inject({
+      method: 'POST',
+      url: '/api/governance/vote',
+      payload: { topic_weights: { 'software-development': 0.9 } },
+    });
+
+    await vi.waitFor(() => expect(participantLockMock).toHaveBeenCalledTimes(1));
+    expect(dbQueryMock.mock.calls.some(([sql]) => String(sql).includes('WITH open_epoch'))).toBe(false);
+
+    resolveApproval({ rows: [{ did: 'did:plc:voter' }] });
+    const response = await responsePromise;
+
+    expect(response.statusCode).toBe(200);
+    expect(dbQueryMock.mock.calls.some(([sql]) => String(sql).includes('WITH open_epoch'))).toBe(true);
+    expect(dbQueryMock.mock.calls.some(([sql]) => String(sql) === 'COMMIT')).toBe(true);
 
     await app.close();
   });

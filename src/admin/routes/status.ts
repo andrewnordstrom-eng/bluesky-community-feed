@@ -46,7 +46,7 @@ export function registerStatusRoutes(app: FastifyInstance): void {
     schema: {
       tags: ['Admin'],
       summary: 'System status',
-      description: 'Returns a full system overview for the admin dashboard: epoch state, feed stats, scoring info, content rules, and subscriber count.',
+      description: 'Returns a full system overview for the admin dashboard: epoch state, feed stats, scoring info, content rules, subscriber count, and approved pilot participant count.',
       security: adminSecurity,
       response: {
         200: {
@@ -83,7 +83,12 @@ export function registerStatusRoutes(app: FastifyInstance): void {
                     lastScoringRun: { type: 'string', format: 'date-time', nullable: true },
                     lastScoringDuration: { type: 'number', nullable: true, description: 'Duration in seconds' },
                     subscriberCount: { type: 'integer' },
+                    approvedParticipantCount: {
+                      type: 'integer',
+                      description: 'Approved active feed subscribers currently eligible for pilot governance',
+                    },
                   },
+                  required: ['totalPosts', 'postsLast24h', 'scoredPosts', 'subscriberCount', 'approvedParticipantCount'],
                 },
                 contentRules: {
                   type: 'object',
@@ -145,6 +150,14 @@ export function registerStatusRoutes(app: FastifyInstance): void {
       `SELECT COUNT(*) as count FROM subscribers WHERE is_active = TRUE`
     );
 
+    const approvedParticipantResult = await db.query(
+      `SELECT COUNT(*) as count
+       FROM subscribers s
+       INNER JOIN approved_participants ap
+         ON ap.did = s.did AND ap.removed_at IS NULL
+       WHERE s.is_active = TRUE`
+    );
+
     // Get scoring stats from system_status table
     let lastScoringRun: string | null = null;
     let lastScoringDuration: number | null = null;
@@ -200,6 +213,7 @@ export function registerStatusRoutes(app: FastifyInstance): void {
           lastScoringRun,
           lastScoringDuration,
           subscriberCount: parseInt(subResult.rows[0].count, 10),
+          approvedParticipantCount: parseInt(approvedParticipantResult.rows[0].count, 10),
         },
         contentRules: {
           includeKeywords: contentRules.includeKeywords || [],

@@ -36,7 +36,7 @@ const rankingJourney = [
   { label: "Ballot", body: "Approved participants can vote on signals, topic priorities, and content rules." },
   { label: "Aggregation", body: "Corgi aggregates complete ballots after the configurable voting window closes." },
   { label: "Review and approval", body: "Results are reviewed before an operator approves or rejects the proposed policy." },
-  { label: "Publish in Bluesky", body: "After approval and rescoring, Bluesky receives the posts in Corgi's order." },
+  { label: "Render in Bluesky", body: "After approval and rescoring, Corgi serves the ordered feed for Bluesky clients to render." },
   { label: "Inspect in Corgi", body: "Corgi shows the policy, score components, publication adjustments, and receipts." },
 ] as const
 

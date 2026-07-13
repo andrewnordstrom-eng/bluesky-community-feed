@@ -17,8 +17,8 @@ const SECTIONS = [
       <>
         <P>
           Corgi Commons is a Bluesky custom feed with inspectable, community-shaped ranking. Corgi ingests candidate
-          posts, computes five global signals, applies the approved policy, and serves an ordered feed back to Bluesky.
-          Corgi exposes policy metadata and ranking receipts when score provenance is available.
+          posts, computes five global signals, applies the approved policy, and serves an ordered feed for Bluesky
+          clients to render. Corgi exposes policy metadata and ranking receipts when score provenance is available.
         </P>
         <P>
           This page explains the ranking model. To see it move, use the{" "}

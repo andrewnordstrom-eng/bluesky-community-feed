@@ -12,6 +12,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const ADMIN_TAGS = new Set(['Admin', 'Export']);
 const DEFAULT_OUTPUT = path.resolve(process.cwd(), 'docs', 'openapi.json');
@@ -19,6 +20,33 @@ const DEFAULT_OUTPUT = path.resolve(process.cwd(), 'docs', 'openapi.json');
 interface OpenApiSpec {
   paths: Record<string, Record<string, { tags?: string[] }>>;
   [key: string]: unknown;
+}
+
+export async function runWithOpenApiCleanup<T>(
+  operation: () => Promise<T>,
+  cleanupOperations: readonly (() => Promise<unknown>)[],
+  reportCleanupFailure: (error: AggregateError) => void
+): Promise<T> {
+  const outcome = await operation().then(
+    (value) => ({ ok: true as const, value }),
+    (error: unknown) => ({ ok: false as const, error })
+  );
+  const cleanupResults = await Promise.allSettled(
+    cleanupOperations.map((cleanup) => Promise.resolve().then(cleanup))
+  );
+  const cleanupFailures = cleanupResults
+    .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+    .map((result) => result.reason);
+  const cleanupError = cleanupFailures.length > 0
+    ? new AggregateError(cleanupFailures, 'OpenAPI generator cleanup failed')
+    : null;
+
+  if (!outcome.ok) {
+    if (cleanupError) reportCleanupFailure(cleanupError);
+    throw outcome.error;
+  }
+  if (cleanupError) throw cleanupError;
+  return outcome.value;
 }
 
 async function main(): Promise<void> {
@@ -33,10 +61,9 @@ async function main(): Promise<void> {
   const { createServer } = await import('../src/feed/server.js');
   const app = await createServer();
 
-  // Start listening on a random port
-  await app.listen({ port: 0, host: '127.0.0.1' });
-
-  try {
+  await runWithOpenApiCleanup(async () => {
+    // Start listening on a random port
+    await app.listen({ port: 0, host: '127.0.0.1' });
     const response = await app.inject({
       method: 'GET',
       url: '/api/openapi.json',
@@ -68,19 +95,13 @@ async function main(): Promise<void> {
     console.log(`OpenAPI spec written to ${outputPath}`);
     console.log(`  Routes: ${routeCount}`);
     console.log(`  Mode: ${publicOnly ? 'public-only' : 'full'}`);
-  } finally {
-    const cleanupResults = await Promise.allSettled([
-      app.close(),
-      import('../src/db/client.js').then(({ db }) => db.end()),
-      import('../src/db/redis.js').then(({ redis }) => redis.quit()),
-    ]);
-    const cleanupFailures = cleanupResults
-      .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
-      .map((result) => result.reason);
-    if (cleanupFailures.length > 0) {
-      throw new AggregateError(cleanupFailures, 'OpenAPI generator cleanup failed');
-    }
-  }
+  }, [
+    () => app.close(),
+    () => import('../src/db/client.js').then(({ db }) => db.end()),
+    () => import('../src/db/redis.js').then(({ redis }) => redis.quit()),
+  ], (cleanupError) => {
+    console.error('OpenAPI generator cleanup also failed after the primary error:', cleanupError);
+  });
 }
 
 function stripAdminRoutes(spec: OpenApiSpec): OpenApiSpec {
@@ -107,7 +128,12 @@ function stripAdminRoutes(spec: OpenApiSpec): OpenApiSpec {
   return filtered;
 }
 
-main().catch((err) => {
-  console.error('Fatal error:', err);
-  process.exit(1);
-});
+const isEntrypoint = process.argv[1] !== undefined
+  && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isEntrypoint) {
+  main().catch((err) => {
+    console.error('Fatal error:', err);
+    process.exit(1);
+  });
+}

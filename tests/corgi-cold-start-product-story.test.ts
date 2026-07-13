@@ -158,23 +158,65 @@ describe('Corgi cold-start product story', () => {
   });
 
   it('publishes truthful media types and disabled lifecycle contracts in OpenAPI', () => {
-    const openapi = JSON.parse(read('docs/openapi.json')) as {
+    type OpenApiOperation = {
+      parameters?: unknown[];
+      requestBody?: unknown;
+      responses: Record<string, { content?: Record<string, unknown> }>;
+    };
+    type OpenApiSpec = {
       paths: Record<string, Record<string, {
-        parameters?: unknown[];
-        requestBody?: unknown;
-        responses: Record<string, { content?: Record<string, unknown> }>;
+        parameters?: OpenApiOperation['parameters'];
+        requestBody?: OpenApiOperation['requestBody'];
+        responses: OpenApiOperation['responses'];
       }>>;
     };
-    for (const path of ['/api/governance/epochs/transition', '/api/admin/governance/end-round']) {
-      const operation = openapi.paths[path]?.post;
-      expect(operation).toBeDefined();
-      expect(operation?.responses['200']).toBeUndefined();
-      expect(operation?.responses['409']).toBeDefined();
-      expect(JSON.stringify(operation)).not.toContain('"force"');
+    const specs = [
+      'docs/openapi.json',
+      'docs/openapi-public.json',
+      'docs/docs-site/openapi.json',
+    ].map((file) => ({ file, spec: JSON.parse(read(file)) as OpenApiSpec }));
+
+    for (const lifecyclePath of ['/api/governance/epochs/transition', '/api/admin/governance/end-round']) {
+      const operations = specs.flatMap(({ file, spec }) => {
+        const operation = spec.paths[lifecyclePath]?.post;
+        return operation ? [{ file, operation }] : [];
+      });
+      expect(operations.length, `${lifecyclePath} must be published by at least one spec`).toBeGreaterThan(0);
+      for (const { file, operation } of operations) {
+        expect(operation.responses['200'], `${file} ${lifecyclePath}`).toBeUndefined();
+        expect(operation.responses['409'], `${file} ${lifecyclePath}`).toBeDefined();
+        expect(JSON.stringify(operation), `${file} ${lifecyclePath}`).not.toContain('"force"');
+      }
     }
 
-    const fullDataset = openapi.paths['/api/admin/export/full-dataset']?.get;
-    expect(Object.keys(fullDataset?.responses['200']?.content ?? {})).toEqual(['application/zip']);
-    expect(Object.keys(fullDataset?.responses['400']?.content ?? {})).toEqual(['application/json']);
+    const exportOperations = specs.flatMap(({ file, spec }) => {
+      const operation = spec.paths['/api/admin/export/full-dataset']?.get;
+      return operation ? [{ file, operation }] : [];
+    });
+    expect(exportOperations.length).toBeGreaterThan(0);
+    for (const { file, operation } of exportOperations) {
+      expect(Object.keys(operation.responses['200']?.content ?? {}), file).toEqual(['application/zip']);
+      expect(Object.keys(operation.responses['400']?.content ?? {}), file).toEqual(['application/json']);
+    }
+
+    const [canonical, ...variants] = specs.map(({ spec }) => spec);
+    expect(canonical).toBeDefined();
+    const canonicalSharedContracts = {
+      voteRequest: canonical?.paths['/api/governance/vote']?.post?.requestBody,
+      waitlist: canonical?.paths['/api/governance/waitlist'],
+      statsStatusRequired:
+        canonical?.paths['/api/transparency/stats']?.get?.responses['200']?.content?.['application/json'],
+    };
+    expect(canonicalSharedContracts.voteRequest).toBeDefined();
+    expect(canonicalSharedContracts.waitlist).toBeDefined();
+    expect(canonicalSharedContracts.statsStatusRequired).toBeDefined();
+    for (const variant of variants) {
+      expect(variant.paths['/api/governance/vote']?.post?.requestBody)
+        .toEqual(canonicalSharedContracts.voteRequest);
+      expect(variant.paths['/api/governance/waitlist'])
+        .toEqual(canonicalSharedContracts.waitlist);
+      expect(variant.paths['/api/transparency/stats']?.get?.responses['200']?.content?.['application/json'])
+        .toEqual(canonicalSharedContracts.statsStatusRequired);
+    }
   });
 });

@@ -66,6 +66,8 @@ describe('web-next homepage anchors', () => {
     expect(pageContent).toContain('Change the illustrative policy below');
     expect(pageContent).toContain('Bluesky shows the ordered posts. Corgi shows the policy and receipts.');
     expect(pageContent).not.toContain('same feed reorders in Bluesky');
+    expect(renderedHomepageContent).toContain('Illustrative preview');
+    expect(renderedHomepageContent).toContain('frozen snapshot sourced from Corgi Commons');
     expect(renderedHomepageContent).not.toContain('Birders Who Code');
   });
 
@@ -108,5 +110,10 @@ describe('web-next homepage anchors', () => {
     expect(replayContent).toMatch(/<(?:S|s)ection id="replay"/);
     expect(replayContent).toMatch(/standard Bluesky clients render the ordered posts, not Corgi score panels\./i);
     expect(howItWorksContent).toContain('Rank badges and receipt panels in this page are Corgi annotations.');
+    expect(howItWorksContent).toContain('Render in Bluesky');
+    expect(howItWorksContent).not.toMatch(/Bluesky (?:receives|publishes) (?:the )?posts/i);
+    const docsContent = readRepoFile('web-next/app/docs/page.tsx');
+    expect(docsContent).toContain('serves an ordered feed for Bluesky');
+    expect(docsContent).not.toMatch(/serves an ordered feed back to Bluesky/i);
   });
 });

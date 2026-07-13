@@ -46,6 +46,13 @@ export function policyIsActive(epoch: { status: string; closed_at?: string | nul
   return epoch.status === "active" || epoch.closed_at == null
 }
 
+/** Whether the current response identifies this epoch as the applied policy.
+ * Older responses may omit `phase`; an explicit non-running phase is not
+ * treated as applied. */
+export function policyApplied(epoch: { status: string; phase?: string }): boolean {
+  return epoch.status === "active" && (epoch.phase === undefined || epoch.phase === "running")
+}
+
 /** Below this member count, "N of M voted · X%" reads as a ghost town rather
  *  than transparency — show plain ballot counts instead of participation math. */
 export const MIN_MEANINGFUL_MEMBERS = 10
