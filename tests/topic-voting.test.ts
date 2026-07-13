@@ -67,8 +67,14 @@ function setupDbMock(opts?: {
   hasSubscriber?: boolean;
   hasExistingVote?: boolean;
   closesBeforeInsert?: boolean;
+  initialEpoch?: typeof ACTIVE_EPOCH;
 }): void {
-  const { hasSubscriber = true, hasExistingVote = false, closesBeforeInsert = false } = opts ?? {};
+  const {
+    hasSubscriber = true,
+    hasExistingVote = false,
+    closesBeforeInsert = false,
+    initialEpoch = ACTIVE_EPOCH,
+  } = opts ?? {};
 
   dbQueryMock.mockImplementation((sql: string, _params?: unknown[]) => {
     // Subscriber check
@@ -79,11 +85,15 @@ function setupDbMock(opts?: {
     }
     // Atomic vote insert locks the still-open epoch in the same statement.
     if (sql.includes('WITH open_epoch')) {
+      expect(sql).toContain("AND status IN ('active', 'voting')");
+      expect(sql).toContain("AND phase = 'voting'");
+      expect(sql).toContain('AND (voting_ends_at IS NULL OR voting_ends_at > NOW())');
+      expect(sql).toContain('FOR SHARE');
       return Promise.resolve({ rows: closesBeforeInsert ? [] : [{ id: 1, is_new_vote: true }] });
     }
     // Active epoch for voting
     if (sql.includes('governance_epochs') && sql.includes('status')) {
-      return Promise.resolve({ rows: [ACTIVE_EPOCH] });
+      return Promise.resolve({ rows: [initialEpoch] });
     }
     // Topic catalog slug validation
     if (sql.includes('topic_catalog') && sql.includes('is_active')) {
@@ -252,6 +262,34 @@ describe('POST /api/governance/vote (topic_weights)', () => {
 
     expect(response.statusCode).toBe(409);
     expect(response.json()).toMatchObject({ error: 'VotingClosed' });
+
+    await app.close();
+  });
+
+  it('uses the database deadline when an expired voting window reaches the guarded insert', async () => {
+    getAuthenticatedDidMock.mockResolvedValue('did:plc:voter');
+    setupDbMock({
+      closesBeforeInsert: true,
+      initialEpoch: {
+        ...ACTIVE_EPOCH,
+        voting_ends_at: '2020-01-01T00:00:00.000Z',
+      },
+    });
+
+    const app = Fastify();
+    registerVoteRoute(app);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/governance/vote',
+      payload: {
+        topic_weights: { 'software-development': 0.9 },
+      },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ error: 'VotingClosed' });
+    expect(dbQueryMock.mock.calls.some(([sql]) => String(sql).includes('WITH open_epoch'))).toBe(true);
 
     await app.close();
   });

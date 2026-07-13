@@ -4,6 +4,7 @@ const {
   dbQueryMock,
   dbConnectMock,
   clientQueryMock,
+  releaseMock,
   aggregateVotesMock,
   aggregateContentVotesMock,
   aggregateTopicWeightsMock,
@@ -13,6 +14,7 @@ const {
   dbQueryMock: vi.fn(),
   dbConnectMock: vi.fn(),
   clientQueryMock: vi.fn(),
+  releaseMock: vi.fn(),
   aggregateVotesMock: vi.fn(),
   aggregateContentVotesMock: vi.fn(),
   aggregateTopicWeightsMock: vi.fn(),
@@ -60,7 +62,7 @@ describe('production governance lifecycle', () => {
 
     dbConnectMock.mockResolvedValue({
       query: clientQueryMock,
-      release: vi.fn(),
+      release: releaseMock,
     });
     dbQueryMock.mockImplementation((sql: string) => {
       if (sql.includes('FROM scheduled_votes')) {
@@ -178,5 +180,129 @@ describe('production governance lifecycle', () => {
     expect(aggregateTopicWeightsMock).not.toHaveBeenCalled();
     expect(aggregateContentVotesMock).not.toHaveBeenCalled();
     expect(announceVotingClosedMock).not.toHaveBeenCalled();
+  });
+
+  it('rolls back and releases the client when policy aggregation fails', async () => {
+    const currentWeights = {
+      recency: 0.2,
+      engagement: 0.2,
+      bridging: 0.2,
+      sourceDiversity: 0.2,
+      relevance: 0.2,
+    };
+
+    readEpochWeightsMock.mockResolvedValue(currentWeights);
+    aggregateVotesMock.mockResolvedValue(currentWeights);
+    aggregateTopicWeightsMock.mockRejectedValue(new Error('topic aggregation failed'));
+
+    clientQueryMock.mockImplementation((sql: string) => {
+      if (sql === 'BEGIN' || sql === 'ROLLBACK') {
+        return Promise.resolve({ rows: [] });
+      }
+      if (sql.includes('SELECT *') && sql.includes('FOR UPDATE')) {
+        return Promise.resolve({
+          rows: [{
+            id: 7,
+            phase: 'voting',
+            voting_ends_at: '2026-07-13T00:00:00.000Z',
+            content_rules: { include_keywords: [], exclude_keywords: [] },
+            topic_weights: { 'science-research': 0.5 },
+            recency_weight: 0.2,
+            engagement_weight: 0.2,
+            bridging_weight: 0.2,
+            source_diversity_weight: 0.2,
+            relevance_weight: 0.2,
+          }],
+        });
+      }
+      if (sql.includes('COUNT(*)::int AS total')) {
+        return Promise.resolve({ rows: [{ total: '25', content: '0', topic: '25' }] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+
+    const result = await checkScheduledTransitions();
+
+    expect(result).toEqual({
+      startedVotes: 0,
+      transitionedToResults: 0,
+      remindersSent: 0,
+      errors: 1,
+    });
+    expect(clientQueryMock).toHaveBeenCalledWith('ROLLBACK');
+    expect(clientQueryMock).not.toHaveBeenCalledWith('COMMIT');
+    expect(announceVotingClosedMock).not.toHaveBeenCalled();
+    expect(releaseMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves all current policy channels when an expired vote has no ballots', async () => {
+    const currentWeights = {
+      recency: 0.1,
+      engagement: 0.25,
+      bridging: 0.2,
+      sourceDiversity: 0.15,
+      relevance: 0.3,
+    };
+    const currentTopicWeights = {
+      'science-research': 0.85,
+      'software-development': 0.7,
+    };
+    const currentContentRules = {
+      include_keywords: ['research'],
+      exclude_keywords: ['spam'],
+    };
+
+    readEpochWeightsMock.mockResolvedValue(currentWeights);
+    announceVotingClosedMock.mockResolvedValue(undefined);
+
+    clientQueryMock.mockImplementation((sql: string) => {
+      if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') {
+        return Promise.resolve({ rows: [] });
+      }
+      if (sql.includes('SELECT *') && sql.includes('FOR UPDATE')) {
+        return Promise.resolve({
+          rows: [{
+            id: 7,
+            phase: 'voting',
+            voting_ends_at: '2026-07-13T00:00:00.000Z',
+            content_rules: currentContentRules,
+            topic_weights: currentTopicWeights,
+            recency_weight: 0.1,
+            engagement_weight: 0.25,
+            bridging_weight: 0.2,
+            source_diversity_weight: 0.15,
+            relevance_weight: 0.3,
+          }],
+        });
+      }
+      if (sql.includes('COUNT(*)::int AS total')) {
+        return Promise.resolve({ rows: [{ total: '0', content: '0', topic: '0' }] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+
+    const result = await checkScheduledTransitions();
+
+    expect(result).toEqual({
+      startedVotes: 0,
+      transitionedToResults: 1,
+      remindersSent: 0,
+      errors: 0,
+    });
+    expect(aggregateVotesMock).not.toHaveBeenCalled();
+    expect(aggregateTopicWeightsMock).not.toHaveBeenCalled();
+    expect(aggregateContentVotesMock).not.toHaveBeenCalled();
+
+    const resultsUpdate = clientQueryMock.mock.calls.find(
+      (call) => typeof call[0] === 'string' && call[0].includes("SET phase = 'results'")
+    );
+    expect(resultsUpdate?.[1]).toEqual([
+      JSON.stringify(currentWeights),
+      JSON.stringify(currentContentRules),
+      JSON.stringify(currentTopicWeights),
+      7,
+    ]);
+    expect(announceVotingClosedMock).toHaveBeenCalledWith({ id: 7 }, 0);
+    expect(releaseMock).toHaveBeenCalledTimes(1);
   });
 });

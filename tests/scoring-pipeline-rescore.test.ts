@@ -223,6 +223,37 @@ describe('periodic full rescore for recency decay', () => {
     expect(getPostsQueryMode()).toBe('incremental');
   });
 
+  it('clears a pending policy request when an epoch change already causes a full pass', async () => {
+    await runEmptyCycle(2);
+    requestFullRescore();
+
+    dbQueryMock.mockReset();
+    setupDefaultMocks();
+    await runEmptyCycle(3);
+    expect(getPostsQueryMode()).toBe('full');
+
+    dbQueryMock.mockReset();
+    setupDefaultMocks();
+    await runEmptyCycle(3);
+    expect(getPostsQueryMode()).toBe('incremental');
+  });
+
+  it('coalesces multiple policy requests into one full pass', async () => {
+    await runEmptyCycle(2);
+    requestFullRescore();
+    requestFullRescore();
+
+    dbQueryMock.mockReset();
+    setupDefaultMocks();
+    await runEmptyCycle(2);
+    expect(getPostsQueryMode()).toBe('full');
+
+    dbQueryMock.mockReset();
+    setupDefaultMocks();
+    await runEmptyCycle(2);
+    expect(getPostsQueryMode()).toBe('incremental');
+  });
+
   it('keeps a full-rescore request pending when the attempted run fails', async () => {
     await runEmptyCycle(2);
     requestFullRescore();

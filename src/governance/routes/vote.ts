@@ -334,9 +334,8 @@ export function registerVoteRoute(app: FastifyInstance): void {
 
     const epochId = epoch.rows[0].id;
     const epochPhase = epoch.rows[0].phase as string | null;
-    const votingEndsAt = epoch.rows[0].voting_ends_at as string | null;
 
-    if (epochPhase !== 'voting' || (votingEndsAt !== null && new Date(votingEndsAt).getTime() <= Date.now())) {
+    if (epochPhase !== 'voting') {
       return reply.code(409).send({
         error: 'VotingClosed',
         message: 'Voting is currently closed for this round.',
@@ -357,6 +356,7 @@ export function registerVoteRoute(app: FastifyInstance): void {
           SELECT id
           FROM governance_epochs
           WHERE id = $2
+            AND status IN ('active', 'voting')
             AND phase = 'voting'
             AND (voting_ends_at IS NULL OR voting_ends_at > NOW())
           FOR SHARE
