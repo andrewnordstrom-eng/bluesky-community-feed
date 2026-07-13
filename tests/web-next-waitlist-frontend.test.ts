@@ -142,6 +142,25 @@ describe('web-next auth request coordination', () => {
     expect(active.aborted).toBe(true);
     expect(requests.isCurrent(active)).toBe(false);
   });
+
+  it('clears the active login after that request completes', () => {
+    const requests = new AuthRequestCoordinator();
+    const active = requests.begin();
+
+    requests.complete(active);
+
+    expect(requests.isCurrent(active)).toBe(false);
+  });
+
+  it('does not clear the latest login when a superseded request completes', () => {
+    const requests = new AuthRequestCoordinator();
+    const first = requests.begin();
+    const second = requests.begin();
+
+    requests.complete(first);
+
+    expect(requests.isCurrent(second)).toBe(true);
+  });
 });
 
 describe('web-next sign-in failure handling', () => {
