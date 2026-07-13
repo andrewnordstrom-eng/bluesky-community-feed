@@ -11,6 +11,20 @@ vi.mock('../src/db/client.js', () => ({
   },
 }));
 
+vi.mock('../src/config.js', () => ({
+  config: {
+    BOT_ADMIN_DIDS: 'did:plc:admin',
+    GOVERNANCE_LONGTABLE_READ_ENABLED: false,
+    LOG_LEVEL: 'silent',
+    NODE_ENV: 'test',
+  },
+}));
+
+vi.mock('../src/governance/auth.js', () => ({
+  getAuthenticatedDid: vi.fn().mockResolvedValue('did:plc:admin'),
+  SessionStoreUnavailableError: class extends Error {},
+}));
+
 import { registerWeightsRoute } from '../src/governance/routes/weights.js';
 import { registerEpochsRoute } from '../src/governance/routes/epochs.js';
 
@@ -82,6 +96,23 @@ describe('governance route query validation', () => {
 
     expect(response.statusCode).toBe(400);
     expect(response.json()).toMatchObject({ error: 'ValidationError' });
+    expect(dbQueryMock).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it('rejects the authenticated direct transition endpoint', async () => {
+    const app = Fastify();
+    app.setValidatorCompiler(() => () => true);
+    registerEpochsRoute(app);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/governance/epochs/transition?force=true',
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ error: 'DirectTransitionDisabled' });
     expect(dbQueryMock).not.toHaveBeenCalled();
 
     await app.close();

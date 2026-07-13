@@ -21,7 +21,12 @@ vi.mock('../src/db/redis.js', () => ({
   },
 }));
 
-import { getCurrentContentRules, checkContentRules } from '../src/governance/content-filter.js';
+import {
+  checkContentRules,
+  getCurrentContentRules,
+  getCurrentContentRulesFromDatabase,
+  invalidateContentRulesCacheStrict,
+} from '../src/governance/content-filter.js';
 
 describe('content filter cache fallback', () => {
   beforeEach(() => {
@@ -104,6 +109,36 @@ describe('content filter cache fallback', () => {
       excludeKeywords: ['politics'],
     });
     expect(dbQueryMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('loads canonical rules directly from PostgreSQL for policy rescoring', async () => {
+    dbQueryMock.mockResolvedValue({
+      rows: [{
+        content_rules: {
+          include_keywords: ['research'],
+          exclude_keywords: ['spam'],
+        },
+      }],
+    });
+
+    await expect(getCurrentContentRulesFromDatabase()).resolves.toEqual({
+      includeKeywords: ['research'],
+      excludeKeywords: ['spam'],
+    });
+    expect(redisGetMock).not.toHaveBeenCalled();
+    expect(redisSetMock).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when the canonical policy cannot be loaded', async () => {
+    dbQueryMock.mockRejectedValue(new Error('database unavailable'));
+
+    await expect(getCurrentContentRulesFromDatabase()).rejects.toThrow('database unavailable');
+  });
+
+  it('propagates strict cache invalidation failures to the rescore worker', async () => {
+    redisDelMock.mockRejectedValue(new Error('redis unavailable'));
+
+    await expect(invalidateContentRulesCacheStrict()).rejects.toThrow('redis unavailable');
   });
 });
 

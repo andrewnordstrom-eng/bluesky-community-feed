@@ -38,7 +38,13 @@ vi.mock('../src/lib/logger.js', () => ({
   },
 }));
 
-import { checkGovernanceGate, isGovernanceGateReady, loadGovernanceGateWeights, invalidateGovernanceGateCache } from '../src/ingestion/governance-gate.js';
+import {
+  checkGovernanceGate,
+  invalidateGovernanceGateCache,
+  invalidateGovernanceGateCacheStrict,
+  isGovernanceGateReady,
+  loadGovernanceGateWeights,
+} from '../src/ingestion/governance-gate.js';
 
 /** Standard community weights for testing. */
 const COMMUNITY_WEIGHTS: Record<string, number> = {
@@ -332,5 +338,11 @@ describe('invalidateGovernanceGateCache', () => {
     await invalidateGovernanceGateCache();
 
     expect(redisDelMock).toHaveBeenCalledWith('governance_gate:topic_weights');
+  });
+
+  it('propagates strict invalidation failures to the policy rescore worker', async () => {
+    redisDelMock.mockRejectedValue(new Error('redis unavailable'));
+
+    await expect(invalidateGovernanceGateCacheStrict()).rejects.toThrow('redis unavailable');
   });
 });

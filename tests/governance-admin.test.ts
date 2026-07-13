@@ -6,8 +6,12 @@ const {
   dbConnectMock,
   clientQueryMock,
   invalidateContentRulesCacheMock,
+  invalidateGovernanceGateCacheMock,
   aggregateVotesMock,
   aggregateContentVotesMock,
+  aggregateTopicWeightsMock,
+  writeEpochWeightsMock,
+  requestFullRescoreMock,
   tryTriggerManualScoringRunMock,
   forceEpochTransitionMock,
   triggerEpochTransitionMock,
@@ -16,8 +20,12 @@ const {
   dbConnectMock: vi.fn(),
   clientQueryMock: vi.fn(),
   invalidateContentRulesCacheMock: vi.fn(),
+  invalidateGovernanceGateCacheMock: vi.fn(),
   aggregateVotesMock: vi.fn(),
   aggregateContentVotesMock: vi.fn(),
+  aggregateTopicWeightsMock: vi.fn(),
+  writeEpochWeightsMock: vi.fn(),
+  requestFullRescoreMock: vi.fn(),
   tryTriggerManualScoringRunMock: vi.fn(),
   forceEpochTransitionMock: vi.fn(),
   triggerEpochTransitionMock: vi.fn(),
@@ -38,18 +46,39 @@ vi.mock('../src/governance/content-filter.js', () => ({
   invalidateContentRulesCache: invalidateContentRulesCacheMock,
 }));
 
+vi.mock('../src/ingestion/governance-gate.js', () => ({
+  invalidateGovernanceGateCache: invalidateGovernanceGateCacheMock,
+}));
+
 vi.mock('../src/governance/aggregation.js', () => ({
   aggregateVotes: aggregateVotesMock,
   aggregateContentVotes: aggregateContentVotesMock,
+  aggregateTopicWeights: aggregateTopicWeightsMock,
+}));
+
+vi.mock('../src/governance/weight-longtable.js', () => ({
+  readEpochWeightsForMultipleEpochs: vi.fn().mockResolvedValue({}),
+  writeEpochWeights: writeEpochWeightsMock,
 }));
 
 vi.mock('../src/scoring/scheduler.js', () => ({
   tryTriggerManualScoringRun: tryTriggerManualScoringRunMock,
 }));
 
+vi.mock('../src/scoring/pipeline.js', () => ({
+  requestFullRescore: requestFullRescoreMock,
+}));
+
 vi.mock('../src/governance/epoch-manager.js', () => ({
   forceEpochTransition: forceEpochTransitionMock,
   triggerEpochTransition: triggerEpochTransitionMock,
+}));
+
+vi.mock('../src/bot/governance-announcements.js', () => ({
+  announceResultsApproved: vi.fn().mockResolvedValue(undefined),
+  announceVoteScheduled: vi.fn().mockResolvedValue(undefined),
+  announceVotingClosed: vi.fn().mockResolvedValue(undefined),
+  announceVotingOpen: vi.fn().mockResolvedValue(undefined),
 }));
 
 import { registerGovernanceRoutes } from '../src/admin/routes/governance.js';
@@ -69,6 +98,12 @@ function epochRow(overrides: Partial<Record<string, unknown>> = {}) {
       include_keywords: ['ai'],
       exclude_keywords: ['spam'],
     },
+    topic_weights: {
+      'software-development': 0.5,
+    },
+    proposed_weights: null,
+    proposed_topic_weights: null,
+    proposed_content_rules: null,
     created_at: '2026-02-08T00:00:00.000Z',
     closed_at: null,
     ...overrides,
@@ -81,8 +116,12 @@ describe('admin governance routes', () => {
     dbConnectMock.mockReset();
     clientQueryMock.mockReset();
     invalidateContentRulesCacheMock.mockReset();
+    invalidateGovernanceGateCacheMock.mockReset();
     aggregateVotesMock.mockReset();
     aggregateContentVotesMock.mockReset();
+    aggregateTopicWeightsMock.mockReset();
+    writeEpochWeightsMock.mockReset();
+    requestFullRescoreMock.mockReset();
     tryTriggerManualScoringRunMock.mockReset();
     forceEpochTransitionMock.mockReset();
     triggerEpochTransitionMock.mockReset();
@@ -93,9 +132,12 @@ describe('admin governance routes', () => {
     });
 
     invalidateContentRulesCacheMock.mockResolvedValue(undefined);
+    invalidateGovernanceGateCacheMock.mockResolvedValue(undefined);
     tryTriggerManualScoringRunMock.mockReturnValue(true);
     aggregateVotesMock.mockResolvedValue(null);
     aggregateContentVotesMock.mockResolvedValue({ includeKeywords: [], excludeKeywords: [] });
+    aggregateTopicWeightsMock.mockResolvedValue({});
+    writeEpochWeightsMock.mockResolvedValue(undefined);
     forceEpochTransitionMock.mockResolvedValue(8);
     triggerEpochTransitionMock.mockResolvedValue({ success: true, newEpochId: 8 });
   });
@@ -116,6 +158,46 @@ describe('admin governance routes', () => {
     expect(response.statusCode).toBe(400);
     expect(response.json()).toMatchObject({ error: 'ValidationError' });
     expect(clientQueryMock).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it('returns a bounded error when overview policy data is malformed', async () => {
+    dbQueryMock.mockResolvedValueOnce({
+      rows: [{ ...epochRow({ topic_weights: 'malformed' }), vote_count: '1' }],
+    });
+
+    const app = Fastify();
+    registerGovernanceRoutes(app);
+
+    const response = await app.inject({ method: 'GET', url: '/governance' });
+
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toEqual({
+      error: 'InvalidGovernancePolicy',
+      message: 'Stored governance policy is invalid',
+    });
+
+    await app.close();
+  });
+
+  it('returns a bounded error when round detail policy data is malformed', async () => {
+    dbQueryMock
+      .mockResolvedValueOnce({ rows: [epochRow({ topic_weights: 'malformed' })] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ count: '1' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const app = Fastify();
+    registerGovernanceRoutes(app);
+
+    const response = await app.inject({ method: 'GET', url: '/governance/rounds/7' });
+
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toEqual({
+      error: 'InvalidGovernancePolicy',
+      message: 'Stored governance policy is invalid',
+    });
 
     await app.close();
   });
@@ -250,13 +332,11 @@ describe('admin governance routes', () => {
     await app.close();
   });
 
-  it('apply results without votes keeps existing weights and logs audit entry', async () => {
+  it('legacy apply-results alias rejects a reviewed window with no ballots', async () => {
     clientQueryMock
       .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [epochRow()] })
-      .mockResolvedValueOnce({ rows: [{ count: '0' }] })
-      .mockResolvedValueOnce({ rows: [epochRow()] })
-      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [epochRow({ phase: 'results' })] })
+      .mockResolvedValueOnce({ rows: [{ total: '0', content: '0', topic: '0' }] })
       .mockResolvedValueOnce({ rows: [] });
 
     const app = Fastify();
@@ -267,25 +347,323 @@ describe('admin governance routes', () => {
       url: '/governance/apply-results',
     });
 
-    expect(response.statusCode).toBe(200);
+    expect(response.statusCode).toBe(409);
     expect(response.json()).toMatchObject({
-      success: true,
-      voteCount: 0,
-      appliedWeights: false,
-      weights: {
-        recency: 0.2,
-        engagement: 0.2,
-        bridging: 0.2,
-        sourceDiversity: 0.2,
-        relevance: 0.2,
-      },
+      error: 'NoBallots',
     });
     expect(aggregateVotesMock).not.toHaveBeenCalled();
+    expect(clientQueryMock).toHaveBeenCalledWith('ROLLBACK');
+    expect(
+      clientQueryMock.mock.calls.some(
+        ([sql]) => typeof sql === 'string' && sql.includes('UPDATE governance_epochs')
+      )
+    ).toBe(false);
 
-    const auditInsert = clientQueryMock.mock.calls.find(
-      (call) => typeof call[0] === 'string' && call[0].includes('INSERT INTO governance_audit_log')
+    await app.close();
+  });
+
+  it('does not let the legacy apply-results alias bypass results review', async () => {
+    clientQueryMock
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [epochRow({ phase: 'voting' })] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const app = Fastify();
+    registerGovernanceRoutes(app);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/governance/apply-results',
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ error: 'ResultsNotPending' });
+    expect(aggregateVotesMock).not.toHaveBeenCalled();
+    expect(aggregateTopicWeightsMock).not.toHaveBeenCalled();
+    expect(aggregateContentVotesMock).not.toHaveBeenCalled();
+    expect(writeEpochWeightsMock).not.toHaveBeenCalled();
+    expect(invalidateContentRulesCacheMock).not.toHaveBeenCalled();
+    expect(invalidateGovernanceGateCacheMock).not.toHaveBeenCalled();
+    expect(requestFullRescoreMock).not.toHaveBeenCalled();
+    expect(tryTriggerManualScoringRunMock).not.toHaveBeenCalled();
+    expect(
+      clientQueryMock.mock.calls.some(
+        ([sql]) => typeof sql === 'string' && sql.includes('UPDATE governance_epochs')
+      )
+    ).toBe(false);
+    expect(
+      clientQueryMock.mock.calls.some(
+        ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO governance_rescore_requests')
+      )
+    ).toBe(false);
+
+    await app.close();
+  });
+
+  it('rejects canonical approval when the reviewed window has no ballots', async () => {
+    clientQueryMock
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [epochRow({ phase: 'results' })] })
+      .mockResolvedValueOnce({ rows: [{ total: '0', content: '0', topic: '0' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const app = Fastify();
+    registerGovernanceRoutes(app);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/governance/approve-results',
+      payload: { announce: false },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ error: 'NoBallots' });
+    expect(clientQueryMock).toHaveBeenCalledWith('ROLLBACK');
+    expect(requestFullRescoreMock).not.toHaveBeenCalled();
+    expect(tryTriggerManualScoringRunMock).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it('rolls back approval when stored proposed topic policy is malformed', async () => {
+    clientQueryMock
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({
+        rows: [epochRow({ phase: 'results', proposed_topic_weights: ['invalid'] })],
+      })
+      .mockResolvedValueOnce({ rows: [{ total: '25', content: '8', topic: '25' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const app = Fastify();
+    registerGovernanceRoutes(app);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/governance/approve-results',
+      payload: { announce: false },
+    });
+
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toMatchObject({ error: 'ApproveResultsFailed' });
+    expect(clientQueryMock).toHaveBeenCalledWith('ROLLBACK');
+    expect(
+      clientQueryMock.mock.calls.some(
+        ([sql]) => typeof sql === 'string' && sql.includes('UPDATE governance_epochs')
+      )
+    ).toBe(false);
+    expect(requestFullRescoreMock).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it('reviews and applies signal, topic, and content-rule proposals before rescoring', async () => {
+    const proposedWeights = {
+      recency: 0.1,
+      engagement: 0.2,
+      bridging: 0.25,
+      sourceDiversity: 0.15,
+      relevance: 0.3,
+    };
+    const proposedTopicWeights = {
+      'science-research': 0.9,
+      'software-development': 0.75,
+    };
+    const proposedContentRules = {
+      include_keywords: ['research'],
+      exclude_keywords: ['spam'],
+    };
+
+    aggregateVotesMock.mockResolvedValue(proposedWeights);
+    aggregateTopicWeightsMock.mockResolvedValue(proposedTopicWeights);
+    aggregateContentVotesMock.mockResolvedValue({
+      includeKeywords: proposedContentRules.include_keywords,
+      excludeKeywords: proposedContentRules.exclude_keywords,
+    });
+
+    clientQueryMock
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [epochRow({ phase: 'voting' })] })
+      .mockResolvedValueOnce({ rows: [{ total: '25', content: '8', topic: '25' }] })
+      .mockResolvedValueOnce({
+        rows: [epochRow({
+          phase: 'results',
+          proposed_weights: proposedWeights,
+          proposed_topic_weights: proposedTopicWeights,
+          proposed_content_rules: proposedContentRules,
+        })],
+      })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const app = Fastify();
+    registerGovernanceRoutes(app);
+
+    const closed = await app.inject({
+      method: 'POST',
+      url: '/governance/end-voting',
+      payload: { announce: false },
+    });
+
+    expect(closed.statusCode).toBe(200);
+    expect(closed.json()).toMatchObject({
+      voteCount: 25,
+      proposedWeights,
+      proposedTopicWeights,
+      proposedContentRules: {
+        includeKeywords: ['research'],
+        excludeKeywords: ['spam'],
+      },
+    });
+
+    clientQueryMock.mockReset();
+    clientQueryMock
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({
+        rows: [epochRow({
+          phase: 'results',
+          proposed_weights: proposedWeights,
+          proposed_topic_weights: proposedTopicWeights,
+          proposed_content_rules: proposedContentRules,
+        })],
+      })
+      .mockResolvedValueOnce({ rows: [{ total: '25', content: '8', topic: '25' }] })
+      .mockResolvedValueOnce({
+        rows: [epochRow({
+          phase: 'running',
+          recency_weight: proposedWeights.recency,
+          engagement_weight: proposedWeights.engagement,
+          bridging_weight: proposedWeights.bridging,
+          source_diversity_weight: proposedWeights.sourceDiversity,
+          relevance_weight: proposedWeights.relevance,
+          topic_weights: proposedTopicWeights,
+          content_rules: proposedContentRules,
+        })],
+      })
+      .mockResolvedValueOnce({ rows: [{ requested_generation: '1' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const approved = await app.inject({
+      method: 'POST',
+      url: '/governance/approve-results',
+      payload: { announce: false },
+    });
+
+    expect(approved.statusCode).toBe(200);
+    expect(approved.json()).toMatchObject({
+      weights: proposedWeights,
+      topicWeights: proposedTopicWeights,
+      contentRules: {
+        includeKeywords: ['research'],
+        excludeKeywords: ['spam'],
+      },
+      rescoreTriggered: true,
+    });
+    expect(writeEpochWeightsMock).toHaveBeenCalledWith(expect.anything(), 7, proposedWeights);
+    expect(invalidateContentRulesCacheMock).not.toHaveBeenCalled();
+    expect(invalidateGovernanceGateCacheMock).not.toHaveBeenCalled();
+    expect(requestFullRescoreMock).toHaveBeenCalledTimes(1);
+    expect(tryTriggerManualScoringRunMock).toHaveBeenCalledWith();
+
+    const update = clientQueryMock.mock.calls.find(
+      (call) => typeof call[0] === 'string' && call[0].includes('topic_weights = $6')
     );
-    expect(auditInsert).toBeTruthy();
+    expect(update?.[1]).toEqual([
+      proposedWeights.recency,
+      proposedWeights.engagement,
+      proposedWeights.bridging,
+      proposedWeights.sourceDiversity,
+      proposedWeights.relevance,
+      JSON.stringify(proposedTopicWeights),
+      JSON.stringify(proposedContentRules),
+      'did:plc:admin',
+      7,
+    ]);
+
+    const rescoreInsert = clientQueryMock.mock.calls.find(
+      (call) => typeof call[0] === 'string' && call[0].includes('INSERT INTO governance_rescore_requests')
+    );
+    expect(rescoreInsert?.[1]).toEqual([7]);
+    expect(rescoreInsert?.[0]).toContain(
+      'requested_generation = governance_rescore_requests.requested_generation + 1'
+    );
+
+    await app.close();
+  });
+
+  it('rolls back approved policy changes when the durable rescore cannot be enqueued', async () => {
+    clientQueryMock
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [epochRow({ phase: 'results' })] })
+      .mockResolvedValueOnce({ rows: [{ total: '25', content: '8', topic: '25' }] })
+      .mockResolvedValueOnce({ rows: [epochRow({ phase: 'running' })] })
+      .mockRejectedValueOnce(new Error('rescore outbox unavailable'));
+
+    const app = Fastify();
+    registerGovernanceRoutes(app);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/governance/approve-results',
+      payload: { announce: false },
+    });
+
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toMatchObject({ error: 'ApproveResultsFailed' });
+    expect(clientQueryMock).toHaveBeenCalledWith('ROLLBACK');
+    expect(clientQueryMock).not.toHaveBeenCalledWith('COMMIT');
+    expect(requestFullRescoreMock).not.toHaveBeenCalled();
+    expect(tryTriggerManualScoringRunMock).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it('reports a deferred rescore without undoing a committed policy approval', async () => {
+    clientQueryMock
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [epochRow({ phase: 'results' })] })
+      .mockResolvedValueOnce({ rows: [{ total: '25', content: '8', topic: '25' }] })
+      .mockResolvedValueOnce({ rows: [epochRow({ phase: 'running' })] })
+      .mockResolvedValueOnce({ rows: [{ requested_generation: '2' }] })
+      .mockResolvedValueOnce({ rows: [] });
+    tryTriggerManualScoringRunMock.mockRejectedValueOnce(new Error('scoring trigger unavailable'));
+
+    const app = Fastify();
+    registerGovernanceRoutes(app);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/governance/approve-results',
+      payload: { announce: false },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ success: true, rescoreTriggered: false });
+    expect(clientQueryMock).toHaveBeenCalledWith('COMMIT');
+    expect(requestFullRescoreMock).toHaveBeenCalledTimes(1);
+    expect(tryTriggerManualScoringRunMock).toHaveBeenCalledTimes(1);
+    const commitCallIndex = clientQueryMock.mock.calls.findIndex(([sql]) => sql === 'COMMIT');
+    expect(commitCallIndex).toBeGreaterThanOrEqual(0);
+    expect(tryTriggerManualScoringRunMock.mock.invocationCallOrder[0]).toBeGreaterThan(
+      clientQueryMock.mock.invocationCallOrder[commitCallIndex]
+    );
+
+    await app.close();
+  });
+
+  it('rejects the legacy direct end-round bypass even when force is requested', async () => {
+    const app = Fastify();
+    registerGovernanceRoutes(app);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/governance/end-round',
+      payload: { force: true },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ error: 'DirectTransitionDisabled' });
+    expect(clientQueryMock).not.toHaveBeenCalled();
+    expect(dbQueryMock).not.toHaveBeenCalled();
 
     await app.close();
   });

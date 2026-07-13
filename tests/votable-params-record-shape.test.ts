@@ -11,16 +11,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   dbQueryMock,
+  dbConnectMock,
+  clientReleaseMock,
   getAuthenticatedDidMock,
   isParticipantApprovedMock,
 } = vi.hoisted(() => ({
   dbQueryMock: vi.fn(),
+  dbConnectMock: vi.fn(),
+  clientReleaseMock: vi.fn(),
   getAuthenticatedDidMock: vi.fn(),
   isParticipantApprovedMock: vi.fn(),
 }));
 
 vi.mock('../src/db/client.js', () => ({
-  db: { query: dbQueryMock },
+  db: { query: dbQueryMock, connect: dbConnectMock },
 }));
 
 vi.mock('../src/governance/auth.js', () => ({
@@ -90,6 +94,7 @@ describe('votable-params record shape (PROJ-816)', () => {
     vi.clearAllMocks();
     getAuthenticatedDidMock.mockResolvedValue('did:plc:alice');
     isParticipantApprovedMock.mockResolvedValue(true);
+    dbConnectMock.mockResolvedValue({ query: dbQueryMock, release: clientReleaseMock });
     // Active subscriber + active voting epoch.
     dbQueryMock.mockImplementation(async (sql: unknown) => {
       const text = String(sql);

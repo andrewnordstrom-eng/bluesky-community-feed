@@ -9,6 +9,7 @@ import type { PoolClient } from 'pg';
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { db } from '../../db/client.js';
+import { config } from '../../config.js';
 import { getAdminDid } from '../../auth/admin.js';
 import { logger } from '../../lib/logger.js';
 import { adminSecurity, ErrorResponseSchema } from '../../lib/openapi.js';
@@ -20,10 +21,23 @@ import {
   toContentRules,
 } from '../../governance/governance.types.js';
 import { invalidateContentRulesCache } from '../../governance/content-filter.js';
-import { aggregateContentVotes, aggregateVotes } from '../../governance/aggregation.js';
-import { readEpochWeightsForMultipleEpochs } from '../../governance/weight-longtable.js';
+import {
+  aggregateContentVotes,
+  aggregateTopicWeights,
+  aggregateVotes,
+} from '../../governance/aggregation.js';
+import {
+  InvalidStoredTopicWeightsError,
+  parseStoredProposedTopicWeights,
+  parseStoredTopicWeights,
+} from '../../governance/topic-weights.js';
+import { readGovernanceVoteCounts } from '../../governance/vote-counts.js';
+import {
+  readEpochWeightsForMultipleEpochs,
+  writeEpochWeights,
+} from '../../governance/weight-longtable.js';
 import { tryTriggerManualScoringRun } from '../../scoring/scheduler.js';
-import { forceEpochTransition, triggerEpochTransition } from '../../governance/epoch-manager.js';
+import { requestFullRescore } from '../../scoring/pipeline.js';
 import {
   announceResultsApproved,
   announceVoteScheduled,
@@ -122,6 +136,12 @@ const contentRulesSchema = {
   },
 };
 
+/** Reusable schema fragment for a topic slug to weight map. */
+const topicWeightsSchema = {
+  type: 'object' as const,
+  additionalProperties: { type: 'number' as const, minimum: 0, maximum: 1 },
+};
+
 /** Reusable schema fragment for a governance round object. */
 const roundSchema = {
   type: 'object' as const,
@@ -138,9 +158,11 @@ const roundSchema = {
     resultsApprovedAt: { type: 'string' as const, format: 'date-time', nullable: true },
     resultsApprovedBy: { type: 'string' as const, nullable: true },
     proposedWeights: { ...weightsSchema, nullable: true },
+    proposedTopicWeights: { ...topicWeightsSchema, nullable: true },
     proposedContentRules: { ...contentRulesSchema, nullable: true },
     autoTransition: { type: 'boolean' as const },
     weights: weightsSchema,
+    topicWeights: topicWeightsSchema,
     contentRules: contentRulesSchema,
   },
 };
@@ -155,6 +177,7 @@ interface GovernanceEpochRow {
   results_approved_at: string | null;
   results_approved_by: string | null;
   proposed_weights: unknown;
+  proposed_topic_weights: unknown;
   proposed_content_rules: unknown;
   auto_transition: boolean;
   recency_weight: number | string;
@@ -163,6 +186,7 @@ interface GovernanceEpochRow {
   source_diversity_weight: number | string;
   relevance_weight: number | string;
   content_rules: unknown;
+  topic_weights: unknown;
   created_at: string;
   closed_at: string | null;
 }
@@ -314,9 +338,17 @@ function mapRound(
     resultsApprovedAt: row.results_approved_at,
     resultsApprovedBy: row.results_approved_by,
     proposedWeights: toProposedWeights(row.proposed_weights),
+    proposedTopicWeights: parseStoredProposedTopicWeights(
+      row.proposed_topic_weights,
+      `governance epoch ${row.id} proposed policy`
+    ),
     proposedContentRules: toProposedContentRules(row.proposed_content_rules),
     autoTransition: row.auto_transition,
     weights: toWeights(row, weightsOverride),
+    topicWeights: parseStoredTopicWeights(
+      row.topic_weights,
+      `governance epoch ${row.id} active policy`
+    ),
     contentRules: {
       includeKeywords: contentRules.includeKeywords,
       excludeKeywords: contentRules.excludeKeywords,
@@ -338,34 +370,49 @@ async function getCurrentEpochForUpdate(client: PoolClient): Promise<GovernanceE
 }
 
 async function triggerManualRescore(reason: string): Promise<boolean> {
-  const triggered = await tryTriggerManualScoringRun();
+  requestFullRescore();
+  try {
+    const triggered = await tryTriggerManualScoringRun();
 
-  if (!triggered) {
-    logger.warn({ reason }, 'Manual rescore skipped because scoring pipeline is already running');
+    if (!triggered) {
+      logger.warn({ reason }, 'Manual rescore skipped because scoring pipeline is already running');
+    }
+
+    return triggered;
+  } catch (error) {
+    logger.error(
+      { error, reason },
+      'Manual rescore trigger failed; durable policy rescore remains pending'
+    );
+    return false;
   }
-
-  return triggered;
 }
 
-async function getVoteCounts(client: PoolClient, epochId: number): Promise<{ total: number; content: number }> {
-  const result = await client.query<{ total: string; content: string }>(
-    `SELECT
-      COUNT(*)::int AS total,
-      COUNT(*) FILTER (
-        WHERE
-          (include_keywords IS NOT NULL AND array_length(include_keywords, 1) > 0)
-          OR
-          (exclude_keywords IS NOT NULL AND array_length(exclude_keywords, 1) > 0)
-      )::int AS content
-     FROM governance_votes
-     WHERE epoch_id = $1`,
+async function enqueuePolicyRescore(client: PoolClient, epochId: number): Promise<number> {
+  const result = await client.query<{ requested_generation: number | string }>(
+    `INSERT INTO governance_rescore_requests (
+       epoch_id,
+       requested_generation,
+       completed_generation,
+       requested_at,
+       completed_at
+     )
+     VALUES ($1, 1, 0, NOW(), NULL)
+     ON CONFLICT (epoch_id) DO UPDATE
+     SET requested_generation = governance_rescore_requests.requested_generation + 1,
+         requested_at = NOW(),
+         completed_at = NULL
+     RETURNING requested_generation`,
     [epochId]
   );
+  const generation = Number.parseInt(String(result.rows[0]?.requested_generation ?? ''), 10);
+  if (!Number.isSafeInteger(generation) || generation <= 0) {
+    throw new Error(
+      `Failed to enqueue policy rescore for governance epoch ${epochId}: invalid generation`
+    );
+  }
 
-  return {
-    total: parseInt(result.rows[0]?.total ?? '0', 10),
-    content: parseInt(result.rows[0]?.content ?? '0', 10),
-  };
+  return generation;
 }
 
 function mapScheduledVote(row: ScheduledVoteRow) {
@@ -399,6 +446,7 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
             autoTransition: { type: 'boolean' },
           },
         },
+        500: ErrorResponseSchema,
       },
     },
   }, async (_request: FastifyRequest, reply: FastifyReply) => {
@@ -416,8 +464,10 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
         e.results_approved_at,
         e.results_approved_by,
         e.proposed_weights,
+        e.proposed_topic_weights,
         e.proposed_content_rules,
         e.auto_transition,
+        e.topic_weights,
         e.content_rules,
         e.created_at,
         e.closed_at,
@@ -431,9 +481,21 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
 
     const roundEpochIds = roundsResult.rows.map((row) => row.id);
     const weightsByEpoch = await readEpochWeightsForMultipleEpochs({ epochIds: roundEpochIds });
-    const rounds = roundsResult.rows.map((row) =>
-      mapRound(row, parseInt(row.vote_count, 10), weightsByEpoch[row.id])
-    );
+    let rounds: ReturnType<typeof mapRound>[];
+    try {
+      rounds = roundsResult.rows.map((row) =>
+        mapRound(row, Number.parseInt(row.vote_count, 10), weightsByEpoch[row.id])
+      );
+    } catch (error) {
+      if (!(error instanceof InvalidStoredTopicWeightsError)) {
+        throw error;
+      }
+      logger.error({ error }, 'Stored governance policy is invalid in overview');
+      return reply.code(500).send({
+        error: 'InvalidGovernancePolicy',
+        message: 'Stored governance policy is invalid',
+      });
+    }
     const currentRound = rounds.find((round) => round.status === 'active' || round.status === 'voting') ?? null;
 
     return reply.send({
@@ -521,13 +583,14 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
              results_approved_at = NULL,
              results_approved_by = NULL,
              proposed_weights = NULL,
+             proposed_topic_weights = NULL,
              proposed_content_rules = NULL
          WHERE id = $2
          RETURNING *`,
         [durationHours, epoch.id]
       );
 
-      const voteCounts = await getVoteCounts(client, epoch.id);
+      const voteCounts = await readGovernanceVoteCounts(client, epoch.id);
 
       await client.query(
         `INSERT INTO governance_audit_log (action, actor_did, epoch_id, details)
@@ -578,6 +641,7 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
             success: { type: 'boolean' },
             voteCount: { type: 'integer' },
             proposedWeights: weightsSchema,
+            proposedTopicWeights: topicWeightsSchema,
             proposedContentRules: contentRulesSchema,
             round: roundSchema,
           },
@@ -622,11 +686,16 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
         });
       }
 
-      const voteCounts = await getVoteCounts(client, epoch.id);
+      const voteCounts = await readGovernanceVoteCounts(client, epoch.id);
       const previousWeights = toWeights(epoch);
+      const previousTopicWeights = parseStoredTopicWeights(
+        epoch.topic_weights,
+        `governance epoch ${epoch.id} active policy`
+      );
       const previousRules = toContentRules((epoch.content_rules ?? null) as any);
 
       let proposedWeights = previousWeights;
+      let proposedTopicWeights = previousTopicWeights;
       let proposedRules = previousRules;
 
       if (voteCounts.total > 0) {
@@ -640,16 +709,26 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
         proposedRules = await aggregateContentVotes(epoch.id);
       }
 
+      if (voteCounts.topic > 0) {
+        proposedTopicWeights = await aggregateTopicWeights(epoch.id);
+      }
+
       const updatedResult = await client.query<GovernanceEpochRow>(
         `UPDATE governance_epochs
          SET phase = 'results',
              voting_closed_at = NOW(),
              auto_transition = FALSE,
              proposed_weights = $1,
-             proposed_content_rules = $2
-         WHERE id = $3
+             proposed_content_rules = $2,
+             proposed_topic_weights = $3
+         WHERE id = $4
          RETURNING *`,
-        [JSON.stringify(proposedWeights), JSON.stringify(toDbContentRules(proposedRules)), epoch.id]
+        [
+          JSON.stringify(proposedWeights),
+          JSON.stringify(toDbContentRules(proposedRules)),
+          JSON.stringify(proposedTopicWeights),
+          epoch.id,
+        ]
       );
 
       await client.query(
@@ -661,7 +740,9 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
           JSON.stringify({
             vote_count: voteCounts.total,
             content_vote_count: voteCounts.content,
+            topic_vote_count: voteCounts.topic,
             proposed_weights: proposedWeights,
+            proposed_topic_weights: proposedTopicWeights,
             proposed_content_rules: toDbContentRules(proposedRules),
             announce,
           }),
@@ -678,6 +759,7 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
         success: true,
         voteCount: voteCounts.total,
         proposedWeights,
+        proposedTopicWeights,
         proposedContentRules: proposedRules,
         round: mapRound(updatedResult.rows[0], voteCounts.total),
       });
@@ -697,7 +779,7 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
     schema: {
       tags: ['Admin'],
       summary: 'Approve voting results',
-      description: 'Approves aggregated voting results, applying the proposed weights and content rules to the active epoch. Triggers a rescore.',
+      description: 'Approves aggregated voting results, applying the proposed signal weights, topic weights, and content rules to the active epoch before triggering a rescore.',
       security: adminSecurity,
       body: ApproveResultsJsonSchema,
       response: {
@@ -706,6 +788,7 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
           properties: {
             success: { type: 'boolean' },
             weights: weightsSchema,
+            topicWeights: topicWeightsSchema,
             contentRules: contentRulesSchema,
             rescoreTriggered: { type: 'boolean' },
             round: roundSchema,
@@ -750,9 +833,26 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
         });
       }
 
+      const voteCounts = await readGovernanceVoteCounts(client, epoch.id);
+      if (voteCounts.total === 0) {
+        await client.query('ROLLBACK');
+        return reply.code(409).send({
+          error: 'NoBallots',
+          message: 'Results cannot be approved because this voting window received no ballots.',
+        });
+      }
+
       const oldWeights = toWeights(epoch);
+      const oldTopicWeights = parseStoredTopicWeights(
+        epoch.topic_weights,
+        `governance epoch ${epoch.id} active policy`
+      );
       const oldContentRules = toContentRules((epoch.content_rules ?? null) as any);
       const newWeights = toProposedWeights(epoch.proposed_weights) ?? oldWeights;
+      const newTopicWeights = parseStoredProposedTopicWeights(
+        epoch.proposed_topic_weights,
+        `governance epoch ${epoch.id} proposed policy`
+      ) ?? oldTopicWeights;
       const newContentRules = toProposedContentRules(epoch.proposed_content_rules) ?? oldContentRules;
 
       const updatedResult = await client.query<GovernanceEpochRow>(
@@ -762,15 +862,17 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
              bridging_weight = $3,
              source_diversity_weight = $4,
              relevance_weight = $5,
-             content_rules = $6,
+             topic_weights = $6,
+             content_rules = $7,
              phase = 'running',
              voting_ends_at = NULL,
              auto_transition = FALSE,
              proposed_weights = NULL,
+             proposed_topic_weights = NULL,
              proposed_content_rules = NULL,
              results_approved_at = NOW(),
-             results_approved_by = $7
-         WHERE id = $8
+             results_approved_by = $8
+         WHERE id = $9
          RETURNING *`,
         [
           newWeights.recency,
@@ -778,13 +880,18 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
           newWeights.bridging,
           newWeights.sourceDiversity,
           newWeights.relevance,
+          JSON.stringify(newTopicWeights),
           JSON.stringify(toDbContentRules(newContentRules)),
           adminDid,
           epoch.id,
         ]
       );
 
-      const voteCounts = await getVoteCounts(client, epoch.id);
+      if (config.GOVERNANCE_LONGTABLE_DUALWRITE_ENABLED) {
+        await writeEpochWeights(client, epoch.id, newWeights);
+      }
+
+      const rescoreGeneration = await enqueuePolicyRescore(client, epoch.id);
 
       await client.query(
         `INSERT INTO governance_audit_log (action, actor_did, epoch_id, details)
@@ -795,8 +902,11 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
           JSON.stringify({
             old_weights: oldWeights,
             new_weights: newWeights,
+            old_topic_weights: oldTopicWeights,
+            new_topic_weights: newTopicWeights,
             old_content_rules: toDbContentRules(oldContentRules),
             new_content_rules: toDbContentRules(newContentRules),
+            rescore_generation: rescoreGeneration,
             announce,
           }),
         ]
@@ -804,7 +914,9 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
 
       await client.query('COMMIT');
 
-      await invalidateContentRulesCache();
+      // The durable rescore worker invalidates both policy caches before it
+      // reads this generation. Keeping invalidation there makes post-commit
+      // failures retryable instead of masking an already-approved policy.
       const rescoreTriggered = await triggerManualRescore('admin_approve_results');
 
       if (announce) {
@@ -822,6 +934,7 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
       return reply.send({
         success: true,
         weights: newWeights,
+        topicWeights: newTopicWeights,
         contentRules: newContentRules,
         rescoreTriggered,
         round: mapRound(updatedResult.rows[0], voteCounts.total),
@@ -885,13 +998,14 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
              voting_ends_at = NULL,
              auto_transition = FALSE,
              proposed_weights = NULL,
+             proposed_topic_weights = NULL,
              proposed_content_rules = NULL
          WHERE id = $1
          RETURNING *`,
         [epoch.id]
       );
 
-      const voteCounts = await getVoteCounts(client, epoch.id);
+      const voteCounts = await readGovernanceVoteCounts(client, epoch.id);
 
       await client.query(
         `INSERT INTO governance_audit_log (action, actor_did, epoch_id, details)
@@ -1600,11 +1714,8 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
         [hours, epoch.id]
       );
 
-      const voteCountResult = await client.query<{ count: string }>(
-        `SELECT COUNT(*)::int AS count FROM governance_votes WHERE epoch_id = $1`,
-        [epoch.id]
-      );
-      const voteCount = parseInt(voteCountResult.rows[0]?.count ?? '0', 10);
+      const voteCounts = await readGovernanceVoteCounts(client, epoch.id);
+      const voteCount = voteCounts.total;
 
       await client.query(
         `INSERT INTO governance_audit_log (action, actor_did, epoch_id, details)
@@ -1642,8 +1753,8 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
   app.post('/governance/apply-results', {
     schema: {
       tags: ['Admin'],
-      summary: 'Apply results directly',
-      description: 'Aggregates votes and applies results in a single step, bypassing the approve/reject flow. Triggers a rescore.',
+      summary: 'Approve pending results (legacy alias)',
+      description: 'Deprecated compatibility alias for approving an already-reviewed results phase. It cannot bypass voting closure or results review.',
       security: adminSecurity,
       response: {
         200: {
@@ -1653,6 +1764,7 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
             voteCount: { type: 'integer' },
             appliedWeights: { type: 'boolean', description: 'Whether aggregated weights were applied (false if no votes)' },
             weights: weightsSchema,
+            topicWeights: topicWeightsSchema,
             contentRules: contentRulesSchema,
             round: roundSchema,
             rescoreTriggered: { type: 'boolean' },
@@ -1660,6 +1772,7 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
           required: ['success'],
         },
         404: ErrorResponseSchema,
+        409: ErrorResponseSchema,
         500: ErrorResponseSchema,
       },
     },
@@ -1676,26 +1789,36 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
         return reply.code(404).send({ error: 'NoActiveRound', message: 'No active round found' });
       }
 
-      const voteCountResult = await client.query<{ count: string }>(
-        `SELECT COUNT(*)::int AS count FROM governance_votes WHERE epoch_id = $1`,
-        [epoch.id]
-      );
-      const voteCount = parseInt(voteCountResult.rows[0]?.count ?? '0', 10);
+      if (toPhase(epoch) !== 'results') {
+        await client.query('ROLLBACK');
+        return reply.code(409).send({
+          error: 'ResultsNotPending',
+          message: 'Close voting and review the proposed policy before approving results',
+        });
+      }
+
+      const voteCounts = await readGovernanceVoteCounts(client, epoch.id);
+      if (voteCounts.total === 0) {
+        await client.query('ROLLBACK');
+        return reply.code(409).send({
+          error: 'NoBallots',
+          message: 'Results cannot be approved because this voting window received no ballots.',
+        });
+      }
+      const voteCount = voteCounts.total;
 
       const previousWeights = toWeights(epoch);
+      const previousTopicWeights = parseStoredTopicWeights(
+        epoch.topic_weights,
+        `governance epoch ${epoch.id} active policy`
+      );
       const previousRules = toContentRules((epoch.content_rules ?? null) as any);
-
-      let nextWeights = previousWeights;
-      let nextRules = previousRules;
-
-      if (voteCount > 0) {
-        const aggregatedWeights = await aggregateVotes(epoch.id);
-        if (aggregatedWeights) {
-          nextWeights = aggregatedWeights;
-        }
-
-        nextRules = await aggregateContentVotes(epoch.id);
-      }
+      const nextWeights = toProposedWeights(epoch.proposed_weights) ?? previousWeights;
+      const nextTopicWeights = parseStoredProposedTopicWeights(
+        epoch.proposed_topic_weights,
+        `governance epoch ${epoch.id} proposed policy`
+      ) ?? previousTopicWeights;
+      const nextRules = toProposedContentRules(epoch.proposed_content_rules) ?? previousRules;
 
       const updatedResult = await client.query<GovernanceEpochRow>(
         `UPDATE governance_epochs
@@ -1704,17 +1827,19 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
              bridging_weight = $3,
              source_diversity_weight = $4,
              relevance_weight = $5,
-             content_rules = $6,
-             vote_count = $7,
+             topic_weights = $6,
+             content_rules = $7,
+             vote_count = $8,
              phase = 'running',
              voting_closed_at = NOW(),
              voting_ends_at = NULL,
              auto_transition = FALSE,
              proposed_weights = NULL,
+             proposed_topic_weights = NULL,
              proposed_content_rules = NULL,
              results_approved_at = NOW(),
-             results_approved_by = $8
-         WHERE id = $9
+             results_approved_by = $9
+         WHERE id = $10
          RETURNING *`,
         [
           nextWeights.recency,
@@ -1722,12 +1847,19 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
           nextWeights.bridging,
           nextWeights.sourceDiversity,
           nextWeights.relevance,
+          JSON.stringify(nextTopicWeights),
           JSON.stringify(toContentRulesPayload(nextRules)),
           voteCount,
           adminDid,
           epoch.id,
         ]
       );
+
+      if (config.GOVERNANCE_LONGTABLE_DUALWRITE_ENABLED) {
+        await writeEpochWeights(client, epoch.id, nextWeights);
+      }
+
+      const rescoreGeneration = await enqueuePolicyRescore(client, epoch.id);
 
       await client.query(
         `INSERT INTO governance_audit_log (action, actor_did, epoch_id, details)
@@ -1739,15 +1871,19 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
             vote_count: voteCount,
             old_weights: previousWeights,
             new_weights: nextWeights,
+            old_topic_weights: previousTopicWeights,
+            new_topic_weights: nextTopicWeights,
             old_content_rules: toContentRulesPayload(previousRules),
             new_content_rules: toContentRulesPayload(nextRules),
+            rescore_generation: rescoreGeneration,
           }),
         ]
       );
 
       await client.query('COMMIT');
 
-      await invalidateContentRulesCache();
+      // Cache invalidation belongs to the durable worker for the same
+      // post-commit retry guarantee as the canonical approval route.
       const rescoreTriggered = await triggerManualRescore('admin_apply_results');
 
       return reply.send({
@@ -1755,6 +1891,7 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
         voteCount,
         appliedWeights: voteCount > 0,
         weights: nextWeights,
+        topicWeights: nextTopicWeights,
         contentRules: nextRules,
         round: mapRound(updatedResult.rows[0], voteCount),
         rescoreTriggered,
@@ -1822,6 +1959,7 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
         },
         400: ErrorResponseSchema,
         404: ErrorResponseSchema,
+        500: ErrorResponseSchema,
       },
     },
   }, async (request: FastifyRequest, reply: FastifyReply) => {
@@ -1931,8 +2069,22 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
     const endMs = round.closed_at ? new Date(round.closed_at).getTime() : nowMs;
     const durationMs = Math.max(0, endMs - startMs);
 
+    let mappedRound: ReturnType<typeof mapRound>;
+    try {
+      mappedRound = mapRound(round, voteCount);
+    } catch (error) {
+      if (!(error instanceof InvalidStoredTopicWeightsError)) {
+        throw error;
+      }
+      logger.error({ error, roundId }, 'Stored governance policy is invalid in round detail');
+      return reply.code(500).send({
+        error: 'InvalidGovernancePolicy',
+        message: 'Stored governance policy is invalid',
+      });
+    }
+
     return reply.send({
-      round: mapRound(round, voteCount),
+      round: mappedRound,
       startingWeights,
       endingWeights,
       startingRules,
@@ -1967,8 +2119,8 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
   app.post('/governance/end-round', {
     schema: {
       tags: ['Admin'],
-      summary: 'End round and start new one',
-      description: 'Closes the current epoch and creates a new one with current weights carried forward. Use force=true to skip validation checks.',
+      summary: 'Direct transition disabled',
+      description: 'Direct round transitions are disabled. Use start voting, end voting, results review, and approval so the complete policy is applied before rescoring.',
       security: adminSecurity,
       body: {
         type: 'object',
@@ -1991,7 +2143,7 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
       },
     },
   }, async (request: FastifyRequest, reply: FastifyReply) => {
-    const adminDid = getAdminDid(request);
+    getAdminDid(request);
     const parseResult = z
       .object({ force: z.boolean().optional().default(false) })
       .safeParse(request.body ?? {});
@@ -2004,40 +2156,9 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
       });
     }
 
-    const { force } = parseResult.data;
-
-    try {
-      let newEpochId: number | undefined;
-
-      if (force) {
-        newEpochId = await forceEpochTransition();
-      } else {
-        const result = await triggerEpochTransition();
-        if (!result.success || !result.newEpochId) {
-          return reply.code(409).send({
-            error: 'TransitionBlocked',
-            message: result.error ?? 'Unable to transition round without force',
-          });
-        }
-        newEpochId = result.newEpochId;
-      }
-
-      await db.query(
-        `INSERT INTO governance_audit_log (action, actor_did, epoch_id, details)
-         VALUES ('admin_end_round', $1, $2, $3)`,
-        [adminDid, newEpochId, JSON.stringify({ force })]
-      );
-
-      return reply.send({
-        success: true,
-        newRoundId: newEpochId,
-      });
-    } catch (error) {
-      logger.error({ error, adminDid }, 'Failed to end and start round');
-      return reply.code(500).send({
-        error: 'RoundTransitionFailed',
-        message: 'Failed to end current round and start a new one',
-      });
-    }
+    return reply.code(409).send({
+      error: 'DirectTransitionDisabled',
+      message: 'Direct round transitions are disabled. Start voting, close voting, review the proposed policy, and approve results.',
+    });
   });
 }
