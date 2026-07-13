@@ -54,6 +54,7 @@ export function registerStatusRoutes(app: FastifyInstance): void {
           properties: {
             isAdmin: { type: 'boolean' },
             feedPrivateMode: { type: 'boolean' },
+            loginAllowlistEnabled: { type: 'boolean' },
             system: {
               type: 'object',
               properties: {
@@ -176,6 +177,7 @@ export function registerStatusRoutes(app: FastifyInstance): void {
     return reply.send({
       isAdmin: true,
       feedPrivateMode: config.FEED_PRIVATE_MODE,
+      loginAllowlistEnabled: config.LOGIN_ALLOWLIST_ENABLED,
       system: {
         currentEpoch: currentEpoch
           ? {

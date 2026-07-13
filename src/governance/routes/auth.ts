@@ -17,6 +17,8 @@ import {
 } from '../auth.js';
 import { logger } from '../../lib/logger.js';
 import { config } from '../../config.js';
+import { isAdmin } from '../../auth/admin.js';
+import { isParticipantApproved } from '../../feed/access-control.js';
 import { zodToOpenApi, ErrorResponseSchema, RateLimitResponseSchema, governanceSecurity } from '../../lib/openapi.js';
 
 const LoginSchema = z.object({
@@ -99,6 +101,16 @@ export function registerAuthRoute(app: FastifyInstance): void {
         },
         400: ErrorResponseSchema,
         401: ErrorResponseSchema,
+        403: {
+          type: 'object',
+          description: 'Valid credentials, but the account is not approved for the pilot.',
+          properties: {
+            error: { type: 'string', example: 'NotApproved' },
+            message: { type: 'string' },
+            waitlist: { type: 'boolean', example: true, description: 'Discriminator: the client should offer the waitlist.' },
+          },
+          required: ['error', 'message', 'waitlist'],
+        },
         429: RateLimitResponseSchema,
         503: ErrorResponseSchema,
       },
@@ -124,6 +136,27 @@ export function registerAuthRoute(app: FastifyInstance): void {
           error: 'AuthenticationFailed',
           message: 'Invalid handle or app password. Make sure you are using an app password from Bluesky settings.',
         });
+      }
+
+      // Pilot gating: credentials are valid, but only admins and approved
+      // participants may hold a session. authenticateWithBluesky persisted
+      // the session before we could gate it, so invalidate on deny — the
+      // minted token must be dead, not merely unreturned.
+      if (config.LOGIN_ALLOWLIST_ENABLED && !isAdmin(session.did)) {
+        const approved = await isParticipantApproved(session.did);
+        if (!approved) {
+          try {
+            await invalidateSession(session.accessJwt);
+          } catch (invalidateErr) {
+            logger.warn({ err: invalidateErr, did: session.did }, 'Failed to invalidate unapproved session');
+          }
+          logger.info({ did: session.did, handle: session.handle }, 'Login denied: not an approved pilot participant');
+          return reply.code(403).send({
+            error: 'NotApproved',
+            message: 'This Bluesky account is not approved for the Corgi voting pilot yet. Join the waitlist and we will get you in as we expand.',
+            waitlist: true,
+          });
+        }
       }
 
       logger.info({ did: session.did, handle: session.handle }, 'User logged in');

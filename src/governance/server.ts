@@ -14,6 +14,7 @@ import { registerAuthRoute } from './routes/auth.js';
 import { registerPolisRoute } from './routes/polis.js';
 import { registerContentRulesRoute } from './routes/content-rules.js';
 import { registerResearchConsentRoute } from './routes/research-consent.js';
+import { registerWaitlistRoute } from './routes/waitlist.js';
 import { logger } from '../lib/logger.js';
 
 /**
@@ -61,6 +62,9 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
 
   // Research consent route
   registerResearchConsentRoute(app);
+
+  // Waitlist route (public pilot-access intake)
+  registerWaitlistRoute(app);
 
   logger.info('Governance routes registered');
 }

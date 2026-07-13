@@ -43,6 +43,16 @@ export function buildRouteRateLimitConfig(
     };
   }
 
+  // Waitlist intake is unauthenticated — reuse the login limits (IP-keyed).
+  // Must sit above the generic governance-mutation branch, which would
+  // otherwise key this route by DID and apply vote limits.
+  if (url.startsWith('/api/governance/waitlist')) {
+    return {
+      max: config.RATE_LIMIT_LOGIN_MAX,
+      timeWindow: config.RATE_LIMIT_LOGIN_WINDOW_MS,
+    };
+  }
+
   if (url.startsWith('/api/governance/vote')) {
     return {
       max: config.RATE_LIMIT_VOTE_MAX,

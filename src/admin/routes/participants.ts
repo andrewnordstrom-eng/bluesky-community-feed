@@ -11,13 +11,13 @@
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { AtpAgent } from '@atproto/api';
 import { db } from '../../db/client.js';
 import { logger } from '../../lib/logger.js';
 import { Errors } from '../../lib/errors.js';
 import { invalidateParticipantCache } from '../../feed/access-control.js';
 import { getAuthenticatedDid } from '../../governance/auth.js';
 import { adminSecurity, ErrorResponseSchema } from '../../lib/openapi.js';
+import { resolveHandleToDid } from './resolve-handle.js';
 
 const AddParticipantSchema = z
   .object({
@@ -28,15 +28,6 @@ const AddParticipantSchema = z
   .refine((data) => data.did || data.handle, {
     message: 'Must provide did or handle',
   });
-
-/**
- * Resolve a Bluesky handle to a DID.
- */
-async function resolveHandleToDid(handle: string): Promise<{ did: string; handle: string }> {
-  const agent = new AtpAgent({ service: 'https://bsky.social' });
-  const response = await agent.resolveHandle({ handle });
-  return { did: response.data.did, handle };
-}
 
 export function registerParticipantRoutes(app: FastifyInstance): void {
   /**
