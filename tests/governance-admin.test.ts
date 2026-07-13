@@ -332,13 +332,11 @@ describe('admin governance routes', () => {
     await app.close();
   });
 
-  it('legacy apply-results alias requires reviewed results and keeps policy without votes', async () => {
+  it('legacy apply-results alias rejects a reviewed window with no ballots', async () => {
     clientQueryMock
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [epochRow({ phase: 'results' })] })
-      .mockResolvedValueOnce({ rows: [{ count: '0' }] })
-      .mockResolvedValueOnce({ rows: [epochRow({ phase: 'running' })] })
-      .mockResolvedValueOnce({ rows: [{ requested_generation: '1' }] })
+      .mockResolvedValueOnce({ rows: [{ total: '0', content: '0', topic: '0' }] })
       .mockResolvedValueOnce({ rows: [] });
 
     const app = Fastify();
@@ -349,46 +347,17 @@ describe('admin governance routes', () => {
       url: '/governance/apply-results',
     });
 
-    expect(response.statusCode).toBe(200);
+    expect(response.statusCode).toBe(409);
     expect(response.json()).toMatchObject({
-      success: true,
-      voteCount: 0,
-      appliedWeights: false,
-      weights: {
-        recency: 0.2,
-        engagement: 0.2,
-        bridging: 0.2,
-        sourceDiversity: 0.2,
-        relevance: 0.2,
-      },
+      error: 'NoBallots',
     });
     expect(aggregateVotesMock).not.toHaveBeenCalled();
-
-    const policyUpdate = clientQueryMock.mock.calls.find(
-      (call) => typeof call[0] === 'string' && call[0].includes('vote_count = $8')
-    );
-    expect(policyUpdate?.[1]).toEqual([
-      0.2,
-      0.2,
-      0.2,
-      0.2,
-      0.2,
-      JSON.stringify({ 'software-development': 0.5 }),
-      JSON.stringify({ include_keywords: ['ai'], exclude_keywords: ['spam'] }),
-      0,
-      'did:plc:admin',
-      7,
-    ]);
-
-    const rescoreInsert = clientQueryMock.mock.calls.find(
-      (call) => typeof call[0] === 'string' && call[0].includes('INSERT INTO governance_rescore_requests')
-    );
-    expect(rescoreInsert?.[1]).toEqual([7]);
-
-    const auditInsert = clientQueryMock.mock.calls.find(
-      (call) => typeof call[0] === 'string' && call[0].includes('INSERT INTO governance_audit_log')
-    );
-    expect(auditInsert).toBeTruthy();
+    expect(clientQueryMock).toHaveBeenCalledWith('ROLLBACK');
+    expect(
+      clientQueryMock.mock.calls.some(
+        ([sql]) => typeof sql === 'string' && sql.includes('UPDATE governance_epochs')
+      )
+    ).toBe(false);
 
     await app.close();
   });
@@ -427,6 +396,62 @@ describe('admin governance routes', () => {
         ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO governance_rescore_requests')
       )
     ).toBe(false);
+
+    await app.close();
+  });
+
+  it('rejects canonical approval when the reviewed window has no ballots', async () => {
+    clientQueryMock
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [epochRow({ phase: 'results' })] })
+      .mockResolvedValueOnce({ rows: [{ total: '0', content: '0', topic: '0' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const app = Fastify();
+    registerGovernanceRoutes(app);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/governance/approve-results',
+      payload: { announce: false },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ error: 'NoBallots' });
+    expect(clientQueryMock).toHaveBeenCalledWith('ROLLBACK');
+    expect(requestFullRescoreMock).not.toHaveBeenCalled();
+    expect(tryTriggerManualScoringRunMock).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it('rolls back approval when stored proposed topic policy is malformed', async () => {
+    clientQueryMock
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({
+        rows: [epochRow({ phase: 'results', proposed_topic_weights: ['invalid'] })],
+      })
+      .mockResolvedValueOnce({ rows: [{ total: '25', content: '8', topic: '25' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const app = Fastify();
+    registerGovernanceRoutes(app);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/governance/approve-results',
+      payload: { announce: false },
+    });
+
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toMatchObject({ error: 'ApproveResultsFailed' });
+    expect(clientQueryMock).toHaveBeenCalledWith('ROLLBACK');
+    expect(
+      clientQueryMock.mock.calls.some(
+        ([sql]) => typeof sql === 'string' && sql.includes('UPDATE governance_epochs')
+      )
+    ).toBe(false);
+    expect(requestFullRescoreMock).not.toHaveBeenCalled();
 
     await app.close();
   });
@@ -501,6 +526,7 @@ describe('admin governance routes', () => {
           proposed_content_rules: proposedContentRules,
         })],
       })
+      .mockResolvedValueOnce({ rows: [{ total: '25', content: '8', topic: '25' }] })
       .mockResolvedValueOnce({
         rows: [epochRow({
           phase: 'running',
@@ -513,7 +539,6 @@ describe('admin governance routes', () => {
           content_rules: proposedContentRules,
         })],
       })
-      .mockResolvedValueOnce({ rows: [{ total: '25', content: '8', topic: '25' }] })
       .mockResolvedValueOnce({ rows: [{ requested_generation: '1' }] })
       .mockResolvedValueOnce({ rows: [] });
 
@@ -569,8 +594,8 @@ describe('admin governance routes', () => {
     clientQueryMock
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [epochRow({ phase: 'results' })] })
-      .mockResolvedValueOnce({ rows: [epochRow({ phase: 'running' })] })
       .mockResolvedValueOnce({ rows: [{ total: '25', content: '8', topic: '25' }] })
+      .mockResolvedValueOnce({ rows: [epochRow({ phase: 'running' })] })
       .mockRejectedValueOnce(new Error('rescore outbox unavailable'));
 
     const app = Fastify();
@@ -596,8 +621,8 @@ describe('admin governance routes', () => {
     clientQueryMock
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [epochRow({ phase: 'results' })] })
-      .mockResolvedValueOnce({ rows: [epochRow({ phase: 'running' })] })
       .mockResolvedValueOnce({ rows: [{ total: '25', content: '8', topic: '25' }] })
+      .mockResolvedValueOnce({ rows: [epochRow({ phase: 'running' })] })
       .mockResolvedValueOnce({ rows: [{ requested_generation: '2' }] })
       .mockResolvedValueOnce({ rows: [] });
     tryTriggerManualScoringRunMock.mockRejectedValueOnce(new Error('scoring trigger unavailable'));
@@ -621,6 +646,24 @@ describe('admin governance routes', () => {
     expect(tryTriggerManualScoringRunMock.mock.invocationCallOrder[0]).toBeGreaterThan(
       clientQueryMock.mock.invocationCallOrder[commitCallIndex]
     );
+
+    await app.close();
+  });
+
+  it('rejects the legacy direct end-round bypass even when force is requested', async () => {
+    const app = Fastify();
+    registerGovernanceRoutes(app);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/governance/end-round',
+      payload: { force: true },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ error: 'DirectTransitionDisabled' });
+    expect(clientQueryMock).not.toHaveBeenCalled();
+    expect(dbQueryMock).not.toHaveBeenCalled();
 
     await app.close();
   });

@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   dbQueryMock,
+  dbConnectMock,
+  clientQueryMock,
+  clientReleaseMock,
   redisPipelineFactoryMock,
   pipelineDelMock,
   pipelineZaddMock,
@@ -14,6 +17,9 @@ const {
   updateScoringStatusMock,
 } = vi.hoisted(() => ({
   dbQueryMock: vi.fn(),
+  dbConnectMock: vi.fn(),
+  clientQueryMock: vi.fn(),
+  clientReleaseMock: vi.fn(),
   redisPipelineFactoryMock: vi.fn(),
   pipelineDelMock: vi.fn(),
   pipelineZaddMock: vi.fn(),
@@ -29,6 +35,7 @@ const {
 vi.mock('../src/db/client.js', () => ({
   db: {
     query: dbQueryMock,
+    connect: dbConnectMock,
   },
 }));
 
@@ -45,13 +52,14 @@ vi.mock('../src/db/redis.js', () => ({
 
 vi.mock('../src/governance/content-filter.js', () => ({
   getCurrentContentRules: getCurrentContentRulesMock,
+  getCurrentContentRulesFromDatabase: getCurrentContentRulesMock,
   hasActiveContentRules: hasActiveContentRulesMock,
   filterPosts: vi.fn(),
-  invalidateContentRulesCache: invalidateContentRulesCacheMock,
+  invalidateContentRulesCacheStrict: invalidateContentRulesCacheMock,
 }));
 
 vi.mock('../src/ingestion/governance-gate.js', () => ({
-  invalidateGovernanceGateCache: invalidateGovernanceGateCacheMock,
+  invalidateGovernanceGateCacheStrict: invalidateGovernanceGateCacheMock,
 }));
 
 vi.mock('../src/admin/status-tracker.js', () => ({
@@ -64,6 +72,8 @@ import {
   __resetPipelineState,
 } from '../src/scoring/pipeline.js';
 import { buildEpochRow } from './helpers/index.js';
+
+let fencePendingGeneration: string | null = null;
 
 function makeEpochRow(id = 2) {
   return buildEpochRow({ id });
@@ -78,6 +88,21 @@ function setupDefaultMocks() {
     exec: pipelineExecMock.mockResolvedValue([]),
   };
   redisPipelineFactoryMock.mockReturnValue(pipeline);
+  clientQueryMock.mockImplementation((sql: string) => {
+    if (sql.includes('pending_rescore_generation')) {
+      return Promise.resolve({
+        rows: [{ pending_rescore_generation: fencePendingGeneration }],
+      });
+    }
+    if (sql.includes('UPDATE governance_rescore_requests')) {
+      return Promise.resolve({ rows: [{ requested_generation: fencePendingGeneration ?? '1' }] });
+    }
+    return Promise.resolve({ rows: [] });
+  });
+  dbConnectMock.mockResolvedValue({
+    query: clientQueryMock,
+    release: clientReleaseMock,
+  });
 
   getCurrentContentRulesMock.mockResolvedValue({
     includeKeywords: [],
@@ -128,6 +153,7 @@ function getPostsQueryMode(): 'full' | 'incremental' {
 describe('periodic full rescore for recency decay', () => {
   beforeEach(() => {
     __resetPipelineState();
+    fencePendingGeneration = null;
     vi.clearAllMocks();
     setupDefaultMocks();
   });
@@ -325,7 +351,7 @@ describe('periodic full rescore for recency decay', () => {
     expect(getPostsQueryMode()).toBe('incremental');
   });
 
-  it('does not consume a policy change requested during an in-flight run', async () => {
+  it('rejects publication and preserves a policy change requested during an in-flight run', async () => {
     await runEmptyCycle(2);
 
     let releaseContentRules: ((value: { includeKeywords: string[]; excludeKeywords: string[] }) => void) | null = null;
@@ -348,7 +374,9 @@ describe('periodic full rescore for recency decay', () => {
     });
     requestFullRescore();
     releaseContentRules?.({ includeKeywords: [], excludeKeywords: [] });
-    await inFlightRun;
+    await expect(inFlightRun).rejects.toThrow(
+      'Governance policy changed while epoch 2 scoring was in progress'
+    );
     expect(getPostsQueryMode()).toBe('incremental');
 
     dbQueryMock.mockReset();
@@ -396,6 +424,7 @@ describe('periodic full rescore for recency decay', () => {
     dbQueryMock.mockReset();
     vi.clearAllMocks();
     setupDefaultMocks();
+    fencePendingGeneration = '4';
     dbQueryMock
       .mockResolvedValueOnce({
         rows: [{ ...makeEpochRow(2), pending_rescore_generation: '4' }],
@@ -417,6 +446,7 @@ describe('periodic full rescore for recency decay', () => {
   it('completes only the durable generation observed by a published run', async () => {
     dbQueryMock.mockReset();
     setupDefaultMocks();
+    fencePendingGeneration = '4';
     dbQueryMock
       .mockResolvedValueOnce({
         rows: [{ ...makeEpochRow(2), pending_rescore_generation: '4' }],
@@ -433,17 +463,72 @@ describe('periodic full rescore for recency decay', () => {
           text_length: 120,
         }],
       })
-      .mockResolvedValueOnce({ rows: [{ requested_generation: '5' }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] });
 
     await runScoringPipeline();
 
-    const completion = dbQueryMock.mock.calls.find(
+    const completion = clientQueryMock.mock.calls.find(
       ([sql]) => String(sql).includes('UPDATE governance_rescore_requests')
     );
     expect(completion?.[1]).toEqual([2, 4]);
     expect(invalidateContentRulesCacheMock).toHaveBeenCalledTimes(1);
     expect(invalidateGovernanceGateCacheMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a stale policy publication when a newer durable generation exists', async () => {
+    fencePendingGeneration = '5';
+    dbQueryMock
+      .mockResolvedValueOnce({
+        rows: [{ ...makeEpochRow(2), pending_rescore_generation: '4' }],
+      })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await expect(runScoringPipeline()).rejects.toThrow(
+      'Governance policy changed while epoch 2 scoring was in progress'
+    );
+
+    expect(
+      dbQueryMock.mock.calls.some(([sql]) => String(sql).includes('FROM post_scores ps'))
+    ).toBe(false);
+    expect(clientQueryMock).toHaveBeenCalledWith('ROLLBACK');
+    expect(clientReleaseMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a routine run that started before a policy approval', async () => {
+    fencePendingGeneration = '1';
+    dbQueryMock
+      .mockResolvedValueOnce({ rows: [makeEpochRow(2)] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await expect(runScoringPipeline()).rejects.toThrow(
+      'Governance policy changed while epoch 2 scoring was in progress'
+    );
+
+    expect(
+      dbQueryMock.mock.calls.some(([sql]) => String(sql).includes('FROM post_scores ps'))
+    ).toBe(false);
+    expect(invalidateContentRulesCacheMock).not.toHaveBeenCalled();
+    expect(clientQueryMock).toHaveBeenCalledWith('ROLLBACK');
+  });
+
+  it('publishes an approved policy from only scores written by that run', async () => {
+    fencePendingGeneration = '4';
+    dbQueryMock
+      .mockResolvedValueOnce({
+        rows: [{ ...makeEpochRow(2), pending_rescore_generation: '4' }],
+      })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await runScoringPipeline();
+
+    const publication = dbQueryMock.mock.calls.find(
+      ([sql]) => String(sql).includes('FROM post_scores ps')
+    );
+    expect(String(publication?.[0])).toContain("ps.component_details->>'run_id' = $5");
+    expect(publication?.[1]).toHaveLength(5);
+    expect(publication?.[1]?.[0]).toBe(2);
+    expect(publication?.[1]?.[4]).toEqual(expect.any(String));
   });
 });

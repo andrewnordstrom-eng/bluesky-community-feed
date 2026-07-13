@@ -9,14 +9,17 @@ import Fastify from 'fastify';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // --- Mocks (vi.hoisted runs before imports) ---
-const { dbQueryMock, getAuthenticatedDidMock } = vi.hoisted(() => ({
+const { dbQueryMock, dbConnectMock, clientReleaseMock, getAuthenticatedDidMock } = vi.hoisted(() => ({
   dbQueryMock: vi.fn(),
+  dbConnectMock: vi.fn(),
+  clientReleaseMock: vi.fn(),
   getAuthenticatedDidMock: vi.fn(),
 }));
 
 vi.mock('../src/db/client.js', () => ({
   db: {
     query: dbQueryMock,
+    connect: dbConnectMock,
   },
 }));
 
@@ -94,6 +97,11 @@ function setupDbMock(opts?: {
     : initialEpoch.voting_ends_at;
   const guardedEpochOpen = effectiveGuardedDeadline === null
     || Date.parse(effectiveGuardedDeadline) > Date.parse(DATABASE_NOW);
+
+  dbConnectMock.mockResolvedValue({
+    query: dbQueryMock,
+    release: clientReleaseMock,
+  });
 
   dbQueryMock.mockImplementation((sql: string, _params?: unknown[]) => {
     // Subscriber check
@@ -245,6 +253,22 @@ describe('stored topic-weight policy parsing', () => {
     );
   });
 
+  it('accepts exact zero and one topic-policy boundaries', () => {
+    expect(parseStoredTopicWeights({
+      'science-research': 0,
+      'software-development': 1,
+    }, 'test epoch')).toEqual({
+      'science-research': 0,
+      'software-development': 1,
+    });
+  });
+
+  it('rejects a negative stored topic-policy value', () => {
+    expect(() => parseStoredTopicWeights({ 'science-research': -0.01 }, 'test epoch')).toThrow(
+      'Invalid stored topic weights for test epoch'
+    );
+  });
+
   it.each([
     ['primitive', 'science'],
     ['array', [0.5]],
@@ -298,6 +322,47 @@ describe('POST /api/governance/vote (topic_weights)', () => {
     expect(response.statusCode).toBe(200);
     const body = response.json();
     expect(body.topicWeights).toEqual({ 'software-development': 0.9, 'dogs-pets': 0.4 });
+    expect(dbQueryMock.mock.calls.some(([sql]) => String(sql) === 'BEGIN')).toBe(true);
+    expect(dbQueryMock.mock.calls.some(([sql]) => String(sql) === 'COMMIT')).toBe(true);
+    expect(clientReleaseMock).toHaveBeenCalledTimes(1);
+
+    await app.close();
+  });
+
+  it('rolls back the wide ballot when normalized component storage fails', async () => {
+    getAuthenticatedDidMock.mockResolvedValue('did:plc:voter');
+    setupDbMock();
+    const baseImplementation = dbQueryMock.getMockImplementation();
+    dbQueryMock.mockImplementation((sql: string, params?: unknown[]) => {
+      if (sql.includes('INSERT INTO governance_vote_weights')) {
+        return Promise.reject(new Error('normalized vote storage unavailable'));
+      }
+      if (!baseImplementation) {
+        throw new Error('Expected base database mock implementation');
+      }
+      return baseImplementation(sql, params);
+    });
+
+    const app = Fastify();
+    registerVoteRoute(app);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/governance/vote',
+      payload: {
+        recency_weight: 0.2,
+        engagement_weight: 0.2,
+        bridging_weight: 0.2,
+        source_diversity_weight: 0.2,
+        relevance_weight: 0.2,
+      },
+    });
+
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toMatchObject({ error: 'VoteFailed' });
+    expect(dbQueryMock.mock.calls.some(([sql]) => String(sql) === 'ROLLBACK')).toBe(true);
+    expect(dbQueryMock.mock.calls.some(([sql]) => String(sql) === 'COMMIT')).toBe(false);
+    expect(clientReleaseMock).toHaveBeenCalledTimes(1);
 
     await app.close();
   });
@@ -319,6 +384,7 @@ describe('POST /api/governance/vote (topic_weights)', () => {
 
     expect(response.statusCode).toBe(409);
     expect(response.json()).toMatchObject({ error: 'VotingClosed' });
+    expect(dbQueryMock.mock.calls.some(([sql]) => String(sql) === 'ROLLBACK')).toBe(true);
 
     await app.close();
   });

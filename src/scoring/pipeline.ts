@@ -13,6 +13,7 @@
 
 import { db } from '../db/client.js';
 import { redis } from '../db/redis.js';
+import type { PoolClient } from 'pg';
 import { config } from '../config.js';
 import { invalidateCurrentFeedSnapshot } from '../feed/snapshot-cache.js';
 import { logger } from '../lib/logger.js';
@@ -31,12 +32,13 @@ import type { ScoringContext } from './component.interface.js';
 import type { GovernanceWeightKey } from '../config/votable-params.js';
 import {
   getCurrentContentRules,
+  getCurrentContentRulesFromDatabase,
   filterPosts,
   hasActiveContentRules,
-  invalidateContentRulesCache,
+  invalidateContentRulesCacheStrict,
 } from '../governance/content-filter.js';
 import type { ContentRules } from '../governance/governance.types.js';
-import { invalidateGovernanceGateCache } from '../ingestion/governance-gate.js';
+import { invalidateGovernanceGateCacheStrict } from '../ingestion/governance-gate.js';
 import { updateScoringStatus } from '../admin/status-tracker.js';
 import { calculateAuthorConcentration } from '../transparency/metrics.js';
 import { applyFeedUrlDedup, FEED_URL_DEDUP_DECAY } from './feed-publication.js';
@@ -214,10 +216,11 @@ export function requestFullRescore(): void {
 }
 
 async function completeGovernanceRescoreGeneration(
+  client: PoolClient,
   epochId: number,
   generation: number
 ): Promise<void> {
-  const result = await db.query<{ requested_generation: number | string }>(
+  const result = await client.query<{ requested_generation: number | string }>(
     `UPDATE governance_rescore_requests
      SET completed_generation = GREATEST(completed_generation, $2),
          completed_at = CASE
@@ -234,6 +237,84 @@ async function completeGovernanceRescoreGeneration(
     throw new Error(
       `Failed to complete governance rescore generation ${generation} for epoch ${epochId}`
     );
+  }
+}
+
+class ScoringPolicySupersededError extends Error {
+  constructor(epochId: number) {
+    super(`Governance policy changed while epoch ${epochId} scoring was in progress`);
+    this.name = 'ScoringPolicySupersededError';
+  }
+}
+
+async function publishScoringRunWithFence(options: {
+  epochId: number;
+  runId: string;
+  durableRescoreGeneration: number | null;
+  requestedFullRescoreGeneration: number;
+  currentRunOnly: boolean;
+}): Promise<FeedPublicationResult> {
+  const client = await db.connect();
+
+  try {
+    await client.query('BEGIN');
+    const fenceResult = await client.query<{
+      pending_rescore_generation: number | string | null;
+    }>(
+      `SELECT
+         CASE
+           WHEN rescore.requested_generation > rescore.completed_generation
+             THEN rescore.requested_generation
+           ELSE NULL
+         END AS pending_rescore_generation
+       FROM governance_epochs epoch
+       LEFT JOIN governance_rescore_requests rescore ON rescore.epoch_id = epoch.id
+       WHERE epoch.id = $1
+         AND epoch.status = 'active'
+       FOR SHARE OF epoch`,
+      [options.epochId]
+    );
+
+    const rawPendingGeneration = fenceResult.rows[0]?.pending_rescore_generation ?? null;
+    const pendingGeneration = rawPendingGeneration === null
+      ? null
+      : Number.parseInt(String(rawPendingGeneration), 10);
+    const validPendingGeneration = pendingGeneration === null
+      || (Number.isSafeInteger(pendingGeneration) && pendingGeneration > 0);
+
+    if (
+      fenceResult.rows.length !== 1
+      || !validPendingGeneration
+      || pendingGeneration !== options.durableRescoreGeneration
+      || fullRescoreRequestGeneration !== options.requestedFullRescoreGeneration
+    ) {
+      throw new ScoringPolicySupersededError(options.epochId);
+    }
+
+    const publication = await writeToRedisFromDb(
+      options.epochId,
+      options.runId,
+      options.currentRunOnly
+    );
+    if (
+      options.currentRunOnly
+      && options.durableRescoreGeneration !== null
+      && publication.published
+    ) {
+      await completeGovernanceRescoreGeneration(
+        client,
+        options.epochId,
+        options.durableRescoreGeneration
+      );
+    }
+
+    await client.query('COMMIT');
+    return publication;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
   }
 }
 
@@ -299,16 +380,6 @@ async function runScoringPipelineInternal(): Promise<void> {
     }
     const runId = randomUUID();
     const durableRescoreGeneration = epoch.pendingRescoreGeneration;
-
-    if (durableRescoreGeneration !== null) {
-      await invalidateContentRulesCache();
-      await invalidateGovernanceGateCache();
-    }
-
-    logger.info({ epochId: epoch.id, runId }, 'Using governance epoch');
-
-    // 2. Load content rules and determine scoring mode (full vs incremental).
-    const contentRules = await getCurrentContentRules();
     const epochChanged = lastScoredEpochId !== null && lastScoredEpochId !== epoch.id;
     const isFirstRun = lastSuccessfulRunAt === null;
 
@@ -318,6 +389,21 @@ async function runScoringPipelineInternal(): Promise<void> {
       requestedFullRescoreGeneration > completedFullRescoreRequestGeneration
       || durableRescoreGeneration !== null;
     const useIncremental = !isFirstRun && !epochChanged && !fullRescoreDue && !policyRescoreDue;
+
+    if (policyRescoreDue) {
+      await invalidateContentRulesCacheStrict();
+      await invalidateGovernanceGateCacheStrict();
+    }
+
+    logger.info({ epochId: epoch.id, runId }, 'Using governance epoch');
+
+    // Policy rescoring reads canonical PostgreSQL state directly. A database
+    // failure in that durability-sensitive path must abort rather than look
+    // like an intentionally empty policy. Ordinary runs retain the established
+    // read-through cache.
+    const contentRules = policyRescoreDue
+      ? await getCurrentContentRulesFromDatabase()
+      : await getCurrentContentRules();
 
     if (fullRescoreDue && !isFirstRun && !epochChanged) {
       logger.info(
@@ -399,11 +485,13 @@ async function runScoringPipelineInternal(): Promise<void> {
     // In incremental mode, only new/changed posts were scored above, but
     // previous scores remain in post_scores. Reading from DB gives the
     // complete, correctly-ranked feed.
-    const feedPublication = await writeToRedisFromDb(epoch.id, runId);
-
-    if (!useIncremental && durableRescoreGeneration !== null && feedPublication.published) {
-      await completeGovernanceRescoreGeneration(epoch.id, durableRescoreGeneration);
-    }
+    const feedPublication = await publishScoringRunWithFence({
+      epochId: epoch.id,
+      runId,
+      durableRescoreGeneration,
+      requestedFullRescoreGeneration,
+      currentRunOnly: policyRescoreDue,
+    });
 
     const elapsed = Date.now() - startTime;
     logger.info(
@@ -1132,9 +1220,25 @@ async function storeScoreComponents(
  * Applies the scoring window cutoff so posts older than SCORING_WINDOW_HOURS
  * are excluded even if they have stale scores in post_scores.
  */
-async function writeToRedisFromDb(epochId: number, runId: string): Promise<FeedPublicationResult> {
+async function writeToRedisFromDb(
+  epochId: number,
+  runId: string,
+  currentRunOnly: boolean
+): Promise<FeedPublicationResult> {
   const cutoffMs = config.SCORING_WINDOW_HOURS * 60 * 60 * 1000;
   const cutoff = new Date(Date.now() - cutoffMs);
+  const currentRunClause = currentRunOnly
+    ? `AND ps.component_details->>'run_id' = $5`
+    : '';
+  const queryParams: unknown[] = [
+    epochId,
+    config.FEED_MAX_POSTS,
+    cutoff.toISOString(),
+    config.FEED_MIN_RELEVANCE,
+  ];
+  if (currentRunOnly) {
+    queryParams.push(runId);
+  }
 
   const result = await db.query<{
     post_uri: string;
@@ -1165,9 +1269,10 @@ async function writeToRedisFromDb(epochId: number, runId: string): Promise<FeedP
        -- prunes the post_scores scan to the 72h partitions (18.7s -> 2.6s).
        AND ps.created_at > $3
        AND ps.relevance_score >= $4
+       ${currentRunClause}
      ORDER BY ps.total_score DESC
      LIMIT $2`,
-    [epochId, config.FEED_MAX_POSTS, cutoff.toISOString(), config.FEED_MIN_RELEVANCE]
+    queryParams
   );
 
   const feedCandidates: RedisFeedCandidate[] = result.rows.map((post) => ({

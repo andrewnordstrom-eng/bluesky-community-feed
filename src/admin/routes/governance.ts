@@ -38,7 +38,6 @@ import {
 } from '../../governance/weight-longtable.js';
 import { tryTriggerManualScoringRun } from '../../scoring/scheduler.js';
 import { requestFullRescore } from '../../scoring/pipeline.js';
-import { forceEpochTransition, triggerEpochTransition } from '../../governance/epoch-manager.js';
 import {
   announceResultsApproved,
   announceVoteScheduled,
@@ -834,6 +833,15 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
         });
       }
 
+      const voteCounts = await readGovernanceVoteCounts(client, epoch.id);
+      if (voteCounts.total === 0) {
+        await client.query('ROLLBACK');
+        return reply.code(409).send({
+          error: 'NoBallots',
+          message: 'Results cannot be approved because this voting window received no ballots.',
+        });
+      }
+
       const oldWeights = toWeights(epoch);
       const oldTopicWeights = parseStoredTopicWeights(
         epoch.topic_weights,
@@ -883,7 +891,6 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
         await writeEpochWeights(client, epoch.id, newWeights);
       }
 
-      const voteCounts = await readGovernanceVoteCounts(client, epoch.id);
       const rescoreGeneration = await enqueuePolicyRescore(client, epoch.id);
 
       await client.query(
@@ -1707,11 +1714,8 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
         [hours, epoch.id]
       );
 
-      const voteCountResult = await client.query<{ count: string }>(
-        `SELECT COUNT(*)::int AS count FROM governance_votes WHERE epoch_id = $1`,
-        [epoch.id]
-      );
-      const voteCount = parseInt(voteCountResult.rows[0]?.count ?? '0', 10);
+      const voteCounts = await readGovernanceVoteCounts(client, epoch.id);
+      const voteCount = voteCounts.total;
 
       await client.query(
         `INSERT INTO governance_audit_log (action, actor_did, epoch_id, details)
@@ -1793,11 +1797,15 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
         });
       }
 
-      const voteCountResult = await client.query<{ count: string }>(
-        `SELECT COUNT(*)::int AS count FROM governance_votes WHERE epoch_id = $1`,
-        [epoch.id]
-      );
-      const voteCount = parseInt(voteCountResult.rows[0]?.count ?? '0', 10);
+      const voteCounts = await readGovernanceVoteCounts(client, epoch.id);
+      if (voteCounts.total === 0) {
+        await client.query('ROLLBACK');
+        return reply.code(409).send({
+          error: 'NoBallots',
+          message: 'Results cannot be approved because this voting window received no ballots.',
+        });
+      }
+      const voteCount = voteCounts.total;
 
       const previousWeights = toWeights(epoch);
       const previousTopicWeights = parseStoredTopicWeights(
@@ -2111,8 +2119,8 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
   app.post('/governance/end-round', {
     schema: {
       tags: ['Admin'],
-      summary: 'End round and start new one',
-      description: 'Closes the current epoch and creates a new one with current weights carried forward. Use force=true to skip validation checks.',
+      summary: 'Direct transition disabled',
+      description: 'Direct round transitions are disabled. Use start voting, end voting, results review, and approval so the complete policy is applied before rescoring.',
       security: adminSecurity,
       body: {
         type: 'object',
@@ -2135,7 +2143,7 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
       },
     },
   }, async (request: FastifyRequest, reply: FastifyReply) => {
-    const adminDid = getAdminDid(request);
+    getAdminDid(request);
     const parseResult = z
       .object({ force: z.boolean().optional().default(false) })
       .safeParse(request.body ?? {});
@@ -2148,40 +2156,9 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
       });
     }
 
-    const { force } = parseResult.data;
-
-    try {
-      let newEpochId: number | undefined;
-
-      if (force) {
-        newEpochId = await forceEpochTransition();
-      } else {
-        const result = await triggerEpochTransition();
-        if (!result.success || !result.newEpochId) {
-          return reply.code(409).send({
-            error: 'TransitionBlocked',
-            message: result.error ?? 'Unable to transition round without force',
-          });
-        }
-        newEpochId = result.newEpochId;
-      }
-
-      await db.query(
-        `INSERT INTO governance_audit_log (action, actor_did, epoch_id, details)
-         VALUES ('admin_end_round', $1, $2, $3)`,
-        [adminDid, newEpochId, JSON.stringify({ force })]
-      );
-
-      return reply.send({
-        success: true,
-        newRoundId: newEpochId,
-      });
-    } catch (error) {
-      logger.error({ error, adminDid }, 'Failed to end and start round');
-      return reply.code(500).send({
-        error: 'RoundTransitionFailed',
-        message: 'Failed to end current round and start a new one',
-      });
-    }
+    return reply.code(409).send({
+      error: 'DirectTransitionDisabled',
+      message: 'Direct round transitions are disabled. Start voting, close voting, review the proposed policy, and approve results.',
+    });
   });
 }

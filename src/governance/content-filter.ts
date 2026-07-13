@@ -170,13 +170,33 @@ async function loadCurrentContentRulesFromDb(): Promise<ContentRules | null> {
 }
 
 /**
+ * Read the active policy directly from PostgreSQL.
+ *
+ * Scoring uses this strict path so a cache or database failure can never be
+ * mistaken for an intentionally empty content policy.
+ */
+export async function getCurrentContentRulesFromDatabase(): Promise<ContentRules> {
+  const contentRules = await loadCurrentContentRulesFromDb();
+  if (!contentRules) {
+    throw new Error('No active governance epoch found while loading content rules');
+  }
+
+  return contentRules;
+}
+
+/** Invalidate the cache and propagate failures to a durability-sensitive caller. */
+export async function invalidateContentRulesCacheStrict(): Promise<void> {
+  await redis.del(CACHE_KEY);
+  logger.debug('Content rules cache invalidated');
+}
+
+/**
  * Invalidate the content rules cache.
  * Call this when epoch changes or content rules are updated.
  */
 export async function invalidateContentRulesCache(): Promise<void> {
   try {
-    await redis.del(CACHE_KEY);
-    logger.debug('Content rules cache invalidated');
+    await invalidateContentRulesCacheStrict();
   } catch (error) {
     logger.error({ error }, 'Failed to invalidate content rules cache');
   }

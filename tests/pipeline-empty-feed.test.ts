@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   dbQueryMock,
+  dbConnectMock,
+  clientQueryMock,
+  clientReleaseMock,
   redisPipelineFactoryMock,
   pipelineDelMock,
   pipelineZaddMock,
@@ -19,6 +22,9 @@ const {
   loggerWarnMock,
 } = vi.hoisted(() => ({
   dbQueryMock: vi.fn(),
+  dbConnectMock: vi.fn(),
+  clientQueryMock: vi.fn(),
+  clientReleaseMock: vi.fn(),
   redisPipelineFactoryMock: vi.fn(),
   pipelineDelMock: vi.fn(),
   pipelineZaddMock: vi.fn(),
@@ -39,6 +45,7 @@ const {
 vi.mock('../src/db/client.js', () => ({
   db: {
     query: dbQueryMock,
+    connect: dbConnectMock,
   },
 }));
 
@@ -112,6 +119,9 @@ describe('scoring pipeline empty-feed Redis updates', () => {
   beforeEach(() => {
     __resetPipelineState();
     dbQueryMock.mockReset();
+    dbConnectMock.mockReset();
+    clientQueryMock.mockReset();
+    clientReleaseMock.mockReset();
     redisPipelineFactoryMock.mockReset();
     pipelineDelMock.mockReset();
     pipelineZaddMock.mockReset();
@@ -122,6 +132,13 @@ describe('scoring pipeline empty-feed Redis updates', () => {
     redisSetMock.mockReset().mockResolvedValue('OK');
     redisDelMock.mockReset().mockResolvedValue(1);
     redisEvalMock.mockReset().mockResolvedValue(1);
+    clientQueryMock.mockImplementation((sql: string) => {
+      if (sql.includes('pending_rescore_generation')) {
+        return Promise.resolve({ rows: [{ pending_rescore_generation: null }] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+    dbConnectMock.mockResolvedValue({ query: clientQueryMock, release: clientReleaseMock });
     getCurrentContentRulesMock.mockReset();
     hasActiveContentRulesMock.mockReset();
     filterPostsMock.mockReset();

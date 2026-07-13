@@ -11,6 +11,7 @@
  */
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import type { PoolClient } from 'pg';
 import { z } from 'zod';
 import { db } from '../../db/client.js';
 import { config } from '../../config.js';
@@ -27,7 +28,7 @@ import {
   normalizeKeywords,
 } from '../governance.types.js';
 import type { VotePayload } from '../governance.types.js';
-import { writeVoteWeights } from '../weight-longtable.js';
+import { writeVoteWeightsWithClient } from '../weight-longtable.js';
 
 const weightFieldSchemas = Object.fromEntries(
   VOTABLE_WEIGHT_PARAMS.map((param) => [
@@ -342,7 +343,22 @@ export function registerVoteRoute(app: FastifyInstance): void {
       });
     }
 
+    let client: PoolClient;
     try {
+      client = await db.connect();
+    } catch (err) {
+      logger.error({ err, voterDid, epochId }, 'Failed to acquire vote transaction connection');
+      return reply.code(500).send({
+        error: 'VoteFailed',
+        message: 'Failed to record your vote. Please try again.',
+      });
+    }
+    let transactionOpen = false;
+
+    try {
+      await client.query('BEGIN');
+      transactionOpen = true;
+
       // 6. UPSERT vote with weights, keywords, and/or topic weights
       // Use xmax = 0 to detect if this was an INSERT (new) or UPDATE (existing)
       // Use COALESCE to preserve existing values when only updating one aspect
@@ -351,7 +367,7 @@ export function registerVoteRoute(app: FastifyInstance): void {
           ? JSON.stringify(vote.topic_weights)
           : null;
 
-      const voteResult = await db.query(
+      const voteResult = await client.query(
         `WITH open_epoch AS (
           SELECT id
           FROM governance_epochs
@@ -394,6 +410,8 @@ export function registerVoteRoute(app: FastifyInstance): void {
       );
 
       if (voteResult.rows.length === 0) {
+        await client.query('ROLLBACK');
+        transactionOpen = false;
         return reply.code(409).send({
           error: 'VotingClosed',
           message: 'Voting closed before this ballot could be recorded.',
@@ -404,25 +422,15 @@ export function registerVoteRoute(app: FastifyInstance): void {
       const voteId = voteResult.rows[0].id as string;
       const auditAction = isNewVote ? 'vote_cast' : 'vote_updated';
 
-      // 6b. Dual-write per-component weights into governance_vote_weights
-      // (PROJ-815 / P2). Only when the submission carried weights; keyword-only
-      // updates leave prior long-table rows in place, mirroring the COALESCE
-      // semantics of the wide-row UPSERT above. A failure here does NOT roll
-      // back the wide row — same eventual-consistency contract as PROJ-814.
-      // Backfill (scripts/backfill-governance-weights.ts) converges any gap.
+      // 6b. Dual-write per-component weights in the same transaction as the
+      // wide ballot. Result closure takes an exclusive epoch lock, so it can
+      // never observe one representation without the other.
       if (config.GOVERNANCE_LONGTABLE_DUALWRITE_ENABLED && normalized) {
-        try {
-          await writeVoteWeights(voteId, normalized);
-        } catch (longTableErr) {
-          logger.warn(
-            { err: longTableErr, voteId, epochId },
-            'Long-table vote weight write failed; wide row remains authoritative'
-          );
-        }
+        await writeVoteWeightsWithClient(client, voteId, normalized);
       }
 
       // 7. Log to audit trail with appropriate action
-      await db.query(
+      await client.query(
         `INSERT INTO governance_audit_log (action, actor_did, epoch_id, details)
          VALUES ($1, $2, $3, $4)`,
         [
@@ -444,6 +452,9 @@ export function registerVoteRoute(app: FastifyInstance): void {
           }),
         ]
       );
+
+      await client.query('COMMIT');
+      transactionOpen = false;
 
       logger.info(
         {
@@ -474,11 +485,20 @@ export function registerVoteRoute(app: FastifyInstance): void {
         message,
       });
     } catch (err) {
+      if (transactionOpen) {
+        try {
+          await client.query('ROLLBACK');
+        } catch (rollbackError) {
+          logger.error({ rollbackError, voterDid, epochId }, 'Failed to roll back vote transaction');
+        }
+      }
       logger.error({ err, voterDid, epochId }, 'Failed to record vote');
       return reply.code(500).send({
         error: 'VoteFailed',
         message: 'Failed to record your vote. Please try again.',
       });
+    } finally {
+      client.release();
     }
   });
 

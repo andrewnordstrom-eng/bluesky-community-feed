@@ -10,6 +10,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   dbQueryMock,
+  dbConnectMock,
+  clientQueryMock,
+  clientReleaseMock,
   redisPipelineFactoryMock,
   pipelineDelMock,
   pipelineZaddMock,
@@ -20,6 +23,9 @@ const {
   updateScoringStatusMock,
 } = vi.hoisted(() => ({
   dbQueryMock: vi.fn(),
+  dbConnectMock: vi.fn(),
+  clientQueryMock: vi.fn(),
+  clientReleaseMock: vi.fn(),
   redisPipelineFactoryMock: vi.fn(),
   pipelineDelMock: vi.fn(),
   pipelineZaddMock: vi.fn(),
@@ -33,6 +39,7 @@ const {
 vi.mock('../src/db/client.js', () => ({
   db: {
     query: dbQueryMock,
+    connect: dbConnectMock,
   },
 }));
 
@@ -74,6 +81,13 @@ function setupDefaultMocks() {
     exec: pipelineExecMock.mockResolvedValue([]),
   };
   redisPipelineFactoryMock.mockReturnValue(pipeline);
+  clientQueryMock.mockImplementation((sql: string) => {
+    if (sql.includes('pending_rescore_generation')) {
+      return Promise.resolve({ rows: [{ pending_rescore_generation: null }] });
+    }
+    return Promise.resolve({ rows: [] });
+  });
+  dbConnectMock.mockResolvedValue({ query: clientQueryMock, release: clientReleaseMock });
 
   getCurrentContentRulesMock.mockResolvedValue({
     includeKeywords: [],

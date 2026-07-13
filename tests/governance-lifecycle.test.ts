@@ -240,6 +240,56 @@ describe('production governance lifecycle', () => {
     expect(releaseMock).toHaveBeenCalledTimes(1);
   });
 
+  it('rolls back when the active topic policy is malformed at window close', async () => {
+    readEpochWeightsMock.mockResolvedValue({
+      recency: 0.2,
+      engagement: 0.2,
+      bridging: 0.2,
+      sourceDiversity: 0.2,
+      relevance: 0.2,
+    });
+
+    clientQueryMock.mockImplementation((sql: string) => {
+      if (sql === 'BEGIN' || sql === 'ROLLBACK') {
+        return Promise.resolve({ rows: [] });
+      }
+      if (sql.includes('SELECT *') && sql.includes('FOR UPDATE')) {
+        return Promise.resolve({
+          rows: [{
+            id: 7,
+            phase: 'voting',
+            voting_ends_at: '2026-07-13T00:00:00.000Z',
+            content_rules: { include_keywords: [], exclude_keywords: [] },
+            topic_weights: ['invalid'],
+            recency_weight: 0.2,
+            engagement_weight: 0.2,
+            bridging_weight: 0.2,
+            source_diversity_weight: 0.2,
+            relevance_weight: 0.2,
+          }],
+        });
+      }
+      if (sql.includes('COUNT(*)::int AS total')) {
+        return Promise.resolve({ rows: [{ total: '25', content: '8', topic: '25' }] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+
+    const result = await checkScheduledTransitions();
+
+    expect(result).toEqual({
+      startedVotes: 0,
+      transitionedToResults: 0,
+      remindersSent: 0,
+      errors: 1,
+    });
+    expect(clientQueryMock).toHaveBeenCalledWith('ROLLBACK');
+    expect(clientQueryMock).not.toHaveBeenCalledWith('COMMIT');
+    expect(aggregateVotesMock).not.toHaveBeenCalled();
+    expect(announceVotingClosedMock).not.toHaveBeenCalled();
+    expect(releaseMock).toHaveBeenCalledTimes(1);
+  });
+
   it('preserves all current policy channels when an expired vote has no ballots', async () => {
     const currentWeights = {
       recency: 0.1,
