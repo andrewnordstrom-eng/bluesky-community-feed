@@ -184,8 +184,11 @@ export function AppShell({ user = null, children }: AppShellProps) {
             )}
           </nav>
 
-          {/* Right side — auth state + hamburger */}
-          <div className="flex items-center gap-2 justify-self-end">
+          {/* Right side — auth state + hamburger.
+              col-start-3: when the desktop nav is display:none (mobile), this div
+              becomes the grid's second item and would otherwise land in the center
+              column — the hamburger belongs pinned to the right rail. */}
+          <div className="col-start-3 flex items-center gap-2 justify-self-end">
             {authedUser ? (
               /* Logged-in state */
               <div className="flex items-center gap-2">

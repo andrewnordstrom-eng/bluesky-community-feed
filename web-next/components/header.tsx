@@ -186,8 +186,11 @@ export function Header() {
             })}
           </nav>
 
-          {/* Right: desktop auth + mobile hamburger */}
-          <div className="justify-self-end flex items-center gap-2">
+          {/* Right: desktop auth + mobile hamburger.
+              col-start-3: when the desktop nav is display:none (mobile), this div
+              becomes the grid's second item and would otherwise land in the center
+              column — the hamburger belongs pinned to the right rail. */}
+          <div className="col-start-3 justify-self-end flex items-center gap-2">
             <div className="hidden md:flex items-center gap-3">
               <button
                 onClick={() => setSignInOpen(true)}

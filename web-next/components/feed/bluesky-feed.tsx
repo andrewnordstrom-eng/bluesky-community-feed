@@ -12,8 +12,9 @@ import { ExternalLink, Heart, MessageCircle, Play, Repeat2 } from "lucide-react"
  * uses design tokens. Keep Corgi annotations (the rank badge) OUTSIDE the card.
  */
 
-/** Width of the right-hand Corgi rank column — shared by the header and every row. */
-export const RANK_COL_CLASS = "grid grid-cols-[minmax(0,1fr)_104px]"
+/** Width of the right-hand Corgi rank column — shared by the header and every row.
+ *  Narrower on phones so the post text keeps a readable line length. */
+export const RANK_COL_CLASS = "grid grid-cols-[minmax(0,1fr)_72px] sm:grid-cols-[minmax(0,1fr)_104px]"
 
 export function formatCount(value: number | string | null | undefined): string {
   if (value === null || value === undefined) {
@@ -129,7 +130,7 @@ function BlueskyMedia({ media, bskyUrl }: {
       ) : null}
       {media.quote ? (
         <div className="rounded-xl border border-[#D9E3EE] px-3 py-2.5">
-          <p className="text-sm font-semibold text-[#0B0F14]">{media.quote.authorDisplayName} <span className="font-normal text-[#42576C]">@{media.quote.authorHandle}</span></p>
+          <p className="break-words text-sm font-semibold text-[#0B0F14]">{media.quote.authorDisplayName} <span className="break-all font-normal text-[#42576C]">@{media.quote.authorHandle}</span></p>
           <p className="mt-1 line-clamp-4 text-sm leading-5 text-[#0B0F14]">{media.quote.text}</p>
         </div>
       ) : null}
@@ -218,9 +219,10 @@ export function BlueskyPostCard({
 /** The "Corgi rank · Epoch N" header cell that labels the rank column once. */
 export function RankColumnHeader({ label = "Corgi rank", sublabel }: { readonly label?: string; readonly sublabel?: string }) {
   return (
-    <div className="flex flex-col items-center justify-center border-l border-border/60 bg-biscuit/25 px-2 text-center">
-      <span className="font-mono text-[9.5px] font-bold uppercase tracking-[0.14em] leading-none text-primary/80">{label}</span>
-      {sublabel ? <span className="mt-1 font-mono text-[9px] leading-none text-foreground/55">{sublabel}</span> : null}
+    <div className="flex flex-col items-center justify-center border-l border-border/60 bg-biscuit/25 px-1.5 text-center sm:px-2">
+      {/* leading allows a graceful two-line "CORGI / RANK" in the narrow phone rail */}
+      <span className="font-mono text-[9.5px] font-bold uppercase tracking-[0.14em] leading-[1.4] text-primary/80">{label}</span>
+      {sublabel ? <span className="mt-0.5 font-mono text-[9px] leading-none text-foreground/55">{sublabel}</span> : null}
     </div>
   )
 }
@@ -279,10 +281,23 @@ export function BlueskyFeedFrame({
           <div className="flex h-6 items-center justify-center">
             <Image src="/images/bluesky-butterfly-logo.svg" alt="Bluesky" width={22} height={19} className="h-[19px] w-[22px]" />
           </div>
-          <div className="mt-1 flex items-end gap-5 overflow-x-auto text-[13px] font-semibold text-[#42576C]">
+          <div className="mt-1 flex items-end gap-4 overflow-x-auto text-[13px] font-semibold text-[#42576C] [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:gap-5">
             {tabs.map((tab) => (
               <span
                 key={tab}
+                ref={
+                  tab === communityName
+                    ? (el) => {
+                        // The active (community) tab is third in Bluesky's order and starts
+                        // off-screen on phones — center it by scrolling only the tab strip
+                        // (scrollIntoView would also scroll the page itself).
+                        const strip = el?.parentElement
+                        if (el && strip && strip.scrollWidth > strip.clientWidth) {
+                          strip.scrollLeft = Math.max(0, el.offsetLeft - (strip.clientWidth - el.clientWidth) / 2)
+                        }
+                      }
+                    : undefined
+                }
                 className={`shrink-0 border-b-2 pb-2.5 ${tab === communityName ? "border-[#0085FF] text-[#0B0F14]" : "border-transparent"}`}
               >
                 {tab}

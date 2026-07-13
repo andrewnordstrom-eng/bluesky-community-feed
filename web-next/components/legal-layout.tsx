@@ -125,7 +125,9 @@ export function LI({ children }: { children: React.ReactNode }) {
   return (
     <li className="flex items-start gap-2 text-sm text-foreground/65 leading-relaxed">
       <span className="mt-[0.4rem] w-1.5 h-1.5 rounded-full bg-primary/50 flex-shrink-0" aria-hidden="true" />
-      {children}
+      {/* Single flowing span: as direct flex items, mixed inline children (text,
+          links, <Strong>) would sit side-by-side and overflow narrow screens. */}
+      <span className="min-w-0">{children}</span>
     </li>
   )
 }
