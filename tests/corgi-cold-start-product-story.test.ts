@@ -131,6 +131,7 @@ describe('Corgi cold-start product story', () => {
     expect(updater).toContain('swapRecord: currentResponse.data.cid');
     expect(updater).toContain("if (!apply)");
     expect(updater).toContain("process.argv.includes('--apply')");
+    expect(updater).toContain('Target description: ${DESCRIPTION}');
     expect(updater).not.toContain("requireEnvironmentValue('FEEDGEN_SERVICE_DID')");
     expect(updater).not.toContain('createdAt: new Date');
   });

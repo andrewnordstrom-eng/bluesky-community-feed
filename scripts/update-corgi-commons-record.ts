@@ -68,6 +68,8 @@ async function main(): Promise<void> {
   process.stdout.write(`Preserved service DID: ${currentServiceDid}\n`);
   process.stdout.write(`Current display name: ${currentRecord.displayName}\n`);
   process.stdout.write(`Target display name: ${DISPLAY_NAME}\n`);
+  process.stdout.write(`Current description: ${currentRecord.description ?? '<none>'}\n`);
+  process.stdout.write(`Target description: ${DESCRIPTION}\n`);
 
   if (currentRecord.displayName === DISPLAY_NAME && currentRecord.description === DESCRIPTION) {
     process.stdout.write('Feed record already matches the approved Corgi Commons copy.\n');
