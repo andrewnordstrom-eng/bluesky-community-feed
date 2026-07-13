@@ -148,6 +148,47 @@ describe('shadow demo content-rule primitives', () => {
 });
 
 describe('shadow demo content rules disabled (v4 parity)', () => {
+  it('rejects or redacts feature-enabled idempotency replays after the flag flips off', async () => {
+    const store = new MemoryDemoStore();
+    const enabled = buildService({ contentRulesEnabled: true, seed: ADOPTING_SEED }, store);
+    const withRulesCreated = await enabled.createSession({
+      communityId: 'community_gov',
+      clientNonce: 'idempotency-rules-on',
+    });
+    const withRulesRequest = {
+      sessionId: withRulesCreated.payload.session.sessionId,
+      baseEpochId: withRulesCreated.payload.session.currentEpochId,
+      weights: equalWeights(),
+      topicIntent: fullTopicIntent(),
+      excludeKeywords: ['atproto'],
+      idempotencyKey: 'idempotency-rules-on-vote',
+    };
+    await enabled.castVote(withRulesRequest);
+
+    const disabled = buildService({ contentRulesEnabled: false, seed: ADOPTING_SEED }, store);
+    await expect(disabled.castVote(withRulesRequest)).rejects.toThrow(/not enabled/);
+
+    const withoutRulesCreated = await enabled.createSession({
+      communityId: 'community_gov',
+      clientNonce: 'idempotency-no-rules',
+    });
+    const withoutRulesRequest = {
+      sessionId: withoutRulesCreated.payload.session.sessionId,
+      baseEpochId: withoutRulesCreated.payload.session.currentEpochId,
+      weights: equalWeights(),
+      topicIntent: fullTopicIntent(),
+      idempotencyKey: 'idempotency-no-rules-vote',
+    };
+    const enabledResponse = await enabled.castVote(withoutRulesRequest);
+    expect(enabledResponse.payload.session.contentRulesEnabled).toBe(true);
+
+    const replay = await disabled.castVote(withoutRulesRequest);
+    expect('contentRulesEnabled' in replay.payload.session).toBe(false);
+    expect('suggestedExcludeKeywords' in replay.payload.session).toBe(false);
+    expect(replay.payload.session.epochs.some((epoch) => 'contentRules' in epoch.aggregate)).toBe(false);
+    expect(replay.payload.session.votes.some((vote) => 'excludeKeywords' in vote)).toBe(false);
+  });
+
   it('keeps payloads contract-identical and rejects keyword ballots', async () => {
     const service = buildService({ contentRulesEnabled: false, seed: ADOPTING_SEED });
     const created = await service.createSession({ communityId: 'community_gov', clientNonce: 'rules-off' });

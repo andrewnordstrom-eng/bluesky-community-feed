@@ -250,6 +250,9 @@ export class ShadowDemoService {
   }
 
   async castVote(request: CastVoteRequest): Promise<ShadowDemoServiceResult<ShadowDemoSessionPayload>> {
+    if (!this.contentRulesEnabled) {
+      this.validateExcludeKeywordsForApi(request.excludeKeywords);
+    }
     const operation = async (): Promise<PendingSessionMutation<ShadowDemoServiceResult<ShadowDemoSessionPayload>>> => {
       const state = await this.readRequiredSession(request.sessionId);
       assertCurrentEpoch(state, request.baseEpochId);
@@ -293,6 +296,7 @@ export class ShadowDemoService {
       idempotencyKey: request.idempotencyKey,
       requestPayload: request,
       operation,
+      mapReplay: (response) => publicSessionMutationResult(response, this.contentRulesEnabled),
     });
   }
 
@@ -353,6 +357,7 @@ export class ShadowDemoService {
       idempotencyKey: request.idempotencyKey,
       requestPayload: request,
       operation,
+      mapReplay: (response) => publicSessionMutationResult(response, this.contentRulesEnabled),
     });
   }
 
@@ -411,6 +416,7 @@ export class ShadowDemoService {
       idempotencyKey: request.idempotencyKey,
       requestPayload: request,
       operation,
+      mapReplay: (response) => publicSessionMutationResult(response, this.contentRulesEnabled),
     });
   }
 
@@ -672,6 +678,7 @@ export class ShadowDemoService {
     idempotencyKey: string | null;
     requestPayload: unknown;
     operation: () => Promise<PendingSessionMutation<TPayload>>;
+    mapReplay: (response: TPayload) => TPayload;
   }): Promise<TPayload> {
     const token = randomUUID();
     const acquired = await this.store.acquireSessionLock(options.sessionId, token, LOCK_TTL_MS);
@@ -689,7 +696,7 @@ export class ShadowDemoService {
           if (existing.requestHash !== requestHash) {
             throw new DemoConflictError(`Idempotency key reused with a different payload: ${options.idempotencyKey}`);
           }
-          return existing.response;
+          return options.mapReplay(existing.response);
         }
       }
 
@@ -718,6 +725,33 @@ export class ShadowDemoService {
       await this.store.releaseSessionLock(options.sessionId, token);
     }
   }
+}
+
+function publicSessionMutationResult(
+  result: ShadowDemoServiceResult<ShadowDemoSessionPayload>,
+  contentRulesEnabled: boolean
+): ShadowDemoServiceResult<ShadowDemoSessionPayload> {
+  if (contentRulesEnabled) {
+    return result;
+  }
+  const {
+    contentRulesEnabled: _contentRulesEnabled,
+    suggestedExcludeKeywords: _suggestedExcludeKeywords,
+    ...session
+  } = result.payload.session;
+  return {
+    ...result,
+    payload: {
+      session: {
+        ...session,
+        epochs: session.epochs.map((epoch) => publicEpoch(epoch, false)),
+        pendingAggregate: session.pendingAggregate
+          ? publicAggregate(session.pendingAggregate, false)
+          : null,
+        votes: session.votes.map((vote) => publicVote(vote, false)),
+      },
+    },
+  };
 }
 
 export function createDefaultShadowDemoService(): ShadowDemoService {
