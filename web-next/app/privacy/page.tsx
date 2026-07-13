@@ -85,7 +85,7 @@ const SECTIONS = [
         <UL>
           <LI>Access the personal data we hold about you.</LI>
           <LI>Request correction of inaccurate data.</LI>
-          <LI>Request deletion of your participation data.</LI>
+          <LI>Request deletion of your participation data and waitlist submission.</LI>
           <LI>Withdraw research consent at any time (this does not affect your ability to vote).</LI>
           <LI>Object to or restrict certain processing.</LI>
         </UL>
@@ -134,7 +134,7 @@ export default function PrivacyPage() {
     <AppShell user={null}>
       <LegalLayout
         title="Privacy Policy"
-        lastUpdated="27 June 2026"
+        lastUpdated="12 July 2026"
         sections={SECTIONS}
         backHref="/"
         backLabel="Back to home"

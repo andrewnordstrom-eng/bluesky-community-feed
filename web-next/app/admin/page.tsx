@@ -884,7 +884,8 @@ function PanelAccess({ status }: { status: AdminStatus }) {
     retry: false,
   })
 
-  const [actionError, setActionError] = useState<string | null>(null)
+  const [panelActionError, setPanelActionError] = useState<string | null>(null)
+  const [rowActionErrors, setRowActionErrors] = useState<Readonly<Record<number, string>>>({})
   const [addHandle, setAddHandle] = useState("")
   const [addNotes, setAddNotes] = useState("")
   const [confirmRemove, setConfirmRemove] = useState<{ did: string; handle: string | null } | null>(null)
@@ -901,6 +902,15 @@ function PanelAccess({ status }: { status: AdminStatus }) {
       if (on) next.add(id); else next.delete(id)
       return next
     })
+  const clearRowActionError = (id: number) =>
+    setRowActionErrors((prev) => {
+      if (!(id in prev)) return prev
+      const next = { ...prev }
+      delete next[id]
+      return next
+    })
+  const setRowActionError = (id: number, message: string) =>
+    setRowActionErrors((prev) => ({ ...prev, [id]: message }))
 
   // Await the refetch so the resolved row leaves the pending list before we
   // re-enable its buttons — otherwise there's a window where a decided row is
@@ -913,28 +923,33 @@ function PanelAccess({ status }: { status: AdminStatus }) {
 
   const approveMutation = useMutation({
     mutationFn: (id: number) => adminApi.approveWaitlist(id),
-    // Clear the shared error only when a new action STARTS, so one row's
-    // success can't silently wipe another row's still-relevant failure.
-    onMutate: (id) => { setActionError(null); toggleId(setApprovingIds, id, true) },
-    onError: (err) => {
-      setActionError(
+    onMutate: (id) => { clearRowActionError(id); toggleId(setApprovingIds, id, true) },
+    onError: (err, id) => {
+      setRowActionError(
+        id,
         axios.isAxiosError(err) && err.response?.status === 400
           ? "Couldn't resolve that handle. Add the account by DID below."
           : "Approve failed — try again.",
       )
     },
     onSettled: async (_data, _err, id) => {
-      await invalidateAll()
-      toggleId(setApprovingIds, id, false)
+      try {
+        await invalidateAll()
+      } finally {
+        toggleId(setApprovingIds, id, false)
+      }
     },
   })
   const rejectMutation = useMutation({
     mutationFn: (id: number) => adminApi.rejectWaitlist(id),
-    onMutate: (id) => { setActionError(null); toggleId(setRejectingIds, id, true) },
-    onError: () => setActionError("Reject failed — try again."),
+    onMutate: (id) => { clearRowActionError(id); toggleId(setRejectingIds, id, true) },
+    onError: (_err, id) => setRowActionError(id, "Reject failed — try again."),
     onSettled: async (_data, _err, id) => {
-      await invalidateAll()
-      toggleId(setRejectingIds, id, false)
+      try {
+        await invalidateAll()
+      } finally {
+        toggleId(setRejectingIds, id, false)
+      }
     },
   })
   const addMutation = useMutation({
@@ -944,13 +959,13 @@ function PanelAccess({ status }: { status: AdminStatus }) {
       return adminApi.addParticipant({ ...payload, notes: addNotes.trim() || undefined })
     },
     onSuccess: () => {
-      setActionError(null)
+      setPanelActionError(null)
       setAddHandle("")
       setAddNotes("")
       void invalidateAll()
     },
     onError: (err) => {
-      setActionError(
+      setPanelActionError(
         axios.isAxiosError(err) && err.response?.status === 400
           ? "Couldn't resolve that handle. Try a DID (did:plc:…)."
           : "Add failed — try again.",
@@ -959,8 +974,8 @@ function PanelAccess({ status }: { status: AdminStatus }) {
   })
   const removeMutation = useMutation({
     mutationFn: (did: string) => adminApi.removeParticipant(did),
-    onSuccess: () => { setActionError(null); setConfirmRemove(null); void invalidateAll() },
-    onError: () => setActionError("Remove failed — try again."),
+    onSuccess: () => { setPanelActionError(null); setConfirmRemove(null); void invalidateAll() },
+    onError: () => setPanelActionError("Remove failed — try again."),
   })
 
   const pending = waitlistQuery.data?.requests ?? []
@@ -986,8 +1001,8 @@ function PanelAccess({ status }: { status: AdminStatus }) {
         </span>
       </div>
 
-      {actionError && (
-        <p role="alert" className="text-status-error text-sm font-medium -mt-3">{actionError}</p>
+      {panelActionError && (
+        <p role="alert" className="text-status-error text-sm font-medium -mt-3">{panelActionError}</p>
       )}
 
       {/* ── Waitlist queue ─────────────────────────────────── */}
@@ -1012,28 +1027,33 @@ function PanelAccess({ status }: { status: AdminStatus }) {
               const rejecting = rejectingIds.has(r.id)
               const busy = approving || rejecting
               return (
-                <div key={r.id} className="flex flex-col sm:flex-row sm:items-center gap-3 px-4 py-3.5">
-                  <div className="min-w-0 flex-1">
-                    <p className="font-mono text-sm text-foreground truncate">{r.handle}</p>
-                    {r.note && <p className="mt-0.5 text-xs text-foreground/55 line-clamp-2" title={r.note}>{r.note}</p>}
-                    <p className="mt-0.5 text-[10px] font-mono text-foreground/40">Requested {relTime(r.created_at)}</p>
+                <div key={r.id} className="px-4 py-3.5">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-mono text-sm text-foreground truncate">{r.handle}</p>
+                      {r.note && <p className="mt-0.5 text-xs text-foreground/55 line-clamp-2" title={r.note}>{r.note}</p>}
+                      <p className="mt-0.5 text-[10px] font-mono text-foreground/40">Requested {relTime(r.created_at)}</p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => approveMutation.mutate(r.id)}
+                        disabled={busy}
+                        className="text-xs font-semibold px-3.5 py-1.5 rounded-full bg-success/12 border border-success/25 text-success hover:bg-success/20 transition-colors disabled:opacity-50"
+                      >
+                        {approving ? "Approving…" : "Approve"}
+                      </button>
+                      <button
+                        onClick={() => rejectMutation.mutate(r.id)}
+                        disabled={busy}
+                        className="text-xs font-semibold px-3.5 py-1.5 rounded-full bg-biscuit border border-border text-foreground/60 hover:text-foreground hover:bg-tongue/10 transition-colors disabled:opacity-50"
+                      >
+                        {rejecting ? "Rejecting…" : "Reject"}
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      onClick={() => approveMutation.mutate(r.id)}
-                      disabled={busy}
-                      className="text-xs font-semibold px-3.5 py-1.5 rounded-full bg-success/12 border border-success/25 text-success hover:bg-success/20 transition-colors disabled:opacity-50"
-                    >
-                      {approving ? "Approving…" : "Approve"}
-                    </button>
-                    <button
-                      onClick={() => rejectMutation.mutate(r.id)}
-                      disabled={busy}
-                      className="text-xs font-semibold px-3.5 py-1.5 rounded-full bg-biscuit border border-border text-foreground/60 hover:text-foreground hover:bg-tongue/10 transition-colors disabled:opacity-50"
-                    >
-                      {rejecting ? "Rejecting…" : "Reject"}
-                    </button>
-                  </div>
+                  {rowActionErrors[r.id] && (
+                    <p role="alert" className="mt-2 text-xs font-medium text-status-error">{rowActionErrors[r.id]}</p>
+                  )}
                 </div>
               )
             })}

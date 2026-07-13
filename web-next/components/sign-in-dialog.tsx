@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react"
 import axios from "axios"
 import Image from "next/image"
 import Link from "next/link"
+import { z } from "zod"
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -15,6 +16,33 @@ import { waitlistApi } from "@/lib/api/client"
 type AccessMode = "signin" | "waitlist"
 
 const NOTE_MAX = 500
+
+const notApprovedResponseSchema = z.object({
+  error: z.literal("NotApproved"),
+  waitlist: z.literal(true),
+}).passthrough()
+
+export type SignInFailureKind = "bad-credentials" | "not-approved" | "service"
+
+export function classifySignInFailure(error: unknown): SignInFailureKind {
+  if (!axios.isAxiosError(error)) return "service"
+  if (error.response?.status === 401) return "bad-credentials"
+  if (
+    error.response?.status === 403
+    && notApprovedResponseSchema.safeParse(error.response.data).success
+  ) {
+    return "not-approved"
+  }
+  return "service"
+}
+
+export function isCurrentDialogRequest(
+  activeToken: number,
+  requestToken: number,
+  mounted: boolean,
+): boolean {
+  return mounted && activeToken === requestToken
+}
 
 interface SignInDialogProps {
   open: boolean
@@ -43,6 +71,7 @@ export function SignInDialog({ open, onOpenChange, initialMode = "signin" }: Sig
   const [waitlistError, setWaitlistError] = useState<string | null>(null)
 
   const isMounted = useRef(true)
+  const activeRequestToken = useRef(0)
   useEffect(() => {
     isMounted.current = true
     return () => {
@@ -55,6 +84,7 @@ export function SignInDialog({ open, onOpenChange, initialMode = "signin" }: Sig
   // reopens clean. Deps are [open, initialMode] only, so a user's in-dialog
   // mode switch — which changes neither — is never clobbered.
   useEffect(() => {
+    activeRequestToken.current += 1
     if (open) {
       setMode(initialMode)
       return
@@ -71,13 +101,30 @@ export function SignInDialog({ open, onOpenChange, initialMode = "signin" }: Sig
     setWaitlistError(null)
   }, [open, initialMode])
 
+  const beginRequest = () => {
+    activeRequestToken.current += 1
+    return activeRequestToken.current
+  }
+
+  const isActiveRequest = (token: number) =>
+    isCurrentDialogRequest(activeRequestToken.current, token, isMounted.current)
+
+  const closeDialog = () => {
+    activeRequestToken.current += 1
+    onOpenChange(false)
+  }
+
   const goToWaitlist = () => {
+    activeRequestToken.current += 1
+    setSignInLoading(false)
     setMode("waitlist")
     setWaitlistState("idle")
     setWaitlistError(null)
   }
 
   const goToSignin = () => {
+    activeRequestToken.current += 1
+    setWaitlistState("idle")
     setMode("signin")
     setSignInError(null)
     setNotApproved(false)
@@ -88,25 +135,23 @@ export function SignInDialog({ open, onOpenChange, initialMode = "signin" }: Sig
     setSignInError(null)
     setNotApproved(false)
     setSignInLoading(true)
+    const requestToken = beginRequest()
     try {
       await login(handle, password)
-      if (!isMounted.current) return
-      onOpenChange(false)
+      if (!isActiveRequest(requestToken)) return
+      closeDialog()
     } catch (err) {
-      if (!isMounted.current) return
-      const status = axios.isAxiosError(err) ? err.response?.status : undefined
-      if (status === 403 && axios.isAxiosError(err) && err.response?.data?.waitlist) {
-        // Valid credentials, but the account isn't approved for the pilot.
+      if (!isActiveRequest(requestToken)) return
+      const failure = classifySignInFailure(err)
+      if (failure === "not-approved") {
         setNotApproved(true)
-      } else if (status === 401) {
-        // Bluesky rejected the credentials.
+      } else if (failure === "bad-credentials") {
         setSignInError("Check your handle and app password.")
       } else {
-        // Timeout, network failure, or a 5xx — not a credentials problem.
         setSignInError("Couldn't sign in right now. Please try again.")
       }
     } finally {
-      if (isMounted.current) setSignInLoading(false)
+      if (isActiveRequest(requestToken)) setSignInLoading(false)
     }
   }
 
@@ -114,12 +159,13 @@ export function SignInDialog({ open, onOpenChange, initialMode = "signin" }: Sig
     e.preventDefault()
     setWaitlistError(null)
     setWaitlistState("submitting")
+    const requestToken = beginRequest()
     try {
       await waitlistApi.join(handle, note)
-      if (!isMounted.current) return
+      if (!isActiveRequest(requestToken)) return
       setWaitlistState("success")
     } catch (err) {
-      if (!isMounted.current) return
+      if (!isActiveRequest(requestToken)) return
       setWaitlistState("error")
       if (axios.isAxiosError(err) && err.response?.status === 429) {
         setWaitlistError("Too many attempts — wait a minute and try again.")
@@ -130,7 +176,10 @@ export function SignInDialog({ open, onOpenChange, initialMode = "signin" }: Sig
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(nextOpen) => {
+      if (!nextOpen) activeRequestToken.current += 1
+      onOpenChange(nextOpen)
+    }}>
       <DialogContent className="bg-card border border-border shadow-xl rounded-2xl p-0 max-w-[440px] w-full overflow-hidden gap-0">
 
         {/* Header band */}
@@ -168,7 +217,7 @@ export function SignInDialog({ open, onOpenChange, initialMode = "signin" }: Sig
               <div className="flex items-center gap-3 pt-1">
                 <Link
                   href="/demo"
-                  onClick={() => onOpenChange(false)}
+                  onClick={closeDialog}
                   className="text-primary text-sm font-semibold underline underline-offset-2 hover:text-primary-dark transition-colors"
                 >
                   Explore the demo
@@ -176,7 +225,7 @@ export function SignInDialog({ open, onOpenChange, initialMode = "signin" }: Sig
                 <span className="text-foreground/30" aria-hidden="true">·</span>
                 <button
                   type="button"
-                  onClick={() => onOpenChange(false)}
+                  onClick={closeDialog}
                   className="text-foreground/55 text-sm font-medium hover:text-foreground transition-colors"
                 >
                   Close

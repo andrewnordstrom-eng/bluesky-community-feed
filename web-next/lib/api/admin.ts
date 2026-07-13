@@ -6,6 +6,7 @@
  */
 
 import { api } from './client';
+import { z } from 'zod';
 import type { GovernanceWeights, ContentRules } from './types';
 
 export type { GovernanceWeights, ContentRules };
@@ -89,6 +90,34 @@ export interface WaitlistRequest {
   decided_at: string | null;
   decided_by: string | null;
 }
+
+const waitlistTimestampSchema = z.string().datetime({ offset: true });
+
+export const waitlistRequestSchema = z.object({
+  id: z.number().int().positive(),
+  handle: z.string().min(1),
+  did: z.string().min(1).nullable(),
+  note: z.string().nullable(),
+  status: z.enum(['pending', 'approved', 'rejected']),
+  created_at: waitlistTimestampSchema,
+  decided_at: waitlistTimestampSchema.nullable(),
+  decided_by: z.string().min(1).nullable(),
+}).strict();
+
+export const waitlistListResponseSchema = z.object({
+  requests: z.array(waitlistRequestSchema),
+  total: z.number().int().nonnegative(),
+}).strict();
+
+export const waitlistApproveResponseSchema = z.object({
+  success: z.boolean(),
+  did: z.string().min(1),
+  handle: z.string().min(1),
+}).strict();
+
+export const waitlistRejectResponseSchema = z.object({
+  success: z.boolean(),
+}).strict();
 
 export interface AdminStatus {
   isAdmin: boolean;
@@ -605,17 +634,17 @@ export const adminApi = {
     status: 'pending' | 'approved' | 'rejected' | 'all' = 'pending',
   ): Promise<{ requests: WaitlistRequest[]; total: number }> {
     const response = await api.get('/api/admin/waitlist', { params: { status } });
-    return response.data;
+    return waitlistListResponseSchema.parse(response.data);
   },
 
   async approveWaitlist(id: number): Promise<{ success: boolean; did: string; handle: string }> {
     const response = await api.post(`/api/admin/waitlist/${id}/approve`);
-    return response.data;
+    return waitlistApproveResponseSchema.parse(response.data);
   },
 
   async rejectWaitlist(id: number): Promise<{ success: boolean }> {
     const response = await api.post(`/api/admin/waitlist/${id}/reject`);
-    return response.data;
+    return waitlistRejectResponseSchema.parse(response.data);
   },
 
   // Topic management
