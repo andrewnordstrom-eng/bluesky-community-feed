@@ -889,6 +889,19 @@ function PanelAccess({ status }: { status: AdminStatus }) {
   const [addNotes, setAddNotes] = useState("")
   const [confirmRemove, setConfirmRemove] = useState<{ did: string; handle: string | null } | null>(null)
 
+  // Per-id in-flight tracking. A single shared mutation only remembers its LAST
+  // `variables`, so clicking a second row would re-enable the first mid-request
+  // and allow a duplicate submit. Tracking ids explicitly keeps each row's busy
+  // state independent.
+  const [approvingIds, setApprovingIds] = useState<ReadonlySet<number>>(new Set())
+  const [rejectingIds, setRejectingIds] = useState<ReadonlySet<number>>(new Set())
+  const toggleId = (setter: typeof setApprovingIds, id: number, on: boolean) =>
+    setter((prev) => {
+      const next = new Set(prev)
+      if (on) next.add(id); else next.delete(id)
+      return next
+    })
+
   const invalidateAll = () => {
     void queryClient.invalidateQueries({ queryKey: ["admin", "waitlist"] })
     void queryClient.invalidateQueries({ queryKey: ["admin", "participants"] })
@@ -896,6 +909,8 @@ function PanelAccess({ status }: { status: AdminStatus }) {
 
   const approveMutation = useMutation({
     mutationFn: (id: number) => adminApi.approveWaitlist(id),
+    onMutate: (id) => toggleId(setApprovingIds, id, true),
+    onSettled: (_data, _err, id) => toggleId(setApprovingIds, id, false),
     onSuccess: () => { setActionError(null); invalidateAll() },
     onError: (err) => {
       setActionError(
@@ -907,6 +922,8 @@ function PanelAccess({ status }: { status: AdminStatus }) {
   })
   const rejectMutation = useMutation({
     mutationFn: (id: number) => adminApi.rejectWaitlist(id),
+    onMutate: (id) => toggleId(setRejectingIds, id, true),
+    onSettled: (_data, _err, id) => toggleId(setRejectingIds, id, false),
     onSuccess: () => { setActionError(null); invalidateAll() },
     onError: () => setActionError("Reject failed — try again."),
   })
@@ -975,8 +992,9 @@ function PanelAccess({ status }: { status: AdminStatus }) {
         ) : (
           <div className="rounded-xl border border-border overflow-hidden divide-y divide-border/60">
             {pending.map((r) => {
-              const busy = (approveMutation.isPending && approveMutation.variables === r.id)
-                || (rejectMutation.isPending && rejectMutation.variables === r.id)
+              const approving = approvingIds.has(r.id)
+              const rejecting = rejectingIds.has(r.id)
+              const busy = approving || rejecting
               return (
                 <div key={r.id} className="flex flex-col sm:flex-row sm:items-center gap-3 px-4 py-3.5">
                   <div className="min-w-0 flex-1">
@@ -990,14 +1008,14 @@ function PanelAccess({ status }: { status: AdminStatus }) {
                       disabled={busy}
                       className="text-xs font-semibold px-3.5 py-1.5 rounded-full bg-success/12 border border-success/25 text-success hover:bg-success/20 transition-colors disabled:opacity-50"
                     >
-                      {busy && approveMutation.variables === r.id ? "Approving…" : "Approve"}
+                      {approving ? "Approving…" : "Approve"}
                     </button>
                     <button
                       onClick={() => rejectMutation.mutate(r.id)}
                       disabled={busy}
                       className="text-xs font-semibold px-3.5 py-1.5 rounded-full bg-biscuit border border-border text-foreground/60 hover:text-foreground hover:bg-tongue/10 transition-colors disabled:opacity-50"
                     >
-                      Reject
+                      {rejecting ? "Rejecting…" : "Reject"}
                     </button>
                   </div>
                 </div>

@@ -133,11 +133,15 @@ export function SignInDialog({ open, onOpenChange, initialMode = "signin" }: Sig
           <Image src="/images/corgi-icon.svg" alt="Corgi" width={51} height={36} className="w-[51px] h-9" />
           <div className="space-y-1.5 text-center">
             <DialogTitle className="text-foreground font-display text-2xl font-bold tracking-tight leading-tight">
-              {mode === "waitlist" ? "Join the Corgi waitlist" : "Sign in to vote"}
+              {mode === "waitlist"
+                ? (waitlistState === "success" ? "Request received" : "Join the Corgi waitlist")
+                : "Sign in to vote"}
             </DialogTitle>
             <DialogDescription className="text-foreground/55 text-sm leading-relaxed max-w-[320px]">
               {mode === "waitlist"
-                ? "Voting is in a limited pilot. Add your Bluesky handle and we'll get you in as we expand — the demo stays open to everyone."
+                ? (waitlistState === "success"
+                    ? "Your waitlist request is in."
+                    : "Voting is in a limited pilot. Add your Bluesky handle and we'll get you in as we expand — the demo stays open to everyone.")
                 : "Connect your Bluesky account to participate in feed governance. You'll need an app password from your Bluesky settings."}
             </DialogDescription>
           </div>
@@ -217,7 +221,7 @@ export function SignInDialog({ open, onOpenChange, initialMode = "signin" }: Sig
 
               <Button
                 type="submit"
-                disabled={waitlistState === "submitting" || !handle}
+                disabled={waitlistState === "submitting" || !handle.trim()}
                 className="w-full h-11 bg-primary text-primary-foreground hover:bg-primary-dark rounded-xl font-semibold text-sm transition-colors shadow-sm disabled:opacity-50 mt-1"
               >
                 {waitlistState === "submitting" ? "Submitting..." : "Join the waitlist"}

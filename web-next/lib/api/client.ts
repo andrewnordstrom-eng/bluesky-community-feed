@@ -61,7 +61,7 @@ export const waitlistApi = {
   join: async (handle: string, note?: string): Promise<WaitlistJoinResponse> => {
     const trimmedNote = note?.trim();
     const response = await api.post<WaitlistJoinResponse>('/api/governance/waitlist', {
-      handle,
+      handle: handle.trim(),
       ...(trimmedNote ? { note: trimmedNote } : {}),
     });
     return response.data;
