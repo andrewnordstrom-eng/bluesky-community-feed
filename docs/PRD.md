@@ -3,13 +3,13 @@
 Status: canonical product brief
 Owner: bluesky-feed
 Service class: production_service
-Last updated: 2026-04-05
+Last updated: 2026-07-13
 
 ## Mission
 
-Prove that a real social feed can be community-governed without becoming opaque,
-slow, or unserious. Subscribers should be able to influence ranking behavior and
-see exactly how those choices affect the feed.
+Prove that a real social feed can be community-shaped without becoming opaque,
+slow, or unserious. Approved pilot participants can propose ranking policy while
+anyone can inspect what changed and why.
 
 ## Problem
 
@@ -19,8 +19,9 @@ algorithm, and cannot audit the consequences of policy changes.
 
 ## Outcomes
 
-- Subscribers can vote on ranking weights and content rules through a usable
-  governance surface.
+- Approved pilot participants can vote on five global signal weights, topic
+  priorities, and content rules through a usable governance surface. Anyone can
+  inspect the public feed or use the isolated shadow demo without joining the pilot.
 - The ranking pipeline persists full score decomposition so every result is
   explainable — in a normalized long table that supports any-N components,
   not a 5-column fossilized schema.

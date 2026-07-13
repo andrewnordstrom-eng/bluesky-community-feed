@@ -12,8 +12,8 @@ function SignalBlendUI() {
   // arbitrary classes can't interpolate the constant — keep the hexes in sync.
   const examples = [
     {
-      label: "Field note with context",
-      detail: "A sighting post with location, correction, and source detail.",
+      label: "Research note with context",
+      detail: "A methods post with data, corrections, and source detail.",
       outcome: "Ranks up",
       signals: [
         { label: "Relevance", widthClass: "w-[92%]", colorClass: "bg-primary" },
@@ -33,7 +33,7 @@ function SignalBlendUI() {
     },
     {
       label: "Bridge between interests",
-      detail: "A post that connects the community topic to adjacent expertise.",
+      detail: "A post that connects open-network work to adjacent research or tooling.",
       outcome: "Finds its people",
       signals: [
         { label: "Relevance", widthClass: "w-[70%]", colorClass: "bg-primary" },
@@ -96,20 +96,24 @@ function CommunityVoteUI() {
       text: "A ranking change is proposed before it affects the feed.",
     },
     {
-      label: "Community vote",
-      text: "Members choose which signals should matter more.",
+      label: "Voting window",
+      text: "Approved participants vote on signals, topic priorities, or content rules.",
     },
     {
-      label: "Weights update",
-      text: "The next epoch applies a visible set of weights.",
+      label: "Results review",
+      text: "Corgi aggregates the ballots and presents the proposed policy for review.",
     },
     {
-      label: "Feed reorders",
-      text: "Bluesky receives the same posts in a new order.",
+      label: "Operator approval",
+      text: "An operator approves or rejects the complete proposed policy.",
     },
     {
-      label: "Receipt stays",
-      text: "Corgi keeps the explanation tied to that epoch.",
+      label: "Rescore and publish",
+      text: "After approval, Corgi applies the policy, reranks, and publishes the ordered feed.",
+    },
+    {
+      label: "Inspect",
+      text: "Corgi keeps explanations tied to the policy epoch while Bluesky renders the posts.",
     },
   ]
 
@@ -121,7 +125,7 @@ function CommunityVoteUI() {
           auditable sequence
         </span>
       </div>
-      <div className="px-5 sm:px-6 py-5 grid grid-cols-1 gap-3 md:grid-cols-5">
+      <div className="px-5 sm:px-6 py-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6">
         {steps.map((step, index) => (
           <div key={step.label} className="relative rounded-xl border border-border/60 bg-background px-4 py-3">
             <div className="flex items-start justify-between gap-3">
@@ -130,7 +134,7 @@ function CommunityVoteUI() {
                 <p className="mt-2 text-foreground/75 text-sm font-semibold leading-snug">{step.label}</p>
               </div>
               {index < steps.length - 1 ? (
-                <span className="hidden text-primary/45 md:block" aria-hidden="true">
+                <span className="hidden text-primary/45 xl:block" aria-hidden="true">
                   &rarr;
                 </span>
               ) : null}
@@ -148,7 +152,7 @@ function CommunityVoteUI() {
           </div>
         </div>
         <div className="px-5 py-4 sm:px-6">
-          <p className="text-xs font-mono uppercase tracking-[0.18em] text-foreground/55">After weights update</p>
+          <p className="text-xs font-mono uppercase tracking-[0.18em] text-foreground/55">After policy approval</p>
           <div className="mt-3 space-y-2 text-sm text-foreground/65">
             <p><span className="font-mono text-primary/70">#1</span> useful source-rich explainer</p>
             <p><span className="font-mono text-foreground/55">#2</span> high-engagement general post</p>
@@ -164,7 +168,7 @@ const features = [
     id: "mixed-feed",
     headline: "The feed is mixed, not topic-siloed.",
     description:
-      "A governed recommender has to reconcile recency, engagement, bridging, source diversity, and relevance in one ranking — and the demo shows the live receipts behind it.",
+      "A governed recommender reconciles recency, engagement, bridging, source diversity, and relevance in one ranking. Topic preferences shape relevance; content rules shape which posts are eligible.",
     cta: "Explore the demo feed",
     href: "/demo",
     UI: SignalBlendUI,
@@ -173,7 +177,7 @@ const features = [
     id: "epochs",
     headline: "Epochs turn proposals into auditable changes.",
     description:
-      "Corgi's governance loop is proposal, vote, epoch transition, and receipt. The product story stays grounded in that loop instead of promising private communities or made-up vote totals.",
+      "Corgi's production loop is proposal, voting window, results review, operator approval, rescore, publication, and receipt. The shadow demo compresses that sequence without changing the public feed.",
     cta: "See epoch history",
     href: "/history",
     UI: CommunityVoteUI,

@@ -10,26 +10,36 @@ import {
 } from '../src/feed/demo-snapshot-source.js';
 import {
   COMMUNITY_GOV_SNAPSHOT_GATE,
+  applyCommunityGovSnapshotGateStatus,
   communityGovSnapshotGateFailures,
   isEnglishLanguageTag,
+  loadCommunityGovCaptureCorpus,
   loadShadowDemoCorpus,
 } from '../src/demo/corpus.js';
 import { applyFeedUrlDedup, FEED_URL_DEDUP_DECAY } from '../src/scoring/feed-publication.js';
 import {
   canonicalizeFrozenEmbedUrl,
+  captureReportApprovalFailures,
   createBoundedDemoFetch,
+  parseSnapshotCaptureReport,
   scoreCompletenessRate,
+  snapshotApprovalWriteFlag,
+  writeSnapshotCaptureArtifacts,
+  type SnapshotCaptureReport,
 } from '../src/demo/snapshot-capture.js';
 import { ShadowDemoService } from '../src/demo/service.js';
 import { MemoryDemoStore } from '../src/demo/store.js';
 import type { PostScoreRecord } from '../src/scoring/score-reader.js';
 import { readFileSync } from 'node:fs';
+import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('Community Governed Feed release snapshot', () => {
+describe('Corgi Commons release snapshot', () => {
   it('provides safe temporary output paths for the documented capture command', () => {
     const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
       scripts: Record<string, string>;
@@ -37,6 +47,110 @@ describe('Community Governed Feed release snapshot', () => {
     expect(packageJson.scripts['demo:capture-community-gov']).toContain('--manifest /tmp/');
     expect(packageJson.scripts['demo:capture-community-gov']).toContain('--report /tmp/');
     expect(packageJson.scripts['demo:capture-community-gov']).toContain('--review-sheet /tmp/');
+    expect(packageJson.scripts['demo:approve-community-gov']).toBe('tsx scripts/approve-demo-snapshot.ts');
+    expect(snapshotApprovalWriteFlag(false)).toBe('wx');
+    expect(snapshotApprovalWriteFlag(true)).toBe('w');
+  });
+
+  it('refuses to replace an existing approved output unless force is explicit', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'corgi-snapshot-approval-output-'));
+    const outputPath = join(directory, 'approved.json');
+    try {
+      await writeFile(outputPath, 'existing approval', 'utf8');
+
+      await expect(writeFile(outputPath, 'replacement', {
+        encoding: 'utf8',
+        flag: snapshotApprovalWriteFlag(false),
+      })).rejects.toMatchObject({ code: 'EEXIST' });
+      expect(await readFile(outputPath, 'utf8')).toBe('existing approval');
+
+      await writeFile(outputPath, 'reviewed replacement', {
+        encoding: 'utf8',
+        flag: snapshotApprovalWriteFlag(true),
+      });
+      expect(await readFile(outputPath, 'utf8')).toBe('reviewed replacement');
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('emits only a non-approvable report when live snapshot gates fail', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'corgi-snapshot-fail-closed-'));
+    const paths = {
+      manifest: join(directory, 'manifest.json'),
+      report: join(directory, 'report.json'),
+      reviewSheet: join(directory, 'review.html'),
+    };
+    await Promise.all([
+      writeFile(paths.manifest, 'stale manifest', 'utf8'),
+      writeFile(paths.reviewSheet, 'stale review sheet', 'utf8'),
+    ]);
+    const report = captureReport({
+      approvable: false,
+      eligibleCount: 8,
+      displayableCount: 8,
+      gateFailures: ['eligible posts 8 < 40'],
+    });
+
+    try {
+      await writeSnapshotCaptureArtifacts({
+        paths,
+        report,
+        manifestJson: '{"must":"not be written"}\n',
+        reviewSheetHtml: '<p>must not be written</p>',
+      });
+
+      expect(JSON.parse(await readFile(paths.report, 'utf8'))).toMatchObject({
+        artifactKind: 'live_production_snapshot_capture',
+        corpusSource: 'production_feed_snapshot',
+        approvable: false,
+      });
+      await expect(access(paths.manifest)).rejects.toMatchObject({ code: 'ENOENT' });
+      await expect(access(paths.reviewSheet)).rejects.toMatchObject({ code: 'ENOENT' });
+      expect(captureReportApprovalFailures(report, report.manifestDigest)).toContain(
+        'capture report is marked non-approvable'
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('removes both approval artifacts when either approvable write fails', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'corgi-snapshot-partial-write-'));
+    const paths = {
+      manifest: join(directory, 'manifest.json'),
+      report: join(directory, 'report.json'),
+      reviewSheet: join(directory, 'missing', 'review.html'),
+    };
+    const report = captureReport({ approvable: true });
+
+    try {
+      await expect(writeSnapshotCaptureArtifacts({
+        paths,
+        report,
+        manifestJson: '{"approved":true}\n',
+        reviewSheetHtml: '<p>reviewed</p>',
+      })).rejects.toMatchObject({ code: 'ENOENT' });
+
+      expect(JSON.parse(await readFile(paths.report, 'utf8'))).toMatchObject({ approvable: true });
+      await expect(access(paths.manifest)).rejects.toMatchObject({ code: 'ENOENT' });
+      await expect(access(paths.reviewSheet)).rejects.toMatchObject({ code: 'ENOENT' });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects fixture provenance and report-manifest mismatches at approval', () => {
+    const report = captureReport({ approvable: true });
+
+    expect(captureReportApprovalFailures(report, report.manifestDigest)).toEqual([]);
+    expect(captureReportApprovalFailures(report, 'f'.repeat(64))).toContain(
+      `capture report manifest digest ${report.manifestDigest} does not match ${'f'.repeat(64)}`
+    );
+    expect(() => parseSnapshotCaptureReport({
+      ...report,
+      corpusSource: 'fixture_fallback',
+    })).toThrow(/corpusSource/);
   });
 
   it('removes tracking and fragment data from frozen external preview URLs', () => {
@@ -50,6 +164,7 @@ describe('Community Governed Feed release snapshot', () => {
   it('loads the approved manifest with exact contiguous ranks and a verified digest', () => {
     const snapshot = readApprovedCommunityGovSnapshot(DEMO_SOURCE_SNAPSHOT_LIMIT);
 
+    expect(snapshot.feedName).toBe('Corgi Commons');
     expect(snapshot.entries).toHaveLength(100);
     expect(snapshot.entries.map((entry) => entry.publishedRank)).toEqual(
       Array.from({ length: 100 }, (_unused, index) => index + 1)
@@ -154,7 +269,7 @@ describe('Community Governed Feed release snapshot', () => {
     }
   });
 
-  it('requires exactly 26 active frozen Community Governed Feed topics', () => {
+  it('requires exactly 26 active frozen Corgi Commons topics', () => {
     const approved = readManifestFixture() as { topicCatalog: unknown[] };
     expect(() => parseApprovedSnapshotManifest({ ...approved, topicCatalog: approved.topicCatalog.slice(0, 25) })).toThrow(/26/);
     expect(() => parseApprovedSnapshotManifest({ ...approved, topicCatalog: [...approved.topicCatalog, approved.topicCatalog[0]] })).toThrow(/26/);
@@ -323,6 +438,24 @@ describe('Community Governed Feed release snapshot', () => {
     expect(degraded.health).toMatchObject({ status: 'degraded', source: 'fixture_fallback' });
     expect(degraded.warnings[0]?.message).toContain('eligible posts 39 < 40');
     expect(readScore).not.toHaveBeenCalled();
+
+    const captureCorpus = await loadCommunityGovCaptureCorpus({
+      now: new Date(snapshot.capturedAt),
+      fetchFn: limitedFetchFn,
+      dbPool,
+      readScore,
+      readPublishedSnapshot: vi.fn(async () => snapshot),
+      policy: readApprovedCommunityGovPolicy(),
+    });
+    expect(captureCorpus.health).toMatchObject({
+      status: 'degraded',
+      source: 'production_feed_snapshot',
+      eligiblePostCount: 39,
+      publicScoredPosts: 39,
+    });
+    expect(captureCorpus.items).toHaveLength(39);
+    expect(captureCorpus.warnings[0]?.code).toBe('shadow_demo_snapshot_not_approvable');
+    expect(captureCorpus.items.some((item) => item.postUri.endsWith('/bird1'))).toBe(false);
   });
 
   it('fails release quality when any objective gate is below threshold', () => {
@@ -346,6 +479,49 @@ describe('Community Governed Feed release snapshot', () => {
     expect(communityGovSnapshotGateFailures({ ...passing, englishTaggedShare: 0.79 })[0]).toContain('English-tagged share');
     expect(communityGovSnapshotGateFailures({ ...passing, topAuthorConcentration: 0.11 })[0]).toContain('top-author concentration');
     expect(communityGovSnapshotGateFailures({ ...passing, richMediaShare: 0.19 })[0]).toContain('rich-media share');
+  });
+
+  it.each([
+    [{ englishTaggedShare: 0.79 }, 'English-tagged share'],
+    [{ richMediaShare: 0.19 }, 'rich-media share'],
+    [{ topAuthorConcentration: 0.11 }, 'top-author concentration'],
+  ] as const)('degrades capture health for an independent %s failure', (override, expectedFailure) => {
+    const passing = {
+      status: 'live' as const,
+      source: 'production_feed_snapshot' as const,
+      candidatePosts72h: 100,
+      publicScoredPosts: 40,
+      uniqueAuthors72h: 40,
+      bridgePostShare: 0.4,
+      topAuthorConcentration: COMMUNITY_GOV_SNAPSHOT_GATE.maximumTopAuthorConcentration,
+      sampledAt: '2026-07-11T22:22:13.710Z',
+      eligiblePostCount: 40,
+      englishTaggedShare: COMMUNITY_GOV_SNAPSHOT_GATE.minimumEnglishTaggedShare,
+      richMediaShare: COMMUNITY_GOV_SNAPSHOT_GATE.minimumRichMediaShare,
+    };
+    const health = { ...passing, ...override };
+
+    expect(communityGovSnapshotGateFailures(health)[0]).toContain(expectedFailure);
+    expect(applyCommunityGovSnapshotGateStatus(health).status).toBe('degraded');
+  });
+
+  it('keeps capture health live at every reviewer-safe quality boundary', () => {
+    const health = {
+      status: 'live' as const,
+      source: 'production_feed_snapshot' as const,
+      candidatePosts72h: 100,
+      publicScoredPosts: COMMUNITY_GOV_SNAPSHOT_GATE.minimumDisplayablePosts,
+      uniqueAuthors72h: 40,
+      bridgePostShare: 0.4,
+      topAuthorConcentration: COMMUNITY_GOV_SNAPSHOT_GATE.maximumTopAuthorConcentration,
+      sampledAt: '2026-07-11T22:22:13.710Z',
+      eligiblePostCount: COMMUNITY_GOV_SNAPSHOT_GATE.minimumEligiblePosts,
+      englishTaggedShare: COMMUNITY_GOV_SNAPSHOT_GATE.minimumEnglishTaggedShare,
+      richMediaShare: COMMUNITY_GOV_SNAPSHOT_GATE.minimumRichMediaShare,
+    };
+
+    expect(communityGovSnapshotGateFailures(health)).toEqual([]);
+    expect(applyCommunityGovSnapshotGateStatus(health)).toBe(health);
   });
 
   it('uses the same ordered URL decay for production publication and shadow reranking', () => {
@@ -414,15 +590,43 @@ describe('Community Governed Feed release snapshot', () => {
 });
 
 function readManifestFixture(): unknown {
-  const snapshot = readApprovedCommunityGovSnapshot(DEMO_SOURCE_SNAPSHOT_LIMIT);
-  const policy = readApprovedCommunityGovPolicy();
+  return JSON.parse(readFileSync(
+    new URL('../src/demo/community-gov-release-snapshot.json', import.meta.url),
+    'utf8'
+  )) as unknown;
+}
+
+function captureReport(overrides: Partial<SnapshotCaptureReport>): SnapshotCaptureReport {
   return {
     schemaVersion: '2026-07-11.community-gov-snapshot.v3',
-    ...snapshot,
-    reviewedAt: snapshot.reviewedAt,
-    signalWeights: policy.signalWeights,
-    topicCatalog: policy.topicCatalog,
-    publicationPolicy: policy.publicationPolicy,
+    artifactKind: 'live_production_snapshot_capture',
+    corpusSource: 'production_feed_snapshot',
+    approvable: true,
+    manifestDigest: 'a'.repeat(64),
+    capturedAt: '2026-07-11T22:22:13.710Z',
+    productionEpochId: 2,
+    sourceRunId: 'run-123',
+    sourceCount: 100,
+    eligibleCount: 40,
+    displayableCount: 40,
+    scoreCompletenessRate: 1,
+    uniqueAuthorCount: 40,
+    topAuthorConcentration: 0.1,
+    englishTaggedShare: 0.8,
+    richMediaShare: 0.2,
+    languageDistribution: { en: 40 },
+    mediaDistribution: { external: 8, none: 32 },
+    gateFailures: [],
+    safetyChecklist: {
+      appViewVisibilityApplied: true,
+      nestedLabelsApplied: true,
+      reviewerLanguageGateApplied: true,
+      sourceLinksValidated: true,
+      copiedPostTextInManifest: false,
+      manualReviewComplete: false,
+    },
+    warnings: [],
+    ...overrides,
   };
 }
 

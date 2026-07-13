@@ -25,14 +25,6 @@ const EpochIdParamsSchema = z.object({
   id: z.coerce.number().int().positive(),
 });
 
-const ForceFlagSchema = z
-  .union([z.boolean(), z.enum(['true', 'false'])])
-  .transform((value) => (typeof value === 'boolean' ? value : value === 'true'));
-
-const TransitionQuerySchema = z.object({
-  force: ForceFlagSchema.optional().default(false),
-});
-
 /** JSON Schemas for OpenAPI documentation. */
 const EpochListQueryJsonSchema = zodToJsonSchema(
   z.object({
@@ -99,6 +91,7 @@ export function registerEpochsRoute(app: FastifyInstance): void {
                   vote_count: { type: 'integer' },
                   created_at: { type: 'string', format: 'date-time' },
                   closed_at: { type: 'string', format: 'date-time', nullable: true },
+                  results_approved_at: { type: 'string', format: 'date-time', nullable: true },
                   description: { type: 'string', nullable: true },
                   content_rules: contentRulesSchema,
                 },
@@ -154,6 +147,7 @@ export function registerEpochsRoute(app: FastifyInstance): void {
           vote_count: parseInt(voteCount.rows[0].count),
           created_at: epoch.createdAt,
           closed_at: epoch.closedAt,
+          results_approved_at: row.results_approved_at ?? null,
           description: epoch.description,
           content_rules: {
             include_keywords: contentRules.includeKeywords,
@@ -187,7 +181,7 @@ export function registerEpochsRoute(app: FastifyInstance): void {
             phase: { type: 'string' },
             weights: weightsSchema,
             vote_count: { type: 'integer' },
-            subscriber_count: { type: 'integer', description: 'Active subscribers (potential voters)' },
+            subscriber_count: { type: 'integer', description: 'Approved active governance participants' },
             created_at: { type: 'string', format: 'date-time' },
             voting_started_at: { type: 'string', format: 'date-time', nullable: true },
             voting_ends_at: { type: 'string', format: 'date-time', nullable: true },
@@ -223,9 +217,13 @@ export function registerEpochsRoute(app: FastifyInstance): void {
       [epoch.id]
     );
 
-    // Get subscriber count (potential voters)
+    // Count only active subscribers who are currently approved for the voting pilot.
     const subscriberCount = await db.query(
-      `SELECT COUNT(*) as count FROM subscribers WHERE is_active = TRUE`
+      `SELECT COUNT(*) as count
+       FROM subscribers s
+       INNER JOIN approved_participants ap
+         ON ap.did = s.did AND ap.removed_at IS NULL
+       WHERE s.is_active = TRUE`
     );
 
     return reply.send({
@@ -434,8 +432,6 @@ export function registerEpochsRoute(app: FastifyInstance): void {
    * Triggers epoch transition (admin only).
    * Requires valid session with DID in BOT_ADMIN_DIDS.
    *
-   * Query params:
-   * - force=true: Skip vote count check (for testing)
    */
   app.post('/api/governance/epochs/transition', {
     schema: {
@@ -444,25 +440,7 @@ export function registerEpochsRoute(app: FastifyInstance): void {
       description:
         'Direct epoch transitions are disabled. Use the reviewed voting lifecycle to start voting, close voting, inspect the proposed policy, and approve results.',
       security: governanceSecurity,
-      querystring: {
-        type: 'object',
-        properties: {
-          force: { type: 'boolean', default: false, description: 'Skip vote count check (for testing)' },
-        },
-      },
       response: {
-        200: {
-          type: 'object',
-          properties: {
-            success: { type: 'boolean' },
-            newEpochId: { type: 'integer' },
-            forced: { type: 'boolean' },
-            previousEpochId: { type: 'integer' },
-            voteCount: { type: 'integer' },
-          },
-          required: ['success', 'newEpochId', 'forced'],
-        },
-        400: ErrorResponseSchema,
         409: ErrorResponseSchema,
         401: ErrorResponseSchema,
         403: ErrorResponseSchema,
@@ -498,14 +476,6 @@ export function registerEpochsRoute(app: FastifyInstance): void {
       });
     }
 
-    const queryParseResult = TransitionQuerySchema.safeParse(request.query);
-    if (!queryParseResult.success) {
-      return reply.code(400).send({
-        error: 'ValidationError',
-        message: 'Invalid query parameters',
-        details: queryParseResult.error.issues,
-      });
-    }
     return reply.code(409).send({
       error: 'DirectTransitionDisabled',
       message: 'Direct epoch transitions are disabled. Start voting, close voting, review the proposed policy, and approve results.',

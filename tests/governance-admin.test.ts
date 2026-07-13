@@ -650,14 +650,13 @@ describe('admin governance routes', () => {
     await app.close();
   });
 
-  it('rejects the legacy direct end-round bypass even when force is requested', async () => {
+  it('rejects the legacy direct end-round bypass', async () => {
     const app = Fastify();
     registerGovernanceRoutes(app);
 
     const response = await app.inject({
       method: 'POST',
       url: '/governance/end-round',
-      payload: { force: true },
     });
 
     expect(response.statusCode).toBe(409);

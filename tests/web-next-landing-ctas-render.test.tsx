@@ -99,6 +99,7 @@ describe('web-next landing CTAs', () => {
 
     expect(countMatches(markup, /<a\b/g)).toBe(1);
     expect(markup).toContain('href="/demo"');
+    expect(markup).toContain('Try the governance demo');
     expect(markup).not.toContain('<button');
     expect(markup).toContain('qa-demo-class');
     expect(markup).toContain('inline-flex');

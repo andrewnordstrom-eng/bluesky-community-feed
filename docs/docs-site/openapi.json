@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Community Feed API",
-    "description": "Community-governed Bluesky feed generator where subscribers democratically vote on ranking algorithm weights. Built on AT Protocol.\n\n## Authentication\n- **Governance endpoints** require a session cookie or bearer token from `POST /api/governance/auth/login`.\n- **Admin endpoints** additionally require the caller's DID to be in the `BOT_ADMIN_DIDS` allowlist.\n- **Feed endpoints** are public (called by the Bluesky app). Auth is optional for subscriber tracking.\n- **Transparency endpoints** are public and unauthenticated.",
+    "description": "Corgi Commons is a Bluesky feed with inspectable, community-shaped ranking. Approved pilot participants can vote on ranking signals, topic priorities, and content rules; reviewed policy changes are applied before rescoring. Built on AT Protocol.\n\n## Authentication\n- **Governance endpoints** require a session cookie or bearer token from `POST /api/governance/auth/login`.\n- **Admin endpoints** additionally require the caller's DID to be in the `BOT_ADMIN_DIDS` allowlist.\n- **Feed endpoints** are public (called by the Bluesky app). Viewing the feed and using the shadow demo do not require governance access.\n- **Transparency endpoints** are public and unauthenticated.",
     "version": "1.2.0",
     "contact": {
       "name": "Community Feed",
@@ -84,7 +84,7 @@
         "tags": [
           "Feed"
         ],
-        "description": "Returns the DID document for did:web resolution. Used as a fallback \u2014 production uses did:plc.",
+        "description": "Returns the DID document for did:web resolution. Used as a fallback — production uses did:plc.",
         "responses": {
           "200": {
             "description": "Default Response",
@@ -525,6 +525,36 @@
               }
             }
           },
+          "403": {
+            "description": "Valid credentials, but the account is not approved for the pilot.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Valid credentials, but the account is not approved for the pilot.",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "example": "NotApproved"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "waitlist": {
+                      "type": "boolean",
+                      "example": true,
+                      "description": "Discriminator: the client should offer the waitlist."
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message",
+                    "waitlist"
+                  ]
+                }
+              }
+            }
+          },
           "429": {
             "description": "Default Response",
             "content": {
@@ -775,7 +805,7 @@
         "tags": [
           "Governance"
         ],
-        "description": "Cast or update your vote for the current epoch. You can vote on algorithm weights, content keywords, topic weights, or any combination. Weights must sum to 1.0. Requires authentication and active subscription.",
+        "description": "Cast or update your vote for the current epoch. You can vote on algorithm weights, content keywords, topic weights, or any combination. Weights must sum to 1.0. Requires authentication, an active feed subscription, and approved pilot participation when allowlisting is enabled.",
         "requestBody": {
           "required": true,
           "content": {
@@ -783,31 +813,31 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "recency": {
+                  "recency_weight": {
                     "type": "number",
                     "minimum": 0,
                     "maximum": 1,
                     "description": "Weight for recency component"
                   },
-                  "engagement": {
+                  "engagement_weight": {
                     "type": "number",
                     "minimum": 0,
                     "maximum": 1,
                     "description": "Weight for engagement component"
                   },
-                  "bridging": {
+                  "bridging_weight": {
                     "type": "number",
                     "minimum": 0,
                     "maximum": 1,
                     "description": "Weight for bridging component"
                   },
-                  "source_diversity": {
+                  "source_diversity_weight": {
                     "type": "number",
                     "minimum": 0,
                     "maximum": 1,
                     "description": "Weight for source diversity component"
                   },
-                  "relevance": {
+                  "relevance_weight": {
                     "type": "number",
                     "minimum": 0,
                     "maximum": 1,
@@ -838,7 +868,7 @@
                       "minimum": 0,
                       "maximum": 1
                     },
-                    "description": "Topic slug \u2192 weight mapping"
+                    "description": "Topic slug → weight mapping"
                   }
                 }
               }
@@ -1255,7 +1285,7 @@
         "tags": [
           "Topics"
         ],
-        "description": "Returns all active topics from the topic catalog with their current community-voted weights. Public endpoint \u2014 no authentication required.",
+        "description": "Returns all active topics from the topic catalog with their current community-voted weights. Public endpoint — no authentication required.",
         "responses": {
           "200": {
             "description": "Default Response",
@@ -1660,7 +1690,7 @@
                     },
                     "difference": {
                       "type": "object",
-                      "description": "Weight differences (epoch2 \u2212 epoch1)",
+                      "description": "Weight differences (epoch2 − epoch1)",
                       "properties": {
                         "recency": {
                           "type": "number"
@@ -1835,6 +1865,11 @@
                             "format": "date-time",
                             "nullable": true
                           },
+                          "results_approved_at": {
+                            "type": "string",
+                            "format": "date-time",
+                            "nullable": true
+                          },
                           "description": {
                             "type": "string",
                             "nullable": true
@@ -1951,7 +1986,7 @@
                     },
                     "subscriber_count": {
                       "type": "integer",
-                      "description": "Active subscribers (potential voters)"
+                      "description": "Approved active governance participants"
                     },
                     "created_at": {
                       "type": "string",
@@ -2414,14 +2449,14 @@
                       "additionalProperties": {
                         "type": "integer"
                       },
-                      "description": "Keyword \u2192 vote count map for include keywords"
+                      "description": "Keyword → vote count map for include keywords"
                     },
                     "exclude_keyword_votes": {
                       "type": "object",
                       "additionalProperties": {
                         "type": "integer"
                       },
-                      "description": "Keyword \u2192 vote count map for exclude keywords"
+                      "description": "Keyword → vote count map for exclude keywords"
                     },
                     "total_voters": {
                       "type": "integer",
@@ -2480,7 +2515,7 @@
         "tags": [
           "Governance"
         ],
-        "description": "Returns the authenticated user's current research consent status. Research consent is separate from TOS \u2014 declining does not restrict governance access.",
+        "description": "Returns the authenticated user's current research consent status. Research consent is separate from TOS — declining does not restrict governance access.",
         "security": [
           {
             "cookieAuth": []
@@ -2655,6 +2690,151 @@
             }
           },
           "401": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "description": "Error code (e.g. \"ValidationError\", \"NotFound\")"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Human-readable error message"
+                    },
+                    "correlationId": {
+                      "type": "string",
+                      "description": "Request correlation ID for debugging"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/governance/waitlist": {
+      "post": {
+        "summary": "Join the voting waitlist",
+        "tags": [
+          "Governance"
+        ],
+        "description": "Request voting access during the pilot by submitting a Bluesky handle and optional note. The response does not reveal whether the handle was already on the list or approved.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "handle": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 253
+                  },
+                  "note": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "handle"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "message"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "description": "Error code (e.g. \"ValidationError\", \"NotFound\")"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Human-readable error message"
+                    },
+                    "correlationId": {
+                      "type": "string",
+                      "description": "Request correlation ID for debugging"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "example": "TooManyRequests"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "retryAfterSeconds": {
+                      "type": "integer",
+                      "description": "Seconds to wait before retrying"
+                    },
+                    "correlationId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
             "description": "Default Response",
             "content": {
               "application/json": {
@@ -2905,7 +3085,7 @@
         "tags": [
           "Transparency"
         ],
-        "description": "Returns aggregate statistics for the current feed including epoch weights, scoring metrics (posts scored, unique authors, avg/median bridging), governance info, and optional Gini coefficient.",
+        "description": "Returns bounded aggregate statistics for the current feed including epoch weights, materialized feed-snapshot metrics, governance info, provenance, and optional Gini coefficient.",
         "responses": {
           "200": {
             "description": "Default Response",
@@ -2953,10 +3133,12 @@
                       "type": "object",
                       "properties": {
                         "total_posts_scored": {
-                          "type": "integer"
+                          "type": "integer",
+                          "description": "Rows in the current materialized feed snapshot."
                         },
                         "unique_authors": {
-                          "type": "integer"
+                          "type": "integer",
+                          "description": "Unique authors in the materialized feed snapshot."
                         },
                         "avg_bridging_score": {
                           "type": "number"
@@ -2999,12 +3181,46 @@
                           "nullable": true
                         }
                       }
+                    },
+                    "stats_status": {
+                      "type": "object",
+                      "description": "Provenance for the bounded stats response.",
+                      "properties": {
+                        "source": {
+                          "type": "string",
+                          "enum": [
+                            "scoring_run",
+                            "fallback"
+                          ]
+                        },
+                        "degraded": {
+                          "type": "boolean"
+                        },
+                        "computed_at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "nullable": true
+                        },
+                        "run_id": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "message": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "required": [
+                        "source",
+                        "degraded"
+                      ]
                     }
                   },
                   "required": [
                     "epoch",
                     "feed_stats",
-                    "governance"
+                    "governance",
+                    "stats_status"
                   ]
                 }
               }
@@ -3462,6 +3678,294 @@
         }
       }
     },
+    "/api/demo/sessions": {
+      "post": {
+        "tags": [
+          "Demo"
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/demo/sessions/{sessionId}": {
+      "get": {
+        "tags": [
+          "Demo"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "sessionId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/demo/sessions/{sessionId}/votes": {
+      "post": {
+        "tags": [
+          "Demo"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "sessionId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/demo/sessions/{sessionId}/agents/run": {
+      "post": {
+        "tags": [
+          "Demo"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "sessionId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/demo/sessions/{sessionId}/epochs/advance": {
+      "post": {
+        "tags": [
+          "Demo"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "sessionId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/demo/sessions/{sessionId}/feed": {
+      "get": {
+        "tags": [
+          "Demo"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "sessionId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/demo/sessions/{sessionId}/receipts": {
+      "get": {
+        "tags": [
+          "Demo"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "sessionId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/demo/v4/sessions": {
+      "post": {
+        "tags": [
+          "Demo"
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/demo/v4/sessions/{sessionId}": {
+      "get": {
+        "tags": [
+          "Demo"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "sessionId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/demo/v4/sessions/{sessionId}/votes": {
+      "post": {
+        "tags": [
+          "Demo"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "sessionId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/demo/v4/sessions/{sessionId}/agents/run": {
+      "post": {
+        "tags": [
+          "Demo"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "sessionId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/demo/v4/sessions/{sessionId}/epochs/advance": {
+      "post": {
+        "tags": [
+          "Demo"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "sessionId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/demo/v4/sessions/{sessionId}/feed": {
+      "get": {
+        "tags": [
+          "Demo"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "sessionId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/demo/v4/sessions/{sessionId}/receipts": {
+      "get": {
+        "tags": [
+          "Demo"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "sessionId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
     "/api/legal/tos": {
       "get": {
         "summary": "Terms of Service",
@@ -3804,6 +4308,10 @@
     {
       "name": "Transparency",
       "description": "Score explanations, feed stats, and audit logs"
+    },
+    {
+      "name": "Demo",
+      "description": "Public, isolated shadow-governance sessions for the reviewer walkthrough"
     },
     {
       "name": "Admin",

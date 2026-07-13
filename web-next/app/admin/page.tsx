@@ -10,6 +10,7 @@ import { WeightBar } from "@/components/ui/weight-bar"
 import { Button } from "@/components/ui/button"
 import { EmptyState, ErrorCard, Skeleton } from "@/components/ui/state-kit"
 import { adminApi, type AdminStatus } from "@/lib/api/admin"
+import { approvedParticipationPercent, completeAdminLifecycleRefresh } from "@/lib/admin-lifecycle"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -36,6 +37,17 @@ function fmtDateTime(iso: string | null) {
   return new Date(iso).toLocaleDateString("en-GB", {
     day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZoneName: "short",
   })
+}
+
+function adminMutationError(error: unknown, fallback: string): string | null {
+  if (error === null || error === undefined) return null
+  if (axios.isAxiosError(error)) {
+    const data = error.response?.data
+    if (data !== null && typeof data === "object" && "message" in data && typeof data.message === "string") {
+      return data.message
+    }
+  }
+  return fallback
 }
 
 type CurrentEpoch = NonNullable<AdminStatus["system"]["currentEpoch"]>
@@ -66,9 +78,9 @@ function SectionHeader({ title, sub }: { title: string; sub?: string }) {
 // ── Confirm Modal (Escape-to-close + initial focus on Cancel) ──────────────────
 
 function ConfirmModal({
-  title, body, confirmLabel = "Confirm", danger = false, loading = false, onConfirm, onCancel,
+  title, body, error, confirmLabel = "Confirm", danger = false, loading = false, onConfirm, onCancel,
 }: {
-  title: string; body: string; confirmLabel?: string; danger?: boolean; loading?: boolean
+  title: string; body: string; error?: string | null; confirmLabel?: string; danger?: boolean; loading?: boolean
   onConfirm: () => void; onCancel: () => void
 }) {
   const cancelRef = useRef<HTMLButtonElement>(null)
@@ -85,10 +97,19 @@ function ConfirmModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="modal-title">
-      <div className="absolute inset-0 bg-foreground/30 backdrop-blur-sm" onClick={onCancel} aria-hidden="true" />
+      <div
+        className="absolute inset-0 bg-foreground/30 backdrop-blur-sm"
+        onClick={() => { if (!loading) onCancel() }}
+        aria-hidden="true"
+      />
       <div className="relative z-10 w-full max-w-sm rounded-2xl border border-border bg-card p-6 shadow-xl flex flex-col gap-4">
         <h3 id="modal-title" className="text-base font-semibold text-foreground">{title}</h3>
         <p className="text-sm text-foreground/60 leading-relaxed">{body}</p>
+        {error ? (
+          <p role="alert" className="rounded-lg border border-status-error/25 bg-status-error/10 px-3 py-2 text-sm text-status-error">
+            {error}
+          </p>
+        ) : null}
         <div className="flex items-center justify-end gap-3 pt-1">
           <button
             ref={cancelRef}
@@ -130,15 +151,13 @@ function PanelOverview({ status }: { status: AdminStatus }) {
     )
   }
 
-  const participation = feed.subscriberCount > 0
-    ? Math.round((epoch.voteCount / feed.subscriberCount) * 100)
-    : 0
+  const participation = approvedParticipationPercent(epoch.voteCount, feed.approvedParticipantCount)
 
   const stats = [
     { label: "Total posts scored", value: feed.scoredPosts.toLocaleString() },
     { label: "Votes this round", value: epoch.voteCount.toLocaleString() },
     { label: "Participation", value: `${participation}%` },
-    { label: "Subscribers", value: feed.subscriberCount.toLocaleString() },
+    { label: "Approved participants", value: feed.approvedParticipantCount.toLocaleString() },
   ]
 
   return (
@@ -178,17 +197,29 @@ function PanelCurrentRound({ status }: { status: AdminStatus }) {
   const epoch = status.system.currentEpoch
   const feed = status.system.feed
   const phase = epochPhase(epoch)
-  const [confirm, setConfirm] = useState<null | "open" | "close" | "apply">(null)
+  const [confirm, setConfirm] = useState<null | "open" | "close" | "approve" | "reject">(null)
 
-  const invalidate = () => {
-    void queryClient.invalidateQueries({ queryKey: ["admin", "status"] })
-    void queryClient.invalidateQueries({ queryKey: ["admin", "epochs"] })
-    void queryClient.invalidateQueries({ queryKey: ["admin", "feed-health"] })
+  const invalidate = async (): Promise<void> => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["admin", "status"] }),
+      queryClient.invalidateQueries({ queryKey: ["admin", "epochs"] }),
+      queryClient.invalidateQueries({ queryKey: ["admin", "feed-health"] }),
+    ])
   }
 
-  const openMutation = useMutation({ mutationFn: () => adminApi.transitionEpoch(), onSuccess: () => { invalidate(); setConfirm(null) } })
-  const closeMutation = useMutation({ mutationFn: () => adminApi.endVoting(false), onSuccess: () => { invalidate(); setConfirm(null) } })
-  const applyMutation = useMutation({ mutationFn: () => adminApi.approveResults(), onSuccess: () => { invalidate(); setConfirm(null) } })
+  const refreshThenClose = () => completeAdminLifecycleRefresh(invalidate, () => setConfirm(null))
+  const openMutation = useMutation({ mutationFn: () => adminApi.startVoting(72, true), onSuccess: refreshThenClose })
+  const closeMutation = useMutation({ mutationFn: () => adminApi.endVoting(false), onSuccess: refreshThenClose })
+  const approveMutation = useMutation({ mutationFn: () => adminApi.approveResults(true), onSuccess: refreshThenClose })
+  const rejectMutation = useMutation({ mutationFn: () => adminApi.rejectResults(), onSuccess: refreshThenClose })
+
+  const prepareConfirmation = (action: NonNullable<typeof confirm>): void => {
+    if (action === "open") openMutation.reset()
+    if (action === "close") closeMutation.reset()
+    if (action === "approve") approveMutation.reset()
+    if (action === "reject") rejectMutation.reset()
+    setConfirm(action)
+  }
 
   if (!epoch) {
     return (
@@ -199,13 +230,13 @@ function PanelCurrentRound({ status }: { status: AdminStatus }) {
     )
   }
 
-  const pct = feed.subscriberCount > 0 ? Math.round((epoch.voteCount / feed.subscriberCount) * 100) : 0
+  const pct = approvedParticipationPercent(epoch.voteCount, feed.approvedParticipantCount)
 
   // One row per lifecycle stage (no duplicate `running` row — only one is active).
-  const LIFECYCLE: Array<{ phase: EpochPhase; label: string; action?: "open" | "close" | "apply"; actionLabel?: string; danger?: boolean }> = [
+  const LIFECYCLE: Array<{ phase: EpochPhase; label: string; action?: "open" | "close" | "approve"; actionLabel?: string; danger?: boolean }> = [
     { phase: "running", label: "Running", action: "open", actionLabel: "Open voting" },
     { phase: "voting", label: "Voting", action: "close", actionLabel: "Close voting" },
-    { phase: "review", label: "Review", action: "apply", actionLabel: "Apply weights", danger: true },
+    { phase: "review", label: "Results review", action: "approve", actionLabel: "Approve policy", danger: true },
   ]
 
   return (
@@ -216,12 +247,12 @@ function PanelCurrentRound({ status }: { status: AdminStatus }) {
       <div className="rounded-xl border border-border bg-card p-5 flex flex-col gap-3">
         <div className="flex items-center justify-between gap-3">
           <p className="text-sm font-semibold text-foreground">Participation</p>
-          <span className="text-sm font-mono font-semibold text-foreground tabular-nums">{epoch.voteCount} / {feed.subscriberCount}</span>
+          <span className="text-sm font-mono font-semibold text-foreground tabular-nums">{epoch.voteCount} / {feed.approvedParticipantCount}</span>
         </div>
         <div className="h-2 rounded-full bg-biscuit overflow-hidden">
           <div className="h-2 rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} />
         </div>
-        <p className="text-xs text-foreground/55">{pct}% of members have voted this round.</p>
+        <p className="text-xs text-foreground/55">{pct}% of approved pilot participants have voted this round.</p>
       </div>
 
       {/* Lifecycle actions */}
@@ -236,18 +267,30 @@ function PanelCurrentRound({ status }: { status: AdminStatus }) {
                 <div className={`w-2 h-2 rounded-full flex-shrink-0 ${isCurrentPhase ? "bg-primary" : "bg-border"}`} />
                 <span className="text-sm font-medium text-foreground">{lc.label}</span>
               </div>
-              {lc.action && isCurrentPhase && (
-                <button
-                  onClick={() => setConfirm(lc.action!)}
-                  className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-colors ${
-                    lc.danger
-                      ? "bg-status-error/10 text-status-error border border-status-error/30 hover:bg-status-error/20"
-                      : "bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20"
-                  }`}
-                >
-                  {lc.actionLabel}
-                </button>
-              )}
+              {lc.action && isCurrentPhase ? (
+                <div className="flex flex-wrap justify-end gap-2">
+                  {lc.phase === "review" ? (
+                    <button
+                      type="button"
+                      onClick={() => prepareConfirmation("reject")}
+                      className="rounded-full border border-border bg-background px-4 py-1.5 text-xs font-semibold text-foreground/65 transition-colors hover:border-foreground/30 hover:text-foreground"
+                    >
+                      Reject policy
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => prepareConfirmation(lc.action!)}
+                    className={`rounded-full border px-4 py-1.5 text-xs font-semibold transition-colors ${
+                      lc.danger
+                        ? "border-primary/25 bg-primary text-primary-foreground hover:bg-primary-dark"
+                        : "border-primary/20 bg-primary/10 text-primary hover:bg-primary/20"
+                    }`}
+                  >
+                    {lc.actionLabel}
+                  </button>
+                </div>
+              ) : null}
             </div>
           )
         })}
@@ -255,10 +298,11 @@ function PanelCurrentRound({ status }: { status: AdminStatus }) {
 
       {confirm === "open" && (
         <ConfirmModal
-          title={`Open voting for Round #${epoch.id}?`}
-          body="This will open the round for member votes."
-          confirmLabel="Advance round"
+          title={`Open a 72-hour voting window for Round #${epoch.id}?`}
+          body="Approved pilot participants can submit or update ballots until the window closes. Opening voting does not change the active feed policy."
+          confirmLabel="Open voting"
           loading={openMutation.isPending}
+          error={adminMutationError(openMutation.error, "Opening the voting window failed. Please try again.")}
           onConfirm={() => openMutation.mutate()}
           onCancel={() => setConfirm(null)}
         />
@@ -266,21 +310,35 @@ function PanelCurrentRound({ status }: { status: AdminStatus }) {
       {confirm === "close" && (
         <ConfirmModal
           title={`Close voting for Round #${epoch.id}?`}
-          body="This will close voting and move the round to review. Members will no longer be able to submit votes."
+          body="This closes ballot submission, aggregates the complete proposal, and moves it into results review. The live feed policy remains unchanged until approval."
           confirmLabel="Close voting"
           loading={closeMutation.isPending}
+          error={adminMutationError(closeMutation.error, "Closing voting failed. Please try again.")}
           onConfirm={() => closeMutation.mutate()}
           onCancel={() => setConfirm(null)}
         />
       )}
-      {confirm === "apply" && (
+      {confirm === "approve" && (
         <ConfirmModal
-          title="Apply aggregated weights to live feed?"
-          body="This will apply the community vote results and transition to the next round. This cannot be undone."
-          confirmLabel="Apply weights"
+          title="Approve the complete policy?"
+          body="This applies the reviewed signal weights, topic priorities, and adopted content rules to the active round, then queues a durable feed rescore."
+          confirmLabel="Approve and rescore"
           danger
-          loading={applyMutation.isPending}
-          onConfirm={() => applyMutation.mutate()}
+          loading={approveMutation.isPending}
+          error={adminMutationError(approveMutation.error, "Approving the policy failed. No policy change was confirmed.")}
+          onConfirm={() => approveMutation.mutate()}
+          onCancel={() => setConfirm(null)}
+        />
+      )}
+      {confirm === "reject" && (
+        <ConfirmModal
+          title="Reject the proposed policy?"
+          body="This discards the aggregated proposal and returns the active round to running without changing the feed policy."
+          confirmLabel="Reject policy"
+          danger
+          loading={rejectMutation.isPending}
+          error={adminMutationError(rejectMutation.error, "Rejecting the policy failed. Please try again.")}
+          onConfirm={() => rejectMutation.mutate()}
           onCancel={() => setConfirm(null)}
         />
       )}
@@ -1191,7 +1249,7 @@ function AdminConsole({ status }: { status: AdminStatus }) {
         </span>
         {epoch && (
           <span className="ml-auto text-[10px] font-mono opacity-50 hidden md:block">
-            {epoch.voteCount} / {status.system.feed.subscriberCount} voted
+            {epoch.voteCount} / {status.system.feed.approvedParticipantCount} voted
           </span>
         )}
       </div>

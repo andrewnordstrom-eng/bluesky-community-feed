@@ -3,7 +3,7 @@
 import Image from "next/image"
 import { useMemo, useState } from "react"
 import { motion, useReducedMotion } from "framer-motion"
-import { Bird, Code2, Database } from "lucide-react"
+import { Code2, Database, FlaskConical } from "lucide-react"
 import { BlueskyPostCard, RANK_COL_CLASS, RankColumnHeader } from "@/components/feed/bluesky-feed"
 import { CorgiRankBadge } from "@/components/feed/corgi-rank-badge"
 import { badgeMovementFor, rankSignalsFor } from "@/components/feed/replay-adapter"
@@ -93,7 +93,7 @@ function FeedCard(props: {
           likeCount={post.stats.likes}
         />
       </button>
-      <div className="flex items-center justify-center border-l border-border/60 bg-biscuit/25 px-2">
+      <div className="flex flex-col items-center justify-center gap-2 border-l border-border/60 bg-biscuit/25 px-2 py-3">
         <CorgiRankBadge
           rank={props.rankedPost.rank}
           score={props.rankedPost.score}
@@ -103,6 +103,15 @@ function FeedCard(props: {
           showMovement={props.showMovement}
           showWhy={false}
         />
+        <button
+          type="button"
+          onClick={() => props.onSelect(post.id)}
+          aria-pressed={props.selected}
+          aria-label={`Inspect ranking for post ranked #${props.rankedPost.rank}`}
+          className="rounded-md px-1 py-1 font-mono text-[9px] font-semibold uppercase tracking-[0.08em] text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70"
+        >
+          Inspect
+        </button>
       </div>
     </motion.article>
   )
@@ -173,8 +182,8 @@ function CounterfactualComparison() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         {[
-          { label: "Engagement-heavy ranking", rankedPosts: engagementRanking },
-          { label: "Community-governed ranking", rankedPosts: communityRanking },
+          { label: "Conversation-heavy ranking", rankedPosts: engagementRanking },
+          { label: "Corgi Commons policy", rankedPosts: communityRanking },
         ].map((ranking) => (
           <div key={ranking.label} className="rounded-2xl border border-border bg-card p-5 shadow-[0_2px_14px_rgba(46,38,32,0.06)]">
             <h3 className="text-lg font-bold text-foreground">{ranking.label}</h3>
@@ -211,7 +220,7 @@ function ScoringMath() {
           Inspect the scoring math.
         </h2>
         <p className="mx-auto mt-3 max-w-2xl text-base leading-relaxed text-foreground/55">
-          The demo keeps raw post scores fixed so you can see the core product idea: community policy weights decide how much each signal counts.
+          This illustrative replay keeps raw post scores fixed so you can isolate the policy change. Production rescoring recomputes candidate scores before publication.
         </p>
       </div>
 
@@ -264,14 +273,26 @@ function ScoringMath() {
               </p>
             </div>
             <div className="rounded-xl border border-border/70 bg-background p-5">
+              <p className="text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/55">Topics shape relevance</p>
+              <p className="mt-3 text-sm leading-relaxed text-foreground/55">
+                Topic preferences are a separate policy map. They change the relevance signal only; they are not five more global ranking signals.
+              </p>
+            </div>
+            <div className="rounded-xl border border-border/70 bg-background p-5">
+              <p className="text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/55">Rules shape eligibility</p>
+              <p className="mt-3 text-sm leading-relaxed text-foreground/55">
+                Adopted include rules act as an allowlist, exclude rules take precedence, and production adoption requires at least 30% support among ballots that submit content rules.
+              </p>
+            </div>
+            <div className="rounded-xl border border-border/70 bg-background p-5">
               <p className="text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/55">What an epoch means</p>
               <p className="mt-3 text-sm leading-relaxed text-foreground/55">
-                An epoch is a stored feed policy from a voting round. The post signals stay the same in this demo, but the active epoch changes how much each signal matters.
+                An epoch is a stored feed policy. In production, a closed round is aggregated and reviewed before operator approval applies the complete policy and triggers a rescore.
               </p>
             </div>
             <div className="rounded-xl border border-primary/15 bg-primary/[0.06] p-5">
               <p className="text-sm leading-relaxed text-foreground/65">
-                Demo posts are illustrative; live ranking claims use Corgi receipts and snapshot data.
+                Component scores explain the weighted sum. Publication-time adjustments, such as duplicate-link handling, can still affect final order and are called out in live receipts.
               </p>
             </div>
           </div>
@@ -345,16 +366,16 @@ export function HowItWorksReplay() {
                 </div>
                 <div className="mt-5 grid grid-cols-3 gap-2 text-center">
                   <div className="rounded-xl border border-border/70 bg-background px-3 py-3">
-                    <Bird className="mx-auto h-4 w-4 text-primary" aria-hidden="true" />
-                    <p className="mt-1 text-[11px] font-semibold text-foreground/55">birding</p>
+                    <FlaskConical className="mx-auto h-4 w-4 text-primary" aria-hidden="true" />
+                    <p className="mt-1 text-[11px] font-semibold text-foreground/55">research</p>
                   </div>
                   <div className="rounded-xl border border-border/70 bg-background px-3 py-3">
                     <Code2 className="mx-auto h-4 w-4 text-primary" aria-hidden="true" />
-                    <p className="mt-1 text-[11px] font-semibold text-foreground/55">code</p>
+                    <p className="mt-1 text-[11px] font-semibold text-foreground/55">software</p>
                   </div>
                   <div className="rounded-xl border border-border/70 bg-background px-3 py-3">
                     <Database className="mx-auto h-4 w-4 text-primary" aria-hidden="true" />
-                    <p className="mt-1 text-[11px] font-semibold text-foreground/55">datasets</p>
+                    <p className="mt-1 text-[11px] font-semibold text-foreground/55">data</p>
                   </div>
                 </div>
               </div>
@@ -374,7 +395,7 @@ export function HowItWorksReplay() {
                     />
                   </div>
                   <div className="mt-1 flex min-w-0 items-end gap-5 overflow-x-auto text-[13px] font-semibold text-[#42576C] sm:text-[14px]">
-                    {["Discover", "Following", "Birders Who Code", "Tools"].map((tab, index) => (
+                    {["Discover", "Following", "Corgi Commons", "Tools"].map((tab, index) => (
                       <span key={tab} className={`relative shrink-0 py-3 ${index === 2 ? "text-[#0B0F14]" : ""}`}>
                         {tab}
                         {index === 2 ? <span className="absolute inset-x-0 bottom-0 h-1 rounded-full bg-[#0085FF]" /> : null}
@@ -407,7 +428,7 @@ export function HowItWorksReplay() {
 
           <div className="border-t border-border/60 px-5 py-4">
             <p className="text-xs leading-relaxed text-foreground/55">
-              The rank numbers and receipt panel are Corgi-site annotations for this product demo. Standard Bluesky clients render the ordered posts, not Corgi score panels.
+              Select a post to inspect its ranking. The rank numbers and receipt panel are Corgi-site annotations; standard Bluesky clients render the ordered posts, not Corgi score panels.
             </p>
           </div>
         </div>

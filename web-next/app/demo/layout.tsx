@@ -1,9 +1,9 @@
 import type { Metadata } from "next"
 
 export const metadata: Metadata = {
-  title: "Live demo — re-rank a Community Governed Feed snapshot | Corgi",
+  title: "Governance demo — re-rank a Corgi Commons snapshot | Corgi",
   description:
-    "Propose a ranking policy, combine it with 24 scripted ballots, and watch a frozen snapshot of Corgi's live Bluesky feed reorder — every move explained by a receipt.",
+    "Propose a ranking policy, combine it with 24 scripted deterministic voter archetypes, and inspect how a frozen Corgi Commons comparison corpus reorders.",
   alternates: { canonical: "/demo/" },
 }
 

@@ -4,8 +4,8 @@ Status: canonical repo contract
 Owner: bluesky-feed
 Service class: production_service
 Contract version: 2
-Last updated: 2026-04-06
-Last verified: 2026-04-06
+Last updated: 2026-07-13
+Last verified: 2026-07-13
 
 > Canonical reference for any human or tooling operating in this repo.
 
@@ -13,12 +13,12 @@ Last verified: 2026-04-06
 
 ## 1. What This Repo Is
 
-A production Bluesky custom feed generator where subscribers democratically vote
-on ranking weights and content rules. The backend applies those decisions in a
-transparent, auditable scoring pipeline. Every ranking decision is decomposed,
-stored, and explainable.
-
-This is the first governance-weighted custom feed on AT Protocol.
+A production Bluesky custom feed generator for Corgi Commons, with inspectable,
+community-shaped ranking. Anyone can view the public feed or use the isolated
+shadow demo. Production governance is an approved waitlist pilot: participants
+can vote on five global signal weights, topic priorities, and content rules.
+Closed results require review and operator approval before the complete policy is
+applied and the feed is rescored.
 
 **Canonical URL:** `https://feed.corgi.network`
 **API docs:** `https://docs.corgi.network`
@@ -34,12 +34,11 @@ Before this project, Bluesky custom feeds were opaque ranking systems controlled
 by a single operator. There was no mechanism for subscribers to influence how
 posts are ranked. This feed exists to:
 
-- Let subscribers vote on algorithm weights through Polis-style governance
-  epochs. Five scoring components (recency, engagement, bridging, source
-  diversity, relevance) are weighted by community vote.
-- Provide full transparency: every score is decomposed into raw, weight, and
-  weighted values, persisted per post per epoch, and exposed through public
-  transparency endpoints.
+- Let approved pilot participants submit structured ballots across signal,
+  topic, and content-rule policy channels while preserving operator review.
+- Provide inspectable ranking: score decompositions are persisted as raw,
+  weight, and weighted values per post and epoch, then exposed when receipt
+  provenance is available.
 - Serve as a research instrument for studying algorithmic governance on
   decentralized social networks, with IRB-ready consent flows, research gating,
   and anonymized export.
@@ -77,17 +76,18 @@ posts are ranked. This feed exists to:
           | audit)     |  |              |  +------------+
           +-----------+  +--------------+
                                           +------------+
+                                          | Next.js 15 |
                                           | React 19   |
-                                          | Vite 7     |
-                                          | Dashboard  |
-                                          | Voting UI  |
+                                          | Static web |
+                                          | + app UI   |
                                           +------------+
 ```
 
 **Runtime:** Node.js 20, TypeScript 5, Fastify 5
 **Data layer:** PostgreSQL 16 (posts, scores, governance, audit), Redis 7 (feed
 cache, sessions)
-**Frontend:** React 19, Vite 7 (transparency dashboard, voting UI)
+**Frontend:** Next.js 15 static export, React 19, Tailwind (public pages,
+transparency dashboard, voting UI)
 **Protocol:** `@atproto/api`, `@atproto/xrpc-server`
 **NLP:** winkNLP (topic classification at ingestion), HuggingFace Transformers
 (embedding-based classification)
@@ -118,7 +118,8 @@ cache, sessions)
 | `src/lib/` | Shared utilities (logging, metrics, rate limiting) |
 | `src/maintenance/` | Operational maintenance routines |
 | `src/legal/` | Terms of service and privacy policy content |
-| `web/` | React + Vite frontend (dashboard, voting UI, transparency views) |
+| `web-next/` | Canonical Next.js frontend (public pages, demo, dashboard, voting, transparency) |
+| `web/` | Legacy React + Vite frontend retained for compatibility during migration |
 | `cli/` | CLI tool (`feed-cli`) for admin operations from any terminal |
 | `scripts/` | Setup, migration, seed, publish-feed, report generation scripts |
 | `tests/` | Unit, integration, and stress tests (Vitest) |
@@ -134,9 +135,10 @@ cache, sessions)
 ## 5. Build / Test / Run Commands
 
 ```bash
-# Install dependencies (backend + frontend)
+# Install dependencies (backend + both frontend packages)
 npm install
-cd web && npm install && cd ..
+cd web-next && npm install && cd ..
+cd web && npm install && cd .. # legacy compatibility frontend
 
 # Build (TypeScript -> dist/)
 npm run build
@@ -148,8 +150,8 @@ npm run stress       # stress tests
 # Development server (tsx watch, auto-reload)
 npm run dev
 
-# Frontend dev server (separate terminal)
-cd web && npm run dev
+# Canonical frontend dev server (separate terminal)
+cd web-next && npm run dev
 
 # Production start (requires prior build)
 npm start
@@ -163,7 +165,7 @@ npx tsx scripts/seed-governance.ts
 # Publish feed record to Bluesky
 npm run publish-feed
 
-# Full verify (build + test + cli + mcp + web lint + web build)
+# Full verify (backend, CLI, MCP, SDK, legacy web, and web-next)
 npm run verify
 
 # Docs verification
@@ -314,9 +316,11 @@ See `docs/OPERABILITY.md`, `docs/runbooks/operator-quickstart.md`, and
    must contain a Linear key. Enforcement happens in org-policy / CI checks and
    any local hook configuration that may be installed by the workspace.
 
-3. **Two install targets.** Backend and frontend have separate `node_modules`.
-   Run `npm install` at repo root AND `cd web && npm install` for the frontend.
-   The `npm run verify` command covers both.
+3. **Separate install targets.** Backend and frontends have separate
+   `node_modules`. Run `npm install` at repo root and `cd web-next && npm
+   install` for the canonical frontend. Install `web/` dependencies only when
+   working on the legacy compatibility frontend. The `npm run verify` command
+   covers both frontend packages.
 
 4. **PostgreSQL port offset in production.** Docker Compose binds PostgreSQL to
    `127.0.0.1:5433` (not standard 5432) and Redis to `127.0.0.1:6380` (not
@@ -328,10 +332,11 @@ See `docs/OPERABILITY.md`, `docs/runbooks/operator-quickstart.md`, and
    feed looks stale after deploying, wait for the next scoring cycle or trigger
    a manual rescore via `npm run cli -- feed rescore`.
 
-6. **Governance epoch transitions.** Epochs require a minimum vote threshold
-   before trimmed-mean aggregation kicks in (10 votes). Below that threshold,
-   weights remain at their prior values. New epochs must be seeded via
-   `npx tsx scripts/seed-governance.ts` on a fresh database.
+6. **Governance epoch transitions.** Fewer than 10 ballots use an arithmetic
+   mean; 10 or more use a 10% trimmed mean. Closing a voting window enters
+   results review. Operator approval applies signal weights, topic priorities,
+   and adopted content rules together before rescoring. New databases still
+   require `npx tsx scripts/seed-governance.ts`.
 
 7. **Append-only audit log.** The `governance_audit_log` table is DB-enforced
    append-only (no edits, no deletes). Do not attempt to modify it in

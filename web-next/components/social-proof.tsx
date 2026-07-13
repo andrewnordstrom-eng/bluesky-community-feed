@@ -30,8 +30,8 @@ export function SocialProof() {
       label: "recency, engagement, bridging, diversity, relevance",
     },
     {
-      value: "Community-governed",
-      label: "member votes set the weights",
+      value: "Three ballot channels",
+      label: "signals, topic priorities, and content rules",
     },
     {
       value: "Open source",
@@ -89,7 +89,7 @@ export function SocialProof() {
         })}
       </div>
       <p className="mt-3 text-center text-xs font-medium text-foreground/50">
-        Every ranked post shows its receipt &mdash;{" "}
+        Bluesky shows the ordered feed; ranking receipts are inspected on Corgi &mdash;{" "}
         <Link href="/demo" className="text-primary hover:underline underline-offset-2">
           inspect them in the no-login demo
         </Link>

@@ -244,8 +244,8 @@ function publicReceiptDocSections(): PublicReceiptDocSection[] {
 
   return [
     {
-      label: 'README.md live production snapshot',
-      content: extractLineContaining(readme, 'Live production snapshot:'),
+      label: 'README.md current product overview',
+      content: extractLineContaining(readme, 'Corgi Commons is a production Bluesky custom feed'),
     },
     {
       label: 'docs/dev-journal.md PROJ-1433 entry',

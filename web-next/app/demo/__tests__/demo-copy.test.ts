@@ -54,7 +54,7 @@ describe("demo copy — honest boundaries", () => {
   it("keeps pre-session copy accurate when the corpus falls back", () => {
     expect(HERO.subtitle).not.toMatch(/live public posts/i)
     expect(STEP_PANELS.community.body).not.toMatch(/live public posts/i)
-    expect(DISCLOSURE.posts).toMatch(/snapshot of posts published in corgi's live community governed feed/i)
+    expect(DISCLOSURE.posts).toMatch(/snapshot of live public posts published in corgi commons/i)
     expect(DISCLOSURE.posts).toMatch(/mechanics fixture appears only if snapshot loading degrades/i)
   })
 

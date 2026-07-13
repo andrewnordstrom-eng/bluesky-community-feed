@@ -586,7 +586,7 @@ function PostExplanationInner() {
                   ))}
                 </div>
                 <p className="text-xs text-foreground/50 italic mt-4">
-                  Topic scores reflect how strongly this post matches each community-weighted topic.
+                  Topic scores show how the post&rsquo;s sparse topic vector combines with the approved topic-priority map inside the relevance signal.
                 </p>
               </SectionCard>
             ) : (
@@ -604,7 +604,7 @@ function PostExplanationInner() {
               <PolicyBar weights={explanation.governance_weights} height={12} />
               <PolicyLegend weights={explanation.governance_weights} className="mt-3" />
               <p className="text-xs text-foreground/50 italic mt-4 border-t border-border/50 pt-3">
-                These are the community-voted weights applied at the time this post was scored.
+                These are the approved signal weights applied at the time this post was scored.
               </p>
             </SectionCard>
 

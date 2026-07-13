@@ -86,7 +86,7 @@ npm run demo:capture-community-gov -- \
   --review-sheet /tmp/community-gov-review.html
 ```
 
-It emits the ordered URI manifest and digest, reviewed record CIDs, score completeness, public/withheld counts, language and media distributions, unique-author count, top-author concentration, gate failures, and a local review sheet. A release snapshot must have:
+It always emits a machine-readable quality report. It emits the ordered URI manifest, digest, reviewed record CIDs, and local review sheet only when the live production cohort passes every objective gate. A failed capture deletes any stale manifest/review sheet at the requested paths and exits nonzero; it never substitutes fixture posts into a live review artifact. A release snapshot must have:
 
 - at least 40 eligible and 12 displayable public posts;
 - 100 percent score decomposition for eligible posts;
@@ -96,7 +96,16 @@ It emits the ordered URI manifest and digest, reviewed record CIDs, score comple
 - zero public-view policy violations;
 - a completed manual review with no unexplained unsafe result under built-in presets.
 
-Failure returns the explicitly labeled mechanics fixture. The system never weakens thresholds silently or calls a fixture live.
+The runtime demo may fall back to its explicitly labeled mechanics fixture. The capture and approval commands never do: approval requires the matching passing report as well as acknowledgement that every review-sheet row was checked.
+
+```bash
+npm run demo:approve-community-gov -- \
+  --manifest /tmp/community-gov-manifest.json \
+  --report /tmp/community-gov-report.json \
+  --output src/demo/community-gov-release-snapshot.json \
+  --reviewed-at 2026-07-13T20:00:00Z \
+  --review-acknowledged
+```
 
 ### Approved 2026-07-11 Snapshot Receipt
 

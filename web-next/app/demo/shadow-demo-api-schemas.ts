@@ -287,7 +287,7 @@ export const apiSessionPayloadSchema = z.object({
     corpusProvenance: corpusProvenanceSchema,
     topicCatalog: z.array(topicCatalogEntrySchema).length(26).refine(
       (catalog) => new Set(catalog.map((topic) => topic.slug)).size === 26,
-      { message: "Community Governed Feed topic catalog must contain 26 unique active topics." },
+      { message: "Corgi Commons topic catalog must contain 26 unique active topics." },
     ),
     sourceFeedUri: z.string().startsWith("at://"),
     voterProfiles: z.array(voterProfileSchema),

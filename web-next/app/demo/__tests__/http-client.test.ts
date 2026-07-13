@@ -291,7 +291,7 @@ describe("HTTP shadow demo client", () => {
       new AbortController().signal,
     )
 
-    expect(response.payload.community.name).toBe("Community Governed Feed")
+    expect(response.payload.community.name).toBe("Corgi Commons")
     expect(response.payload.community.publicBlueskyFeedUrl).toContain("community-gov")
     expect(response.payload.session.capabilities.canOpenNativeBlueskyFeed).toBe(true)
     expect(response.payload.session.capabilities.canAdvanceEpoch).toBe(false)
@@ -308,6 +308,70 @@ describe("HTTP shadow demo client", () => {
       clientNonce: "nonce",
     })
     expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it("rejects malformed community, provenance, topic, and session identity fields", () => {
+    const invalidPayloads: unknown[] = []
+    const emptyCommunity = structuredClone(sessionPayload("created", "epoch-1", [epoch("epoch-1", 1, BASE_WEIGHTS, 0)])) as {
+      session: { community: Record<string, unknown> }
+    }
+    emptyCommunity.session.community.name = ""
+    invalidPayloads.push(emptyCommunity)
+
+    const nullCommunity = structuredClone(sessionPayload("created", "epoch-1", [epoch("epoch-1", 1, BASE_WEIGHTS, 0)])) as {
+      session: { community: Record<string, unknown> }
+    }
+    nullCommunity.session.community.id = null
+    invalidPayloads.push(nullCommunity)
+
+    const missingProvenance = structuredClone(sessionPayload("created", "epoch-1", [epoch("epoch-1", 1, BASE_WEIGHTS, 0)])) as {
+      session: Record<string, unknown>
+    }
+    delete missingProvenance.session.corpusProvenance
+    invalidPayloads.push(missingProvenance)
+
+    const staleShapeProvenance = structuredClone(sessionPayload("created", "epoch-1", [epoch("epoch-1", 1, BASE_WEIGHTS, 0)])) as {
+      session: { corpusProvenance: Record<string, unknown> }
+    }
+    staleShapeProvenance.session.corpusProvenance.sourceUpdatedAt = "not-a-timestamp"
+    invalidPayloads.push(staleShapeProvenance)
+
+    const duplicateTopics = structuredClone(sessionPayload("created", "epoch-1", [epoch("epoch-1", 1, BASE_WEIGHTS, 0)])) as {
+      session: { topicCatalog: Array<Record<string, unknown>> }
+    }
+    duplicateTopics.session.topicCatalog[1].slug = duplicateTopics.session.topicCatalog[0].slug
+    invalidPayloads.push(duplicateTopics)
+
+    const nullEpoch = structuredClone(sessionPayload("created", "epoch-1", [epoch("epoch-1", 1, BASE_WEIGHTS, 0)])) as {
+      session: Record<string, unknown>
+    }
+    nullEpoch.session.currentEpochId = null
+    invalidPayloads.push(nullEpoch)
+
+    for (const payload of invalidPayloads) {
+      expect(apiSessionPayloadSchema.safeParse(payload).success).toBe(false)
+    }
+  })
+
+  it("preserves a structured non-2xx conflict message without retrying the mutation", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      error: "StaleEpoch",
+      message: "The shadow epoch changed before this ballot was accepted.",
+    }), { status: 409, headers: { "content-type": "application/json" } }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(createHttpShadowDemoClient().castVote(
+      SESSION_ID,
+      {
+        idempotencyKey: "stale-vote",
+        baseEpochId: "epoch-1",
+        voterLabel: "Reviewer",
+        weights: BASE_WEIGHTS,
+        topicIntent: PRODUCTION_TOPIC_INTENT,
+      },
+      new AbortController().signal,
+    )).rejects.toThrow("The shadow epoch changed before this ballot was accepted.")
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
   it("maps withheld posts with their adopted rule and support", async () => {
@@ -664,7 +728,7 @@ function sessionPayload(
       sessionId: SESSION_ID,
       community: {
         id: "community_gov",
-        name: "Community Governed Feed",
+        name: "Corgi Commons",
         status: "live_shadow",
         description: "Research, data, software, and open-source methods.",
         liveFeedReady: true,
@@ -751,7 +815,7 @@ function corpusProvenance(): Record<string, unknown> {
     topicScoreThreshold: 0.5,
     eligiblePostCount: 80,
     sourceFeedUri: "at://did:plc:amzyknmm4auxijvykyfgznw2/app.bsky.feed.generator/community-gov",
-    sourceFeedName: "Community Governed Feed",
+    sourceFeedName: "Corgi Commons",
     sourceSnapshotDigest: "7".repeat(64),
     sourceRunId: "run-community-gov",
     sourceUpdatedAt: NOW,

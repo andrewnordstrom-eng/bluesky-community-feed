@@ -27,9 +27,9 @@ export function CommunityPicker({
         <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-primary/65">
           Public feed · isolated shadow session
         </span>
-        <h3 className="mt-2 font-display text-2xl font-bold text-foreground">Community Governed Feed</h3>
+        <h3 className="mt-2 font-display text-2xl font-bold text-foreground">Corgi Commons</h3>
         <p className="mt-2 text-[15px] leading-relaxed text-foreground/62">
-          Freeze a reviewer-safe comparison set from Corgi&apos;s published Bluesky feed, then run governance without changing what the public sees.
+          Open-network building, research, software, data, and the conversations connecting them. Freeze a reviewer-safe comparison set, then run governance without changing what the public sees.
         </p>
         <button
           type="button"
