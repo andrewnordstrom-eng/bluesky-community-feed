@@ -236,10 +236,34 @@ describe('production deploy ordering guards', () => {
 
   it('rejects a deploy script without a service restart', () => {
     const deploy = readFileSync(DEPLOY_FILE, 'utf8');
-    const withoutRestart = deploy.replace('sudo systemctl restart bluesky-feed', '');
+    const withoutRestart = deploy.replaceAll('sudo systemctl restart bluesky-feed', '');
 
     expect(() => assertDeployMigrationOrdering(withoutRestart)).toThrow(
       'Missing service restart'
+    );
+  });
+
+  it('rejects a deploy script without post-deploy health verification', () => {
+    const deploy = readFileSync(DEPLOY_FILE, 'utf8');
+    const withoutHealthCheck = deploy.replace('# Post-deploy health verification', '');
+
+    expect(() => assertDeployMigrationOrdering(withoutHealthCheck)).toThrow(
+      'Missing post-deploy health verification'
+    );
+  });
+
+  it('rejects a deploy script that verifies health before restarting', () => {
+    const deploy = readFileSync(DEPLOY_FILE, 'utf8');
+    const healthMarker = '# Post-deploy health verification';
+    const restartMarker = 'sudo systemctl restart bluesky-feed';
+    const withoutHealthCheck = deploy.replace(healthMarker, '');
+    const reordered = withoutHealthCheck.replace(
+      restartMarker,
+      `${healthMarker}\n            ${restartMarker}`
+    );
+
+    expect(() => assertDeployMigrationOrdering(reordered)).toThrow(
+      'Service restart must run before post-deploy health verification'
     );
   });
 });
@@ -253,8 +277,11 @@ function assertDeployMigrationOrdering(script: string): void {
   }
 
   const restartIndex = script.indexOf(restartMarker);
-  if (restartIndex < 0 || restartIndex > postDeployHealthIndex) {
+  if (restartIndex < 0) {
     throw new Error('Missing service restart');
+  }
+  if (restartIndex > postDeployHealthIndex) {
+    throw new Error('Service restart must run before post-deploy health verification');
   }
 
   const migrationIndex = script.indexOf('npm run migrate');
