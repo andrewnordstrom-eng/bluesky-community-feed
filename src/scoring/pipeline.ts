@@ -98,6 +98,12 @@ let lastScoredEpochId: number | null = null;
 // Count incremental runs since last full rescore (triggers periodic full rescore for recency decay)
 let incrementalRunCount = 0;
 
+// Policy changes within an epoch need a full pass over the existing corpus.
+// Generations prevent a request that arrives during a run from being consumed
+// by that already-started run.
+let fullRescoreRequestGeneration = 0;
+let completedFullRescoreRequestGeneration = 0;
+
 // Avoid repeated warnings when a rollout exposes a missing dynamic component weight.
 let missingWeightWarned = new Set<string>();
 let scoringRunInFlight: Promise<void> | null = null;
@@ -191,8 +197,18 @@ export function __resetPipelineState(): void {
   lastSuccessfulRunAt = null;
   lastScoredEpochId = null;
   incrementalRunCount = 0;
+  fullRescoreRequestGeneration = 0;
+  completedFullRescoreRequestGeneration = 0;
   missingWeightWarned = new Set<string>();
   scoringRunInFlight = null;
+}
+
+/**
+ * Require the next successfully completed scoring pass to cover the full
+ * candidate window, even when the active epoch id has not changed.
+ */
+export function requestFullRescore(): void {
+  fullRescoreRequestGeneration++;
 }
 
 /**
@@ -245,6 +261,7 @@ export async function runScoringPipeline(): Promise<void> {
  */
 async function runScoringPipelineInternal(): Promise<void> {
   const startTime = Date.now();
+  const requestedFullRescoreGeneration = fullRescoreRequestGeneration;
   logger.info('Starting scoring pipeline');
 
   try {
@@ -265,7 +282,8 @@ async function runScoringPipelineInternal(): Promise<void> {
 
     // Force a full rescore periodically to catch recency decay
     const fullRescoreDue = incrementalRunCount >= config.SCORING_FULL_RESCORE_INTERVAL;
-    const useIncremental = !isFirstRun && !epochChanged && !fullRescoreDue;
+    const policyRescoreDue = requestedFullRescoreGeneration > completedFullRescoreRequestGeneration;
+    const useIncremental = !isFirstRun && !epochChanged && !fullRescoreDue && !policyRescoreDue;
 
     if (fullRescoreDue && !isFirstRun && !epochChanged) {
       logger.info(
@@ -294,7 +312,13 @@ async function runScoringPipelineInternal(): Promise<void> {
           mode: 'full',
           postCount: allPosts.length,
           epochId: epoch.id,
-          reason: epochChanged ? 'epoch_changed' : fullRescoreDue ? 'periodic_full_rescore' : 'first_run',
+          reason: policyRescoreDue
+            ? 'policy_changed'
+            : epochChanged
+              ? 'epoch_changed'
+              : fullRescoreDue
+                ? 'periodic_full_rescore'
+                : 'first_run',
           includeKeywords: contentRules.includeKeywords.length,
           excludeKeywords: contentRules.excludeKeywords.length,
         },
@@ -375,6 +399,13 @@ async function runScoringPipelineInternal(): Promise<void> {
       }
     }
     await updateCurrentRunScope(runId, epoch.id, elapsed, posts.length, allPosts.length - posts.length);
+
+    if (!useIncremental && policyRescoreDue) {
+      completedFullRescoreRequestGeneration = Math.max(
+        completedFullRescoreRequestGeneration,
+        requestedFullRescoreGeneration
+      );
+    }
   } catch (err) {
     logger.error({ err }, 'Scoring pipeline failed');
     throw err;

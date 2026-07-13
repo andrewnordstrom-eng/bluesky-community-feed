@@ -32,6 +32,7 @@ import {
   writeEpochWeights,
 } from '../../governance/weight-longtable.js';
 import { tryTriggerManualScoringRun } from '../../scoring/scheduler.js';
+import { requestFullRescore } from '../../scoring/pipeline.js';
 import { forceEpochTransition, triggerEpochTransition } from '../../governance/epoch-manager.js';
 import {
   announceResultsApproved,
@@ -380,6 +381,7 @@ async function getCurrentEpochForUpdate(client: PoolClient): Promise<GovernanceE
 }
 
 async function triggerManualRescore(reason: string): Promise<boolean> {
+  requestFullRescore();
   const triggered = await tryTriggerManualScoringRun();
 
   if (!triggered) {

@@ -11,6 +11,7 @@ const {
   aggregateContentVotesMock,
   aggregateTopicWeightsMock,
   writeEpochWeightsMock,
+  requestFullRescoreMock,
   tryTriggerManualScoringRunMock,
   forceEpochTransitionMock,
   triggerEpochTransitionMock,
@@ -24,6 +25,7 @@ const {
   aggregateContentVotesMock: vi.fn(),
   aggregateTopicWeightsMock: vi.fn(),
   writeEpochWeightsMock: vi.fn(),
+  requestFullRescoreMock: vi.fn(),
   tryTriggerManualScoringRunMock: vi.fn(),
   forceEpochTransitionMock: vi.fn(),
   triggerEpochTransitionMock: vi.fn(),
@@ -61,6 +63,10 @@ vi.mock('../src/governance/weight-longtable.js', () => ({
 
 vi.mock('../src/scoring/scheduler.js', () => ({
   tryTriggerManualScoringRun: tryTriggerManualScoringRunMock,
+}));
+
+vi.mock('../src/scoring/pipeline.js', () => ({
+  requestFullRescore: requestFullRescoreMock,
 }));
 
 vi.mock('../src/governance/epoch-manager.js', () => ({
@@ -108,6 +114,7 @@ describe('admin governance routes', () => {
     aggregateContentVotesMock.mockReset();
     aggregateTopicWeightsMock.mockReset();
     writeEpochWeightsMock.mockReset();
+    requestFullRescoreMock.mockReset();
     tryTriggerManualScoringRunMock.mockReset();
     forceEpochTransitionMock.mockReset();
     triggerEpochTransitionMock.mockReset();
@@ -446,6 +453,7 @@ describe('admin governance routes', () => {
     expect(writeEpochWeightsMock).toHaveBeenCalledWith(expect.anything(), 7, proposedWeights);
     expect(invalidateContentRulesCacheMock).toHaveBeenCalledTimes(1);
     expect(invalidateGovernanceGateCacheMock).toHaveBeenCalledTimes(1);
+    expect(requestFullRescoreMock).toHaveBeenCalledTimes(1);
     expect(tryTriggerManualScoringRunMock).toHaveBeenCalledWith();
 
     const update = clientQueryMock.mock.calls.find(

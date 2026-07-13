@@ -49,7 +49,11 @@ vi.mock('../src/admin/status-tracker.js', () => ({
   updateScoringStatus: updateScoringStatusMock,
 }));
 
-import { runScoringPipeline, __resetPipelineState } from '../src/scoring/pipeline.js';
+import {
+  runScoringPipeline,
+  requestFullRescore,
+  __resetPipelineState,
+} from '../src/scoring/pipeline.js';
 import { buildEpochRow } from './helpers/index.js';
 
 function makeEpochRow(id = 2) {
@@ -196,6 +200,74 @@ describe('periodic full rescore for recency decay', () => {
     setupDefaultMocks();
     await runEmptyCycle(3);
     expect(getPostsQueryMode()).toBe('incremental');
+  });
+
+  it('runs a full pass after policy changes within the same epoch', async () => {
+    await runEmptyCycle(2);
+
+    dbQueryMock.mockReset();
+    setupDefaultMocks();
+    await runEmptyCycle(2);
+    expect(getPostsQueryMode()).toBe('incremental');
+
+    requestFullRescore();
+
+    dbQueryMock.mockReset();
+    setupDefaultMocks();
+    await runEmptyCycle(2);
+    expect(getPostsQueryMode()).toBe('full');
+
+    dbQueryMock.mockReset();
+    setupDefaultMocks();
+    await runEmptyCycle(2);
+    expect(getPostsQueryMode()).toBe('incremental');
+  });
+
+  it('keeps a full-rescore request pending when the attempted run fails', async () => {
+    await runEmptyCycle(2);
+    requestFullRescore();
+
+    dbQueryMock.mockReset();
+    setupDefaultMocks();
+    dbQueryMock.mockRejectedValueOnce(new Error('epoch read failed'));
+    await expect(runScoringPipeline()).rejects.toThrow('epoch read failed');
+
+    dbQueryMock.mockReset();
+    setupDefaultMocks();
+    await runEmptyCycle(2);
+    expect(getPostsQueryMode()).toBe('full');
+  });
+
+  it('does not consume a policy change requested during an in-flight run', async () => {
+    await runEmptyCycle(2);
+
+    let releaseContentRules: ((value: { includeKeywords: string[]; excludeKeywords: string[] }) => void) | null = null;
+    const pendingContentRules = new Promise<{ includeKeywords: string[]; excludeKeywords: string[] }>((resolve) => {
+      releaseContentRules = resolve;
+    });
+
+    dbQueryMock.mockReset();
+    setupDefaultMocks();
+    dbQueryMock
+      .mockResolvedValueOnce({ rows: [makeEpochRow(2)] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+    getCurrentContentRulesMock.mockReturnValueOnce(pendingContentRules);
+
+    const inFlightRun = runScoringPipeline();
+    await vi.waitFor(() => {
+      expect(getCurrentContentRulesMock).toHaveBeenCalled();
+    });
+    requestFullRescore();
+    releaseContentRules?.({ includeKeywords: [], excludeKeywords: [] });
+    await inFlightRun;
+    expect(getPostsQueryMode()).toBe('incremental');
+
+    dbQueryMock.mockReset();
+    setupDefaultMocks();
+    await runEmptyCycle(2);
+    expect(getPostsQueryMode()).toBe('full');
   });
 
   it('__resetPipelineState resets the incremental counter', async () => {
