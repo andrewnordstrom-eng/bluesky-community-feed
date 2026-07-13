@@ -1,10 +1,18 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
+  participantAddResponseSchema,
+  participantListResponseSchema,
+  participantRemoveResponseSchema,
+} from '../web-next/lib/api/admin';
+import {
   waitlistApproveResponseSchema,
+  waitlistJoinResponseSchema,
   waitlistListResponseSchema,
+  waitlistRequestSchema,
   waitlistRejectResponseSchema,
 } from '../web-next/lib/api/waitlist-contract';
+import { AuthRequestCoordinator } from '../web-next/lib/auth-request';
 import {
   classifySignInFailure,
   isCurrentDialogRequest,
@@ -40,6 +48,21 @@ describe('web-next waitlist response validation', () => {
       handle: 'researcher.bsky.social',
     }).success).toBe(true);
     expect(waitlistRejectResponseSchema.parse({ success: true }).success).toBe(true);
+    expect(waitlistListResponseSchema.parse({ requests: [], total: 0 })).toEqual({ requests: [], total: 0 });
+    expect(waitlistApproveResponseSchema.parse({
+      success: false,
+      did: 'did:plc:approved',
+      handle: 'researcher.bsky.social',
+    }).success).toBe(false);
+    expect(waitlistRejectResponseSchema.parse({ success: false }).success).toBe(false);
+    expect(waitlistJoinResponseSchema.parse({ success: true, message: 'Request received.' })).toEqual({
+      success: true,
+      message: 'Request received.',
+    });
+    expect(() => waitlistListResponseSchema.parse({
+      requests: [{ ...validRequest, created_at: '2026-07-12T20:00:00.000+02:00' }],
+      total: 1,
+    })).not.toThrow();
   });
 
   it('rejects missing fields, invalid statuses, malformed timestamps, and non-boolean success values', () => {
@@ -48,6 +71,76 @@ describe('web-next waitlist response validation', () => {
     expect(() => waitlistListResponseSchema.parse({ requests: [{ ...validRequest, note: undefined }], total: 1 })).toThrow();
     expect(() => waitlistApproveResponseSchema.parse({ success: 'yes', did: 'did:plc:x', handle: 'x.test' })).toThrow();
     expect(() => waitlistRejectResponseSchema.parse({ success: 1 })).toThrow();
+    expect(() => waitlistJoinResponseSchema.parse({ success: true })).toThrow();
+    expect(() => waitlistJoinResponseSchema.parse({ success: 'yes', message: 'Request received.' })).toThrow();
+    expect(() => waitlistRequestSchema.parse({ ...validRequest, id: 0 })).toThrow();
+    expect(() => waitlistRequestSchema.parse({ ...validRequest, id: -1 })).toThrow();
+    expect(() => waitlistListResponseSchema.parse({ requests: [], total: -1 })).toThrow();
+    expect(() => waitlistRejectResponseSchema.parse({ success: true, unexpected: true })).toThrow();
+  });
+});
+
+describe('web-next participant response validation', () => {
+  const participant = {
+    did: 'did:plc:participant',
+    handle: 'participant.bsky.social',
+    added_by: 'did:plc:admin',
+    notes: null,
+    added_at: '2026-07-12T18:00:00.000Z',
+  };
+
+  it('accepts complete list and mutation responses', () => {
+    expect(participantListResponseSchema.parse({ participants: [participant], total: 1 })).toEqual({
+      participants: [participant],
+      total: 1,
+    });
+    expect(participantAddResponseSchema.parse({
+      success: true,
+      participant: {
+        did: participant.did,
+        handle: participant.handle,
+      },
+    })).toEqual({
+      success: true,
+      participant: {
+        did: participant.did,
+        handle: participant.handle,
+        notes: null,
+      },
+    });
+    expect(participantRemoveResponseSchema.parse({ success: false })).toEqual({ success: false });
+  });
+
+  it('rejects malformed participant responses', () => {
+    expect(() => participantListResponseSchema.parse({ participants: [{ ...participant, did: undefined }], total: 1 })).toThrow();
+    expect(() => participantListResponseSchema.parse({ participants: [{ ...participant, did: 'not-a-did' }], total: 1 })).toThrow();
+    expect(() => participantListResponseSchema.parse({ participants: [participant], total: -1 })).toThrow();
+    expect(() => participantListResponseSchema.parse({ participants: [participant], total: 1.5 })).toThrow();
+    expect(() => participantListResponseSchema.parse({ participants: [participant], total: 1, unexpected: true })).toThrow();
+    expect(() => participantAddResponseSchema.parse({ success: true, participant: { handle: null, notes: null } })).toThrow();
+    expect(() => participantRemoveResponseSchema.parse({ success: 'yes' })).toThrow();
+  });
+});
+
+describe('web-next auth request coordination', () => {
+  it('aborts a superseded login and keeps only the latest request current', () => {
+    const requests = new AuthRequestCoordinator();
+    const first = requests.begin();
+    const second = requests.begin();
+
+    expect(first.aborted).toBe(true);
+    expect(requests.isCurrent(first)).toBe(false);
+    expect(requests.isCurrent(second)).toBe(true);
+  });
+
+  it('aborts the active login when a dialog session closes or switches mode', () => {
+    const requests = new AuthRequestCoordinator();
+    const active = requests.begin();
+
+    requests.cancel();
+
+    expect(active.aborted).toBe(true);
+    expect(requests.isCurrent(active)).toBe(false);
   });
 });
 

@@ -1,8 +1,9 @@
 "use client"
 
-import { createContext, useCallback, useContext, useMemo, type ReactNode } from "react"
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, type ReactNode } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { authApi, type SessionResponse } from "@/lib/api/client"
+import { AuthRequestCoordinator } from "@/lib/auth-request"
 
 /** Query key for the current session — invalidated after login/logout. */
 export const SESSION_QUERY_KEY = ["auth", "session"] as const
@@ -16,6 +17,8 @@ interface AuthContextValue {
   isLoading: boolean
   /** Log in with a Bluesky handle + app password. Rejects on failure (e.g. 401). */
   login: (handle: string, appPassword: string) => Promise<void>
+  /** Abort a pending login when its dialog session is no longer active. */
+  cancelLogin: () => void
   /** Clear the session cookie and reset auth state. */
   logout: () => Promise<void>
 }
@@ -24,6 +27,9 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient()
+  const loginRequests = useRef(new AuthRequestCoordinator())
+
+  useEffect(() => () => loginRequests.current.cancel(), [])
 
   // Auth state is derived ONLY from the session endpoint. When the user is not
   // signed in, getSession() rejects (401) and `data` stays undefined — so we
@@ -39,11 +45,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // password in memory after login. A plain call leaves no credential residue.
   const login = useCallback(
     async (handle: string, appPassword: string) => {
-      await authApi.login(handle, appPassword)
-      await queryClient.invalidateQueries({ queryKey: SESSION_QUERY_KEY })
+      const signal = loginRequests.current.begin()
+      try {
+        await authApi.login(handle, appPassword, signal)
+        if (loginRequests.current.isCurrent(signal)) {
+          await queryClient.invalidateQueries({ queryKey: SESSION_QUERY_KEY })
+        }
+      } finally {
+        loginRequests.current.complete(signal)
+      }
     },
     [queryClient]
   )
+
+  const cancelLogin = useCallback(() => {
+    loginRequests.current.cancel()
+  }, [])
 
   // Clear the ENTIRE query cache on logout, not just the session query —
   // authenticated data (my-vote ballot, etc.) must not leak into the next
@@ -62,9 +79,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAuthenticated,
       isLoading: sessionQuery.isLoading,
       login,
+      cancelLogin,
       logout,
     }),
-    [session, isAuthenticated, sessionQuery.isLoading, login, logout]
+    [session, isAuthenticated, sessionQuery.isLoading, login, cancelLogin, logout]
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

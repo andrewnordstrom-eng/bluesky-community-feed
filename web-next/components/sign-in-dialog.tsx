@@ -25,7 +25,7 @@ interface SignInDialogProps {
 }
 
 export function SignInDialog({ open, onOpenChange, initialMode = "signin" }: SignInDialogProps) {
-  const { login } = useAuth()
+  const { login, cancelLogin } = useAuth()
   const [mode, setMode] = useState<AccessMode>(initialMode)
 
   // Shared handle across both modes so switching carries it over.
@@ -49,8 +49,9 @@ export function SignInDialog({ open, onOpenChange, initialMode = "signin" }: Sig
     isMounted.current = true
     return () => {
       isMounted.current = false
+      cancelLogin()
     }
-  }, [])
+  }, [cancelLogin])
 
   // Seed the mode the host asked for each time the dialog opens (the host sets
   // initialMode then opens), and reset all transient state on close so it
@@ -62,6 +63,7 @@ export function SignInDialog({ open, onOpenChange, initialMode = "signin" }: Sig
       setMode(initialMode)
       return
     }
+    cancelLogin()
     setMode(initialMode)
     setHandle("")
     setPassword("")
@@ -72,7 +74,7 @@ export function SignInDialog({ open, onOpenChange, initialMode = "signin" }: Sig
     setNote("")
     setWaitlistState("idle")
     setWaitlistError(null)
-  }, [open, initialMode])
+  }, [open, initialMode, cancelLogin])
 
   const beginRequest = () => {
     activeRequestToken.current += 1
@@ -84,11 +86,13 @@ export function SignInDialog({ open, onOpenChange, initialMode = "signin" }: Sig
 
   const closeDialog = () => {
     activeRequestToken.current += 1
+    cancelLogin()
     onOpenChange(false)
   }
 
   const goToWaitlist = () => {
     activeRequestToken.current += 1
+    cancelLogin()
     setSignInLoading(false)
     setMode("waitlist")
     setWaitlistState("idle")
@@ -97,6 +101,7 @@ export function SignInDialog({ open, onOpenChange, initialMode = "signin" }: Sig
 
   const goToSignin = () => {
     activeRequestToken.current += 1
+    cancelLogin()
     setWaitlistState("idle")
     setMode("signin")
     setSignInError(null)
@@ -150,7 +155,10 @@ export function SignInDialog({ open, onOpenChange, initialMode = "signin" }: Sig
 
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => {
-      if (!nextOpen) activeRequestToken.current += 1
+      if (!nextOpen) {
+        activeRequestToken.current += 1
+        cancelLogin()
+      }
       onOpenChange(nextOpen)
     }}>
       <DialogContent className="bg-card border border-border shadow-xl rounded-2xl p-0 max-w-[440px] w-full overflow-hidden gap-0">

@@ -111,6 +111,7 @@ describe('web-next landing CTAs', () => {
 
     expect(countMatches(markup, /<a\b/g)).toBe(1);
     expect(markup).toContain('href="/sign-in"');
+    expect(markup).toContain('Join the waitlist');
     expect(markup).not.toContain('<button');
     expect(markup).toContain('qa-sign-in-class');
     expect(markup).toContain('inline-flex');
@@ -122,6 +123,7 @@ describe('web-next landing CTAs', () => {
 
     expect(countMatches(markup, /<a\b/g)).toBe(1);
     expect(markup).toContain('href="/sign-in"');
+    expect(markup).toContain('Join the waitlist');
     expect(markup).not.toContain('<button');
     expect(markup).toContain('inline-flex');
     expect(markup).toContain('rounded-full');

@@ -1,5 +1,9 @@
 import axios from 'axios';
 import type { GovernanceWeights } from './types';
+import {
+  waitlistJoinResponseSchema,
+  type WaitlistJoinResponse,
+} from './waitlist-contract';
 
 // API base URL — same-origin relative by default (the Fastify backend serves
 // this build), overridable via NEXT_PUBLIC_API_URL for local dev against a
@@ -33,10 +37,12 @@ export interface SessionResponse {
 
 // Auth API
 export const authApi = {
-  login: async (handle: string, appPassword: string): Promise<LoginResponse> => {
+  login: async (handle: string, appPassword: string, signal: AbortSignal): Promise<LoginResponse> => {
     const response = await api.post<LoginResponse>('/api/governance/auth/login', {
       handle,
       appPassword,
+    }, {
+      signal,
     });
     return response.data;
   },
@@ -51,12 +57,6 @@ export const authApi = {
   },
 };
 
-// Waitlist API
-export interface WaitlistJoinResponse {
-  success: boolean;
-  message: string;
-}
-
 export const waitlistApi = {
   join: async (handle: string, note?: string): Promise<WaitlistJoinResponse> => {
     const trimmedNote = note?.trim();
@@ -64,7 +64,7 @@ export const waitlistApi = {
       handle: handle.trim(),
       ...(trimmedNote ? { note: trimmedNote } : {}),
     });
-    return response.data;
+    return waitlistJoinResponseSchema.parse(response.data);
   },
 };
 

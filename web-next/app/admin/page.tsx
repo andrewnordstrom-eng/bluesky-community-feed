@@ -884,7 +884,8 @@ function PanelAccess({ status }: { status: AdminStatus }) {
     retry: false,
   })
 
-  const [panelActionError, setPanelActionError] = useState<string | null>(null)
+  const [addActionError, setAddActionError] = useState<string | null>(null)
+  const [removeActionError, setRemoveActionError] = useState<string | null>(null)
   const [rowActionErrors, setRowActionErrors] = useState<Readonly<Record<number, string>>>({})
   const [addHandle, setAddHandle] = useState("")
   const [addNotes, setAddNotes] = useState("")
@@ -958,14 +959,14 @@ function PanelAccess({ status }: { status: AdminStatus }) {
       const payload = value.startsWith("did:") ? { did: value } : { handle: value }
       return adminApi.addParticipant({ ...payload, notes: addNotes.trim() || undefined })
     },
-    onSuccess: () => {
-      setPanelActionError(null)
+    onSuccess: async () => {
+      setAddActionError(null)
+      await invalidateAll()
       setAddHandle("")
       setAddNotes("")
-      void invalidateAll()
     },
     onError: (err) => {
-      setPanelActionError(
+      setAddActionError(
         axios.isAxiosError(err) && err.response?.status === 400
           ? "Couldn't resolve that handle. Try a DID (did:plc:…)."
           : "Add failed — try again.",
@@ -974,8 +975,15 @@ function PanelAccess({ status }: { status: AdminStatus }) {
   })
   const removeMutation = useMutation({
     mutationFn: (did: string) => adminApi.removeParticipant(did),
-    onSuccess: () => { setPanelActionError(null); setConfirmRemove(null); void invalidateAll() },
-    onError: () => setPanelActionError("Remove failed — try again."),
+    onMutate: () => setRemoveActionError(null),
+    onSuccess: () => setRemoveActionError(null),
+    onError: () => setRemoveActionError("Remove failed — try again."),
+    onSettled: async (_data, err) => {
+      if (!err) {
+        await invalidateAll()
+        setConfirmRemove(null)
+      }
+    },
   })
 
   const pending = waitlistQuery.data?.requests ?? []
@@ -1000,10 +1008,6 @@ function PanelAccess({ status }: { status: AdminStatus }) {
           Login allowlist: {allowlistLabel}
         </span>
       </div>
-
-      {panelActionError && (
-        <p role="alert" className="text-status-error text-sm font-medium -mt-3">{panelActionError}</p>
-      )}
 
       {/* ── Waitlist queue ─────────────────────────────────── */}
       <section className="flex flex-col gap-3">
@@ -1064,6 +1068,9 @@ function PanelAccess({ status }: { status: AdminStatus }) {
       {/* ── Approved participants ──────────────────────────── */}
       <section className="flex flex-col gap-3">
         <p className="text-[10px] font-mono uppercase tracking-widest text-foreground/50">Approved participants</p>
+        {removeActionError && (
+          <p role="alert" className="text-status-error text-sm font-medium">{removeActionError}</p>
+        )}
         {participantsQuery.isLoading ? (
           <Skeleton className="h-24 w-full rounded-xl" />
         ) : participantsQuery.isError ? (
@@ -1079,7 +1086,10 @@ function PanelAccess({ status }: { status: AdminStatus }) {
                   <p className="text-[10px] font-mono text-foreground/40 truncate">{p.notes ? `${p.notes} · ` : ""}{p.did}</p>
                 </div>
                 <button
-                  onClick={() => setConfirmRemove({ did: p.did, handle: p.handle })}
+                  onClick={() => {
+                    setRemoveActionError(null)
+                    setConfirmRemove({ did: p.did, handle: p.handle })
+                  }}
                   className="shrink-0 text-xs font-semibold px-3 py-1 rounded-full border border-border text-foreground/55 hover:text-tongue-foreground hover:bg-tongue/10 transition-colors"
                 >
                   Remove
@@ -1116,6 +1126,9 @@ function PanelAccess({ status }: { status: AdminStatus }) {
             {addMutation.isPending ? "Adding…" : "Add directly"}
           </Button>
         </form>
+        {addActionError && (
+          <p role="alert" className="text-status-error text-sm font-medium">{addActionError}</p>
+        )}
       </section>
 
       {confirmRemove && (

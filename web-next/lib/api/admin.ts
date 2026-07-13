@@ -5,6 +5,7 @@
  * All requests include credentials and proper auth headers.
  */
 
+import { z } from 'zod';
 import { api } from './client';
 import type { GovernanceWeights, ContentRules } from './types';
 import {
@@ -21,6 +22,35 @@ export {
   waitlistListResponseSchema,
   waitlistRejectResponseSchema,
 } from './waitlist-contract';
+
+const participantDidSchema = z.string().startsWith('did:').min(5);
+const participantTimestampSchema = z.string().datetime({ offset: true });
+
+export const participantSchema = z.object({
+  did: participantDidSchema,
+  handle: z.string().min(1).nullable(),
+  added_by: z.string().min(1),
+  notes: z.string().nullable(),
+  added_at: participantTimestampSchema,
+}).strict();
+
+export const participantListResponseSchema = z.object({
+  participants: z.array(participantSchema),
+  total: z.number().int().nonnegative(),
+}).strict();
+
+export const participantAddResponseSchema = z.object({
+  success: z.boolean(),
+  participant: z.object({
+    did: participantDidSchema,
+    handle: z.string().min(1).nullable(),
+    notes: z.string().nullable().optional().transform((value) => value ?? null),
+  }).strict(),
+}).strict();
+
+export const participantRemoveResponseSchema = z.object({
+  success: z.boolean(),
+}).strict();
 
 export interface RoundSummary {
   id: number;
@@ -83,13 +113,7 @@ export interface RoundDetails {
   }>;
 }
 
-export interface Participant {
-  did: string;
-  handle: string | null;
-  added_by: string;
-  notes: string | null;
-  added_at: string;
-}
+export type Participant = z.infer<typeof participantSchema>;
 
 export interface AdminStatus {
   isAdmin: boolean;
@@ -584,21 +608,21 @@ export const adminApi = {
   // Participant management
   async getParticipants(): Promise<{ participants: Participant[]; total: number }> {
     const response = await api.get('/api/admin/participants');
-    return response.data;
+    return participantListResponseSchema.parse(response.data);
   },
 
   async addParticipant(data: {
     did?: string;
     handle?: string;
     notes?: string;
-  }): Promise<{ success: boolean; participant: { did: string; handle: string | null; notes: string | null } }> {
+  }): Promise<z.infer<typeof participantAddResponseSchema>> {
     const response = await api.post('/api/admin/participants', data);
-    return response.data;
+    return participantAddResponseSchema.parse(response.data);
   },
 
   async removeParticipant(did: string): Promise<{ success: boolean }> {
     const response = await api.delete(`/api/admin/participants/${encodeURIComponent(did)}`);
-    return response.data;
+    return participantRemoveResponseSchema.parse(response.data);
   },
 
   // Waitlist management

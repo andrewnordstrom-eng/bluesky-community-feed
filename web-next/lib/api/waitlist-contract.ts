@@ -2,6 +2,11 @@ import { z } from "zod"
 
 const waitlistTimestampSchema = z.string().datetime({ offset: true })
 
+export const waitlistJoinResponseSchema = z.object({
+  success: z.boolean(),
+  message: z.string().min(1),
+}).strict()
+
 export const waitlistRequestSchema = z.object({
   id: z.number().int().positive(),
   handle: z.string().min(1),
@@ -29,3 +34,4 @@ export const waitlistRejectResponseSchema = z.object({
 }).strict()
 
 export type WaitlistRequest = z.infer<typeof waitlistRequestSchema>
+export type WaitlistJoinResponse = z.infer<typeof waitlistJoinResponseSchema>
