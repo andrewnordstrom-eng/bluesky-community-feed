@@ -230,6 +230,23 @@ describe('admin waitlist routes', () => {
     expect(releaseMock).toHaveBeenCalledTimes(1);
   });
 
+  it('reject: an error after the claim (audit insert throws) rolls back, releases, and propagates', async () => {
+    clientQueryMock.mockImplementation((sql: string) => {
+      if (/UPDATE waitlist_requests/i.test(sql) && /RETURNING/i.test(sql)) return Promise.resolve({ rows: [{ handle: 'alice.bsky.social' }] }); // claim wins
+      if (/governance_audit_log/i.test(sql)) return Promise.reject(new Error('audit insert failed'));
+      return Promise.resolve({ rows: [] });
+    });
+    const app = buildApp();
+
+    const response = await app.inject({ method: 'POST', url: '/waitlist/7/reject' });
+
+    expect(response.statusCode).toBeGreaterThanOrEqual(500);
+    const sqls = clientQueryMock.mock.calls.map((c) => String(c[0]).trim());
+    expect(sqls).toContain('ROLLBACK');
+    expect(sqls).not.toContain('COMMIT');
+    expect(releaseMock).toHaveBeenCalledTimes(1);
+  });
+
   it('reject: 404 unknown id, 409 already decided (rolls back the empty claim)', async () => {
     // Claim matches nothing → ROLLBACK, then the existence check decides 404 vs 409.
     clientQueryMock.mockImplementation((sql: string) => {

@@ -62,19 +62,24 @@ describe('POST /api/governance/waitlist', () => {
     expect(duplicate.json()).toEqual(fresh.json());
   });
 
-  it('accepts the exact boundary values (500-char note, long valid handle)', async () => {
+  it('accepts values at the exact caps and rejects one past them', async () => {
     const app = buildApp();
-    const note = 'x'.repeat(500);
-    // A valid multi-label handle near the 253-char cap (63-char labels).
-    const longHandle = `${'a'.repeat(60)}.${'b'.repeat(60)}.${'c'.repeat(60)}.bsky.social`;
 
+    // Note: exactly 500 passes, 501 fails (the 501 case is covered below).
+    const note = 'x'.repeat(500);
     const noteResponse = await submit(app, { handle: 'alice.bsky.social', note });
     expect(noteResponse.statusCode).toBe(200);
     expect(queryMock.mock.calls[0][1]).toEqual(['alice.bsky.social', note]);
 
-    const handleResponse = await submit(app, { handle: longHandle });
-    expect(handleResponse.statusCode).toBe(200);
-    expect(longHandle.length).toBeLessThanOrEqual(253);
+    // Handle: build valid domain-format handles that land exactly on and one
+    // past the 253-char cap, so a regression like .max(200) is caught.
+    const handle253 = `${'a'.repeat(63)}.${'a'.repeat(63)}.${'a'.repeat(63)}.${'a'.repeat(61)}`;
+    expect(handle253).toHaveLength(253);
+    const handle254 = `${'a'.repeat(63)}.${'a'.repeat(63)}.${'a'.repeat(63)}.${'a'.repeat(62)}`;
+    expect(handle254).toHaveLength(254);
+
+    expect((await submit(app, { handle: handle253 })).statusCode).toBe(200);
+    expect((await submit(app, { handle: handle254 })).statusCode).toBe(400);
   });
 
   it('rejects malformed handles, DIDs, and oversized notes with 400', async () => {
