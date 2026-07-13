@@ -97,7 +97,7 @@ export function SignInDialog({ open, onOpenChange }: SignInDialogProps) {
               value={handle}
               onChange={(e) => setHandle(e.target.value)}
               autoComplete="username"
-              className="bg-background border-border text-foreground placeholder:text-foreground/45 rounded-xl h-11 px-4 text-sm focus-visible:ring-primary focus-visible:ring-1 focus-visible:border-primary transition-colors"
+              className="bg-background border-border text-foreground placeholder:text-foreground/55 rounded-xl h-11 px-4 text-sm focus-visible:ring-primary focus-visible:ring-1 focus-visible:border-primary transition-colors"
             />
           </div>
 
@@ -113,18 +113,18 @@ export function SignInDialog({ open, onOpenChange }: SignInDialogProps) {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="current-password"
-                className="bg-background border-border text-foreground placeholder:text-foreground/45 rounded-xl h-11 px-4 pr-12 text-sm focus-visible:ring-primary focus-visible:ring-1 focus-visible:border-primary transition-colors"
+                className="bg-background border-border text-foreground placeholder:text-foreground/55 rounded-xl h-11 px-4 pr-12 text-sm focus-visible:ring-primary focus-visible:ring-1 focus-visible:border-primary transition-colors"
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-foreground/40 hover:text-foreground/70 transition-colors text-xs font-medium"
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-foreground/50 hover:text-foreground/70 transition-colors text-xs font-medium"
                 aria-label={showPassword ? "Hide password" : "Show password"}
               >
                 {showPassword ? "hide" : "show"}
               </button>
             </div>
-            <p className="text-foreground/45 text-xs leading-relaxed">
+            <p className="text-foreground/55 text-xs leading-relaxed">
               Create an app password in{" "}
               <a
                 href="https://bsky.app/settings/app-passwords"
@@ -153,7 +153,7 @@ export function SignInDialog({ open, onOpenChange }: SignInDialogProps) {
             {loading ? "Signing in..." : "Sign in"}
           </Button>
 
-          <p className="text-center text-foreground/40 text-xs leading-relaxed">
+          <p className="text-center text-foreground/50 text-xs leading-relaxed">
             By signing in, you agree to our{" "}
             <Link href="/tos" className="text-foreground/60 underline underline-offset-2 hover:text-foreground transition-colors">
               Terms of Service

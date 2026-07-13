@@ -147,15 +147,15 @@ function PanelOverview({ status }: { status: AdminStatus }) {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {stats.map((s) => (
           <div key={s.label} className="rounded-xl border border-border bg-card px-4 py-4 flex flex-col gap-1">
-            <span className="text-[10px] font-mono uppercase tracking-widest text-foreground/40">{s.label}</span>
+            <span className="text-[10px] font-mono uppercase tracking-widest text-foreground/50">{s.label}</span>
             <span className="text-2xl font-mono font-bold text-foreground tabular-nums">{s.value}</span>
           </div>
         ))}
       </div>
       <div className="flex flex-col gap-3">
-        <p className="text-[10px] font-mono uppercase tracking-widest text-foreground/40">Applied weights</p>
+        <p className="text-[10px] font-mono uppercase tracking-widest text-foreground/50">Applied weights</p>
         {Object.keys(epoch.weights).length === 0 ? (
-          <p className="text-sm text-foreground/45 italic">No weights recorded for this round yet.</p>
+          <p className="text-sm text-foreground/55 italic">No weights recorded for this round yet.</p>
         ) : (
           Object.entries(epoch.weights).map(([k, v]) => (
             <WeightBar key={k} label={SIGNAL_LABELS[k] ?? k} value={v} />
@@ -221,12 +221,12 @@ function PanelCurrentRound({ status }: { status: AdminStatus }) {
         <div className="h-2 rounded-full bg-biscuit overflow-hidden">
           <div className="h-2 rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} />
         </div>
-        <p className="text-xs text-foreground/45">{pct}% of members have voted this round.</p>
+        <p className="text-xs text-foreground/55">{pct}% of members have voted this round.</p>
       </div>
 
       {/* Lifecycle actions */}
       <div className="flex flex-col gap-3">
-        <p className="text-[10px] font-mono uppercase tracking-widest text-foreground/40 mb-1">Lifecycle actions</p>
+        <p className="text-[10px] font-mono uppercase tracking-widest text-foreground/50 mb-1">Lifecycle actions</p>
         {LIFECYCLE.map((lc) => {
           const isCurrentPhase = lc.phase === phase
           return (
@@ -437,7 +437,7 @@ function PanelContentFilters({ status }: { status: AdminStatus }) {
 
         return (
           <div key={list} className="flex flex-col gap-3">
-            <p className="text-[10px] font-mono uppercase tracking-widest text-foreground/40 capitalize">{list} keywords</p>
+            <p className="text-[10px] font-mono uppercase tracking-widest text-foreground/50 capitalize">{list} keywords</p>
             <div className="flex flex-wrap gap-2 min-h-[2rem]">
               {keywords.map((kw) => (
                 <span key={kw} className={`inline-flex items-center gap-1.5 text-xs font-mono font-medium px-2.5 py-1 rounded-full border ${chipBg}`}>
@@ -453,7 +453,7 @@ function PanelContentFilters({ status }: { status: AdminStatus }) {
                   </button>
                 </span>
               ))}
-              {keywords.length === 0 && <span className="text-xs text-foreground/45 italic">None active</span>}
+              {keywords.length === 0 && <span className="text-xs text-foreground/55 italic">None active</span>}
             </div>
             <div className="flex items-center gap-2">
               <input
@@ -462,7 +462,7 @@ function PanelContentFilters({ status }: { status: AdminStatus }) {
                 onChange={(e) => setAdd(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && submitAdd(list)}
                 placeholder={`Add ${list} keyword…`}
-                className="flex-1 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground placeholder:text-foreground/45 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                className="flex-1 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground placeholder:text-foreground/55 focus:outline-none focus:ring-2 focus:ring-primary/40"
               />
               <button
                 onClick={() => submitAdd(list)}
@@ -532,17 +532,17 @@ function PanelTopics() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-biscuit/30">
-                <th className="text-left px-4 py-3 text-[10px] font-mono uppercase tracking-widest text-foreground/40 font-normal">Topic</th>
-                <th className="text-left px-4 py-3 text-[10px] font-mono uppercase tracking-widest text-foreground/40 font-normal hidden sm:table-cell">Group</th>
-                <th className="text-right px-4 py-3 text-[10px] font-mono uppercase tracking-widest text-foreground/40 font-normal">Weight</th>
-                <th className="text-right px-4 py-3 text-[10px] font-mono uppercase tracking-widest text-foreground/40 font-normal">Status</th>
+                <th className="text-left px-4 py-3 text-[10px] font-mono uppercase tracking-widest text-foreground/50 font-normal">Topic</th>
+                <th className="text-left px-4 py-3 text-[10px] font-mono uppercase tracking-widest text-foreground/50 font-normal hidden sm:table-cell">Group</th>
+                <th className="text-right px-4 py-3 text-[10px] font-mono uppercase tracking-widest text-foreground/50 font-normal">Weight</th>
+                <th className="text-right px-4 py-3 text-[10px] font-mono uppercase tracking-widest text-foreground/50 font-normal">Status</th>
               </tr>
             </thead>
             <tbody>
               {(topicsQuery.data ?? []).map((t) => (
                 <tr key={t.slug} className="border-b border-border/50 last:border-b-0 hover:bg-biscuit/20 transition-colors">
                   <td className="px-4 py-3 font-medium text-foreground">{t.name}</td>
-                  <td className="px-4 py-3 text-foreground/45 text-xs font-mono hidden sm:table-cell">{t.parentSlug ?? "—"}</td>
+                  <td className="px-4 py-3 text-foreground/55 text-xs font-mono hidden sm:table-cell">{t.parentSlug ?? "—"}</td>
                   <td className="px-4 py-3 text-right font-mono text-sm tabular-nums text-foreground/70">
                     {t.currentWeight != null ? `${Math.round(t.currentWeight * 100)}%` : "—"}
                   </td>
@@ -555,7 +555,7 @@ function PanelTopics() {
                         Enabled
                       </button>
                     ) : (
-                      <span className="text-xs font-semibold px-3 py-1 rounded-full border bg-biscuit border-border text-foreground/45">
+                      <span className="text-xs font-semibold px-3 py-1 rounded-full border bg-biscuit border-border text-foreground/55">
                         Disabled
                       </span>
                     )}
@@ -621,10 +621,10 @@ function PanelAuditLog() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-biscuit/30">
-                <th className="text-left px-4 py-3 text-[10px] font-mono uppercase tracking-widest text-foreground/40 font-normal">Action</th>
-                <th className="text-left px-4 py-3 text-[10px] font-mono uppercase tracking-widest text-foreground/40 font-normal hidden md:table-cell">Actor</th>
-                <th className="text-right px-4 py-3 text-[10px] font-mono uppercase tracking-widest text-foreground/40 font-normal hidden sm:table-cell">Round</th>
-                <th className="text-right px-4 py-3 text-[10px] font-mono uppercase tracking-widest text-foreground/40 font-normal">When</th>
+                <th className="text-left px-4 py-3 text-[10px] font-mono uppercase tracking-widest text-foreground/50 font-normal">Action</th>
+                <th className="text-left px-4 py-3 text-[10px] font-mono uppercase tracking-widest text-foreground/50 font-normal hidden md:table-cell">Actor</th>
+                <th className="text-right px-4 py-3 text-[10px] font-mono uppercase tracking-widest text-foreground/50 font-normal hidden sm:table-cell">Round</th>
+                <th className="text-right px-4 py-3 text-[10px] font-mono uppercase tracking-widest text-foreground/50 font-normal">When</th>
               </tr>
             </thead>
             <tbody>
@@ -644,7 +644,7 @@ function PanelAuditLog() {
                           {hasDetails && (
                             <svg
                               width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"
-                              className={`text-foreground/45 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                              className={`text-foreground/55 transition-transform ${isExpanded ? "rotate-180" : ""}`}
                             >
                               <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                             </svg>
@@ -652,7 +652,7 @@ function PanelAuditLog() {
                         </div>
                       </td>
                       <td className="px-4 py-3 text-xs font-mono text-foreground/50 hidden md:table-cell">
-                        {entry.actor ? entry.actor.slice(-8) : <span className="italic text-foreground/45">system</span>}
+                        {entry.actor ? entry.actor.slice(-8) : <span className="italic text-foreground/55">system</span>}
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-xs text-foreground/50 hidden sm:table-cell">
                         {entry.epochId != null ? `#${entry.epochId}` : "—"}
@@ -672,7 +672,7 @@ function PanelAuditLog() {
             </tbody>
           </table>
           <div className="px-4 py-3 border-t border-border/60 flex items-center justify-between">
-            <span className="text-xs text-foreground/40 font-mono">{total} total · {entries.length} shown</span>
+            <span className="text-xs text-foreground/50 font-mono">{total} total · {entries.length} shown</span>
             {entries.length < total && (
               <button
                 type="button"
@@ -727,9 +727,9 @@ function PanelFeedHealth() {
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {metrics.map((m) => (
                   <div key={m.label} className="rounded-xl border border-border bg-card px-5 py-4 flex flex-col gap-1.5">
-                    <span className="text-[10px] font-mono uppercase tracking-widest text-foreground/40">{m.label}</span>
+                    <span className="text-[10px] font-mono uppercase tracking-widest text-foreground/50">{m.label}</span>
                     <span className="text-2xl font-mono font-bold text-foreground tabular-nums">{m.value}</span>
-                    <span className="text-xs text-foreground/45 leading-relaxed">{m.hint}</span>
+                    <span className="text-xs text-foreground/55 leading-relaxed">{m.hint}</span>
                   </div>
                 ))}
               </div>
@@ -784,7 +784,7 @@ function PanelAnnouncements() {
           onChange={(e) => setContent(e.target.value)}
           placeholder="Write an announcement to post to Bluesky…"
           rows={3}
-          className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground placeholder:text-foreground/45 focus:outline-none focus:ring-2 focus:ring-primary/40 resize-none"
+          className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground placeholder:text-foreground/55 focus:outline-none focus:ring-2 focus:ring-primary/40 resize-none"
         />
         <div className="flex items-center justify-between gap-3">
           <label className="flex items-center gap-2 text-xs text-foreground/60">
@@ -825,8 +825,8 @@ function PanelAnnouncements() {
               <div className="flex-1 flex flex-col gap-1 min-w-0">
                 <p className="text-sm text-foreground/80 leading-relaxed">{a.content}</p>
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-[10px] font-mono text-foreground/45">{relTime(a.postedAt)}</span>
-                  {a.type && <span className="text-[10px] font-mono text-foreground/45">· {a.type}</span>}
+                  <span className="text-[10px] font-mono text-foreground/55">{relTime(a.postedAt)}</span>
+                  {a.type && <span className="text-[10px] font-mono text-foreground/55">· {a.type}</span>}
                 </div>
               </div>
               {a.postUrl && (
@@ -941,7 +941,7 @@ function AdminConsole({ status }: { status: AdminStatus }) {
           style={{ maxHeight: "calc(100vh - 3.5rem - 2.5rem)", overflowY: "auto" }}
           aria-label="Admin panels"
         >
-          <span className="text-[9px] font-mono uppercase tracking-widest text-foreground/45 px-3 pb-2">Admin console</span>
+          <span className="text-[9px] font-mono uppercase tracking-widest text-foreground/55 px-3 pb-2">Admin console</span>
           {NAV_PANELS.map((p) => (
             <button
               key={p.id}

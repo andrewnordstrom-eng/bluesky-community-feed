@@ -57,7 +57,7 @@ export function LegalLayout({ title, lastUpdated, sections, backHref = "/", back
           className="hidden lg:flex flex-col gap-1 w-52 flex-shrink-0 sticky top-24"
           aria-label="Table of contents"
         >
-          <span className="text-[9px] font-mono uppercase tracking-widest text-foreground/45 px-2 pb-2">Contents</span>
+          <span className="text-[9px] font-mono uppercase tracking-widest text-foreground/55 px-2 pb-2">Contents</span>
           {sections.map((s) => (
             <a
               key={s.id}
@@ -80,7 +80,7 @@ export function LegalLayout({ title, lastUpdated, sections, backHref = "/", back
             <h1 className="font-display text-3xl font-bold text-foreground tracking-normal leading-tight mb-2">
               {title}
             </h1>
-            <p className="text-sm text-foreground/45 font-mono">Last updated {lastUpdated}</p>
+            <p className="text-sm text-foreground/55 font-mono">Last updated {lastUpdated}</p>
           </header>
 
           {/* Sections */}
@@ -95,13 +95,13 @@ export function LegalLayout({ title, lastUpdated, sections, backHref = "/", back
 
           {/* Footer */}
           <div className="mt-16 pt-6 border-t border-border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <p className="text-xs text-foreground/40">
+            <p className="text-xs text-foreground/50">
               Questions? Email{" "}
               <a href="mailto:hello@corgi.network" className="text-primary hover:underline underline-offset-2">
                 hello@corgi.network
               </a>
             </p>
-            <Link href={backHref} className="text-xs text-foreground/40 hover:text-foreground transition-colors">
+            <Link href={backHref} className="text-xs text-foreground/50 hover:text-foreground transition-colors">
               {backLabel}
             </Link>
           </div>

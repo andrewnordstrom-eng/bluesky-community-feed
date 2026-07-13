@@ -66,7 +66,7 @@ function deriveRoundDiff(epochs?: EpochResponse[]): RoundDiff | null {
 /* ─── Small pieces ─────────────────────────────────────── */
 
 function Eyebrow({ children }: { children: React.ReactNode }) {
-  return <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-foreground/45">{children}</p>
+  return <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-foreground/55">{children}</p>
 }
 
 function DeltaChip({ delta }: { delta: number }) {
@@ -90,7 +90,7 @@ function KeywordChip({ word, rule, removed }: { word: string; rule: "include" | 
   if (removed) {
     return (
       <span
-        className="inline-flex items-center rounded-full border border-border bg-background px-2.5 py-0.5 font-mono text-xs text-foreground/45 line-through"
+        className="inline-flex items-center rounded-full border border-border bg-background px-2.5 py-0.5 font-mono text-xs text-foreground/55 line-through"
         title={`No longer ${rule === "include" ? "boosting" : "hiding"} “${word}”`}
       >
         {word}
@@ -117,7 +117,7 @@ function MetricCell({ value, label, sub }: { value: string; label: string; sub?:
     <div className="flex flex-col">
       <span className="font-display text-xl font-extrabold text-foreground tabular-nums">{value}</span>
       <span className="text-[12px] text-foreground/55">{label}</span>
-      {sub && <span className="mt-0.5 text-[11px] text-foreground/45">{sub}</span>}
+      {sub && <span className="mt-0.5 text-[11px] text-foreground/55">{sub}</span>}
     </div>
   )
 }
@@ -254,14 +254,14 @@ export default function DashboardPage() {
                 <div className="flex items-baseline justify-between">
                   <span className="font-display text-2xl font-extrabold tabular-nums text-foreground">
                     {voteCount}
-                    <span className="text-base font-semibold text-foreground/40"> / {subscriberCount}</span>
+                    <span className="text-base font-semibold text-foreground/50"> / {subscriberCount}</span>
                   </span>
                   <span className="font-mono text-sm font-semibold text-primary">{participation}%</span>
                 </div>
                 <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-biscuit">
                   <div className="h-full rounded-full bg-primary/70" style={{ width: `${participation}%` }} />
                 </div>
-                <p className="mt-1.5 text-[11px] text-foreground/45">members voted · each vote counts equally</p>
+                <p className="mt-1.5 text-[11px] text-foreground/55">members voted · each vote counts equally</p>
               </div>
             )}
             {participation != null && <div className="hidden w-px self-stretch bg-border/60 sm:block" />}
@@ -289,7 +289,7 @@ export default function DashboardPage() {
           <div>
             <div className="mb-3 flex items-baseline justify-between gap-2">
               <Eyebrow>What changed this round</Eyebrow>
-              {diff && <span className="font-mono text-[11px] text-foreground/40">{diff.voter_count} voters</span>}
+              {diff && <span className="font-mono text-[11px] text-foreground/50">{diff.voter_count} voters</span>}
             </div>
             {epochsQuery.isLoading ? (
               <WeightsSkeleton />
@@ -320,7 +320,7 @@ export default function DashboardPage() {
                 {/* before / after policy, as the same signature bar */}
                 <div className="flex flex-col gap-2.5">
                   <div className="flex items-center gap-3">
-                    <span className="w-16 flex-shrink-0 font-mono text-[11px] text-foreground/45">Round {diff.previous_round}</span>
+                    <span className="w-16 flex-shrink-0 font-mono text-[11px] text-foreground/55">Round {diff.previous_round}</span>
                     <PolicyBar weights={diff.previous_weights} height={8} className="opacity-70" />
                   </div>
                   <div className="flex items-center gap-3">
@@ -388,10 +388,10 @@ export default function DashboardPage() {
                         <span className="truncate font-mono text-[13px] text-foreground/70">{entry.action}</span>
                       </div>
                       <div className="flex flex-shrink-0 items-center gap-3">
-                        <span className="hidden font-mono text-[11px] text-foreground/40 sm:block">Round #{entry.epoch_id}</span>
+                        <span className="hidden font-mono text-[11px] text-foreground/50 sm:block">Round #{entry.epoch_id}</span>
                         <time
                           dateTime={entry.created_at}
-                          className="font-mono text-[11px] text-foreground/45"
+                          className="font-mono text-[11px] text-foreground/55"
                           title={date.toLocaleString()}
                         >
                           {date.toLocaleDateString([], { month: "short", day: "numeric" })}

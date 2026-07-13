@@ -215,7 +215,7 @@ export function VotePanel({
 
         <div className="mt-5 rounded-2xl border border-border bg-biscuit/30 px-4 py-4">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-foreground/45">{customPolicy ? "Your custom policy" : "Preset policy"}</p>
+            <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-foreground/55">{customPolicy ? "Your custom policy" : "Preset policy"}</p>
             <button type="button" onClick={() => setShowFineTune((value) => !value)} aria-expanded={showFineTune}
               className={`inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1 text-xs font-semibold text-foreground/70 transition-colors hover:text-foreground ${FOCUS}`}>
               <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
@@ -266,7 +266,7 @@ export function VotePanel({
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <label className="relative min-w-[180px] flex-1">
-                      <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-foreground/40" aria-hidden="true" />
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-foreground/50" aria-hidden="true" />
                       <input value={topicQuery} onChange={(event) => setTopicQuery(event.target.value)} placeholder="Search topics" aria-label="Search topics" className={`h-10 w-full rounded-lg border border-border bg-background pl-9 pr-3 text-xs ${FOCUS}`} />
                     </label>
                     <select value={topicSort} onChange={(event) => setTopicSort(event.target.value as "alphabetical" | "weight")} className={`h-10 rounded-lg border border-border bg-background px-3 text-xs ${FOCUS}`} aria-label="Sort topics">

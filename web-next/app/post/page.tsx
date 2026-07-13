@@ -84,7 +84,7 @@ function SectionCard({
       <div className="flex items-baseline justify-between gap-4 px-6 py-4 border-b border-border/60">
         <h2 className="text-sm font-semibold text-foreground">{title}</h2>
         {annotation && (
-          <span className="text-[10px] font-mono text-foreground/40 uppercase tracking-widest">{annotation}</span>
+          <span className="text-[10px] font-mono text-foreground/50 uppercase tracking-widest">{annotation}</span>
         )}
       </div>
       <div className="p-6">{children}</div>
@@ -95,7 +95,7 @@ function SectionCard({
 function RankBadge({ rank }: { rank: number }) {
   return (
     <div className="flex flex-col items-center justify-center w-20 h-20 rounded-2xl border-2 border-primary/30 bg-primary/8 flex-shrink-0">
-      <span className="text-[10px] font-mono text-foreground/40 uppercase tracking-widest leading-none mb-1">Rank</span>
+      <span className="text-[10px] font-mono text-foreground/50 uppercase tracking-widest leading-none mb-1">Rank</span>
       <span className="text-4xl font-mono font-bold text-primary leading-none tabular-nums">#{rank}</span>
     </div>
   )
@@ -104,7 +104,7 @@ function RankBadge({ rank }: { rank: number }) {
 function ScorePill({ label, value, mono = true }: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-[10px] font-mono text-foreground/40 uppercase tracking-widest">{label}</span>
+      <span className="text-[10px] font-mono text-foreground/50 uppercase tracking-widest">{label}</span>
       <span className={`text-2xl font-bold text-foreground leading-none tabular-nums ${mono ? "font-mono" : "font-sans"}`}>
         {value}
       </span>
@@ -138,7 +138,7 @@ function CounterfactualBox({
             : "border-border bg-card"
         }`}
     >
-      <span className="text-[10px] font-mono text-foreground/45 uppercase tracking-widest leading-tight">{label}</span>
+      <span className="text-[10px] font-mono text-foreground/55 uppercase tracking-widest leading-tight">{label}</span>
 
       {isDelta ? (
         <div className="flex items-end gap-2">
@@ -215,13 +215,13 @@ function TopicRow({
             {sentiment}
           </span>
         </div>
-        <div className="flex items-center gap-4 text-xs font-mono text-foreground/45">
+        <div className="flex items-center gap-4 text-xs font-mono text-foreground/55">
           <span>Post score <span className="text-foreground/70">{fmtPct(postScore)}</span></span>
           <span>Community weight <span className="text-foreground/70">{fmtPct(communityWeight)}</span></span>
         </div>
       </div>
       <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
-        <span className="text-xs text-foreground/40 font-mono">contribution</span>
+        <span className="text-xs text-foreground/50 font-mono">contribution</span>
         <span className={`text-sm font-mono font-semibold tabular-nums ${sentiment === "penalize" ? "text-tongue-foreground" : "text-foreground"}`}>
           +{contribution.toFixed(3)}
         </span>
@@ -386,7 +386,7 @@ function PostExplanationInner() {
               </code>
               <button
                 onClick={copyUri}
-                className="flex items-center gap-1.5 text-xs text-foreground/40 hover:text-primary transition-colors"
+                className="flex items-center gap-1.5 text-xs text-foreground/50 hover:text-primary transition-colors"
                 aria-label="Copy AT-URI"
               >
                 {copied ? (
@@ -411,7 +411,7 @@ function PostExplanationInner() {
                   href={bskyUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-1 text-xs text-foreground/40 hover:text-primary transition-colors"
+                  className="flex items-center gap-1 text-xs text-foreground/50 hover:text-primary transition-colors"
                 >
                   <svg width="12" height="12" viewBox="0 0 14 14" fill="none" aria-hidden="true">
                     <path d="M5 2H2a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1V9M8 2h4m0 0v4m0-4L6 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
@@ -447,7 +447,7 @@ function PostExplanationInner() {
                   aria-label="Post AT-URI or Bluesky URL"
                   aria-invalid={inputError !== null}
                   aria-describedby={inputError ? "post-reference-error" : undefined}
-                  className="h-10 w-full min-w-0 rounded-lg border border-border bg-background px-3.5 font-mono text-sm text-foreground placeholder:text-foreground/45 transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  className="h-10 w-full min-w-0 rounded-lg border border-border bg-background px-3.5 font-mono text-sm text-foreground placeholder:text-foreground/55 transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                 />
                 {inputError ? (
                   <p id="post-reference-error" role="alert" className="mt-2 text-xs leading-relaxed text-tongue-foreground">
@@ -501,7 +501,7 @@ function PostExplanationInner() {
                 <ScorePill label="Total score" value={fmtScore(explanation.total_score)} />
                 <ScorePill label="Round" value={`#${explanation.epoch_id}`} />
                 <div className="flex flex-col gap-0.5">
-                  <span className="text-[10px] font-mono text-foreground/40 uppercase tracking-widest">Scored</span>
+                  <span className="text-[10px] font-mono text-foreground/50 uppercase tracking-widest">Scored</span>
                   <span className="text-sm text-foreground/65 tabular-nums">
                     <span title={new Date(explanation.scored_at).toLocaleString()}>
                       {relTime(explanation.scored_at)}
@@ -509,7 +509,7 @@ function PostExplanationInner() {
                   </span>
                 </div>
                 <div className="flex flex-col gap-0.5">
-                  <span className="text-[10px] font-mono text-foreground/40 uppercase tracking-widest">Round</span>
+                  <span className="text-[10px] font-mono text-foreground/50 uppercase tracking-widest">Round</span>
                   <span className="text-xs text-foreground/55">{explanation.epoch_description}</span>
                 </div>
               </div>
@@ -530,7 +530,7 @@ function PostExplanationInner() {
                   epochLabel={explanation.epoch_description ?? undefined}
                 />
                 {/* Inline contribution cue per brief opportunity */}
-                <p className="text-[11px] text-foreground/40 italic mt-4 leading-relaxed">
+                <p className="text-[11px] text-foreground/50 italic mt-4 leading-relaxed">
                   Each bar shows a signal&apos;s weighted contribution as a share of the total score.
                   Contribution = raw score &times; community weight.
                 </p>
@@ -566,7 +566,7 @@ function PostExplanationInner() {
                   variant="delta"
                 />
               </div>
-              <p className="text-xs text-foreground/45 mt-4 leading-relaxed">
+              <p className="text-xs text-foreground/55 mt-4 leading-relaxed">
                 Community governance moved this post from rank #{cf.pure_engagement_rank} (engagement-only) to #{cf.community_governed_rank} — a difference of {Math.abs(cf.difference)} position{Math.abs(cf.difference) !== 1 ? "s" : ""}.
               </p>
             </SectionCard>
@@ -585,7 +585,7 @@ function PostExplanationInner() {
                     />
                   ))}
                 </div>
-                <p className="text-xs text-foreground/40 italic mt-4">
+                <p className="text-xs text-foreground/50 italic mt-4">
                   Topic scores reflect how strongly this post matches each community-weighted topic.
                 </p>
               </SectionCard>
@@ -603,7 +603,7 @@ function PostExplanationInner() {
             <SectionCard title="Governance weights applied" annotation={`Round #${explanation.epoch_id}`}>
               <PolicyBar weights={explanation.governance_weights} height={12} />
               <PolicyLegend weights={explanation.governance_weights} className="mt-3" />
-              <p className="text-xs text-foreground/40 italic mt-4 border-t border-border/50 pt-3">
+              <p className="text-xs text-foreground/50 italic mt-4 border-t border-border/50 pt-3">
                 These are the community-voted weights applied at the time this post was scored.
               </p>
             </SectionCard>
@@ -611,13 +611,13 @@ function PostExplanationInner() {
             {/* Post metadata footer */}
             <div className="rounded-xl border border-border/60 bg-biscuit/30 px-5 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex flex-col gap-1 min-w-0">
-                <span className="text-[10px] font-mono text-foreground/40 uppercase tracking-widest">AT-URI</span>
+                <span className="text-[10px] font-mono text-foreground/50 uppercase tracking-widest">AT-URI</span>
                 <code className="text-xs font-mono text-foreground/60 break-all">
                   {explanation.post_uri}
                 </code>
               </div>
               <div className="flex flex-col gap-1 flex-shrink-0 sm:text-right">
-                <span className="text-[10px] font-mono text-foreground/40 uppercase tracking-widest">Scored at</span>
+                <span className="text-[10px] font-mono text-foreground/50 uppercase tracking-widest">Scored at</span>
                 <time
                   dateTime={explanation.scored_at}
                   className="text-xs font-mono text-foreground/60"
@@ -634,7 +634,7 @@ function PostExplanationInner() {
             {/* Dev-only state switcher — excluded from production builds */}
             {process.env.NODE_ENV !== "production" && (
               <div className="flex items-center gap-2 pt-2 opacity-50 hover:opacity-100 transition-opacity" role="group" aria-label="Dev state switcher">
-                <span className="text-[10px] text-foreground/40 font-mono uppercase">Dev:</span>
+                <span className="text-[10px] text-foreground/50 font-mono uppercase">Dev:</span>
                 {(["loaded", "loading", "error", "missing-uri", "null-explanation"] as PageState[]).map((s) => (
                   <button
                     key={s}
@@ -642,7 +642,7 @@ function PostExplanationInner() {
                     className={`text-[10px] px-2 py-0.5 rounded border font-mono transition-colors
                       ${pageState === s
                         ? "bg-primary text-primary-foreground border-primary"
-                        : "border-border text-foreground/40 hover:border-primary/40"
+                        : "border-border text-foreground/50 hover:border-primary/40"
                       }`}
                   >
                     {s}

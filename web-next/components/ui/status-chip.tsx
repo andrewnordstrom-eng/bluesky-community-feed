@@ -2,16 +2,21 @@
  *  Open / Review / Running / Live / Waiting
  *  Biscuit fill + ginger text; pulse dot for "Running" and "Live".
  */
-type Phase = "open" | "voting" | "review" | "running" | "live" | "waiting" | "closed"
+type Phase =
+  | "open" | "voting" | "review" | "running" | "live" | "waiting" | "closed"
+  | "results" | "active" | "archived"
 
 const PHASE_CONFIG: Record<Phase, { label: string; dot: boolean; dotClass: string }> = {
-  open:    { label: "Open",    dot: false, dotClass: "" },
-  voting:  { label: "Open",    dot: true,  dotClass: "bg-primary animate-pulse" },
-  review:  { label: "Review",  dot: false, dotClass: "" },
-  running: { label: "Running", dot: true,  dotClass: "bg-success animate-pulse" },
-  live:    { label: "Live",    dot: true,  dotClass: "bg-primary animate-pulse" },
-  waiting: { label: "Waiting", dot: false, dotClass: "" },
-  closed:  { label: "Closed",  dot: false, dotClass: "" },
+  open:     { label: "Open",          dot: false, dotClass: "" },
+  voting:   { label: "Open",          dot: true,  dotClass: "bg-primary animate-pulse" },
+  review:   { label: "Review",        dot: false, dotClass: "" },
+  running:  { label: "Running",       dot: true,  dotClass: "bg-success animate-pulse" },
+  live:     { label: "Live",          dot: true,  dotClass: "bg-primary animate-pulse" },
+  waiting:  { label: "Waiting",       dot: false, dotClass: "" },
+  closed:   { label: "Closed",        dot: false, dotClass: "" },
+  results:  { label: "Closed",        dot: false, dotClass: "" },
+  active:   { label: "Active policy", dot: true,  dotClass: "bg-success" },
+  archived: { label: "Superseded",    dot: false, dotClass: "" },
 }
 
 interface StatusChipProps {

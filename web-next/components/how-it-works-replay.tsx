@@ -114,7 +114,7 @@ function ReceiptPanel(props: { readonly epoch: Epoch; readonly rankedPost: Ranke
   return (
     <div className="flex h-full flex-col rounded-2xl border border-border bg-card shadow-[0_2px_14px_rgba(46,38,32,0.06)]">
       <div className="border-b border-border/60 px-5 py-4">
-        <p className="text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/45">Corgi receipt</p>
+        <p className="text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/55">Corgi receipt</p>
         <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between lg:flex-col xl:flex-row">
           <div>
             <h3 className="text-xl font-bold leading-tight text-foreground">Why ranked #{props.rankedPost.rank}</h3>
@@ -135,7 +135,7 @@ function ReceiptPanel(props: { readonly epoch: Epoch; readonly rankedPost: Ranke
             <div key={signal.key} className="grid grid-cols-[1fr_auto] gap-3 rounded-xl border border-border/70 bg-background px-4 py-3">
               <div>
                 <p className="text-sm font-semibold text-foreground">{signal.label}</p>
-                <p className="mt-1 text-xs leading-relaxed text-foreground/45">{signal.description}</p>
+                <p className="mt-1 text-xs leading-relaxed text-foreground/55">{signal.description}</p>
               </div>
               <div className="text-right font-mono text-xs text-foreground/55">
                 <p>{formatScore(rawScore)}</p>
@@ -162,7 +162,7 @@ function CounterfactualComparison() {
   return (
     <Section bordered spacing="default">
       <div className="mx-auto mb-8 max-w-3xl text-center">
-        <p className="mb-2 text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/45">Counterfactual</p>
+        <p className="mb-2 text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/55">Counterfactual</p>
         <h2 className="font-display text-3xl font-bold leading-tight tracking-tight text-foreground md:text-4xl">
           Same posts. Different policy. Different feed.
         </h2>
@@ -186,7 +186,7 @@ function CounterfactualComparison() {
                   </span>
                   <div className="min-w-0">
                     <p className="text-sm font-semibold leading-snug text-foreground">{rankedPost.post.text}</p>
-                    <p className="mt-1 font-mono text-xs text-foreground/45">score {formatScore(rankedPost.score)}</p>
+                    <p className="mt-1 font-mono text-xs text-foreground/55">score {formatScore(rankedPost.score)}</p>
                   </div>
                 </div>
               ))}
@@ -204,7 +204,7 @@ function ScoringMath() {
   return (
     <Section bordered spacing="default">
       <div className="mx-auto mb-8 max-w-3xl text-center">
-        <p className="mb-2 text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/45">
+        <p className="mb-2 text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/55">
           Calculation
         </p>
         <h2 className="font-display text-3xl font-bold leading-tight tracking-tight text-foreground md:text-4xl">
@@ -227,7 +227,7 @@ function ScoringMath() {
             <div className="overflow-x-auto px-4">
               <table className="w-full min-w-[720px] text-left text-sm">
                 <thead>
-                  <tr className="border-b border-border/70 text-xs uppercase tracking-[0.14em] text-foreground/40">
+                  <tr className="border-b border-border/70 text-xs uppercase tracking-[0.14em] text-foreground/50">
                     <th className="py-3 pr-4 font-semibold">Post</th>
                     {signals.map((signal) => (
                       <th key={signal.key} className="px-3 py-3 font-semibold">{signal.shortLabel}</th>
@@ -252,7 +252,7 @@ function ScoringMath() {
 
           <div className="flex flex-col gap-4">
             <div className="rounded-xl border border-border/70 bg-background p-5">
-              <p className="text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/45">Formula</p>
+              <p className="text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/55">Formula</p>
               <p className="mt-3 font-mono text-sm leading-relaxed text-foreground/75">
                 total = sum(raw signal score x active policy weight)
               </p>
@@ -261,7 +261,7 @@ function ScoringMath() {
               </p>
             </div>
             <div className="rounded-xl border border-border/70 bg-background p-5">
-              <p className="text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/45">What an epoch means</p>
+              <p className="text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/55">What an epoch means</p>
               <p className="mt-3 text-sm leading-relaxed text-foreground/55">
                 An epoch is a stored feed policy from a voting round. The post signals stay the same in this demo, but the active epoch changes how much each signal matters.
               </p>
@@ -334,7 +334,7 @@ export function HowItWorksReplay() {
           <div className="grid gap-0 xl:grid-cols-[0.82fr_1.1fr_0.92fr]">
             <aside className="border-b border-border/60 bg-background/55 p-4 sm:p-5 xl:border-b-0 xl:border-r">
               <div className="rounded-2xl border border-border bg-card p-5 shadow-[0_2px_14px_rgba(46,38,32,0.06)]">
-                <p className="text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/45">{activeEpoch.eyebrow}</p>
+                <p className="text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/55">{activeEpoch.eyebrow}</p>
                 <h3 className="mt-2 text-2xl font-bold leading-tight text-foreground">{activeEpoch.label}</h3>
                 <p className="mt-2 text-sm leading-relaxed text-foreground/55">{activeEpoch.body}</p>
                 <div className="mt-5">
@@ -403,7 +403,7 @@ export function HowItWorksReplay() {
           </div>
 
           <div className="border-t border-border/60 px-5 py-4">
-            <p className="text-xs leading-relaxed text-foreground/45">
+            <p className="text-xs leading-relaxed text-foreground/55">
               The rank numbers and receipt panel are Corgi-site annotations for this product demo. Standard Bluesky clients render the ordered posts, not Corgi score panels.
             </p>
           </div>

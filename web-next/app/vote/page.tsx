@@ -22,6 +22,13 @@ import {
   type TopicCatalogEntry,
   type ContentRulesResponse,
 } from "@/lib/api/client"
+import {
+  votingState,
+  votingClosedDate,
+  showParticipationRatio,
+  ballotCountText,
+  type VotingState,
+} from "@/lib/governance-status"
 
 /* ─── Slider signal definitions ────────────────────────────── */
 
@@ -44,11 +51,11 @@ function submitStateOf(m: { isPending: boolean; isSuccess: boolean; isError: boo
   return "idle"
 }
 
-function phaseLabel(phase: string) {
-  if (phase === "voting")  return { label: "Voting open",   locked: false }
-  if (phase === "review")  return { label: "Under review — voting closed", locked: true }
-  if (phase === "running") return { label: "Running — ballot locked",      locked: true }
-  return { label: phase, locked: false }
+/** Chip key for the derived voting state — the ballot is locked unless voting is open. */
+function chipPhase(state: VotingState): "voting" | "review" | "closed" {
+  if (state === "open") return "voting"
+  if (state === "review") return "review"
+  return "closed"
 }
 
 function timeUntil(iso: string) {
@@ -60,7 +67,47 @@ function timeUntil(iso: string) {
   return `${h}h remaining`
 }
 
+function fmtClosedDate(d: Date | null) {
+  return d ? d.toLocaleDateString([], { dateStyle: "medium" }) : null
+}
+
 /* ─── Sub-components ─────────────────────────────────────── */
+
+/** Long suppression lists collapse behind a count so the ballot page isn't
+ *  dominated by filter keywords; the full list is one click away. */
+const FILTER_COLLAPSE_THRESHOLD = 6
+
+function ExcludeKeywordChips({ words, chipClass }: { words: string[]; chipClass: string }) {
+  const [expanded, setExpanded] = useState(false)
+  if (words.length <= FILTER_COLLAPSE_THRESHOLD || expanded) {
+    return (
+      <>
+        {words.map((w) => (
+          <span key={w} className={chipClass}>−{w}</span>
+        ))}
+        {words.length > FILTER_COLLAPSE_THRESHOLD && (
+          <button
+            type="button"
+            onClick={() => setExpanded(false)}
+            className="text-xs text-primary/80 hover:text-primary transition-colors underline underline-offset-2"
+          >
+            Collapse
+          </button>
+        )}
+      </>
+    )
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => setExpanded(true)}
+      className="inline-flex items-center gap-1 text-xs font-mono px-2 py-0.5 rounded-full bg-tongue/15 border border-tongue/30 text-tongue-foreground hover:bg-tongue/25 transition-colors"
+    >
+      − suppressed keywords · {words.length}
+      <span aria-hidden="true">▸</span>
+    </button>
+  )
+}
 
 function SectionTab({ id, active, label, done, onClick }: {
   id: Section; active: boolean; label: string; done: boolean; onClick: () => void
@@ -77,7 +124,7 @@ function SectionTab({ id, active, label, done, onClick }: {
         }`}
       aria-current={active ? "true" : undefined}
     >
-      <span className={`text-xs font-mono flex-shrink-0 ${active ? "text-primary" : "text-foreground/45"}`}>{num}</span>
+      <span className={`text-xs font-mono flex-shrink-0 ${active ? "text-primary" : "text-foreground/55"}`}>{num}</span>
       <span className="text-sm">{label}</span>
       {done && (
         <span className="ml-auto flex-shrink-0">
@@ -91,10 +138,11 @@ function SectionTab({ id, active, label, done, onClick }: {
 }
 
 function RoundCard({ epoch }: { epoch: EpochResponse }) {
-  const phase = epoch.phase ?? epoch.status
-  const { locked } = phaseLabel(phase)
+  const state = votingState(epoch)
+  const showRatio = showParticipationRatio(epoch.subscriber_count)
   const denom = epoch.subscriber_count ?? 0
   const pct = denom > 0 ? Math.round((epoch.vote_count / denom) * 100) : 0
+  const closedOn = fmtClosedDate(votingClosedDate(epoch))
   return (
     <div className="rounded-xl border border-border bg-card p-5 flex flex-col gap-5">
       {/* Page identity lives here, not floating above the grid */}
@@ -102,7 +150,7 @@ function RoundCard({ epoch }: { epoch: EpochResponse }) {
         <h1 className="font-display text-xl font-bold text-foreground tracking-normal leading-tight">
           Community ballot
         </h1>
-        <p className="text-xs text-foreground/45 leading-relaxed">
+        <p className="text-xs text-foreground/55 leading-relaxed">
           Your votes shape how the feed ranks posts.
         </p>
       </div>
@@ -111,29 +159,38 @@ function RoundCard({ epoch }: { epoch: EpochResponse }) {
 
       <div className="flex items-center justify-between gap-2">
         <div className="flex flex-col gap-0.5">
-          <span className="text-[10px] text-foreground/40 font-mono uppercase tracking-widest">Round</span>
+          <span className="text-[10px] text-foreground/50 font-mono uppercase tracking-widest">Round</span>
           <span className="text-2xl font-mono font-bold text-foreground leading-none">#{epoch.id}</span>
         </div>
-        <StatusChip phase={phase} />
+        <StatusChip phase={chipPhase(state)} />
       </div>
 
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between text-xs">
-          <span className="text-foreground/50">{epoch.vote_count.toLocaleString()} of {denom.toLocaleString()} voted</span>
-          <span className="font-mono text-foreground/60">{pct}%</span>
+      {showRatio ? (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-foreground/50">{epoch.vote_count.toLocaleString()} of {denom.toLocaleString()} voted</span>
+            <span className="font-mono text-foreground/60">{pct}%</span>
+          </div>
+          <div className="h-1.5 rounded-full bg-biscuit overflow-hidden">
+            <div className="h-1.5 rounded-full bg-primary/70 transition-all" style={{ width: `${pct}%` }} />
+          </div>
         </div>
-        <div className="h-1.5 rounded-full bg-biscuit overflow-hidden">
-          <div className="h-1.5 rounded-full bg-primary/70 transition-all" style={{ width: `${pct}%` }} />
-        </div>
-      </div>
+      ) : (
+        <p className="text-xs text-foreground/50">{ballotCountText(epoch.vote_count)}</p>
+      )}
 
-      {locked ? (
+      {state === "review" ? (
         <div className="rounded-lg bg-biscuit px-3 py-2.5 text-xs text-foreground/55 leading-relaxed">
           Voting is closed for this round. Results are being tallied.
         </div>
+      ) : state === "closed" ? (
+        <div className="rounded-lg bg-biscuit px-3 py-2.5 text-xs text-foreground/55 leading-relaxed">
+          Voting for this round closed{closedOn ? ` on ${closedOn}` : ""}. The aggregated weights are the
+          feed&rsquo;s active policy until the next round opens.
+        </div>
       ) : epoch.voting_ends_at ? (
         <div className="flex items-center justify-between">
-          <span className="text-[10px] text-foreground/40 font-mono uppercase tracking-widest">Closes</span>
+          <span className="text-[10px] text-foreground/50 font-mono uppercase tracking-widest">Closes</span>
           <span className="text-xs font-mono text-primary font-semibold">{timeUntil(epoch.voting_ends_at)}</span>
         </div>
       ) : null}
@@ -158,7 +215,7 @@ function SubmitRow({
     <div className="flex items-center justify-between gap-4 pt-4 border-t border-border/60">
       <div className="flex flex-col gap-0.5">
         {votedAt && state !== "success" && (
-          <span className="text-xs text-foreground/40 font-mono">
+          <span className="text-xs text-foreground/50 font-mono">
             Last voted {new Date(votedAt).toLocaleDateString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
           </span>
         )}
@@ -207,8 +264,7 @@ interface VoteWorkbenchProps {
 
 function VoteWorkbench({ epoch, myVote, topics, contentRules, isAuthenticated, onRequireAuth }: VoteWorkbenchProps) {
   const queryClient = useQueryClient()
-  const phase = epoch.phase ?? epoch.status
-  const { locked } = phaseLabel(phase)
+  const locked = votingState(epoch) !== "open"
 
   const [activeSection, setActiveSection] = useState<Section>("weights")
 
@@ -331,6 +387,7 @@ function VoteWorkbench({ epoch, myVote, topics, contentRules, isAuthenticated, o
     ([, v]) => Math.abs(v - 0.5) > 0.01
   ).length
 
+  const showRatio = showParticipationRatio(epoch.subscriber_count)
   const participationPct = (epoch.subscriber_count ?? 0) > 0
     ? Math.round((epoch.vote_count / (epoch.subscriber_count ?? 1)) * 100)
     : 0
@@ -353,7 +410,7 @@ function VoteWorkbench({ epoch, myVote, topics, contentRules, isAuthenticated, o
           </nav>
 
           {/* Back to overview */}
-          <Link href="/dashboard" className="text-xs text-foreground/40 hover:text-foreground/70 transition-colors text-center">
+          <Link href="/dashboard" className="text-xs text-foreground/50 hover:text-foreground/70 transition-colors text-center">
             ← Back to overview
           </Link>
         </aside>
@@ -365,7 +422,7 @@ function VoteWorkbench({ epoch, myVote, topics, contentRules, isAuthenticated, o
           {activeSection === "weights" && (
             <div className="rounded-xl border border-border bg-card p-6 flex flex-col gap-6">
               <div className="flex flex-col gap-1.5">
-                <span className="text-[10px] font-mono text-foreground/45 uppercase tracking-widest">01 — Ranking weights</span>
+                <span className="text-[10px] font-mono text-foreground/55 uppercase tracking-widest">01 — Ranking weights</span>
                 <h2 className="text-lg font-semibold text-foreground leading-snug">Signal weights</h2>
                 <p className="text-sm text-foreground/50 leading-relaxed">
                   Drag to allocate importance across the five signals. Adjusting one redistributes the rest — they
@@ -377,7 +434,7 @@ function VoteWorkbench({ epoch, myVote, topics, contentRules, isAuthenticated, o
                 <div className="flex flex-col gap-3">
                   <PolicyBar weights={myWeights} height={12} />
                   <PolicyLegend weights={myWeights} />
-                  <p className="text-xs text-foreground/40 italic pt-1">
+                  <p className="text-xs text-foreground/50 italic pt-1">
                     {seedVote
                       ? "Ballot locked — your submitted vote for this round is shown above."
                       : "Ballot locked — no vote was submitted; the community weights are shown above."}
@@ -408,7 +465,7 @@ function VoteWorkbench({ epoch, myVote, topics, contentRules, isAuthenticated, o
           {activeSection === "content" && (
             <div className="rounded-xl border border-border bg-card p-6 flex flex-col gap-6">
               <div className="flex flex-col gap-1.5">
-                <span className="text-[10px] font-mono text-foreground/45 uppercase tracking-widest">02 — Content rules</span>
+                <span className="text-[10px] font-mono text-foreground/55 uppercase tracking-widest">02 — Content rules</span>
                 <h2 className="text-lg font-semibold text-foreground leading-snug">Keywords</h2>
                 <p className="text-sm text-foreground/50 leading-relaxed">
                   Vote on which keywords to boost or suppress. Keywords reaching {Math.round(rules.threshold * 100)}% community support take effect.
@@ -439,15 +496,16 @@ function VoteWorkbench({ epoch, myVote, topics, contentRules, isAuthenticated, o
               {/* Community rules context */}
               <div className="rounded-lg bg-biscuit/50 border border-border/60 px-4 py-3 flex flex-col gap-1">
                 <p className="text-xs font-semibold text-foreground/55 uppercase tracking-wide">Active community rules</p>
-                <div className="flex flex-wrap gap-1.5 mt-1">
+                <div className="flex flex-wrap items-center gap-1.5 mt-1">
                   {rules.include_keywords.map((w) => (
                     <span key={w} className="text-xs font-mono px-2 py-0.5 rounded-full bg-success/10 border border-success/25 text-success">+{w}</span>
                   ))}
-                  {rules.exclude_keywords.map((w) => (
-                    <span key={w} className="text-xs font-mono px-2 py-0.5 rounded-full bg-tongue/15 border border-tongue/30 text-tongue-foreground line-through">−{w}</span>
-                  ))}
+                  <ExcludeKeywordChips
+                    words={rules.exclude_keywords}
+                    chipClass="text-xs font-mono px-2 py-0.5 rounded-full bg-tongue/15 border border-tongue/30 text-tongue-foreground line-through"
+                  />
                   {rules.include_keywords.length === 0 && rules.exclude_keywords.length === 0 && (
-                    <span className="text-xs text-foreground/40 italic">No active rules yet</span>
+                    <span className="text-xs text-foreground/50 italic">No active rules yet</span>
                   )}
                 </div>
               </div>
@@ -468,7 +526,7 @@ function VoteWorkbench({ epoch, myVote, topics, contentRules, isAuthenticated, o
               <div className="flex flex-col gap-1">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex flex-col gap-1.5">
-                    <span className="text-[10px] font-mono text-foreground/45 uppercase tracking-widest">03 — Topic preferences</span>
+                    <span className="text-[10px] font-mono text-foreground/55 uppercase tracking-widest">03 — Topic preferences</span>
                     <h2 className="text-lg font-semibold text-foreground leading-snug">Topics</h2>
                     <p className="text-sm text-foreground/50 leading-relaxed">
                       Slide right to boost a topic, left to reduce it. The vertical marker shows the community average.
@@ -483,7 +541,7 @@ function VoteWorkbench({ epoch, myVote, topics, contentRules, isAuthenticated, o
                         setTopicValues(reset)
                         topicsMutation.reset()
                       }}
-                      className="text-xs text-foreground/40 hover:text-primary transition-colors underline underline-offset-2 flex-shrink-0 mt-1"
+                      className="text-xs text-foreground/50 hover:text-primary transition-colors underline underline-offset-2 flex-shrink-0 mt-1"
                     >
                       Reset all
                     </button>
@@ -533,7 +591,7 @@ function VoteWorkbench({ epoch, myVote, topics, contentRules, isAuthenticated, o
 
           {/* Running community weights — the signature stacked bar */}
           <div className="p-5 flex flex-col gap-3">
-            <p className="text-[10px] text-foreground/40 font-mono uppercase tracking-widest">Community mix · Round #{epoch.id}</p>
+            <p className="text-[10px] text-foreground/50 font-mono uppercase tracking-widest">Community mix · Round #{epoch.id}</p>
             <PolicyBar weights={communityWeights} height={10} />
             <PolicyLegend weights={communityWeights} />
           </div>
@@ -542,17 +600,18 @@ function VoteWorkbench({ epoch, myVote, topics, contentRules, isAuthenticated, o
 
           {/* Active content filters summary */}
           <div className="p-5 flex flex-col gap-2.5">
-            <p className="text-[10px] text-foreground/40 font-mono uppercase tracking-widest">Active filters</p>
+            <p className="text-[10px] text-foreground/50 font-mono uppercase tracking-widest">Active filters</p>
             {rules.include_keywords.length === 0 && rules.exclude_keywords.length === 0 ? (
-              <p className="text-xs text-foreground/45">None this round</p>
+              <p className="text-xs text-foreground/55">None this round</p>
             ) : (
-              <div className="flex flex-wrap gap-1.5">
+              <div className="flex flex-wrap items-center gap-1.5">
                 {rules.include_keywords.map((w) => (
                   <span key={w} className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-success/10 border border-success/25 text-success">+{w}</span>
                 ))}
-                {rules.exclude_keywords.map((w) => (
-                  <span key={w} className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-tongue/15 border border-tongue/30 text-tongue-foreground">−{w}</span>
-                ))}
+                <ExcludeKeywordChips
+                  words={rules.exclude_keywords}
+                  chipClass="text-[11px] font-mono px-2 py-0.5 rounded-full bg-tongue/15 border border-tongue/30 text-tongue-foreground"
+                />
               </div>
             )}
           </div>
@@ -561,17 +620,23 @@ function VoteWorkbench({ epoch, myVote, topics, contentRules, isAuthenticated, o
 
           {/* Participation — quiet, not a callout */}
           <div className="p-5 flex flex-col gap-2">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-foreground/50">{epoch.vote_count.toLocaleString()} of {(epoch.subscriber_count ?? 0).toLocaleString()} voted</span>
-              <span className="font-mono text-foreground/60">{participationPct}%</span>
-            </div>
-            <div className="h-1.5 rounded-full bg-biscuit overflow-hidden">
-              <div
-                className="h-1.5 rounded-full bg-primary/70 transition-all"
-                style={{ width: `${participationPct}%` }}
-              />
-            </div>
-            <p className="text-[10px] text-foreground/40 leading-relaxed">
+            {showRatio ? (
+              <>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-foreground/50">{epoch.vote_count.toLocaleString()} of {(epoch.subscriber_count ?? 0).toLocaleString()} voted</span>
+                  <span className="font-mono text-foreground/60">{participationPct}%</span>
+                </div>
+                <div className="h-1.5 rounded-full bg-biscuit overflow-hidden">
+                  <div
+                    className="h-1.5 rounded-full bg-primary/70 transition-all"
+                    style={{ width: `${participationPct}%` }}
+                  />
+                </div>
+              </>
+            ) : (
+              <p className="text-xs text-foreground/50">{ballotCountText(epoch.vote_count)}</p>
+            )}
+            <p className="text-[10px] text-foreground/50 leading-relaxed">
               Each vote counts equally.
             </p>
           </div>

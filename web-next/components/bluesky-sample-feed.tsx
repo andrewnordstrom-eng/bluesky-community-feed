@@ -76,7 +76,7 @@ export function BlueskyOrderedFeed(props: BlueskyOrderedFeedProps) {
     <div className="flex flex-col gap-4">
       {props.showIntro ? (
         <div className="flex flex-col gap-1">
-          <p className="text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/45">
+          <p className="text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/55">
             Bluesky view
           </p>
           <div className="flex flex-col gap-1">
@@ -181,7 +181,7 @@ export function BlueskyOrderedFeed(props: BlueskyOrderedFeedProps) {
                       #{post.rank}
                     </span>
                     <span className="block font-mono text-[11px] font-semibold text-primary sm:mt-2">{post.score}</span>
-                    <span className="block text-[10px] leading-tight text-foreground/45 sm:mt-1">{post.reason}</span>
+                    <span className="block text-[10px] leading-tight text-foreground/55 sm:mt-1">{post.reason}</span>
                   </aside>
                 </div>
               ))}
@@ -191,7 +191,7 @@ export function BlueskyOrderedFeed(props: BlueskyOrderedFeedProps) {
       </div>
 
       {props.showDisclosure ? (
-        <p className="text-xs leading-relaxed text-foreground/45">
+        <p className="text-xs leading-relaxed text-foreground/55">
           The Corgi score rail is an annotation for this product demo. Standard Bluesky clients render only the ordered posts; Corgi hosts the explanation.
         </p>
       ) : null}

@@ -9,7 +9,7 @@ export default function NotFound() {
       <Header />
       <main className="flex-1 flex items-center justify-center px-5 py-20 md:py-28">
         <div className="w-full max-w-md flex flex-col items-center gap-4 text-center">
-          <p className="text-[11px] font-mono uppercase tracking-[0.22em] text-foreground/45">404</p>
+          <p className="text-[11px] font-mono uppercase tracking-[0.22em] text-foreground/55">404</p>
           <h1 className="font-display text-3xl md:text-4xl font-bold tracking-tight text-foreground leading-tight text-balance">
             This page ran off with the ball.
           </h1>

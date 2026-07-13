@@ -30,7 +30,7 @@ export default function SignInPage() {
       <Header />
       <main className="flex-1 flex items-center justify-center px-5 py-16 md:py-24">
         <div className="w-full max-w-xl text-center">
-          <p className="text-[11px] font-mono uppercase tracking-[0.22em] text-foreground/45">Sign in</p>
+          <p className="text-[11px] font-mono uppercase tracking-[0.22em] text-foreground/55">Sign in</p>
           <h1 className="mt-3 font-display text-3xl md:text-4xl font-bold tracking-tight text-foreground leading-tight text-balance">
             Connect your Bluesky account to vote.
           </h1>

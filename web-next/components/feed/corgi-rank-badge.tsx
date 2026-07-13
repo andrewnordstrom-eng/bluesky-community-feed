@@ -67,7 +67,7 @@ function MovementPill({ dir, delta, title }: { readonly dir: RankMovementDir; re
     up: { cls: "bg-success-bg text-success", icon: <ArrowUp className="h-3 w-3" aria-hidden="true" />, label: `${delta}` },
     down: { cls: "bg-[#F3E3DC] text-[#A5563B]", icon: <ArrowDown className="h-3 w-3" aria-hidden="true" />, label: `${delta}` },
     new: { cls: "bg-biscuit/60 text-foreground/60", icon: null, label: "new" },
-    held: { cls: "bg-biscuit/45 text-foreground/45", icon: <Minus className="h-3 w-3" aria-hidden="true" />, label: "held" },
+    held: { cls: "bg-biscuit/45 text-foreground/55", icon: <Minus className="h-3 w-3" aria-hidden="true" />, label: "held" },
   }[dir]
   return (
     <span
@@ -140,7 +140,7 @@ export function CorgiRankBadge({
           onClick={() => setOpen((value) => !value)}
           aria-expanded={open}
           aria-controls={panelId}
-          className={`group mt-2 inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-foreground/40 transition-colors hover:text-primary ${FOCUS}`}
+          className={`group mt-2 inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-foreground/50 transition-colors hover:text-primary ${FOCUS}`}
         >
           Why
           <ChevronDown className={`h-3 w-3 transition-transform duration-200 ${open ? "rotate-180" : ""}`} aria-hidden="true" />
@@ -179,7 +179,7 @@ export function CorgiRankBadge({
                 {summary.text}
               </p>
             ) : null}
-            <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.14em] text-foreground/45">raw &times; weight = contribution</p>
+            <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.14em] text-foreground/55">raw &times; weight = contribution</p>
             <div className="mt-2.5 flex flex-col gap-1.5">
               {top.map((signal) => (
                 <div key={signal.key} className="flex items-center gap-2 text-[12px]">

@@ -116,7 +116,7 @@ export default function SettingsPage() {
     content = (
       <Container width="doc" className="flex flex-col gap-5 py-10 md:py-14">
         <div>
-          <p className="text-[11px] font-mono uppercase tracking-[0.22em] text-foreground/45">Account</p>
+          <p className="text-[11px] font-mono uppercase tracking-[0.22em] text-foreground/55">Account</p>
           <h1 className="mt-2 font-display text-3xl font-bold tracking-tight text-foreground">Settings</h1>
         </div>
 

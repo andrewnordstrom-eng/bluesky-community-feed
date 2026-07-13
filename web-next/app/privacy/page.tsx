@@ -1,5 +1,13 @@
+import type { Metadata } from "next"
 import { AppShell } from "@/components/app-shell"
 import { LegalLayout, P, UL, LI, Strong, InlineLink } from "@/components/legal-layout"
+
+export const metadata: Metadata = {
+  title: "Privacy Policy | Corgi",
+  description:
+    "What Corgi collects to run community feed governance, how votes stay private while outcomes stay public, and your data rights.",
+  alternates: { canonical: "/privacy/" },
+}
 
 const SECTIONS = [
   {

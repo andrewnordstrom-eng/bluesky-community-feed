@@ -5,6 +5,7 @@ import { LegalLayout, P, UL, LI, Strong, InlineLink } from "@/components/legal-l
 export const metadata: Metadata = {
   title: "Corgi support — get help and report issues",
   description: "How to get help with Corgi: contact, bug reports, feature requests, security disclosure, and account help.",
+  alternates: { canonical: "/support/" },
 }
 
 const GITHUB_ISSUES = "https://github.com/andrewnordstrom-eng/bluesky-community-feed/issues"

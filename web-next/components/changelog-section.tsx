@@ -47,7 +47,7 @@ export function ChangelogSection() {
           <h2 className="text-foreground font-display text-2xl md:text-3xl font-bold leading-tight tracking-tight">
             Trust lives in the product
           </h2>
-          <p className="text-foreground/45 text-sm font-normal">
+          <p className="text-foreground/55 text-sm font-normal">
             The landing stays product-first, with receipt details one click away.
           </p>
         </div>
@@ -62,7 +62,7 @@ export function ChangelogSection() {
       <div className="w-full max-w-3xl flex flex-col divide-y divide-border/60 rounded-2xl border border-border overflow-hidden bg-card shadow-[0_2px_12px_rgba(46,38,32,0.05)]">
         {entries.map((entry) => (
           <div key={entry.text} className="flex items-start gap-4 px-5 py-4">
-            <span className="font-mono text-foreground/45 text-xs pt-0.5 flex-shrink-0 w-[62px]">
+            <span className="font-mono text-foreground/55 text-xs pt-0.5 flex-shrink-0 w-[62px]">
               {entry.date}
             </span>
             <span

@@ -60,7 +60,7 @@ export function FooterSection() {
               >
                 Bluesky feed
               </a>
-              <span className="text-foreground/45" aria-hidden="true">·</span>
+              <span className="text-foreground/55" aria-hidden="true">·</span>
               <a
                 href={GITHUB_URL}
                 aria-label="Corgi on GitHub"

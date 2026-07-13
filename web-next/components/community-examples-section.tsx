@@ -87,8 +87,8 @@ export function CommunityExamplesSection() {
           </article>
         ))}
       </div>
-      <p className="pb-12 text-xs leading-relaxed text-foreground/45 md:pb-16">
-        Example communities, illustrative. Live ranking on Corgi uses anonymized receipts and snapshot data.
+      <p className="pb-12 text-xs leading-relaxed text-foreground/55 md:pb-16">
+        Example communities, illustrative.
       </p>
       </Container>
     </section>
