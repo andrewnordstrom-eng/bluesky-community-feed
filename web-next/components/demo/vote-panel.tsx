@@ -3,8 +3,11 @@
 import { useMemo, useState } from "react"
 import { RotateCcw, Search, SlidersHorizontal } from "lucide-react"
 import {
+  SHADOW_DEMO_CONTENT_RULE_SUPPORT_THRESHOLD,
   SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS,
+  SHADOW_DEMO_MAX_EXCLUDE_KEYWORD_LENGTH,
   SHADOW_DEMO_SIGNAL_KEYS,
+  SHADOW_DEMO_TOTAL_DEMO_VOTERS,
   type ShadowDemoContentRulesSummary,
   type ShadowDemoSuggestedExcludeKeyword,
   type ShadowDemoTopicCatalogEntry,
@@ -31,8 +34,11 @@ import { DEMO_PANEL_FRAME_CLASS, DEMO_PANEL_SCROLL_BODY_CLASS } from "./panel-la
 import { TopicPolicy, topicLabel } from "./topic-policy"
 import { WeightBars } from "./weight-bars"
 
-const CONTENT_RULE_FALLBACK_THRESHOLD = 8
-const CONTENT_RULE_FALLBACK_ELECTORATE = 25
+const CONTENT_RULE_FALLBACK_ELECTORATE = SHADOW_DEMO_TOTAL_DEMO_VOTERS
+const CONTENT_RULE_FALLBACK_THRESHOLD = Math.max(
+  1,
+  Math.ceil(SHADOW_DEMO_TOTAL_DEMO_VOTERS * SHADOW_DEMO_CONTENT_RULE_SUPPORT_THRESHOLD),
+)
 
 const FOCUS =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
@@ -204,7 +210,13 @@ export function VotePanel({
   }
 
   function toggleSuggestedKeyword(keyword: string): void {
-    const normalized = keyword.trim().toLowerCase().slice(0, 50)
+    // Mirrors KeywordInput's add-path normalization so a suggested keyword
+    // dedupes against an equivalent manually-typed one.
+    const normalized = keyword
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "-")
+      .slice(0, SHADOW_DEMO_MAX_EXCLUDE_KEYWORD_LENGTH)
     if (normalized.length === 0) return
     setExcludeKeywords((current) => current.includes(normalized)
       ? current.filter((entry) => entry !== normalized)

@@ -3,7 +3,7 @@
 import { useState, useRef, KeyboardEvent } from "react"
 
 const MAX_KEYWORDS = 20
-const MAX_KEYWORD_LENGTH = 50
+export const KEYWORD_MAX_LENGTH = 50
 
 interface KeywordInputProps {
   label: string
@@ -33,7 +33,7 @@ export function KeywordInput({
   const atMax = keywords.length >= maxKeywords
 
   const add = (raw: string) => {
-    const word = raw.trim().toLowerCase().replace(/\s+/g, "-").slice(0, MAX_KEYWORD_LENGTH)
+    const word = raw.trim().toLowerCase().replace(/\s+/g, "-").slice(0, KEYWORD_MAX_LENGTH)
     if (!word || keywords.includes(word) || atMax) return
     onChange([...keywords, word])
     setInputValue("")

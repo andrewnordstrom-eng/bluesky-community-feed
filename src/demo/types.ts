@@ -453,7 +453,7 @@ export interface ShadowDemoFeedPayload {
   corpusProvenance: ShadowDemoCorpusProvenance;
   aggregate: ShadowDemoVoteSummary;
   posts: ShadowDemoRankedPost[];
-  /** Present only when DEMO_CONTENT_RULES_ENABLED and the epoch adopted rules. */
+  /** Present only when content rules are enabled for the epoch; may be an empty array. */
   withheldPosts?: ShadowDemoWithheldPost[];
 }
 

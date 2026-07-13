@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import type { Redis } from 'ioredis';
+import { describe, expect, it, vi } from 'vitest';
 import {
   aggregateShadowContentRules,
   applyShadowContentRules,
@@ -8,8 +9,8 @@ import {
   validateShadowExcludeKeywords,
 } from '../src/demo/content-rules.js';
 import { ShadowDemoService } from '../src/demo/service.js';
-import { MemoryDemoStore } from '../src/demo/store.js';
-import type { ShadowDemoCorpus, ShadowDemoVote } from '../src/demo/types.js';
+import { DemoStoreCorruptionError, MemoryDemoStore, RedisDemoStore } from '../src/demo/store.js';
+import type { ShadowDemoCorpus, ShadowDemoSessionState, ShadowDemoVote } from '../src/demo/types.js';
 
 const NOW = new Date('2026-07-12T22:30:00.000Z');
 const TOPIC_SLUGS = [
@@ -45,6 +46,14 @@ describe('shadow demo content-rule primitives', () => {
     expect(() => validateShadowExcludeKeywords(['x'.repeat(51)])).toThrow(/50/);
     expect(() => validateShadowExcludeKeywords(Array.from({ length: 11 }, (_u, i) => `k${i}`)))
       .toThrow(/at most 10/);
+
+    // Inclusive limits: exactly 10 keywords, each exactly 10 characters, are accepted.
+    const tenKeywords = Array.from({ length: 10 }, (_u, i) => `k${i}`.padEnd(10, 'x'));
+    expect(validateShadowExcludeKeywords(tenKeywords)).toEqual(tenKeywords);
+
+    // Inclusive limit: a single exactly-50-character keyword is accepted unchanged.
+    const fiftyCharKeyword = 'y'.repeat(50);
+    expect(validateShadowExcludeKeywords([fiftyCharKeyword])).toEqual([fiftyCharKeyword]);
   });
 
   it('adopts keywords at the production 30% share over the full electorate', () => {
@@ -248,6 +257,126 @@ describe('shadow demo content rules enabled', () => {
     expect(runs[0]).toEqual(runs[1]);
   });
 });
+
+describe('shadow demo stored content-rules schema round trip', () => {
+  it('round-trips an adopted content-rules summary and a reviewer excludeKeywords ballot through the Redis store schema', async () => {
+    const session = storedSessionWithContentRules();
+    const { corpus: storedCorpus, ...header } = session;
+    const get = vi.fn()
+      .mockResolvedValueOnce(JSON.stringify(header))
+      .mockResolvedValueOnce(JSON.stringify(storedCorpus));
+    const store = new RedisDemoStore({ get } as unknown as Redis);
+
+    const restored = await store.readSession(session.sessionId);
+
+    expect(restored?.epochs[0]?.aggregate.contentRules).toEqual({
+      enabled: true,
+      threshold: 8,
+      electorate: 25,
+      adoptedExcludeKeywords: ['atproto'],
+      support: [{ keyword: 'atproto', supportCount: 10, adopted: true }],
+    });
+    expect(restored?.votes[0]?.excludeKeywords).toEqual(['atproto']);
+  });
+
+  it('rejects a stored session whose content-rules arrays exceed the schema bounds', async () => {
+    const tooManyAdopted = storedSessionWithContentRules();
+    tooManyAdopted.epochs[0].aggregate.contentRules!.adoptedExcludeKeywords =
+      Array.from({ length: 11 }, (_unused, i) => `keyword-${i}`);
+    const { corpus: adoptedCorpus, ...adoptedHeader } = tooManyAdopted;
+    const getAdopted = vi.fn()
+      .mockResolvedValueOnce(JSON.stringify(adoptedHeader))
+      .mockResolvedValueOnce(JSON.stringify(adoptedCorpus));
+    await expect(
+      new RedisDemoStore({ get: getAdopted } as unknown as Redis).readSession(tooManyAdopted.sessionId)
+    ).rejects.toBeInstanceOf(DemoStoreCorruptionError);
+
+    const tooMuchSupport = storedSessionWithContentRules();
+    tooMuchSupport.epochs[0].aggregate.contentRules!.support = Array.from({ length: 251 }, (_unused, i) => ({
+      keyword: `keyword-${i}`,
+      supportCount: 1,
+      adopted: false,
+    }));
+    const { corpus: supportCorpus, ...supportHeader } = tooMuchSupport;
+    const getSupport = vi.fn()
+      .mockResolvedValueOnce(JSON.stringify(supportHeader))
+      .mockResolvedValueOnce(JSON.stringify(supportCorpus));
+    await expect(
+      new RedisDemoStore({ get: getSupport } as unknown as Redis).readSession(tooMuchSupport.sessionId)
+    ).rejects.toBeInstanceOf(DemoStoreCorruptionError);
+  });
+});
+
+function storedSessionWithContentRules(): ShadowDemoSessionState {
+  const weights = { recency: 0.2, engagement: 0.2, bridging: 0.2, source_diversity: 0.2, relevance: 0.2 };
+  const topicIntent = { topicWeights: { 'science-research': 0.8 } };
+  return {
+    sessionId: 'content-rules-store-session',
+    communityId: 'community_gov',
+    seed: 'seed-0',
+    phase: 'epoch_advanced',
+    createdAt: NOW.toISOString(),
+    expiresAt: new Date(NOW.getTime() + 90 * 60_000).toISOString(),
+    corpusId: 'content-rules-store-corpus',
+    currentEpochId: 'epoch-1',
+    epochs: [{
+      id: 'epoch-1',
+      sequence: 1,
+      label: 'Epoch 1',
+      status: 'open',
+      createdAt: NOW.toISOString(),
+      advancedAt: null,
+      decidedByEpochId: null,
+      aggregate: {
+        aggregateMethod: 'trimmed_mean_no_trim_under_10',
+        voteCount: 1,
+        trimCount: 0,
+        weights,
+        topicIntent,
+        contentRules: {
+          enabled: true,
+          threshold: 8,
+          electorate: 25,
+          adoptedExcludeKeywords: ['atproto'],
+          support: [{ keyword: 'atproto', supportCount: 10, adopted: true }],
+        },
+      },
+    }],
+    votes: [{
+      id: 'vote-1',
+      epochId: 'epoch-1',
+      label: 'Reviewer ballot',
+      weights,
+      topicIntent,
+      excludeKeywords: ['atproto'],
+      createdAt: NOW.toISOString(),
+      actorType: 'reviewer',
+      actorId: 'reviewer',
+    }],
+    corpus: {
+      corpusId: 'content-rules-store-corpus',
+      communityId: 'community_gov',
+      baseProductionEpochId: 2,
+      baseWeights: weights,
+      baseTopicIntent: topicIntent,
+      createdAt: NOW.toISOString(),
+      expiresAt: new Date(NOW.getTime() + 90 * 60_000).toISOString(),
+      items: [],
+      health: {
+        status: 'live',
+        source: 'production_feed_snapshot',
+        candidatePosts72h: 100,
+        publicScoredPosts: 40,
+        uniqueAuthors72h: 40,
+        bridgePostShare: 0.33,
+        topAuthorConcentration: 0.025,
+        sampledAt: NOW.toISOString(),
+      },
+      warnings: [],
+    },
+    warnings: [],
+  };
+}
 
 function buildService(options: { contentRulesEnabled: boolean; seed: string }): ShadowDemoService {
   return new ShadowDemoService({

@@ -1,11 +1,13 @@
 import {
   SHADOW_DEMO_COMMUNITY_IDS,
+  SHADOW_DEMO_CONTENT_RULE_SUPPORT_THRESHOLD,
   SHADOW_DEMO_CONTRACT_VERSION,
   SHADOW_DEMO_GUIDED_EPOCHS,
   SHADOW_DEMO_MAX_EPOCHS_PER_SESSION,
   SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS,
   SHADOW_DEMO_MAX_EXCLUDE_KEYWORD_LENGTH,
   SHADOW_DEMO_SIGNAL_KEYS,
+  SHADOW_DEMO_TOTAL_DEMO_VOTERS,
   SHADOW_DEMO_VOTER_BLOC_IDS,
   type ShadowDemoCommunityId,
   type ShadowDemoContentRuleSupport,
@@ -20,12 +22,14 @@ import {
 
 export {
   SHADOW_DEMO_COMMUNITY_IDS,
+  SHADOW_DEMO_CONTENT_RULE_SUPPORT_THRESHOLD,
   SHADOW_DEMO_CONTRACT_VERSION,
   SHADOW_DEMO_GUIDED_EPOCHS,
   SHADOW_DEMO_MAX_EPOCHS_PER_SESSION,
   SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS,
   SHADOW_DEMO_MAX_EXCLUDE_KEYWORD_LENGTH,
   SHADOW_DEMO_SIGNAL_KEYS,
+  SHADOW_DEMO_TOTAL_DEMO_VOTERS,
   SHADOW_DEMO_VOTER_BLOC_IDS,
 }
 export type {
@@ -258,7 +262,7 @@ export interface ShadowDemoFeed {
   readonly corpusHealth: ShadowDemoCorpusHealth
   readonly corpusProvenance: ShadowDemoCorpusProvenance
   readonly aggregate: ShadowDemoAggregate
-  /** Present only when DEMO_CONTENT_RULES_ENABLED and the epoch adopted rules. */
+  /** Present when content rules are enabled for the epoch; may be an empty array. */
   readonly withheldPosts?: readonly ShadowDemoWithheldFeedItem[]
 }
 

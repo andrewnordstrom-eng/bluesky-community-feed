@@ -88,7 +88,7 @@ export function validateShadowExcludeKeywords(value: unknown): string[] {
     if (keyword.trim().length === 0) {
       throw new Error('Shadow demo excludeKeywords must not contain empty keywords');
     }
-    if (keyword.length > SHADOW_DEMO_MAX_EXCLUDE_KEYWORD_LENGTH) {
+    if (keyword.trim().length > SHADOW_DEMO_MAX_EXCLUDE_KEYWORD_LENGTH) {
       throw new Error(
         `Shadow demo exclude keywords are limited to ${SHADOW_DEMO_MAX_EXCLUDE_KEYWORD_LENGTH} characters`
       );

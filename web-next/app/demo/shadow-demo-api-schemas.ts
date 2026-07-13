@@ -1,4 +1,8 @@
 import { z } from "zod"
+import {
+  SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS,
+  SHADOW_DEMO_MAX_EXCLUDE_KEYWORD_LENGTH,
+} from "@/app/demo/shadow-demo-view-model"
 
 export const CONTRACT_VERSION = "2026-07-11.shadow-demo.v4" as const
 
@@ -43,22 +47,28 @@ const warningSchema = z.object({
   severity: z.enum(["info", "warning", "degraded"]),
 }).strict()
 
+const excludeKeywordStringSchema = z.string().min(1).max(SHADOW_DEMO_MAX_EXCLUDE_KEYWORD_LENGTH)
+const excludeKeywordListSchema = z.array(excludeKeywordStringSchema).max(SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS)
+
 const contentRuleSupportSchema = z.object({
-  keyword: z.string().min(1).max(50),
+  keyword: excludeKeywordStringSchema,
   supportCount: z.number().int().nonnegative(),
   adopted: z.boolean(),
 }).strict()
 
-const contentRulesSummarySchema = z.object({
-  enabled: z.literal(true),
+const contentRulesBaseSchema = z.object({
   threshold: z.number().int().positive(),
   electorate: z.number().int().nonnegative(),
-  adoptedExcludeKeywords: z.array(z.string().min(1).max(50)),
+  adoptedExcludeKeywords: excludeKeywordListSchema,
+})
+
+const contentRulesSummarySchema = contentRulesBaseSchema.extend({
+  enabled: z.literal(true),
   support: z.array(contentRuleSupportSchema),
 }).strict()
 
 const suggestedExcludeKeywordSchema = z.object({
-  keyword: z.string().min(1).max(50),
+  keyword: excludeKeywordStringSchema,
   matchCount: z.number().int().nonnegative(),
 }).strict()
 
@@ -88,7 +98,7 @@ const voteBaseSchema = z.object({
   label: z.string().min(1),
   weights: apiWeightsSchema,
   topicIntent: apiTopicIntentSchema,
-  excludeKeywords: z.array(z.string().min(1).max(50)).max(10).optional(),
+  excludeKeywords: excludeKeywordListSchema.optional(),
   createdAt: isoDateTime,
 })
 
@@ -316,7 +326,7 @@ const rawScoresSchema = z.object({
 }).strict()
 
 const withheldPostSchema = z.object({
-  keyword: z.string().min(1).max(50),
+  keyword: excludeKeywordStringSchema,
   supportCount: z.number().int().nonnegative(),
   previousRank: z.number().int().positive().nullable(),
   post: z.discriminatedUnion("kind", [publicPostSchema, hiddenPostSchema]),
@@ -386,10 +396,7 @@ export const apiReceiptPayloadSchema = z.object({
       rank: z.number().int().positive().nullable(),
       deltaFromVisible: z.number().int().nullable(),
     }).strict()),
-    contentRules: z.object({
-      adoptedExcludeKeywords: z.array(z.string().min(1).max(50)),
-      threshold: z.number().int().positive(),
-      electorate: z.number().int().nonnegative(),
+    contentRules: contentRulesBaseSchema.extend({
       matchedKeyword: z.null(),
     }).strict().optional(),
   }).strict(),

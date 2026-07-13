@@ -4,6 +4,7 @@ import { z, type ZodTypeAny } from 'zod';
 import { logger } from '../lib/logger.js';
 import {
   SHADOW_DEMO_COMMUNITY_IDS,
+  SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS,
   SHADOW_DEMO_PHASES,
   SHADOW_DEMO_SIGNAL_KEYS,
   SHADOW_DEMO_TOPIC_KEYS,
@@ -170,12 +171,12 @@ const StoredContentRulesSummarySchema = z.object({
   enabled: z.literal(true),
   threshold: z.number().int().positive(),
   electorate: z.number().int().nonnegative(),
-  adoptedExcludeKeywords: z.array(z.string().min(1).max(50)),
+  adoptedExcludeKeywords: z.array(z.string().min(1).max(50)).max(SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS),
   support: z.array(z.object({
     keyword: z.string().min(1).max(50),
     supportCount: z.number().int().nonnegative(),
     adopted: z.boolean(),
-  })),
+  })).max(250),
 });
 
 const StoredVoteSummarySchema = z.object({
