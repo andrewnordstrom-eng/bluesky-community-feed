@@ -104,9 +104,12 @@ describe('Corgi cold-start product story', () => {
     expect(updater).toContain("displayName: DISPLAY_NAME");
     expect(updater).toContain("description: DESCRIPTION");
     expect(updater).toContain('...currentRecord');
+    expect(updater).toContain('const currentServiceDid = currentRecord.did');
+    expect(updater).toContain('verification.value.did !== currentServiceDid');
     expect(updater).toContain('swapRecord: currentResponse.data.cid');
     expect(updater).toContain("if (!apply)");
     expect(updater).toContain("process.argv.includes('--apply')");
+    expect(updater).not.toContain("requireEnvironmentValue('FEEDGEN_SERVICE_DID')");
     expect(updater).not.toContain('createdAt: new Date');
   });
 });

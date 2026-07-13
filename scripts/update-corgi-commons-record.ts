@@ -27,7 +27,6 @@ async function main(): Promise<void> {
   const apply = process.argv.includes('--apply');
   const identifier = requireEnvironmentValue('BSKY_IDENTIFIER');
   const password = requireEnvironmentValue('BSKY_APP_PASSWORD');
-  const expectedServiceDid = requireEnvironmentValue('FEEDGEN_SERVICE_DID');
   const agent = new BskyAgent({ service: 'https://bsky.social' });
 
   await agent.login({ identifier, password });
@@ -41,16 +40,21 @@ async function main(): Promise<void> {
     collection: COLLECTION,
     rkey: FEED_RKEY,
   });
+  const expectedRecordUri = `at://${publisherDid}/${COLLECTION}/${FEED_RKEY}`;
+  if (currentResponse.data.uri !== expectedRecordUri) {
+    throw new Error(
+      `Refusing to update an unexpected feed record: expected=${expectedRecordUri} actual=${currentResponse.data.uri}`,
+    );
+  }
   const validation = AppBskyFeedGenerator.validateRecord(currentResponse.data.value);
   if (!validation.success) {
     throw new Error(`Existing ${COLLECTION}/${FEED_RKEY} record failed lexicon validation`);
   }
 
   const currentRecord = validation.value;
-  if (currentRecord.did !== expectedServiceDid) {
-    throw new Error(
-      `Refusing to update feed record with unexpected service DID: expected=${expectedServiceDid} actual=${currentRecord.did}`,
-    );
+  const currentServiceDid = currentRecord.did;
+  if (!currentServiceDid.startsWith('did:')) {
+    throw new Error(`Existing feed record has an invalid service DID: ${currentServiceDid}`);
   }
 
   const updatedRecord: AppBskyFeedGenerator.Record = {
@@ -61,6 +65,7 @@ async function main(): Promise<void> {
 
   process.stdout.write(`Publisher DID: ${publisherDid}\n`);
   process.stdout.write(`Record: ${COLLECTION}/${FEED_RKEY}\n`);
+  process.stdout.write(`Preserved service DID: ${currentServiceDid}\n`);
   process.stdout.write(`Current display name: ${currentRecord.displayName}\n`);
   process.stdout.write(`Target display name: ${DISPLAY_NAME}\n`);
 
@@ -91,7 +96,11 @@ async function main(): Promise<void> {
   if (!verification.success) {
     throw new Error('Updated feed record failed lexicon validation');
   }
-  if (verification.value.displayName !== DISPLAY_NAME || verification.value.description !== DESCRIPTION) {
+  if (
+    verification.value.did !== currentServiceDid
+    || verification.value.displayName !== DISPLAY_NAME
+    || verification.value.description !== DESCRIPTION
+  ) {
     throw new Error('Feed record verification did not match the approved Corgi Commons copy');
   }
 
