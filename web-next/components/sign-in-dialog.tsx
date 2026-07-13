@@ -94,11 +94,16 @@ export function SignInDialog({ open, onOpenChange, initialMode = "signin" }: Sig
       onOpenChange(false)
     } catch (err) {
       if (!isMounted.current) return
-      if (axios.isAxiosError(err) && err.response?.status === 403 && err.response.data?.waitlist) {
+      const status = axios.isAxiosError(err) ? err.response?.status : undefined
+      if (status === 403 && axios.isAxiosError(err) && err.response?.data?.waitlist) {
         // Valid credentials, but the account isn't approved for the pilot.
         setNotApproved(true)
-      } else {
+      } else if (status === 401) {
+        // Bluesky rejected the credentials.
         setSignInError("Check your handle and app password.")
+      } else {
+        // Timeout, network failure, or a 5xx — not a credentials problem.
+        setSignInError("Couldn't sign in right now. Please try again.")
       }
     } finally {
       if (isMounted.current) setSignInLoading(false)

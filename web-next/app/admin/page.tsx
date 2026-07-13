@@ -902,16 +902,20 @@ function PanelAccess({ status }: { status: AdminStatus }) {
       return next
     })
 
-  const invalidateAll = () => {
-    void queryClient.invalidateQueries({ queryKey: ["admin", "waitlist"] })
-    void queryClient.invalidateQueries({ queryKey: ["admin", "participants"] })
-  }
+  // Await the refetch so the resolved row leaves the pending list before we
+  // re-enable its buttons — otherwise there's a window where a decided row is
+  // still clickable and a second click fires a redundant (409'd) request.
+  const invalidateAll = () =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["admin", "waitlist"] }),
+      queryClient.invalidateQueries({ queryKey: ["admin", "participants"] }),
+    ])
 
   const approveMutation = useMutation({
     mutationFn: (id: number) => adminApi.approveWaitlist(id),
-    onMutate: (id) => toggleId(setApprovingIds, id, true),
-    onSettled: (_data, _err, id) => toggleId(setApprovingIds, id, false),
-    onSuccess: () => { setActionError(null); invalidateAll() },
+    // Clear the shared error only when a new action STARTS, so one row's
+    // success can't silently wipe another row's still-relevant failure.
+    onMutate: (id) => { setActionError(null); toggleId(setApprovingIds, id, true) },
     onError: (err) => {
       setActionError(
         axios.isAxiosError(err) && err.response?.status === 400
@@ -919,13 +923,19 @@ function PanelAccess({ status }: { status: AdminStatus }) {
           : "Approve failed — try again.",
       )
     },
+    onSettled: async (_data, _err, id) => {
+      await invalidateAll()
+      toggleId(setApprovingIds, id, false)
+    },
   })
   const rejectMutation = useMutation({
     mutationFn: (id: number) => adminApi.rejectWaitlist(id),
-    onMutate: (id) => toggleId(setRejectingIds, id, true),
-    onSettled: (_data, _err, id) => toggleId(setRejectingIds, id, false),
-    onSuccess: () => { setActionError(null); invalidateAll() },
+    onMutate: (id) => { setActionError(null); toggleId(setRejectingIds, id, true) },
     onError: () => setActionError("Reject failed — try again."),
+    onSettled: async (_data, _err, id) => {
+      await invalidateAll()
+      toggleId(setRejectingIds, id, false)
+    },
   })
   const addMutation = useMutation({
     mutationFn: () => {
@@ -937,7 +947,7 @@ function PanelAccess({ status }: { status: AdminStatus }) {
       setActionError(null)
       setAddHandle("")
       setAddNotes("")
-      invalidateAll()
+      void invalidateAll()
     },
     onError: (err) => {
       setActionError(
@@ -949,13 +959,19 @@ function PanelAccess({ status }: { status: AdminStatus }) {
   })
   const removeMutation = useMutation({
     mutationFn: (did: string) => adminApi.removeParticipant(did),
-    onSuccess: () => { setActionError(null); setConfirmRemove(null); invalidateAll() },
+    onSuccess: () => { setActionError(null); setConfirmRemove(null); void invalidateAll() },
     onError: () => setActionError("Remove failed — try again."),
   })
 
   const pending = waitlistQuery.data?.requests ?? []
   const participants = participantsQuery.data?.participants ?? []
-  const allowlistOn = status.loginAllowlistEnabled === true
+  // Three states: an omitted field (partial deploy / API drift) is "Unknown",
+  // not silently reported as "Off".
+  const allowlist: "enforced" | "off" | "unknown" =
+    status.loginAllowlistEnabled === true ? "enforced"
+    : status.loginAllowlistEnabled === false ? "off"
+    : "unknown"
+  const allowlistLabel = { enforced: "Enforced", off: "Off", unknown: "Unknown" }[allowlist]
 
   return (
     <div className="flex flex-col gap-8">
@@ -963,10 +979,10 @@ function PanelAccess({ status }: { status: AdminStatus }) {
         <SectionHeader title="Access" sub="Approve pilot voting accounts and manage the login allowlist." />
         <span
           className={`shrink-0 text-[10px] font-mono font-semibold uppercase tracking-widest px-2.5 py-1 rounded-full border ${
-            allowlistOn ? "bg-success/10 border-success/25 text-success" : "bg-biscuit border-border text-foreground/55"
+            allowlist === "enforced" ? "bg-success/10 border-success/25 text-success" : "bg-biscuit border-border text-foreground/55"
           }`}
         >
-          Login allowlist: {allowlistOn ? "Enforced" : "Off"}
+          Login allowlist: {allowlistLabel}
         </span>
       </div>
 

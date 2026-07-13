@@ -117,6 +117,16 @@ describe('web-next landing CTAs', () => {
     expect(markup).toContain('rounded-full');
   });
 
+  it('renders WaitlistCTA with its base classes when no className is passed', () => {
+    const markup = renderToStaticMarkup(createElement(WaitlistCTA, {}));
+
+    expect(countMatches(markup, /<a\b/g)).toBe(1);
+    expect(markup).toContain('href="/sign-in"');
+    expect(markup).not.toContain('<button');
+    expect(markup).toContain('inline-flex');
+    expect(markup).toContain('rounded-full');
+  });
+
   it('keeps required base CTA classes when optional className adds layout tokens', () => {
     const demoMarkup = renderToStaticMarkup(createElement(DemoCTA, { className: 'qa-demo-wide sm:px-8' }));
     const signInMarkup = renderToStaticMarkup(createElement(WaitlistCTA, { className: 'qa-sign-in-wide sm:px-6' }));

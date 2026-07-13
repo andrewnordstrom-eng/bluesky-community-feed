@@ -31,7 +31,7 @@ const SECTIONS = [
           <LI><Strong>Vote preferences</Strong> — weight sliders, keyword preferences, topic preferences. These are stored per governance round and used solely to calculate aggregated community weights.</LI>
           <LI><Strong>Research consent status</Strong> — whether you have opted in, opted out, or not yet decided. Stored with a timestamp and version number.</LI>
           <LI><Strong>Session information</Strong> — a server-side session used to authenticate your requests. Expires when you sign out or revoke your app password.</LI>
-          <LI><Strong>Waitlist submissions</Strong> — the Bluesky handle and optional note you provide when requesting pilot voting access, kept while we process the request.</LI>
+          <LI><Strong>Waitlist submissions</Strong> — the Bluesky handle and optional note you provide when requesting pilot voting access. The request is retained after it is approved or rejected as part of the governance record; contact us to request its deletion.</LI>
         </UL>
         <P>We do <Strong>not</Strong> collect your Bluesky password, your post content, your social graph, or any off-platform behaviour.</P>
       </>
