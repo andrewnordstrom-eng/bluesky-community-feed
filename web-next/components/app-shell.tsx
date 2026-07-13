@@ -355,7 +355,7 @@ export function AppShell({ user = null, children }: AppShellProps) {
         </div>
       ) : null}
 
-      <SignInDialog open={signInOpen} onOpenChange={setSignInOpen} initialMode={dialogMode} />
+      <SignInDialog open={signInOpen} onOpenChange={setSignInOpen} initialMode={dialogMode} redirectOnSuccess="/dashboard" />
     </div>
   )
 }

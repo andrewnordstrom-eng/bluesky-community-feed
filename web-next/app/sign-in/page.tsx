@@ -78,7 +78,7 @@ export default function SignInPage() {
         </div>
       </main>
       <FooterSection />
-      <SignInDialog open={open} onOpenChange={setOpen} initialMode={dialogMode} />
+      <SignInDialog open={open} onOpenChange={setOpen} initialMode={dialogMode} redirectOnSuccess="/dashboard" />
     </div>
   )
 }

@@ -310,7 +310,7 @@ export function Header() {
         document.body
       )}
 
-      <SignInDialog open={signInOpen} onOpenChange={setSignInOpen} initialMode={dialogMode} />
+      <SignInDialog open={signInOpen} onOpenChange={setSignInOpen} initialMode={dialogMode} redirectOnSuccess="/dashboard" />
     </>
   )
 }

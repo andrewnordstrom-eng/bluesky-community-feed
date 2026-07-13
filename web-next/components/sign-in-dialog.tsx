@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react"
 import axios from "axios"
 import Image from "next/image"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -22,9 +23,16 @@ interface SignInDialogProps {
   onOpenChange: (open: boolean) => void
   /** Which face the dialog opens on. Defaults to "signin" for back-compat. */
   initialMode?: AccessMode
+  /**
+   * When set, a successful sign-in navigates here (e.g. "/dashboard"). Omit to
+   * stay in place — correct for in-task dialogs (vote/settings) where the user
+   * should finish what they came to do. Waitlist submits never redirect.
+   */
+  redirectOnSuccess?: string
 }
 
-export function SignInDialog({ open, onOpenChange, initialMode = "signin" }: SignInDialogProps) {
+export function SignInDialog({ open, onOpenChange, initialMode = "signin", redirectOnSuccess }: SignInDialogProps) {
+  const router = useRouter()
   const { login, cancelLogin } = useAuth()
   const [mode, setMode] = useState<AccessMode>(initialMode)
 
@@ -118,6 +126,7 @@ export function SignInDialog({ open, onOpenChange, initialMode = "signin" }: Sig
       await login(handle, password)
       if (!isActiveRequest(requestToken)) return
       closeDialog()
+      if (redirectOnSuccess) router.push(redirectOnSuccess)
     } catch (err) {
       if (!isActiveRequest(requestToken)) return
       const failure = classifySignInFailure(err)
