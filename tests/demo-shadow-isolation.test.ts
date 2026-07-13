@@ -198,14 +198,70 @@ describe('production deploy ordering guards', () => {
       'Migration must run after every build and test gate'
     );
   });
+
+  it('rejects a deploy script without a migration command', () => {
+    const deploy = readFileSync(DEPLOY_FILE, 'utf8');
+    const withoutMigration = deploy.replace('npm run migrate', '');
+
+    expect(() => assertDeployMigrationOrdering(withoutMigration)).toThrow(
+      'Deploy must contain exactly one migration command'
+    );
+  });
+
+  it('rejects a deploy script with duplicate migration commands', () => {
+    const deploy = readFileSync(DEPLOY_FILE, 'utf8');
+    const duplicateMigration = deploy.replace(
+      'npm run migrate',
+      'npm run migrate\n            npm run migrate'
+    );
+
+    expect(() => assertDeployMigrationOrdering(duplicateMigration)).toThrow(
+      'Deploy must contain exactly one migration command'
+    );
+  });
+
+  it('rejects a deploy script that restarts the service before migration', () => {
+    const deploy = readFileSync(DEPLOY_FILE, 'utf8');
+    const restartMarker = 'sudo systemctl restart bluesky-feed';
+    const withoutRestart = deploy.replace(restartMarker, '');
+    const reordered = withoutRestart.replace(
+      'npm run migrate',
+      `${restartMarker}\n            npm run migrate`
+    );
+
+    expect(() => assertDeployMigrationOrdering(reordered)).toThrow(
+      'Service restart must run after migration'
+    );
+  });
+
+  it('rejects a deploy script without a service restart', () => {
+    const deploy = readFileSync(DEPLOY_FILE, 'utf8');
+    const withoutRestart = deploy.replace('sudo systemctl restart bluesky-feed', '');
+
+    expect(() => assertDeployMigrationOrdering(withoutRestart)).toThrow(
+      'Missing service restart'
+    );
+  });
 });
 
 function assertDeployMigrationOrdering(script: string): void {
   const restartMarker = 'sudo systemctl restart bluesky-feed';
+  const postDeployHealthMarker = '# Post-deploy health verification';
+  const postDeployHealthIndex = script.indexOf(postDeployHealthMarker);
+  if (postDeployHealthIndex < 0) {
+    throw new Error('Missing post-deploy health verification');
+  }
+
   const restartIndex = script.indexOf(restartMarker);
-  if (restartIndex < 0) {
+  if (restartIndex < 0 || restartIndex > postDeployHealthIndex) {
     throw new Error('Missing service restart');
   }
+
+  const migrationIndex = script.indexOf('npm run migrate');
+  if (migrationIndex < 0 || script.lastIndexOf('npm run migrate') !== migrationIndex) {
+    throw new Error('Deploy must contain exactly one migration command');
+  }
+
   const deployPath = script.slice(0, restartIndex + restartMarker.length);
 
   const gateIndexes = DEPLOY_GATE_MARKERS.map(({ name, value }) => {
@@ -218,11 +274,6 @@ function assertDeployMigrationOrdering(script: string): void {
     }
     return firstIndex;
   });
-
-  const migrationIndex = deployPath.indexOf('npm run migrate');
-  if (migrationIndex < 0 || deployPath.lastIndexOf('npm run migrate') !== migrationIndex) {
-    throw new Error('Deploy must contain exactly one migration command');
-  }
 
   const finalGateIndex = Math.max(...gateIndexes);
   if (migrationIndex <= finalGateIndex) {
