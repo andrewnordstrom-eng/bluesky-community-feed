@@ -185,6 +185,11 @@ export const ConfigSchema = z.object({
   // Private feed mode (research gating)
   FEED_PRIVATE_MODE: zodEnvBool(false),
 
+  // Login allowlist (pilot gating): when true, only admins (BOT_ADMIN_DIDS)
+  // and approved_participants may complete login. Waitlist intake and all
+  // public read surfaces are unaffected.
+  LOGIN_ALLOWLIST_ENABLED: zodEnvBool(false),
+
   // URL deduplication: penalize reshares of the same external link
   /** Enable URL-based reshare deduplication in feed output. */
   FEED_DEDUP_ENABLED: zodEnvBool(true),

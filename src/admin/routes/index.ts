@@ -19,6 +19,7 @@ import { registerSchedulerRoutes } from './scheduler.js';
 import { registerGovernanceRoutes } from './governance.js';
 import { registerInteractionRoutes } from './interactions.js';
 import { registerParticipantRoutes } from './participants.js';
+import { registerWaitlistRoutes } from './waitlist.js';
 import { registerExportRoutes } from './export.js';
 import { registerTopicRoutes } from './topics.js';
 import { registerVitalsRoutes } from './vitals.js';
@@ -43,6 +44,7 @@ export function registerAdminRoutes(app: FastifyInstance): void {
       registerGovernanceRoutes(adminApp);
       registerInteractionRoutes(adminApp);
       registerParticipantRoutes(adminApp);
+      registerWaitlistRoutes(adminApp);
       registerExportRoutes(adminApp);
       registerTopicRoutes(adminApp);
       registerVitalsRoutes(adminApp);

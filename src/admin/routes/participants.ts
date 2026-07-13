@@ -11,13 +11,14 @@
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { AtpAgent } from '@atproto/api';
 import { db } from '../../db/client.js';
 import { logger } from '../../lib/logger.js';
 import { Errors } from '../../lib/errors.js';
 import { invalidateParticipantCache } from '../../feed/access-control.js';
 import { getAuthenticatedDid } from '../../governance/auth.js';
 import { adminSecurity, ErrorResponseSchema } from '../../lib/openapi.js';
+import { resolveHandleToDid } from './resolve-handle.js';
+import { upsertApprovedParticipant } from './participant-upsert.js';
 
 const AddParticipantSchema = z
   .object({
@@ -28,15 +29,6 @@ const AddParticipantSchema = z
   .refine((data) => data.did || data.handle, {
     message: 'Must provide did or handle',
   });
-
-/**
- * Resolve a Bluesky handle to a DID.
- */
-async function resolveHandleToDid(handle: string): Promise<{ did: string; handle: string }> {
-  const agent = new AtpAgent({ service: 'https://bsky.social' });
-  const response = await agent.resolveHandle({ handle });
-  return { did: response.data.did, handle };
-}
 
 export function registerParticipantRoutes(app: FastifyInstance): void {
   /**
@@ -168,17 +160,12 @@ export function registerParticipantRoutes(app: FastifyInstance): void {
     }
 
     // Insert (or re-activate if previously removed)
-    await db.query(
-      `INSERT INTO approved_participants (did, handle, added_by, notes)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (did) DO UPDATE SET
-         removed_at = NULL,
-         handle = COALESCE($2, approved_participants.handle),
-         added_by = $3,
-         notes = $4,
-         added_at = NOW()`,
-      [resolvedDid, resolvedHandle, adminDid, notes ?? null]
-    );
+    await upsertApprovedParticipant(db, {
+      did: resolvedDid,
+      handle: resolvedHandle,
+      addedBy: adminDid,
+      notes: notes ?? null,
+    });
 
     // Invalidate cache so next feed request picks up the change
     await invalidateParticipantCache(resolvedDid);
