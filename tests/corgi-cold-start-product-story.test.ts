@@ -107,9 +107,9 @@ describe('Corgi cold-start product story', () => {
     expect(docs).toMatch(/Topic preferences are separate/i);
     expect(docs).toMatch(/Content rules determine eligibility/i);
     expect(about).toMatch(/signals, topic priorities, and content rules/i);
-    const environmentTemplate = read('.env.example');
-    expect(environmentTemplate).toContain('DEMO_CONTENT_RULES_ENABLED=false');
-    expect(environmentTemplate).toContain('LOGIN_ALLOWLIST_ENABLED=false');
+    const runtimeConfig = read('src/config.ts');
+    expect(runtimeConfig).toMatch(/DEMO_CONTENT_RULES_ENABLED:\s*zodEnvBool\(false\)/);
+    expect(runtimeConfig).toMatch(/LOGIN_ALLOWLIST_ENABLED:\s*zodEnvBool\(false\)/);
   });
 
   it('keeps the operator UI on the reviewed lifecycle instead of the rejected transition bypass', () => {
