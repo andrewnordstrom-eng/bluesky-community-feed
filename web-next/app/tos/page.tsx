@@ -26,6 +26,7 @@ const SECTIONS = [
     body: (
       <>
         <P>You must have a valid Bluesky account to participate in feed governance. You connect via an app-specific password — Corgi never receives your main Bluesky password.</P>
+        <P>During the pilot, governance participation (signing in and voting) is limited to approved accounts. You can request access by joining the waitlist with your Bluesky handle; the demo and transparency pages remain open to everyone.</P>
         <P>App passwords are revocable at any time from your Bluesky account settings. Revoking access immediately terminates your active session with Corgi.</P>
       </>
     ),

@@ -23,7 +23,7 @@ const faqData = [
   {
     question: "How does voting on the weights work?",
     answer:
-      "When a voting round is active, members choose how much each ranking factor should matter: recency, engagement, bridging (posts that connect subgroups), source diversity, and topic relevance. When the round ends, the aggregate weights become the next feed policy and the feed reranks accordingly. The full history stays inspectable.",
+      "When a voting round is active, members choose how much each ranking factor should matter: recency, engagement, bridging (posts that connect subgroups), source diversity, and topic relevance. When the round ends, the aggregate weights become the next feed policy and the feed reranks accordingly. The full history stays inspectable. During the pilot, voting accounts are approved from a waitlist — the demo and every transparency page stay open to everyone.",
   },
   {
     question: "Is Corgi secure? Does it need my Bluesky password?",

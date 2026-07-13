@@ -62,6 +62,11 @@ function AnimatedMenuIcon({ open }: { open: boolean }) {
 export function Header() {
   const pathname = usePathname()
   const [signInOpen, setSignInOpen] = useState(false)
+  const [dialogMode, setDialogMode] = useState<"signin" | "waitlist">("signin")
+  const openDialog = (mode: "signin" | "waitlist") => {
+    setDialogMode(mode)
+    setSignInOpen(true)
+  }
   const [mobileOpen, setMobileOpen] = useState(false)
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null)
   const mobileMenuRef = useRef<HTMLDivElement>(null)
@@ -193,17 +198,17 @@ export function Header() {
           <div className="col-start-3 justify-self-end flex items-center gap-2">
             <div className="hidden md:flex items-center gap-3">
               <button
-                onClick={() => setSignInOpen(true)}
+                onClick={() => openDialog("signin")}
                 className={cn("text-sm font-medium text-foreground/70 hover:text-foreground transition-colors rounded-md px-2 py-1", FOCUS)}
               >
                 Sign in
               </button>
               <Button
                 asChild={!isDemoPage}
-                onClick={isDemoPage ? () => setSignInOpen(true) : undefined}
+                onClick={isDemoPage ? () => openDialog("waitlist") : undefined}
                 className="bg-primary text-primary-foreground hover:bg-primary-dark rounded-full px-5 text-sm shadow-[0_2px_8px_rgba(200,97,44,0.28)] hover:shadow-[0_4px_14px_rgba(200,97,44,0.38)] transition-all"
               >
-                {isDemoPage ? "Connect Bluesky" : <Link href="/demo">Explore demo</Link>}
+                {isDemoPage ? "Join the waitlist" : <Link href="/demo">Explore demo</Link>}
               </Button>
             </div>
 
@@ -277,26 +282,26 @@ export function Header() {
             </nav>
             <div className="flex flex-col gap-2 pb-2">
               <button
-                onClick={() => { setMobileOpen(false); setSignInOpen(true) }}
+                onClick={() => { setMobileOpen(false); openDialog("signin") }}
                 className={cn("w-full px-4 py-3 rounded-xl text-sm font-medium text-foreground/70 hover:text-foreground hover:bg-accent/60 transition-colors text-left", FOCUS)}
               >
-                Sign in
+                Already approved? Sign in
               </button>
               <Button
                 asChild={!isDemoPage}
-                onClick={isDemoPage ? () => { setMobileOpen(false); setSignInOpen(true) } : undefined}
+                onClick={isDemoPage ? () => { setMobileOpen(false); openDialog("waitlist") } : undefined}
                 className="w-full bg-primary text-primary-foreground hover:bg-primary-dark rounded-full text-sm shadow-[0_2px_8px_rgba(200,97,44,0.28)] transition-all"
               >
                 {isDemoPage
-                  ? "Connect Bluesky"
+                  ? "Join the waitlist"
                   : <Link href="/demo" onClick={handleNavClick}>Explore demo</Link>}
               </Button>
               {!isDemoPage && (
                 <button
-                  onClick={() => { setMobileOpen(false); setSignInOpen(true) }}
+                  onClick={() => { setMobileOpen(false); openDialog("waitlist") }}
                   className={cn("w-full px-4 py-3 rounded-xl text-sm font-medium text-foreground/70 hover:text-foreground hover:bg-accent/60 transition-colors text-left", FOCUS)}
                 >
-                  Connect Bluesky when ready
+                  Join the waitlist
                 </button>
               )}
             </div>
@@ -305,7 +310,7 @@ export function Header() {
         document.body
       )}
 
-      <SignInDialog open={signInOpen} onOpenChange={setSignInOpen} />
+      <SignInDialog open={signInOpen} onOpenChange={setSignInOpen} initialMode={dialogMode} />
     </>
   )
 }

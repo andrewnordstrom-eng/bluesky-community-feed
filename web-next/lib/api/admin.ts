@@ -5,10 +5,35 @@
  * All requests include credentials and proper auth headers.
  */
 
+import { z } from 'zod';
 import { api } from './client';
 import type { GovernanceWeights, ContentRules } from './types';
+import {
+  waitlistApproveResponseSchema,
+  waitlistListResponseSchema,
+  waitlistRejectResponseSchema,
+  type WaitlistRequest,
+} from './waitlist-contract';
+import {
+  participantAddResponseSchema,
+  participantListResponseSchema,
+  participantRemoveResponseSchema,
+  type Participant,
+} from './participant-contract';
 
 export type { GovernanceWeights, ContentRules };
+export type { WaitlistRequest } from './waitlist-contract';
+export {
+  waitlistApproveResponseSchema,
+  waitlistListResponseSchema,
+  waitlistRejectResponseSchema,
+} from './waitlist-contract';
+export {
+  participantAddResponseSchema,
+  participantListResponseSchema,
+  participantRemoveResponseSchema,
+  participantSchema,
+} from './participant-contract';
 
 export interface RoundSummary {
   id: number;
@@ -71,17 +96,10 @@ export interface RoundDetails {
   }>;
 }
 
-export interface Participant {
-  did: string;
-  handle: string | null;
-  added_by: string;
-  notes: string | null;
-  added_at: string;
-}
-
 export interface AdminStatus {
   isAdmin: boolean;
   feedPrivateMode: boolean;
+  loginAllowlistEnabled?: boolean;
   system: {
     currentEpoch: {
       id: number;
@@ -571,21 +589,39 @@ export const adminApi = {
   // Participant management
   async getParticipants(): Promise<{ participants: Participant[]; total: number }> {
     const response = await api.get('/api/admin/participants');
-    return response.data;
+    return participantListResponseSchema.parse(response.data);
   },
 
   async addParticipant(data: {
     did?: string;
     handle?: string;
     notes?: string;
-  }): Promise<{ success: boolean; participant: { did: string; handle: string | null; notes: string | null } }> {
+  }): Promise<z.infer<typeof participantAddResponseSchema>> {
     const response = await api.post('/api/admin/participants', data);
-    return response.data;
+    return participantAddResponseSchema.parse(response.data);
   },
 
   async removeParticipant(did: string): Promise<{ success: boolean }> {
     const response = await api.delete(`/api/admin/participants/${encodeURIComponent(did)}`);
-    return response.data;
+    return participantRemoveResponseSchema.parse(response.data);
+  },
+
+  // Waitlist management
+  async getWaitlist(
+    status: 'pending' | 'approved' | 'rejected' | 'all' = 'pending',
+  ): Promise<{ requests: WaitlistRequest[]; total: number }> {
+    const response = await api.get('/api/admin/waitlist', { params: { status } });
+    return waitlistListResponseSchema.parse(response.data);
+  },
+
+  async approveWaitlist(id: number): Promise<{ success: boolean; did: string; handle: string }> {
+    const response = await api.post(`/api/admin/waitlist/${id}/approve`);
+    return waitlistApproveResponseSchema.parse(response.data);
+  },
+
+  async rejectWaitlist(id: number): Promise<{ success: boolean }> {
+    const response = await api.post(`/api/admin/waitlist/${id}/reject`);
+    return waitlistRejectResponseSchema.parse(response.data);
   },
 
   // Topic management
