@@ -4,11 +4,11 @@ import {
   waitlistApproveResponseSchema,
   waitlistListResponseSchema,
   waitlistRejectResponseSchema,
-} from '../web-next/lib/api/admin';
+} from '../web-next/lib/api/waitlist-contract';
 import {
   classifySignInFailure,
   isCurrentDialogRequest,
-} from '../web-next/components/sign-in-dialog';
+} from '../web-next/lib/sign-in-request';
 
 function axiosFailure(status?: number, data?: unknown): unknown {
   return {

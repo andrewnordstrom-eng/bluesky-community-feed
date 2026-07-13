@@ -6,10 +6,21 @@
  */
 
 import { api } from './client';
-import { z } from 'zod';
 import type { GovernanceWeights, ContentRules } from './types';
+import {
+  waitlistApproveResponseSchema,
+  waitlistListResponseSchema,
+  waitlistRejectResponseSchema,
+  type WaitlistRequest,
+} from './waitlist-contract';
 
 export type { GovernanceWeights, ContentRules };
+export type { WaitlistRequest } from './waitlist-contract';
+export {
+  waitlistApproveResponseSchema,
+  waitlistListResponseSchema,
+  waitlistRejectResponseSchema,
+} from './waitlist-contract';
 
 export interface RoundSummary {
   id: number;
@@ -79,45 +90,6 @@ export interface Participant {
   notes: string | null;
   added_at: string;
 }
-
-export interface WaitlistRequest {
-  id: number;
-  handle: string;
-  did: string | null;
-  note: string | null;
-  status: 'pending' | 'approved' | 'rejected';
-  created_at: string;
-  decided_at: string | null;
-  decided_by: string | null;
-}
-
-const waitlistTimestampSchema = z.string().datetime({ offset: true });
-
-export const waitlistRequestSchema = z.object({
-  id: z.number().int().positive(),
-  handle: z.string().min(1),
-  did: z.string().min(1).nullable(),
-  note: z.string().nullable(),
-  status: z.enum(['pending', 'approved', 'rejected']),
-  created_at: waitlistTimestampSchema,
-  decided_at: waitlistTimestampSchema.nullable(),
-  decided_by: z.string().min(1).nullable(),
-}).strict();
-
-export const waitlistListResponseSchema = z.object({
-  requests: z.array(waitlistRequestSchema),
-  total: z.number().int().nonnegative(),
-}).strict();
-
-export const waitlistApproveResponseSchema = z.object({
-  success: z.boolean(),
-  did: z.string().min(1),
-  handle: z.string().min(1),
-}).strict();
-
-export const waitlistRejectResponseSchema = z.object({
-  success: z.boolean(),
-}).strict();
 
 export interface AdminStatus {
   isAdmin: boolean;

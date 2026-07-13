@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react"
 import axios from "axios"
 import Image from "next/image"
 import Link from "next/link"
-import { z } from "zod"
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -12,37 +11,11 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { useAuth } from "@/components/auth-provider"
 import { waitlistApi } from "@/lib/api/client"
+import { classifySignInFailure, isCurrentDialogRequest } from "@/lib/sign-in-request"
 
 type AccessMode = "signin" | "waitlist"
 
 const NOTE_MAX = 500
-
-const notApprovedResponseSchema = z.object({
-  error: z.literal("NotApproved"),
-  waitlist: z.literal(true),
-}).passthrough()
-
-export type SignInFailureKind = "bad-credentials" | "not-approved" | "service"
-
-export function classifySignInFailure(error: unknown): SignInFailureKind {
-  if (!axios.isAxiosError(error)) return "service"
-  if (error.response?.status === 401) return "bad-credentials"
-  if (
-    error.response?.status === 403
-    && notApprovedResponseSchema.safeParse(error.response.data).success
-  ) {
-    return "not-approved"
-  }
-  return "service"
-}
-
-export function isCurrentDialogRequest(
-  activeToken: number,
-  requestToken: number,
-  mounted: boolean,
-): boolean {
-  return mounted && activeToken === requestToken
-}
 
 interface SignInDialogProps {
   open: boolean
