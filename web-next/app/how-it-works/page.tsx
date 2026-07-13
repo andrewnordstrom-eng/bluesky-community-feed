@@ -3,7 +3,7 @@ import { Header } from "@/components/header"
 import { FooterSection } from "@/components/footer-section"
 import { HowItWorksReplay } from "@/components/how-it-works-replay"
 import { ModalityPreview } from "@/components/modality-preview"
-import { DemoCTA, SignInCTA } from "@/components/landing-ctas"
+import { DemoCTA, WaitlistCTA } from "@/components/landing-ctas"
 import { Container, Section } from "@/components/ui/layout"
 import { PageHero, HeroGlow, HERO_TOP } from "@/components/ui/page-hero"
 
@@ -106,7 +106,7 @@ export default function HowItWorksPage() {
             </div>
             <div className="flex flex-col gap-3 sm:flex-row md:flex-shrink-0">
               <DemoCTA />
-              <SignInCTA />
+              <WaitlistCTA />
             </div>
           </div>
           <p className="mt-8 max-w-3xl text-xs leading-relaxed text-foreground/55">

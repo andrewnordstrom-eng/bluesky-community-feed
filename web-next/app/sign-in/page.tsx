@@ -24,36 +24,39 @@ const reassurances = [
 
 export default function SignInPage() {
   const [open, setOpen] = useState(false)
+  const [dialogMode, setDialogMode] = useState<"signin" | "waitlist">("waitlist")
+  const openDialog = (mode: "signin" | "waitlist") => {
+    setDialogMode(mode)
+    setOpen(true)
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <Header />
       <main className="flex-1 flex items-center justify-center px-5 py-16 md:py-24">
         <div className="w-full max-w-xl text-center">
-          <p className="text-[11px] font-mono uppercase tracking-[0.22em] text-foreground/55">Sign in</p>
+          <p className="text-[11px] font-mono uppercase tracking-[0.22em] text-foreground/55">Access</p>
           <h1 className="mt-3 font-display text-3xl md:text-4xl font-bold tracking-tight text-foreground leading-tight text-balance">
-            Connect your Bluesky account to vote.
+            Corgi voting is in a limited pilot.
           </h1>
           <p className="mx-auto mt-4 max-w-md text-base leading-relaxed text-foreground/60">
-            Corgi signs you in with a Bluesky <span className="font-semibold text-foreground">app password</span>, so you
-            can help set the community&rsquo;s ranking without ever sharing your real credentials.
+            We&rsquo;re opening voting to communities in batches. Join the waitlist with your Bluesky handle and we&rsquo;ll
+            get you in as we expand &mdash; the demo and every transparency page stay open to everyone in the meantime.
           </p>
 
           <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
             <Button
-              onClick={() => setOpen(true)}
+              onClick={() => openDialog("waitlist")}
               className="bg-primary text-primary-foreground hover:bg-primary-dark rounded-full px-7 py-3 text-base font-medium shadow-[0_2px_8px_rgba(200,97,44,0.3)] transition-all focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             >
-              Sign in with an app password
+              Join the waitlist
             </Button>
-            <a
-              href="https://bsky.app/settings/app-passwords"
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              onClick={() => openDialog("signin")}
               className="rounded-full px-5 py-3 text-base font-medium text-foreground/70 hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             >
-              Create an app password &rarr;
-            </a>
+              Already approved? Sign in
+            </button>
           </div>
 
           <div className="mt-12 grid gap-3 text-left sm:grid-cols-3">
@@ -75,7 +78,7 @@ export default function SignInPage() {
         </div>
       </main>
       <FooterSection />
-      <SignInDialog open={open} onOpenChange={setOpen} />
+      <SignInDialog open={open} onOpenChange={setOpen} initialMode={dialogMode} />
     </div>
   )
 }

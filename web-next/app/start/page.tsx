@@ -30,9 +30,9 @@ const steps = [
   },
   {
     n: "03",
-    title: "Connect when you're ready to vote",
-    body: "Corgi signs you in with a Bluesky app password — a scoped credential you can revoke anytime. Your real password never touches Corgi.",
-    cta: { label: "Sign in", href: "/sign-in", external: false },
+    title: "Join the waitlist to vote",
+    body: "Voting is in a limited pilot. Request access with your Bluesky handle; once you're approved, Corgi signs you in with a Bluesky app password — a scoped credential you can revoke anytime. Your real password never touches Corgi.",
+    cta: { label: "Join the waitlist", href: "/sign-in", external: false },
   },
   {
     n: "04",

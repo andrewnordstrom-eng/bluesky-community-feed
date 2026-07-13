@@ -22,7 +22,7 @@ export function DemoCTA({ className }: LandingCTAProps) {
   )
 }
 
-export function SignInCTA({ className }: LandingCTAProps) {
+export function WaitlistCTA({ className }: LandingCTAProps) {
   return (
     <Button
       asChild
@@ -33,7 +33,7 @@ export function SignInCTA({ className }: LandingCTAProps) {
       )}
     >
       <Link href="/sign-in">
-        Sign in
+        Join the waitlist
       </Link>
     </Button>
   )
