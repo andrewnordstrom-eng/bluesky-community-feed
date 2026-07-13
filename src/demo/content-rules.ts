@@ -122,14 +122,20 @@ export function aggregateShadowContentRules(
     .sort((left, right) =>
       right.supportCount - left.supportCount || left.keyword.localeCompare(right.keyword)
     );
+  // Cap the active exclude-rule set at the per-ballot keyword limit, ranked by
+  // support (highest first, ties alphabetical). Prior-policy inertia can carry
+  // rules across epochs, so an uncapped adopted set could grow past the limit
+  // enforced on the persisted policy; the highest-support rules win.
+  const adoptedExcludeKeywords = support
+    .filter((entry) => entry.adopted)
+    .slice(0, SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS)
+    .map((entry) => entry.keyword)
+    .sort();
   return {
     enabled: true,
     threshold,
     electorate,
-    adoptedExcludeKeywords: support
-      .filter((entry) => entry.adopted)
-      .map((entry) => entry.keyword)
-      .sort(),
+    adoptedExcludeKeywords,
     support,
   };
 }

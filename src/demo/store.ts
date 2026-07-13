@@ -5,6 +5,7 @@ import { logger } from '../lib/logger.js';
 import {
   SHADOW_DEMO_COMMUNITY_IDS,
   SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS,
+  SHADOW_DEMO_MAX_EXCLUDE_KEYWORD_LENGTH,
   SHADOW_DEMO_PHASES,
   SHADOW_DEMO_SIGNAL_KEYS,
   SHADOW_DEMO_TOPIC_KEYS,
@@ -167,16 +168,20 @@ const StoredCorpusSchema = z.object({
   }).optional(),
 });
 
+// Distinct proposed keywords per epoch = reviewer (<= MAX) plus prior-adopted
+// (itself capped at MAX), so support entries stay well under this ceiling.
+const STORED_CONTENT_RULE_SUPPORT_MAX = SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS * 25;
+
 const StoredContentRulesSummarySchema = z.object({
   enabled: z.literal(true),
   threshold: z.number().int().positive(),
   electorate: z.number().int().nonnegative(),
-  adoptedExcludeKeywords: z.array(z.string().min(1).max(50)).max(SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS),
+  adoptedExcludeKeywords: z.array(z.string().min(1).max(SHADOW_DEMO_MAX_EXCLUDE_KEYWORD_LENGTH)).max(SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS),
   support: z.array(z.object({
-    keyword: z.string().min(1).max(50),
+    keyword: z.string().min(1).max(SHADOW_DEMO_MAX_EXCLUDE_KEYWORD_LENGTH),
     supportCount: z.number().int().nonnegative(),
     adopted: z.boolean(),
-  })).max(250),
+  })).max(STORED_CONTENT_RULE_SUPPORT_MAX),
 });
 
 const StoredVoteSummarySchema = z.object({
@@ -205,7 +210,7 @@ const StoredVoteBaseSchema = z.object({
   label: z.string().min(1),
   weights: StoredWeightsSchema,
   topicIntent: StoredTopicIntentSchema,
-  excludeKeywords: z.array(z.string().min(1).max(50)).max(10).optional(),
+  excludeKeywords: z.array(z.string().min(1).max(SHADOW_DEMO_MAX_EXCLUDE_KEYWORD_LENGTH)).max(SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS).optional(),
   createdAt: z.string().min(1),
 });
 

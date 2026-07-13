@@ -106,6 +106,25 @@ describe("HTTP shadow demo client", () => {
     expect(apiSessionPayloadSchema.safeParse({ session: { ...valid.session, topicCatalog: catalog.slice(0, 25) } }).success).toBe(false)
   })
 
+  it("bounds the content-rules support array on parsed session payloads", () => {
+    const valid = sessionPayload("created", "epoch-1", [epoch("epoch-1", 1, BASE_WEIGHTS, 0)]) as {
+      session: Record<string, unknown>
+    }
+    const epochs = valid.session.epochs as Array<Record<string, unknown>>
+    const withContentRules = (supportLength: number): unknown => {
+      const support = Array.from({ length: supportLength }, (_unused, i) => ({
+        keyword: `rule-${i}`,
+        supportCount: 1,
+        adopted: false,
+      }))
+      const aggregate = { ...(epochs[0].aggregate as Record<string, unknown>) }
+      aggregate.contentRules = { enabled: true, threshold: 8, electorate: 25, adoptedExcludeKeywords: [], support }
+      return { session: { ...valid.session, epochs: [{ ...epochs[0], aggregate }] } }
+    }
+    expect(apiSessionPayloadSchema.safeParse(withContentRules(250)).success).toBe(true)
+    expect(apiSessionPayloadSchema.safeParse(withContentRules(251)).success).toBe(false)
+  })
+
   it("accepts retained live and fallback corpus-health source values", () => {
     const valid = sessionPayload("created", "epoch-1", [epoch("epoch-1", 1, BASE_WEIGHTS, 0)]) as {
       session: Record<string, unknown>

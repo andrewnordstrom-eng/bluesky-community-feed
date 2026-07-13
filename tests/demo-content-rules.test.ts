@@ -10,7 +10,17 @@ import {
 } from '../src/demo/content-rules.js';
 import { ShadowDemoService } from '../src/demo/service.js';
 import { DemoStoreCorruptionError, MemoryDemoStore, RedisDemoStore } from '../src/demo/store.js';
-import type { ShadowDemoCorpus, ShadowDemoSessionState, ShadowDemoVote } from '../src/demo/types.js';
+import {
+  SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS,
+  type ShadowDemoCorpus,
+  type ShadowDemoSessionState,
+  type ShadowDemoVote,
+} from '../src/demo/types.js';
+
+// Support entries per epoch never exceed reviewer + prior-adopted keywords, but
+// the persisted schema tolerates the full electorate's worth; keep the test
+// bound derived so it tracks the store schema instead of a hardcoded literal.
+const STORED_SUPPORT_MAX = SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS * 25;
 
 const NOW = new Date('2026-07-12T22:30:00.000Z');
 const TOPIC_SLUGS = [
@@ -71,6 +81,18 @@ describe('shadow demo content-rule primitives', () => {
     const rejected = aggregateShadowContentRules(votesAt(7), 25);
     expect(rejected.adoptedExcludeKeywords).toEqual([]);
     expect(rejected.support).toEqual([{ keyword: 'atproto', supportCount: 7, adopted: false }]);
+  });
+
+  it('caps the adopted exclude-rule set at the per-ballot keyword limit', () => {
+    // Inertia across epochs can push more than MAX keywords over threshold;
+    // the persisted policy keeps only the highest-support MAX.
+    const overCap = SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS + 5;
+    const votes = Array.from({ length: 25 }, () => ({
+      excludeKeywords: Array.from({ length: overCap }, (_unused, i) => `rule-${i}`),
+    }));
+    const summary = aggregateShadowContentRules(votes, 25);
+    expect(summary.support.filter((entry) => entry.adopted).length).toBe(overCap);
+    expect(summary.adoptedExcludeKeywords).toHaveLength(SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS);
   });
 
   it('splits the corpus with the production matcher and passes text-less posts', () => {
@@ -279,10 +301,31 @@ describe('shadow demo stored content-rules schema round trip', () => {
     expect(restored?.votes[0]?.excludeKeywords).toEqual(['atproto']);
   });
 
+  it('accepts a stored session whose content-rules arrays sit exactly at the schema maximums', async () => {
+    const atMax = storedSessionWithContentRules();
+    atMax.epochs[0].aggregate.contentRules!.adoptedExcludeKeywords =
+      Array.from({ length: SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS }, (_unused, i) => `keyword-${i}`);
+    atMax.epochs[0].aggregate.contentRules!.support =
+      Array.from({ length: STORED_SUPPORT_MAX }, (_unused, i) => ({
+        keyword: `keyword-${i}`,
+        supportCount: 1,
+        adopted: i < SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS,
+      }));
+    const { corpus: atMaxCorpus, ...atMaxHeader } = atMax;
+    const get = vi.fn()
+      .mockResolvedValueOnce(JSON.stringify(atMaxHeader))
+      .mockResolvedValueOnce(JSON.stringify(atMaxCorpus));
+    const restored = await new RedisDemoStore({ get } as unknown as Redis).readSession(atMax.sessionId);
+    expect(restored?.epochs[0].aggregate.contentRules?.adoptedExcludeKeywords).toHaveLength(
+      SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS
+    );
+    expect(restored?.epochs[0].aggregate.contentRules?.support).toHaveLength(STORED_SUPPORT_MAX);
+  });
+
   it('rejects a stored session whose content-rules arrays exceed the schema bounds', async () => {
     const tooManyAdopted = storedSessionWithContentRules();
     tooManyAdopted.epochs[0].aggregate.contentRules!.adoptedExcludeKeywords =
-      Array.from({ length: 11 }, (_unused, i) => `keyword-${i}`);
+      Array.from({ length: SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS + 1 }, (_unused, i) => `keyword-${i}`);
     const { corpus: adoptedCorpus, ...adoptedHeader } = tooManyAdopted;
     const getAdopted = vi.fn()
       .mockResolvedValueOnce(JSON.stringify(adoptedHeader))
@@ -292,7 +335,7 @@ describe('shadow demo stored content-rules schema round trip', () => {
     ).rejects.toBeInstanceOf(DemoStoreCorruptionError);
 
     const tooMuchSupport = storedSessionWithContentRules();
-    tooMuchSupport.epochs[0].aggregate.contentRules!.support = Array.from({ length: 251 }, (_unused, i) => ({
+    tooMuchSupport.epochs[0].aggregate.contentRules!.support = Array.from({ length: STORED_SUPPORT_MAX + 1 }, (_unused, i) => ({
       keyword: `keyword-${i}`,
       supportCount: 1,
       adopted: false,
@@ -307,6 +350,8 @@ describe('shadow demo stored content-rules schema round trip', () => {
   });
 });
 
+/** A minimal advanced-epoch session carrying an adopted content-rules summary
+ * and a reviewer excludeKeywords ballot, for exercising the stored zod schema. */
 function storedSessionWithContentRules(): ShadowDemoSessionState {
   const weights = { recency: 0.2, engagement: 0.2, bridging: 0.2, source_diversity: 0.2, relevance: 0.2 };
   const topicIntent = { topicWeights: { 'science-research': 0.8 } };
@@ -378,6 +423,8 @@ function storedSessionWithContentRules(): ShadowDemoSessionState {
   };
 }
 
+/** A service over an in-memory store with a fixed session seed, so synthetic
+ * keyword echoes are deterministic and adoption outcomes are pinned. */
 function buildService(options: { contentRulesEnabled: boolean; seed: string }): ShadowDemoService {
   return new ShadowDemoService({
     store: new MemoryDemoStore(),
@@ -388,6 +435,8 @@ function buildService(options: { contentRulesEnabled: boolean; seed: string }): 
   });
 }
 
+/** Drive one epoch end to end: reviewer vote (optionally with keywords), the 24
+ * synthetic ballots, then advance — returning the advanced-session result. */
 async function runFullEpoch(
   service: ShadowDemoService,
   sessionId: string,
@@ -427,6 +476,8 @@ function postUri(index: number): string {
   return `at://did:plc:demo${index}/app.bsky.feed.post/post${index}`;
 }
 
+/** A 40-post frozen community_gov corpus (baseProductionEpochId 2) with two
+ * atproto-bearing posts, so an adopted "-atproto" rule has a visible effect. */
 function corpus(): ShadowDemoCorpus {
   const items = Array.from({ length: 40 }, (_unused, index) => item(index + 1));
   return {
@@ -454,6 +505,8 @@ function corpus(): ShadowDemoCorpus {
   };
 }
 
+/** One frozen corpus post; posts 2-3 mention atproto and 4/7 mention headscale
+ * so keyword rules and suggestion floors have deterministic matches. */
 function item(index: number): ShadowDemoCorpus['items'][number] {
   const uri = postUri(index);
   // Posts 2 and 3 mention "atproto" so an adopted "-atproto" rule has a

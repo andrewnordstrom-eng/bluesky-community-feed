@@ -62,9 +62,13 @@ const contentRulesBaseSchema = z.object({
   adoptedExcludeKeywords: excludeKeywordListSchema,
 })
 
+// Distinct proposed keywords per epoch: reviewer (<= MAX) plus prior-adopted
+// (capped at MAX), aggregated across the 25-ballot electorate.
+const CONTENT_RULE_SUPPORT_MAX = SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS * 25
+
 const contentRulesSummarySchema = contentRulesBaseSchema.extend({
   enabled: z.literal(true),
-  support: z.array(contentRuleSupportSchema),
+  support: z.array(contentRuleSupportSchema).max(CONTENT_RULE_SUPPORT_MAX),
 }).strict()
 
 const suggestedExcludeKeywordSchema = z.object({
