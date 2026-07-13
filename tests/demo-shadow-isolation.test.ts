@@ -20,6 +20,20 @@ const SERVER_FILE = new URL('../src/feed/server.ts', import.meta.url).pathname;
 const DEPLOY_FILE = new URL('../.github/workflows/deploy.yml', import.meta.url).pathname;
 const PROBE_UUID_A = '00000000-0000-4000-8000-000000000001';
 const PROBE_UUID_B = '00000000-0000-4000-8000-000000000002';
+const DEPLOY_GATE_MARKERS = [
+  {
+    name: 'root build',
+    value: 'node scripts/audit-allowlist.mjs --audit-level=high\n            npm run build',
+  },
+  { name: 'root test', value: 'npm run test -- --reporter=verbose --run' },
+  { name: 'web build', value: 'cd web && npm ci && npm run build' },
+  { name: 'web-next install', value: 'cd web-next && npm ci' },
+  {
+    name: 'web-next build',
+    value: 'npm run build || { echo "web-next build failed; retrying once..."; npm run build; }',
+  },
+  { name: 'CLI build', value: 'cd cli && npm ci && npx tsc' },
+] as const;
 
 describe('shadow demo isolation guards', () => {
   it('keeps Redis state inside the demo namespace', () => {
@@ -151,18 +165,75 @@ describe('sudo Docker Compose command matcher', () => {
 describe('production deploy ordering guards', () => {
   it('applies database migrations after verification and before service restart', () => {
     const deploy = readFileSync(DEPLOY_FILE, 'utf8');
-    const verificationIndex = deploy.indexOf('npm run test -- --reporter=verbose --run');
-    const finalBuildIndex = deploy.indexOf('cd cli && npm ci && npx tsc');
-    const migrationIndex = deploy.indexOf('npm run migrate');
-    const restartIndex = deploy.indexOf('sudo systemctl restart bluesky-feed');
 
-    expect(verificationIndex).toBeGreaterThan(-1);
-    expect(finalBuildIndex).toBeGreaterThan(verificationIndex);
-    expect(migrationIndex).toBeGreaterThan(finalBuildIndex);
-    expect(restartIndex).toBeGreaterThan(migrationIndex);
-    expect(deploy.match(/npm run migrate/g)).toHaveLength(1);
+    expect(() => assertDeployMigrationOrdering(deploy)).not.toThrow();
+  });
+
+  it('rejects a deploy script with a missing required gate', () => {
+    const deploy = readFileSync(DEPLOY_FILE, 'utf8');
+    const withoutWebBuild = deploy.replace(DEPLOY_GATE_MARKERS[2].value, '');
+
+    expect(() => assertDeployMigrationOrdering(withoutWebBuild)).toThrow('Missing web build gate');
+  });
+
+  it('rejects a deploy script with a duplicated required gate', () => {
+    const deploy = readFileSync(DEPLOY_FILE, 'utf8');
+    const duplicateCliBuild = deploy.replace(
+      'npm run migrate',
+      `${DEPLOY_GATE_MARKERS[5].value}\n            npm run migrate`
+    );
+
+    expect(() => assertDeployMigrationOrdering(duplicateCliBuild)).toThrow('Duplicate CLI build gate');
+  });
+
+  it('rejects a deploy script that moves a required gate after migration', () => {
+    const deploy = readFileSync(DEPLOY_FILE, 'utf8');
+    const withoutWebNextBuild = deploy.replace(DEPLOY_GATE_MARKERS[4].value, '');
+    const reordered = withoutWebNextBuild.replace(
+      'npm run migrate',
+      `npm run migrate\n            ${DEPLOY_GATE_MARKERS[4].value}`
+    );
+
+    expect(() => assertDeployMigrationOrdering(reordered)).toThrow(
+      'Migration must run after every build and test gate'
+    );
   });
 });
+
+function assertDeployMigrationOrdering(script: string): void {
+  const restartMarker = 'sudo systemctl restart bluesky-feed';
+  const restartIndex = script.indexOf(restartMarker);
+  if (restartIndex < 0) {
+    throw new Error('Missing service restart');
+  }
+  const deployPath = script.slice(0, restartIndex + restartMarker.length);
+
+  const gateIndexes = DEPLOY_GATE_MARKERS.map(({ name, value }) => {
+    const firstIndex = deployPath.indexOf(value);
+    if (firstIndex < 0) {
+      throw new Error(`Missing ${name} gate`);
+    }
+    if (deployPath.lastIndexOf(value) !== firstIndex) {
+      throw new Error(`Duplicate ${name} gate`);
+    }
+    return firstIndex;
+  });
+
+  const migrationIndex = deployPath.indexOf('npm run migrate');
+  if (migrationIndex < 0 || deployPath.lastIndexOf('npm run migrate') !== migrationIndex) {
+    throw new Error('Deploy must contain exactly one migration command');
+  }
+
+  const finalGateIndex = Math.max(...gateIndexes);
+  if (migrationIndex <= finalGateIndex) {
+    throw new Error('Migration must run after every build and test gate');
+  }
+
+  const deployRestartIndex = deployPath.indexOf(restartMarker);
+  if (deployRestartIndex <= migrationIndex) {
+    throw new Error('Service restart must run after migration');
+  }
+}
 
 function usesOnlySudoDockerComposeCommands(script: string): boolean {
   const tokens = tokenizeShellCommands(script);
