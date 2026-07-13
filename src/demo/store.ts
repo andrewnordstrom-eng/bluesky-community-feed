@@ -6,6 +6,7 @@ import {
   SHADOW_DEMO_COMMUNITY_IDS,
   SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS,
   SHADOW_DEMO_MAX_EXCLUDE_KEYWORD_LENGTH,
+  SHADOW_DEMO_TOTAL_DEMO_VOTERS,
   SHADOW_DEMO_PHASES,
   SHADOW_DEMO_SIGNAL_KEYS,
   SHADOW_DEMO_TOPIC_KEYS,
@@ -170,7 +171,7 @@ const StoredCorpusSchema = z.object({
 
 // Distinct proposed keywords per epoch = reviewer (<= MAX) plus prior-adopted
 // (itself capped at MAX), so support entries stay well under this ceiling.
-const STORED_CONTENT_RULE_SUPPORT_MAX = SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS * 25;
+const STORED_CONTENT_RULE_SUPPORT_MAX = SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS * SHADOW_DEMO_TOTAL_DEMO_VOTERS;
 
 const StoredContentRulesSummarySchema = z.object({
   enabled: z.literal(true),

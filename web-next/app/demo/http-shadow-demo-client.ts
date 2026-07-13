@@ -528,6 +528,9 @@ function mapFeed(payload: ApiFeedPayload, generatedAt: string): ShadowDemoFeed {
 }
 
 function mapWithheldPost(withheld: NonNullable<ApiFeedPayload["withheldPosts"]>[number]): ShadowDemoWithheldFeedItem {
+  // The backend only withholds public posts (text-less/hidden posts pass the
+  // exclude filter), but the display-post union is modeled faithfully so this
+  // mapping stays correct if that ever changes.
   if (withheld.post.kind === "hidden_post") {
     return {
       keyword: withheld.keyword,

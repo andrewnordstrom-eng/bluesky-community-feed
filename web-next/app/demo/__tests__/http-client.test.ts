@@ -310,6 +310,33 @@ describe("HTTP shadow demo client", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
+  it("maps withheld posts with their adopted rule and support", async () => {
+    const feed = feedPayload("epoch-2", [1, 2]) as { posts: Array<Record<string, unknown>> } & Record<string, unknown>
+    const withheldPost = { ...(feed.posts[0].post as Record<string, unknown>), uri: "at://did:plc:test/app.bsky.feed.post/withheld" }
+    feed.withheldPosts = [{ keyword: "atproto", supportCount: 10, previousRank: 4, post: withheldPost }]
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const path = requestPath(input)
+      if (path.startsWith(`/api/demo/v4/sessions/${SESSION_ID}/feed`)) return jsonEnvelope(feed)
+      return new Response(null, { status: 404 })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const response = await createHttpShadowDemoClient().getFeed(
+      SESSION_ID,
+      { epochId: "epoch-2", limit: 12 },
+      new AbortController().signal,
+    )
+    expect(response.payload.withheldPosts).toEqual([
+      {
+        keyword: "atproto",
+        supportCount: 10,
+        previousRank: 4,
+        hiddenReason: null,
+        post: expect.objectContaining({ uri: "at://did:plc:test/app.bsky.feed.post/withheld", labels: [] }),
+      },
+    ])
+  })
+
   it("counts visible hidden rows when snapshot source totals are unavailable", async () => {
     const feed = feedPayload("epoch-1", [1, 2]) as { posts: Array<Record<string, unknown>> }
     feed.posts[0] = {

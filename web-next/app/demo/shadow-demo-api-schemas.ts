@@ -2,6 +2,7 @@ import { z } from "zod"
 import {
   SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS,
   SHADOW_DEMO_MAX_EXCLUDE_KEYWORD_LENGTH,
+  SHADOW_DEMO_TOTAL_DEMO_VOTERS,
 } from "@/app/demo/shadow-demo-view-model"
 
 export const CONTRACT_VERSION = "2026-07-11.shadow-demo.v4" as const
@@ -64,7 +65,7 @@ const contentRulesBaseSchema = z.object({
 
 // Distinct proposed keywords per epoch: reviewer (<= MAX) plus prior-adopted
 // (capped at MAX), aggregated across the 25-ballot electorate.
-const CONTENT_RULE_SUPPORT_MAX = SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS * 25
+const CONTENT_RULE_SUPPORT_MAX = SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS * SHADOW_DEMO_TOTAL_DEMO_VOTERS
 
 const contentRulesSummarySchema = contentRulesBaseSchema.extend({
   enabled: z.literal(true),

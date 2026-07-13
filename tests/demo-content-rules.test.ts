@@ -12,6 +12,7 @@ import { ShadowDemoService } from '../src/demo/service.js';
 import { DemoStoreCorruptionError, MemoryDemoStore, RedisDemoStore } from '../src/demo/store.js';
 import {
   SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS,
+  SHADOW_DEMO_TOTAL_DEMO_VOTERS,
   type ShadowDemoCorpus,
   type ShadowDemoSessionState,
   type ShadowDemoVote,
@@ -20,7 +21,7 @@ import {
 // Support entries per epoch never exceed reviewer + prior-adopted keywords, but
 // the persisted schema tolerates the full electorate's worth; keep the test
 // bound derived so it tracks the store schema instead of a hardcoded literal.
-const STORED_SUPPORT_MAX = SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS * 25;
+const STORED_SUPPORT_MAX = SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS * SHADOW_DEMO_TOTAL_DEMO_VOTERS;
 
 const NOW = new Date('2026-07-12T22:30:00.000Z');
 const TOPIC_SLUGS = [
@@ -178,6 +179,28 @@ describe('shadow demo content rules disabled (v4 parity)', () => {
       limit: 12,
     });
     expect('withheldPosts' in feed.payload).toBe(false);
+  });
+
+  it('ignores rules persisted while the flag was on once the flag flips off', async () => {
+    // Build an adopted-rule session with the flag ON, then read the same stored
+    // session through a flag-OFF service: withholding must not leak.
+    const store = new MemoryDemoStore();
+    const enabled = buildService({ contentRulesEnabled: true, seed: ADOPTING_SEED }, store);
+    const created = await enabled.createSession({ communityId: 'community_gov', clientNonce: 'flip-off' });
+    const session = created.payload.session;
+    const advanced = await runFullEpoch(enabled, session.sessionId, session.currentEpochId, ['ATProto'], 'flip');
+    const shadowEpochId = advanced.payload.session.currentEpochId;
+    const enabledEpoch = advanced.payload.session.epochs.find((candidate) => candidate.id === shadowEpochId);
+    expect(enabledEpoch?.aggregate.contentRules?.adoptedExcludeKeywords).toEqual(['atproto']);
+
+    const disabled = buildService({ contentRulesEnabled: false, seed: ADOPTING_SEED }, store);
+    const feed = await disabled.getFeed({ sessionId: session.sessionId, epochId: shadowEpochId, limit: 12 });
+    expect('withheldPosts' in feed.payload).toBe(false);
+    // getReceipt ranks the full corpus and throws for a withheld post; resolving
+    // for the atproto-matching post proves the persisted rule is not applied.
+    const receipt = await disabled.getReceipt({ sessionId: session.sessionId, epochId: shadowEpochId, postUri: postUri(2) });
+    expect(receipt.payload.receipt.visibleRank).toBeGreaterThan(0);
+    expect('contentRules' in receipt.payload.receipt).toBe(false);
   });
 });
 
@@ -424,10 +447,14 @@ function storedSessionWithContentRules(): ShadowDemoSessionState {
 }
 
 /** A service over an in-memory store with a fixed session seed, so synthetic
- * keyword echoes are deterministic and adoption outcomes are pinned. */
-function buildService(options: { contentRulesEnabled: boolean; seed: string }): ShadowDemoService {
+ * keyword echoes are deterministic and adoption outcomes are pinned. Pass a
+ * shared store to model a config flip against sessions built by another service. */
+function buildService(
+  options: { contentRulesEnabled: boolean; seed: string },
+  store: MemoryDemoStore = new MemoryDemoStore()
+): ShadowDemoService {
   return new ShadowDemoService({
-    store: new MemoryDemoStore(),
+    store,
     loadCorpus: async () => corpus(),
     now: () => NOW,
     contentRulesEnabled: options.contentRulesEnabled,

@@ -68,6 +68,8 @@ const SUGGESTED_KEYWORD_MIN_LENGTH = 4;
 const SUGGESTED_KEYWORD_MIN_MATCHES = 2;
 /** Skip terms that would withhold most of the corpus in one vote. */
 const SUGGESTED_KEYWORD_MAX_CORPUS_SHARE = 0.3;
+/** How many corpus-grounded exclude suggestions the session exposes. */
+export const SHADOW_DEMO_SUGGESTED_KEYWORD_COUNT = 6;
 
 export function validateShadowExcludeKeywords(value: unknown): string[] {
   if (value === undefined || value === null) {

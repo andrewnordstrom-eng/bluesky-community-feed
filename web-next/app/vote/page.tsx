@@ -467,6 +467,9 @@ function VoteWorkbench({ epoch, myVote, topics, contentRules, isAuthenticated, o
               <div className="flex flex-col gap-1.5">
                 <span className="text-[10px] font-mono text-foreground/55 uppercase tracking-widest">02 — Content rules</span>
                 <h2 className="text-lg font-semibold text-foreground leading-snug">Keywords</h2>
+                {/* 30% mirrors the fixed KEYWORD_THRESHOLD share in governance
+                    aggregation; the API `rules.threshold` is an absolute vote
+                    count for that round, not a percentage, so it is not rendered here. */}
                 <p className="text-sm text-foreground/50 leading-relaxed">
                   Vote on which keywords to boost or suppress. Keywords take effect when backed by at least 30% of members voting on content rules.
                 </p>

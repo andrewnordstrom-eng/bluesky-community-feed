@@ -3,6 +3,7 @@ import { config } from '../config.js';
 import { applyFeedUrlDedup, FEED_URL_DEDUP_DECAY } from '../scoring/feed-publication.js';
 import { DEMO_COMMUNITIES, createDefaultCorpusLoader } from './corpus.js';
 import {
+  SHADOW_DEMO_SUGGESTED_KEYWORD_COUNT,
   aggregateShadowContentRules,
   applyShadowContentRules,
   emptyShadowContentRules,
@@ -422,6 +423,7 @@ export class ShadowDemoService {
       epoch,
       previousEpoch,
       limit: request.limit,
+      contentRulesEnabled: this.contentRulesEnabled,
     });
     return {
       sessionId: state.sessionId,
@@ -458,6 +460,7 @@ export class ShadowDemoService {
       epoch,
       previousEpoch,
       limit: state.corpus.items.length,
+      contentRulesEnabled: this.contentRulesEnabled,
     });
     const withheldEntry = ranked.withheld.find(
       (candidate) => candidate.post.kind === 'public_post' && candidate.post.uri === request.postUri
@@ -517,6 +520,7 @@ export class ShadowDemoService {
             item,
             epoch,
             visibleRank: rankedPost.rank,
+            contentRulesEnabled: this.contentRulesEnabled,
           }),
           ...(this.contentRulesEnabled && epoch.aggregate.contentRules
             ? {
@@ -750,7 +754,10 @@ function sessionPayload(
       ...(contentRulesEnabled
         ? {
             contentRulesEnabled: true,
-            suggestedExcludeKeywords: suggestedExcludeKeywords(state.corpus.items, 6),
+            suggestedExcludeKeywords: suggestedExcludeKeywords(
+              state.corpus.items,
+              SHADOW_DEMO_SUGGESTED_KEYWORD_COUNT
+            ),
           }
         : {}),
     },
@@ -1005,7 +1012,13 @@ function assertCompleteDemoElectorate(votes: ShadowDemoVote[], epochId: string):
   }
 }
 
-function adoptedRulesFor(epoch: ShadowDemoEpoch): string[] {
+// When the flag is off, stored rules are ignored so an off deployment is fully
+// inert even if a session persisted rules while the flag was on (flip-off must
+// stay byte-identical to v4).
+function adoptedRulesFor(epoch: ShadowDemoEpoch, contentRulesEnabled: boolean): string[] {
+  if (!contentRulesEnabled) {
+    return [];
+  }
   return epoch.aggregate.contentRules?.adoptedExcludeKeywords ?? [];
 }
 
@@ -1014,12 +1027,16 @@ function rankedPosts(options: {
   epoch: ShadowDemoEpoch;
   previousEpoch: ShadowDemoEpoch | null;
   limit: number;
+  contentRulesEnabled: boolean;
 }): { posts: ShadowDemoRankedPost[]; withheld: ShadowDemoWithheldPost[] } {
   const previousRanks = options.previousEpoch
-    ? rankMapForEpoch(options.corpus, options.previousEpoch)
+    ? rankMapForEpoch(options.corpus, options.previousEpoch, options.contentRulesEnabled)
     : new Map<string, number>();
   const isPublishedBaseline = options.corpus.communityId === 'community_gov' && options.epoch.sequence === 1;
-  const ruleApplication = applyShadowContentRules(options.corpus.items, adoptedRulesFor(options.epoch));
+  const ruleApplication = applyShadowContentRules(
+    options.corpus.items,
+    adoptedRulesFor(options.epoch, options.contentRulesEnabled)
+  );
   const support = new Map(
     (options.epoch.aggregate.contentRules?.support ?? []).map((entry) => [entry.keyword, entry.supportCount])
   );
@@ -1060,14 +1077,18 @@ function rankedPosts(options: {
   return { posts, withheld };
 }
 
-function rankMapForEpoch(corpus: ShadowDemoCorpus, epoch: ShadowDemoEpoch): Map<string, number> {
+function rankMapForEpoch(
+  corpus: ShadowDemoCorpus,
+  epoch: ShadowDemoEpoch,
+  contentRulesEnabled: boolean
+): Map<string, number> {
   const ranks = new Map<string, number>();
   if (epoch.sequence === 1 && corpus.items.every((item) => item.publishedRank !== undefined)) {
     for (const item of corpus.items) ranks.set(item.postUri, item.publishedRank as number);
     return ranks;
   }
   scoreAndPublishItems(
-    applyShadowContentRules(corpus.items, adoptedRulesFor(epoch)).eligible,
+    applyShadowContentRules(corpus.items, adoptedRulesFor(epoch, contentRulesEnabled)).eligible,
     epoch.aggregate.weights,
     epoch.aggregate.topicIntent,
     false,
@@ -1096,6 +1117,7 @@ function counterfactualsForReceipt(options: {
   item: ShadowDemoCorpusItem;
   epoch: ShadowDemoEpoch;
   visibleRank: number;
+  contentRulesEnabled: boolean;
 }): ShadowDemoCounterfactual[] {
   const previousEpoch = previousEpochFor(options.state, options.epoch);
   const previousWeights = previousEpoch?.aggregate.weights ?? options.state.corpus.baseWeights;
@@ -1116,7 +1138,7 @@ function counterfactualsForReceipt(options: {
         weights: previousWeights,
         topicIntent: previousTopicIntent,
         visibleRank: options.visibleRank,
-        adoptedExcludeKeywords: previousEpoch ? adoptedRulesFor(previousEpoch) : [],
+        adoptedExcludeKeywords: previousEpoch ? adoptedRulesFor(previousEpoch, options.contentRulesEnabled) : [],
       });
   return [
     previousCounterfactual,
@@ -1128,7 +1150,7 @@ function counterfactualsForReceipt(options: {
       weights: engagementOnlyWeights(),
       topicIntent: options.epoch.aggregate.topicIntent,
       visibleRank: options.visibleRank,
-      adoptedExcludeKeywords: adoptedRulesFor(options.epoch),
+      adoptedExcludeKeywords: adoptedRulesFor(options.epoch, options.contentRulesEnabled),
     }),
     counterfactualForWeights({
       label: 'direct_reviewer_ballot_removed',
@@ -1138,7 +1160,7 @@ function counterfactualsForReceipt(options: {
       weights: directReviewerBallotRemoved.weights,
       topicIntent: directReviewerBallotRemoved.topicIntent,
       visibleRank: options.visibleRank,
-      adoptedExcludeKeywords: adoptedRulesFor(options.epoch),
+      adoptedExcludeKeywords: adoptedRulesFor(options.epoch, options.contentRulesEnabled),
     }),
   ];
 }
