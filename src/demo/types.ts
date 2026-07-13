@@ -80,6 +80,41 @@ export const SHADOW_DEMO_CORPUS_PROVENANCE = {
   topicScoreThreshold: 0.5,
 } as const;
 
+export const SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS = 10;
+
+export const SHADOW_DEMO_MAX_EXCLUDE_KEYWORD_LENGTH = 50;
+
+/** Mirrors production KEYWORD_THRESHOLD in src/governance/aggregation.ts. */
+export const SHADOW_DEMO_CONTENT_RULE_SUPPORT_THRESHOLD = 0.3;
+
+export interface ShadowDemoContentRuleSupport {
+  keyword: string;
+  supportCount: number;
+  adopted: boolean;
+}
+
+export interface ShadowDemoContentRulesSummary {
+  enabled: true;
+  /** Votes needed to adopt a keyword: ceil(threshold share x electorate), min 1. */
+  threshold: number;
+  /** Every demo ballot is complete, so the denominator is the full electorate. */
+  electorate: number;
+  adoptedExcludeKeywords: string[];
+  support: ShadowDemoContentRuleSupport[];
+}
+
+export interface ShadowDemoSuggestedExcludeKeyword {
+  keyword: string;
+  matchCount: number;
+}
+
+export interface ShadowDemoWithheldPost {
+  keyword: string;
+  supportCount: number;
+  previousRank: number | null;
+  post: ShadowDemoDisplayPost;
+}
+
 export const SHADOW_DEMO_PHASES = [
   'created',
   'reviewer_voted',
@@ -307,6 +342,8 @@ interface ShadowDemoVoteBase {
   label: string;
   weights: ShadowDemoWeights;
   topicIntent: ShadowDemoTopicIntent;
+  /** Present only when DEMO_CONTENT_RULES_ENABLED; normalized exclude keywords. */
+  excludeKeywords?: string[];
   createdAt: string;
 }
 
@@ -330,6 +367,8 @@ export interface ShadowDemoVoteSummary {
   trimCount: number;
   weights: ShadowDemoWeights;
   topicIntent: ShadowDemoTopicIntent;
+  /** Present only when DEMO_CONTENT_RULES_ENABLED. Threshold rule, not trimmed mean. */
+  contentRules?: ShadowDemoContentRulesSummary;
 }
 
 export interface ShadowDemoEpoch {
@@ -386,6 +425,9 @@ export interface ShadowDemoSessionPayload {
     votes: ShadowDemoVote[];
     topicCatalog?: ShadowDemoTopicCatalogEntry[];
     sourceFeedUri?: string;
+    /** Present only when DEMO_CONTENT_RULES_ENABLED. */
+    contentRulesEnabled?: boolean;
+    suggestedExcludeKeywords?: ShadowDemoSuggestedExcludeKeyword[];
   };
 }
 
@@ -411,6 +453,8 @@ export interface ShadowDemoFeedPayload {
   corpusProvenance: ShadowDemoCorpusProvenance;
   aggregate: ShadowDemoVoteSummary;
   posts: ShadowDemoRankedPost[];
+  /** Present only when content rules are enabled for the epoch; may be an empty array. */
+  withheldPosts?: ShadowDemoWithheldPost[];
 }
 
 export interface ShadowDemoReceiptContribution {
@@ -470,6 +514,14 @@ export interface ShadowDemoReceiptPayload {
       postInclusionReasons: ShadowDemoCorpusInclusionReason;
     };
     counterfactuals: ShadowDemoCounterfactual[];
+    /** Present only when DEMO_CONTENT_RULES_ENABLED. */
+    contentRules?: {
+      adoptedExcludeKeywords: string[];
+      threshold: number;
+      electorate: number;
+      /** Always null on a rank receipt; withheld posts have no rank receipt. */
+      matchedKeyword: null;
+    };
   };
 }
 

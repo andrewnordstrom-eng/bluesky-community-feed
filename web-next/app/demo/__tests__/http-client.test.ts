@@ -106,6 +106,25 @@ describe("HTTP shadow demo client", () => {
     expect(apiSessionPayloadSchema.safeParse({ session: { ...valid.session, topicCatalog: catalog.slice(0, 25) } }).success).toBe(false)
   })
 
+  it("bounds the content-rules support array on parsed session payloads", () => {
+    const valid = sessionPayload("created", "epoch-1", [epoch("epoch-1", 1, BASE_WEIGHTS, 0)]) as {
+      session: Record<string, unknown>
+    }
+    const epochs = valid.session.epochs as Array<Record<string, unknown>>
+    const withContentRules = (supportLength: number): unknown => {
+      const support = Array.from({ length: supportLength }, (_unused, i) => ({
+        keyword: `rule-${i}`,
+        supportCount: 1,
+        adopted: false,
+      }))
+      const aggregate = { ...(epochs[0].aggregate as Record<string, unknown>) }
+      aggregate.contentRules = { enabled: true, threshold: 8, electorate: 25, adoptedExcludeKeywords: [], support }
+      return { session: { ...valid.session, epochs: [{ ...epochs[0], aggregate }] } }
+    }
+    expect(apiSessionPayloadSchema.safeParse(withContentRules(250)).success).toBe(true)
+    expect(apiSessionPayloadSchema.safeParse(withContentRules(251)).success).toBe(false)
+  })
+
   it("accepts retained live and fallback corpus-health source values", () => {
     const valid = sessionPayload("created", "epoch-1", [epoch("epoch-1", 1, BASE_WEIGHTS, 0)]) as {
       session: Record<string, unknown>
@@ -289,6 +308,33 @@ describe("HTTP shadow demo client", () => {
       clientNonce: "nonce",
     })
     expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it("maps withheld posts with their adopted rule and support", async () => {
+    const feed = feedPayload("epoch-2", [1, 2]) as { posts: Array<Record<string, unknown>> } & Record<string, unknown>
+    const withheldPost = { ...(feed.posts[0].post as Record<string, unknown>), uri: "at://did:plc:test/app.bsky.feed.post/withheld" }
+    feed.withheldPosts = [{ keyword: "atproto", supportCount: 10, previousRank: 4, post: withheldPost }]
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const path = requestPath(input)
+      if (path.startsWith(`/api/demo/v4/sessions/${SESSION_ID}/feed`)) return jsonEnvelope(feed)
+      return new Response(null, { status: 404 })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const response = await createHttpShadowDemoClient().getFeed(
+      SESSION_ID,
+      { epochId: "epoch-2", limit: 12 },
+      new AbortController().signal,
+    )
+    expect(response.payload.withheldPosts).toEqual([
+      {
+        keyword: "atproto",
+        supportCount: 10,
+        previousRank: 4,
+        hiddenReason: null,
+        post: expect.objectContaining({ uri: "at://did:plc:test/app.bsky.feed.post/withheld", labels: [] }),
+      },
+    ])
   })
 
   it("counts visible hidden rows when snapshot source totals are unavailable", async () => {

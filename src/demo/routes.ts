@@ -6,6 +6,8 @@ import {
   SHADOW_DEMO_COMMUNITY_IDS,
   SHADOW_DEMO_CONTRACT_VERSION,
   SHADOW_DEMO_V4_CONTRACT_VERSION,
+  SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS,
+  SHADOW_DEMO_MAX_EXCLUDE_KEYWORD_LENGTH,
   SHADOW_DEMO_SESSION_TTL_SECONDS,
   SHADOW_DEMO_TOPIC_KEYS,
   type ShadowDemoEnvelope,
@@ -57,6 +59,8 @@ const VoteBodySchema = z.object({
   baseEpochId: z.string().min(1).max(64),
   weights: WeightSchema,
   topicIntent: TopicIntentSchema,
+  // Accepted only when DEMO_CONTENT_RULES_ENABLED; the service rejects it otherwise.
+  excludeKeywords: z.array(z.string().min(1).max(SHADOW_DEMO_MAX_EXCLUDE_KEYWORD_LENGTH)).max(SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS).optional(),
   idempotencyKey: IdempotencyKeySchema.optional(),
 }).strict();
 
@@ -172,6 +176,7 @@ function registerShadowDemoRouteFamily(
         baseEpochId: body.baseEpochId,
         weights: body.weights,
         topicIntent: body.topicIntent,
+        excludeKeywords: body.excludeKeywords,
         idempotencyKey: idempotencyKeyFrom(request, body.idempotencyKey ?? null),
       });
     }, options.contractVersion);

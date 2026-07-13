@@ -1,4 +1,9 @@
 import { z } from "zod"
+import {
+  SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS,
+  SHADOW_DEMO_MAX_EXCLUDE_KEYWORD_LENGTH,
+  SHADOW_DEMO_TOTAL_DEMO_VOTERS,
+} from "@/app/demo/shadow-demo-view-model"
 
 export const CONTRACT_VERSION = "2026-07-11.shadow-demo.v4" as const
 
@@ -43,12 +48,42 @@ const warningSchema = z.object({
   severity: z.enum(["info", "warning", "degraded"]),
 }).strict()
 
+const excludeKeywordStringSchema = z.string().min(1).max(SHADOW_DEMO_MAX_EXCLUDE_KEYWORD_LENGTH)
+const excludeKeywordListSchema = z.array(excludeKeywordStringSchema).max(SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS)
+
+const contentRuleSupportSchema = z.object({
+  keyword: excludeKeywordStringSchema,
+  supportCount: z.number().int().nonnegative(),
+  adopted: z.boolean(),
+}).strict()
+
+const contentRulesBaseSchema = z.object({
+  threshold: z.number().int().positive(),
+  electorate: z.number().int().nonnegative(),
+  adoptedExcludeKeywords: excludeKeywordListSchema,
+})
+
+// Distinct proposed keywords per epoch: reviewer (<= MAX) plus prior-adopted
+// (capped at MAX), aggregated across the 25-ballot electorate.
+const CONTENT_RULE_SUPPORT_MAX = SHADOW_DEMO_MAX_EXCLUDE_KEYWORDS * SHADOW_DEMO_TOTAL_DEMO_VOTERS
+
+const contentRulesSummarySchema = contentRulesBaseSchema.extend({
+  enabled: z.literal(true),
+  support: z.array(contentRuleSupportSchema).max(CONTENT_RULE_SUPPORT_MAX),
+}).strict()
+
+const suggestedExcludeKeywordSchema = z.object({
+  keyword: excludeKeywordStringSchema,
+  matchCount: z.number().int().nonnegative(),
+}).strict()
+
 const voteSummarySchema = z.object({
   aggregateMethod: z.literal("trimmed_mean_no_trim_under_10"),
   voteCount: z.number().int().nonnegative(),
   trimCount: z.number().int().nonnegative(),
   weights: apiWeightsSchema,
   topicIntent: apiTopicIntentSchema,
+  contentRules: contentRulesSummarySchema.optional(),
 }).strict()
 
 const epochSchema = z.object({
@@ -68,6 +103,7 @@ const voteBaseSchema = z.object({
   label: z.string().min(1),
   weights: apiWeightsSchema,
   topicIntent: apiTopicIntentSchema,
+  excludeKeywords: excludeKeywordListSchema.optional(),
   createdAt: isoDateTime,
 })
 
@@ -256,6 +292,8 @@ export const apiSessionPayloadSchema = z.object({
     sourceFeedUri: z.string().startsWith("at://"),
     voterProfiles: z.array(voterProfileSchema),
     votes: z.array(z.union([reviewerVoteSchema, apiSyntheticVoteSchema])),
+    contentRulesEnabled: z.literal(true).optional(),
+    suggestedExcludeKeywords: z.array(suggestedExcludeKeywordSchema).optional(),
   }).strict(),
 }).strict()
 
@@ -292,6 +330,13 @@ const rawScoresSchema = z.object({
   relevance: finiteNumber,
 }).strict()
 
+const withheldPostSchema = z.object({
+  keyword: excludeKeywordStringSchema,
+  supportCount: z.number().int().nonnegative(),
+  previousRank: z.number().int().positive().nullable(),
+  post: z.discriminatedUnion("kind", [publicPostSchema, hiddenPostSchema]),
+}).strict()
+
 export const apiFeedPayloadSchema = z.object({
   epochId: z.string().min(1),
   corpusId: z.string().min(1),
@@ -312,6 +357,7 @@ export const apiFeedPayloadSchema = z.object({
     componentScore: finiteNumber.nullable().optional(),
     publicationAdjustment: finiteNumber.nullable().optional(),
   }).strict()),
+  withheldPosts: z.array(withheldPostSchema).optional(),
 }).strict()
 
 export const apiReceiptPayloadSchema = z.object({
@@ -355,6 +401,9 @@ export const apiReceiptPayloadSchema = z.object({
       rank: z.number().int().positive().nullable(),
       deltaFromVisible: z.number().int().nullable(),
     }).strict()),
+    contentRules: contentRulesBaseSchema.extend({
+      matchedKeyword: z.null(),
+    }).strict().optional(),
   }).strict(),
 }).strict()
 

@@ -46,6 +46,7 @@ export const ConfigSchema = z.object({
   REDIS_URL: z.string().startsWith('redis://'),
   DEMO_REDIS_URL: z.string().startsWith('redis://').default('redis://127.0.0.1:6381'),
   DEMO_RATE_LIMIT_HASH_SECRET: z.string().min(16).default(INSECURE_DEMO_RATE_LIMIT_HASH_SECRET_DEFAULT),
+  DEMO_CONTENT_RULES_ENABLED: zodEnvBool(false),
   REDIS_COMMAND_TIMEOUT_MS: z.coerce.number().int().min(100).default(5_000),
 
   // Feed requester JWT verification

@@ -3,6 +3,7 @@
 import { useState, useRef, KeyboardEvent } from "react"
 
 const MAX_KEYWORDS = 20
+export const KEYWORD_MAX_LENGTH = 50
 
 interface KeywordInputProps {
   label: string
@@ -13,6 +14,8 @@ interface KeywordInputProps {
   disabled?: boolean
   communityVotes?: Record<string, number>   // optional: show vote count on chips
   totalVoters?: number
+  /** Caps the keyword list; defaults to 20 for the production vote page. */
+  maxKeywords?: number
 }
 
 export function KeywordInput({
@@ -23,13 +26,14 @@ export function KeywordInput({
   disabled = false,
   communityVotes,
   totalVoters,
+  maxKeywords = MAX_KEYWORDS,
 }: KeywordInputProps) {
   const [inputValue, setInputValue] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
-  const atMax = keywords.length >= MAX_KEYWORDS
+  const atMax = keywords.length >= maxKeywords
 
   const add = (raw: string) => {
-    const word = raw.trim().toLowerCase().replace(/\s+/g, "-")
+    const word = raw.trim().toLowerCase().replace(/\s+/g, "-").slice(0, KEYWORD_MAX_LENGTH)
     if (!word || keywords.includes(word) || atMax) return
     onChange([...keywords, word])
     setInputValue("")
@@ -67,7 +71,7 @@ export function KeywordInput({
           className={`text-xs font-mono tabular-nums transition-colors
             ${atMax ? "text-tongue-foreground font-semibold" : "text-foreground/50"}`}
         >
-          {keywords.length}/{MAX_KEYWORDS}
+          {keywords.length}/{maxKeywords}
         </span>
       </div>
 
