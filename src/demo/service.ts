@@ -433,7 +433,7 @@ export class ShadowDemoService {
         communityId: state.communityId,
         corpusHealth: state.corpus.health,
         corpusProvenance: corpusProvenanceFor(state),
-        aggregate: epoch.aggregate,
+        aggregate: publicAggregate(epoch.aggregate, this.contentRulesEnabled),
         posts: ranked.posts,
         ...(this.contentRulesEnabled && epoch.aggregate.contentRules
           ? { withheldPosts: ranked.withheld }
@@ -498,7 +498,7 @@ export class ShadowDemoService {
           publishedRank: rankedPost.publishedRank,
           publishedScore: rankedPost.publishedScore,
           scoredAt: item.scoredAt,
-          aggregate: epoch.aggregate,
+          aggregate: publicAggregate(epoch.aggregate, this.contentRulesEnabled),
           reviewerBallotShare: reviewerBallotShareFor(state, epoch),
           components: receiptContributions(
             item,
@@ -739,7 +739,7 @@ function sessionPayload(
       currentEpochId: state.currentEpochId,
       expiresAt: state.expiresAt,
       corpusHealth: state.corpus.health,
-      epochs: state.epochs,
+      epochs: state.epochs.map((epoch) => publicEpoch(epoch, contentRulesEnabled)),
       pendingAggregate: pendingAggregateFor(state, contentRulesEnabled),
       voteCount: state.votes.length,
       guidedEpochs: SHADOW_DEMO_GUIDED_EPOCHS,
@@ -1020,6 +1020,25 @@ function adoptedRulesFor(epoch: ShadowDemoEpoch, contentRulesEnabled: boolean): 
     return [];
   }
   return epoch.aggregate.contentRules?.adoptedExcludeKeywords ?? [];
+}
+
+// Strip persisted content-rule metadata from an aggregate when the flag is off,
+// so a session that adopted rules while enabled reads back byte-identical to v4
+// after a flip-off. No-op when enabled or when the aggregate never had rules.
+function publicAggregate(
+  aggregate: ShadowDemoEpoch['aggregate'],
+  contentRulesEnabled: boolean
+): ShadowDemoEpoch['aggregate'] {
+  if (contentRulesEnabled || aggregate.contentRules === undefined) {
+    return aggregate;
+  }
+  const { contentRules: _omitted, ...rest } = aggregate;
+  return rest;
+}
+
+function publicEpoch(epoch: ShadowDemoEpoch, contentRulesEnabled: boolean): ShadowDemoEpoch {
+  const aggregate = publicAggregate(epoch.aggregate, contentRulesEnabled);
+  return aggregate === epoch.aggregate ? epoch : { ...epoch, aggregate };
 }
 
 function rankedPosts(options: {

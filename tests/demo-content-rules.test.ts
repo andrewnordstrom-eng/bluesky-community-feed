@@ -196,11 +196,30 @@ describe('shadow demo content rules disabled (v4 parity)', () => {
     const disabled = buildService({ contentRulesEnabled: false, seed: ADOPTING_SEED }, store);
     const feed = await disabled.getFeed({ sessionId: session.sessionId, epochId: shadowEpochId, limit: 12 });
     expect('withheldPosts' in feed.payload).toBe(false);
+    // Persisted content-rule metadata must not leak into flag-off payloads.
+    expect('contentRules' in feed.payload.aggregate).toBe(false);
+    const disabledSession = await disabled.getSession(session.sessionId);
+    expect(disabledSession.payload.session.epochs.some((e) => 'contentRules' in e.aggregate)).toBe(false);
     // getReceipt ranks the full corpus and throws for a withheld post; resolving
     // for the atproto-matching post proves the persisted rule is not applied.
     const receipt = await disabled.getReceipt({ sessionId: session.sessionId, epochId: shadowEpochId, postUri: postUri(2) });
     expect(receipt.payload.receipt.visibleRank).toBeGreaterThan(0);
     expect('contentRules' in receipt.payload.receipt).toBe(false);
+    expect('contentRules' in receipt.payload.receipt.aggregate).toBe(false);
+
+    // Byte-identical parity: a session built entirely flag-off yields the same
+    // feed ordering/ranks and receipt fields as the flipped-off adopted session.
+    const baselineStore = new MemoryDemoStore();
+    const baselineService = buildService({ contentRulesEnabled: false, seed: ADOPTING_SEED }, baselineStore);
+    const baselineCreated = await baselineService.createSession({ communityId: 'community_gov', clientNonce: 'baseline-off' });
+    const baselineSession = baselineCreated.payload.session;
+    const baselineAdvanced = await runFullEpoch(baselineService, baselineSession.sessionId, baselineSession.currentEpochId, undefined, 'baseline');
+    const baselineEpochId = baselineAdvanced.payload.session.currentEpochId;
+    const baselineFeed = await baselineService.getFeed({ sessionId: baselineSession.sessionId, epochId: baselineEpochId, limit: 12 });
+    const rankPairs = (payloadFeed: typeof feed.payload): Array<[number, string]> => payloadFeed.posts
+      .filter((post) => post.post.kind === 'public_post')
+      .map((post) => [post.rank, post.post.kind === 'public_post' ? post.post.uri : ''] as [number, string]);
+    expect(rankPairs(feed.payload)).toEqual(rankPairs(baselineFeed.payload));
   });
 });
 
