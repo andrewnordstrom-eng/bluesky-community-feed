@@ -224,6 +224,7 @@ export interface EpochResponse {
   subscriber_count?: number;
   created_at: string;
   closed_at?: string;
+  results_approved_at?: string | null;
   description?: string;
   voting_started_at?: string | null;
   voting_ends_at?: string | null;
@@ -251,6 +252,7 @@ interface EpochApiResponse {
   subscriber_count?: number;
   created_at: string;
   closed_at?: string;
+  results_approved_at?: string | null;
   description?: string;
   voting_started_at?: string | null;
   voting_ends_at?: string | null;
@@ -277,6 +279,7 @@ function toEpochResponse(epoch: EpochApiResponse): EpochResponse {
     subscriber_count: epoch.subscriber_count,
     created_at: epoch.created_at,
     closed_at: epoch.closed_at,
+    results_approved_at: epoch.results_approved_at,
     description: epoch.description,
     voting_started_at: epoch.voting_started_at,
     voting_ends_at: epoch.voting_ends_at,

@@ -1865,6 +1865,11 @@
                             "format": "date-time",
                             "nullable": true
                           },
+                          "results_approved_at": {
+                            "type": "string",
+                            "format": "date-time",
+                            "nullable": true
+                          },
                           "description": {
                             "type": "string",
                             "nullable": true
@@ -2318,18 +2323,6 @@
           "Admin"
         ],
         "description": "Direct epoch transitions are disabled. Use the reviewed voting lifecycle to start voting, close voting, inspect the proposed policy, and approve results.",
-        "parameters": [
-          {
-            "schema": {
-              "type": "boolean",
-              "default": false
-            },
-            "in": "query",
-            "name": "force",
-            "required": false,
-            "description": "Skip vote count check (for testing)"
-          }
-        ],
         "security": [
           {
             "cookieAuth": []
@@ -2339,66 +2332,6 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "Default Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "newEpochId": {
-                      "type": "integer"
-                    },
-                    "forced": {
-                      "type": "boolean"
-                    },
-                    "previousEpochId": {
-                      "type": "integer"
-                    },
-                    "voteCount": {
-                      "type": "integer"
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "newEpochId",
-                    "forced"
-                  ]
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Default Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string",
-                      "description": "Error code (e.g. \"ValidationError\", \"NotFound\")"
-                    },
-                    "message": {
-                      "type": "string",
-                      "description": "Human-readable error message"
-                    },
-                    "correlationId": {
-                      "type": "string",
-                      "description": "Request correlation ID for debugging"
-                    }
-                  },
-                  "required": [
-                    "error",
-                    "message"
-                  ]
-                }
-              }
-            }
-          },
           "401": {
             "description": "Default Response",
             "content": {
@@ -9928,22 +9861,6 @@
           "Admin"
         ],
         "description": "Direct round transitions are disabled. Use start voting, end voting, results review, and approval so the complete policy is applied before rescoring.",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "force": {
-                    "type": "boolean",
-                    "default": false
-                  }
-                }
-              }
-            }
-          }
-        },
         "security": [
           {
             "cookieAuth": []
@@ -9953,55 +9870,6 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "Default Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "newRoundId": {
-                      "type": "integer"
-                    }
-                  },
-                  "required": [
-                    "success"
-                  ]
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Default Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string",
-                      "description": "Error code (e.g. \"ValidationError\", \"NotFound\")"
-                    },
-                    "message": {
-                      "type": "string",
-                      "description": "Human-readable error message"
-                    },
-                    "correlationId": {
-                      "type": "string",
-                      "description": "Request correlation ID for debugging"
-                    }
-                  },
-                  "required": [
-                    "error",
-                    "message"
-                  ]
-                }
-              }
-            }
-          },
           "409": {
             "description": "Default Response",
             "content": {
@@ -12198,16 +12066,15 @@
               "application/zip": {
                 "schema": {
                   "type": "string",
-                  "format": "binary",
-                  "description": "ZIP archive containing CSV and JSON files for the epoch"
+                  "format": "binary"
                 }
               }
             }
           },
           "400": {
-            "description": "Default Response",
+            "description": "Invalid export query",
             "content": {
-              "application/zip": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {

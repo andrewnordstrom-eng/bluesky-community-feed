@@ -2122,40 +2122,13 @@ export function registerGovernanceRoutes(app: FastifyInstance): void {
       summary: 'Direct transition disabled',
       description: 'Direct round transitions are disabled. Use start voting, end voting, results review, and approval so the complete policy is applied before rescoring.',
       security: adminSecurity,
-      body: {
-        type: 'object',
-        properties: {
-          force: { type: 'boolean', default: false },
-        },
-      },
       response: {
-        200: {
-          type: 'object',
-          properties: {
-            success: { type: 'boolean' },
-            newRoundId: { type: 'integer' },
-          },
-          required: ['success'],
-        },
-        400: ErrorResponseSchema,
         409: ErrorResponseSchema,
         500: ErrorResponseSchema,
       },
     },
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     getAdminDid(request);
-    const parseResult = z
-      .object({ force: z.boolean().optional().default(false) })
-      .safeParse(request.body ?? {});
-
-    if (!parseResult.success) {
-      return reply.code(400).send({
-        error: 'ValidationError',
-        message: 'Invalid end-round payload',
-        details: parseResult.error.issues,
-      });
-    }
-
     return reply.code(409).send({
       error: 'DirectTransitionDisabled',
       message: 'Direct round transitions are disabled. Start voting, close voting, review the proposed policy, and approve results.',

@@ -50,12 +50,30 @@ describe('web-next homepage anchors', () => {
 
   it('labels the landing replay as an illustrative Corgi Commons preview', () => {
     const pageContent = readRepoFile('web-next/app/page.tsx');
+    const renderedHomepageContent = [
+      'web-next/app/page.tsx',
+      'web-next/components/hero-section.tsx',
+      'web-next/components/replay-teaser.tsx',
+      'web-next/components/community-examples-section.tsx',
+      'web-next/components/social-proof.tsx',
+      'web-next/components/bento-section.tsx',
+      'web-next/components/faq-section.tsx',
+      'web-next/components/cta-section.tsx',
+      'web-next/components/footer-section.tsx',
+    ].map(readRepoFile).join('\n');
 
     expect(pageContent).toContain('Corgi Commons brings together open-network building');
     expect(pageContent).toContain('Change the illustrative policy below');
     expect(pageContent).toContain('Bluesky shows the ordered posts. Corgi shows the policy and receipts.');
     expect(pageContent).not.toContain('same feed reorders in Bluesky');
-    expect(pageContent).not.toContain('Birders Who Code');
+    expect(renderedHomepageContent).not.toContain('Birders Who Code');
+  });
+
+  it('shows lifecycle arrows only when all six steps share one row', () => {
+    const bentoContent = readRepoFile('web-next/components/bento-section.tsx');
+
+    expect(bentoContent).toContain('className="hidden text-primary/45 xl:block"');
+    expect(bentoContent).not.toContain('className="hidden text-primary/45 md:block"');
   });
 
   it('keeps public support reachable without repository access', () => {

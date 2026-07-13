@@ -43,8 +43,7 @@ async function main(): Promise<void> {
     });
 
     if (response.statusCode !== 200) {
-      console.error(`Failed to fetch spec: HTTP ${response.statusCode}`);
-      process.exit(1);
+      throw new Error(`Failed to fetch spec: HTTP ${response.statusCode}`);
     }
 
     let spec: OpenApiSpec = JSON.parse(response.body);
@@ -70,12 +69,17 @@ async function main(): Promise<void> {
     console.log(`  Routes: ${routeCount}`);
     console.log(`  Mode: ${publicOnly ? 'public-only' : 'full'}`);
   } finally {
-    await app.close();
-    const [{ db }, { redis }] = await Promise.all([
-      import('../src/db/client.js'),
-      import('../src/db/redis.js'),
+    const cleanupResults = await Promise.allSettled([
+      app.close(),
+      import('../src/db/client.js').then(({ db }) => db.end()),
+      import('../src/db/redis.js').then(({ redis }) => redis.quit()),
     ]);
-    await Promise.allSettled([db.end(), redis.quit()]);
+    const cleanupFailures = cleanupResults
+      .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+      .map((result) => result.reason);
+    if (cleanupFailures.length > 0) {
+      throw new AggregateError(cleanupFailures, 'OpenAPI generator cleanup failed');
+    }
   }
 }
 

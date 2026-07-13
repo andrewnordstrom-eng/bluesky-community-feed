@@ -22,6 +22,7 @@ import {
   createBoundedDemoFetch,
   parseSnapshotCaptureReport,
   scoreCompletenessRate,
+  snapshotApprovalWriteFlag,
   writeSnapshotCaptureArtifacts,
   type SnapshotCaptureReport,
 } from '../src/demo/snapshot-capture.js';
@@ -46,6 +47,30 @@ describe('Corgi Commons release snapshot', () => {
     expect(packageJson.scripts['demo:capture-community-gov']).toContain('--report /tmp/');
     expect(packageJson.scripts['demo:capture-community-gov']).toContain('--review-sheet /tmp/');
     expect(packageJson.scripts['demo:approve-community-gov']).toBe('tsx scripts/approve-demo-snapshot.ts');
+    expect(snapshotApprovalWriteFlag(false)).toBe('wx');
+    expect(snapshotApprovalWriteFlag(true)).toBe('w');
+  });
+
+  it('refuses to replace an existing approved output unless force is explicit', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'corgi-snapshot-approval-output-'));
+    const outputPath = join(directory, 'approved.json');
+    try {
+      await writeFile(outputPath, 'existing approval', 'utf8');
+
+      await expect(writeFile(outputPath, 'replacement', {
+        encoding: 'utf8',
+        flag: snapshotApprovalWriteFlag(false),
+      })).rejects.toMatchObject({ code: 'EEXIST' });
+      expect(await readFile(outputPath, 'utf8')).toBe('existing approval');
+
+      await writeFile(outputPath, 'reviewed replacement', {
+        encoding: 'utf8',
+        flag: snapshotApprovalWriteFlag(true),
+      });
+      expect(await readFile(outputPath, 'utf8')).toBe('reviewed replacement');
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it('emits only a non-approvable report when live snapshot gates fail', async () => {

@@ -310,6 +310,70 @@ describe("HTTP shadow demo client", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
+  it("rejects malformed community, provenance, topic, and session identity fields", () => {
+    const invalidPayloads: unknown[] = []
+    const emptyCommunity = structuredClone(sessionPayload("created", "epoch-1", [epoch("epoch-1", 1, BASE_WEIGHTS, 0)])) as {
+      session: { community: Record<string, unknown> }
+    }
+    emptyCommunity.session.community.name = ""
+    invalidPayloads.push(emptyCommunity)
+
+    const nullCommunity = structuredClone(sessionPayload("created", "epoch-1", [epoch("epoch-1", 1, BASE_WEIGHTS, 0)])) as {
+      session: { community: Record<string, unknown> }
+    }
+    nullCommunity.session.community.id = null
+    invalidPayloads.push(nullCommunity)
+
+    const missingProvenance = structuredClone(sessionPayload("created", "epoch-1", [epoch("epoch-1", 1, BASE_WEIGHTS, 0)])) as {
+      session: Record<string, unknown>
+    }
+    delete missingProvenance.session.corpusProvenance
+    invalidPayloads.push(missingProvenance)
+
+    const staleShapeProvenance = structuredClone(sessionPayload("created", "epoch-1", [epoch("epoch-1", 1, BASE_WEIGHTS, 0)])) as {
+      session: { corpusProvenance: Record<string, unknown> }
+    }
+    staleShapeProvenance.session.corpusProvenance.sourceUpdatedAt = "not-a-timestamp"
+    invalidPayloads.push(staleShapeProvenance)
+
+    const duplicateTopics = structuredClone(sessionPayload("created", "epoch-1", [epoch("epoch-1", 1, BASE_WEIGHTS, 0)])) as {
+      session: { topicCatalog: Array<Record<string, unknown>> }
+    }
+    duplicateTopics.session.topicCatalog[1].slug = duplicateTopics.session.topicCatalog[0].slug
+    invalidPayloads.push(duplicateTopics)
+
+    const nullEpoch = structuredClone(sessionPayload("created", "epoch-1", [epoch("epoch-1", 1, BASE_WEIGHTS, 0)])) as {
+      session: Record<string, unknown>
+    }
+    nullEpoch.session.currentEpochId = null
+    invalidPayloads.push(nullEpoch)
+
+    for (const payload of invalidPayloads) {
+      expect(apiSessionPayloadSchema.safeParse(payload).success).toBe(false)
+    }
+  })
+
+  it("preserves a structured non-2xx conflict message without retrying the mutation", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      error: "StaleEpoch",
+      message: "The shadow epoch changed before this ballot was accepted.",
+    }), { status: 409, headers: { "content-type": "application/json" } }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(createHttpShadowDemoClient().castVote(
+      SESSION_ID,
+      {
+        idempotencyKey: "stale-vote",
+        baseEpochId: "epoch-1",
+        voterLabel: "Reviewer",
+        weights: BASE_WEIGHTS,
+        topicIntent: PRODUCTION_TOPIC_INTENT,
+      },
+      new AbortController().signal,
+    )).rejects.toThrow("The shadow epoch changed before this ballot was accepted.")
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
   it("maps withheld posts with their adopted rule and support", async () => {
     const feed = feedPayload("epoch-2", [1, 2]) as { posts: Array<Record<string, unknown>> } & Record<string, unknown>
     const withheldPost = { ...(feed.posts[0].post as Record<string, unknown>), uri: "at://did:plc:test/app.bsky.feed.post/withheld" }

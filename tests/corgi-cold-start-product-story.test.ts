@@ -107,6 +107,9 @@ describe('Corgi cold-start product story', () => {
     expect(docs).toMatch(/Topic preferences are separate/i);
     expect(docs).toMatch(/Content rules determine eligibility/i);
     expect(about).toMatch(/signals, topic priorities, and content rules/i);
+    const environmentTemplate = read('.env.example');
+    expect(environmentTemplate).toContain('DEMO_CONTENT_RULES_ENABLED=false');
+    expect(environmentTemplate).toContain('LOGIN_ALLOWLIST_ENABLED=false');
   });
 
   it('keeps the operator UI on the reviewed lifecycle instead of the rejected transition bypass', () => {
@@ -118,6 +121,19 @@ describe('Corgi cold-start product story', () => {
     expect(adminPage).toContain('adminApi.rejectResults()');
     expect(adminPage).not.toContain('adminApi.transitionEpoch');
     expect(adminPage).toContain('signal weights, topic priorities, and adopted content rules');
+    expect(adminPage).toContain('error={adminMutationError(openMutation.error');
+    expect(adminPage).toContain('error={adminMutationError(closeMutation.error');
+    expect(adminPage).toContain('error={adminMutationError(approveMutation.error');
+    expect(adminPage).toContain('error={adminMutationError(rejectMutation.error');
+    expect(adminPage).toContain('role="alert"');
+  });
+
+  it('shows only explicitly approved policies as enacted proposals', () => {
+    const proposalsPage = read('web-next/app/proposals/page.tsx');
+
+    expect(proposalsPage).toContain('epoch.results_approved_at != null');
+    expect(proposalsPage).toContain('Enacted {formatDate(epoch.results_approved_at)}');
+    expect(proposalsPage).not.toContain('epoch.closed_at != null && epoch.id !== current?.id');
   });
 
   it('updates the Bluesky feed record by compare-and-swap without rebuilding it', () => {
@@ -132,7 +148,33 @@ describe('Corgi cold-start product story', () => {
     expect(updater).toContain("if (!apply)");
     expect(updater).toContain("process.argv.includes('--apply')");
     expect(updater).toContain('Target description: ${DESCRIPTION}');
+    expect(updater).toContain('new CredentialSession(BSKY_SERVICE, fetchWithTimeout)');
+    expect(updater).toContain('new Agent(session)');
+    expect(updater).toContain('NETWORK_TIMEOUT_MS = 15_000');
+    expect(updater).toContain('compare-and-swap refused the update');
+    expect(updater).not.toContain('BskyAgent');
     expect(updater).not.toContain("requireEnvironmentValue('FEEDGEN_SERVICE_DID')");
     expect(updater).not.toContain('createdAt: new Date');
+  });
+
+  it('publishes truthful media types and disabled lifecycle contracts in OpenAPI', () => {
+    const openapi = JSON.parse(read('docs/openapi.json')) as {
+      paths: Record<string, Record<string, {
+        parameters?: unknown[];
+        requestBody?: unknown;
+        responses: Record<string, { content?: Record<string, unknown> }>;
+      }>>;
+    };
+    for (const path of ['/api/governance/epochs/transition', '/api/admin/governance/end-round']) {
+      const operation = openapi.paths[path]?.post;
+      expect(operation).toBeDefined();
+      expect(operation?.responses['200']).toBeUndefined();
+      expect(operation?.responses['409']).toBeDefined();
+      expect(JSON.stringify(operation)).not.toContain('"force"');
+    }
+
+    const fullDataset = openapi.paths['/api/admin/export/full-dataset']?.get;
+    expect(Object.keys(fullDataset?.responses['200']?.content ?? {})).toEqual(['application/zip']);
+    expect(Object.keys(fullDataset?.responses['400']?.content ?? {})).toEqual(['application/json']);
   });
 });

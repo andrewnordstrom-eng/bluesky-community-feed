@@ -8,6 +8,7 @@ import {
 import {
   captureReportApprovalFailures,
   parseSnapshotCaptureReport,
+  snapshotApprovalWriteFlag,
 } from '../src/demo/snapshot-capture.js';
 
 interface ApprovalOptions {
@@ -16,16 +17,22 @@ interface ApprovalOptions {
   outputPath: string;
   reviewedAt: string;
   reviewAcknowledged: boolean;
+  force: boolean;
 }
 
 function parseOptions(args: readonly string[]): ApprovalOptions {
   const values = new Map<string, string>();
   let reviewAcknowledged = false;
+  let force = false;
 
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
     if (argument === '--review-acknowledged') {
       reviewAcknowledged = true;
+      continue;
+    }
+    if (argument === '--force') {
+      force = true;
       continue;
     }
     if (!argument?.startsWith('--')) {
@@ -62,6 +69,7 @@ function parseOptions(args: readonly string[]): ApprovalOptions {
     outputPath,
     reviewedAt: reviewedAtDate.toISOString(),
     reviewAcknowledged,
+    force,
   };
 }
 
@@ -163,7 +171,24 @@ async function main(): Promise<void> {
   };
   parseApprovedSnapshotManifest(approved);
 
-  await writeFile(options.outputPath, `${JSON.stringify(approved, null, 2)}\n`, 'utf8');
+  try {
+    await writeFile(options.outputPath, `${JSON.stringify(approved, null, 2)}\n`, {
+      encoding: 'utf8',
+      flag: snapshotApprovalWriteFlag(options.force),
+    });
+  } catch (error) {
+    if (
+      error !== null
+      && typeof error === 'object'
+      && 'code' in error
+      && error.code === 'EEXIST'
+    ) {
+      throw new Error(
+        `Approved snapshot output already exists: ${options.outputPath}. Review it or pass --force to replace it explicitly.`
+      );
+    }
+    throw error;
+  }
   process.stdout.write(`Approved Corgi Commons snapshot: ${options.outputPath}\n`);
   process.stdout.write(`Reviewed at: ${options.reviewedAt}\n`);
   process.stdout.write(`Snapshot digest: ${approved.snapshotDigest}\n`);

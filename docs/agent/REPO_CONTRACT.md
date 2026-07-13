@@ -135,9 +135,10 @@ transparency dashboard, voting UI)
 ## 5. Build / Test / Run Commands
 
 ```bash
-# Install dependencies (backend + frontend)
+# Install dependencies (backend + both frontend packages)
 npm install
-cd web && npm install && cd ..
+cd web-next && npm install && cd ..
+cd web && npm install && cd .. # legacy compatibility frontend
 
 # Build (TypeScript -> dist/)
 npm run build
@@ -149,8 +150,8 @@ npm run stress       # stress tests
 # Development server (tsx watch, auto-reload)
 npm run dev
 
-# Frontend dev server (separate terminal)
-cd web && npm run dev
+# Canonical frontend dev server (separate terminal)
+cd web-next && npm run dev
 
 # Production start (requires prior build)
 npm start
@@ -164,7 +165,7 @@ npx tsx scripts/seed-governance.ts
 # Publish feed record to Bluesky
 npm run publish-feed
 
-# Full verify (build + test + cli + mcp + web lint + web build)
+# Full verify (backend, CLI, MCP, SDK, legacy web, and web-next)
 npm run verify
 
 # Docs verification

@@ -38,6 +38,17 @@ function fmtDateTime(iso: string | null) {
   })
 }
 
+function adminMutationError(error: unknown, fallback: string): string | null {
+  if (error === null || error === undefined) return null
+  if (axios.isAxiosError(error)) {
+    const data = error.response?.data
+    if (data !== null && typeof data === "object" && "message" in data && typeof data.message === "string") {
+      return data.message
+    }
+  }
+  return fallback
+}
+
 type CurrentEpoch = NonNullable<AdminStatus["system"]["currentEpoch"]>
 type EpochPhase = "running" | "voting" | "review" | "waiting"
 
@@ -66,9 +77,9 @@ function SectionHeader({ title, sub }: { title: string; sub?: string }) {
 // ── Confirm Modal (Escape-to-close + initial focus on Cancel) ──────────────────
 
 function ConfirmModal({
-  title, body, confirmLabel = "Confirm", danger = false, loading = false, onConfirm, onCancel,
+  title, body, error, confirmLabel = "Confirm", danger = false, loading = false, onConfirm, onCancel,
 }: {
-  title: string; body: string; confirmLabel?: string; danger?: boolean; loading?: boolean
+  title: string; body: string; error?: string | null; confirmLabel?: string; danger?: boolean; loading?: boolean
   onConfirm: () => void; onCancel: () => void
 }) {
   const cancelRef = useRef<HTMLButtonElement>(null)
@@ -85,10 +96,19 @@ function ConfirmModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="modal-title">
-      <div className="absolute inset-0 bg-foreground/30 backdrop-blur-sm" onClick={onCancel} aria-hidden="true" />
+      <div
+        className="absolute inset-0 bg-foreground/30 backdrop-blur-sm"
+        onClick={() => { if (!loading) onCancel() }}
+        aria-hidden="true"
+      />
       <div className="relative z-10 w-full max-w-sm rounded-2xl border border-border bg-card p-6 shadow-xl flex flex-col gap-4">
         <h3 id="modal-title" className="text-base font-semibold text-foreground">{title}</h3>
         <p className="text-sm text-foreground/60 leading-relaxed">{body}</p>
+        {error ? (
+          <p role="alert" className="rounded-lg border border-status-error/25 bg-status-error/10 px-3 py-2 text-sm text-status-error">
+            {error}
+          </p>
+        ) : null}
         <div className="flex items-center justify-end gap-3 pt-1">
           <button
             ref={cancelRef}
@@ -191,6 +211,14 @@ function PanelCurrentRound({ status }: { status: AdminStatus }) {
   const approveMutation = useMutation({ mutationFn: () => adminApi.approveResults(true), onSuccess: () => { invalidate(); setConfirm(null) } })
   const rejectMutation = useMutation({ mutationFn: () => adminApi.rejectResults(), onSuccess: () => { invalidate(); setConfirm(null) } })
 
+  const prepareConfirmation = (action: NonNullable<typeof confirm>): void => {
+    if (action === "open") openMutation.reset()
+    if (action === "close") closeMutation.reset()
+    if (action === "approve") approveMutation.reset()
+    if (action === "reject") rejectMutation.reset()
+    setConfirm(action)
+  }
+
   if (!epoch) {
     return (
       <div className="flex flex-col gap-6">
@@ -242,7 +270,7 @@ function PanelCurrentRound({ status }: { status: AdminStatus }) {
                   {lc.phase === "review" ? (
                     <button
                       type="button"
-                      onClick={() => setConfirm("reject")}
+                      onClick={() => prepareConfirmation("reject")}
                       className="rounded-full border border-border bg-background px-4 py-1.5 text-xs font-semibold text-foreground/65 transition-colors hover:border-foreground/30 hover:text-foreground"
                     >
                       Reject policy
@@ -250,7 +278,7 @@ function PanelCurrentRound({ status }: { status: AdminStatus }) {
                   ) : null}
                   <button
                     type="button"
-                    onClick={() => setConfirm(lc.action!)}
+                    onClick={() => prepareConfirmation(lc.action!)}
                     className={`rounded-full border px-4 py-1.5 text-xs font-semibold transition-colors ${
                       lc.danger
                         ? "border-primary/25 bg-primary text-primary-foreground hover:bg-primary-dark"
@@ -272,6 +300,7 @@ function PanelCurrentRound({ status }: { status: AdminStatus }) {
           body="Approved pilot participants can submit or update ballots until the window closes. Opening voting does not change the active feed policy."
           confirmLabel="Open voting"
           loading={openMutation.isPending}
+          error={adminMutationError(openMutation.error, "Opening the voting window failed. Please try again.")}
           onConfirm={() => openMutation.mutate()}
           onCancel={() => setConfirm(null)}
         />
@@ -282,6 +311,7 @@ function PanelCurrentRound({ status }: { status: AdminStatus }) {
           body="This closes ballot submission, aggregates the complete proposal, and moves it into results review. The live feed policy remains unchanged until approval."
           confirmLabel="Close voting"
           loading={closeMutation.isPending}
+          error={adminMutationError(closeMutation.error, "Closing voting failed. Please try again.")}
           onConfirm={() => closeMutation.mutate()}
           onCancel={() => setConfirm(null)}
         />
@@ -293,6 +323,7 @@ function PanelCurrentRound({ status }: { status: AdminStatus }) {
           confirmLabel="Approve and rescore"
           danger
           loading={approveMutation.isPending}
+          error={adminMutationError(approveMutation.error, "Approving the policy failed. No policy change was confirmed.")}
           onConfirm={() => approveMutation.mutate()}
           onCancel={() => setConfirm(null)}
         />
@@ -304,6 +335,7 @@ function PanelCurrentRound({ status }: { status: AdminStatus }) {
           confirmLabel="Reject policy"
           danger
           loading={rejectMutation.isPending}
+          error={adminMutationError(rejectMutation.error, "Rejecting the policy failed. Please try again.")}
           onConfirm={() => rejectMutation.mutate()}
           onCancel={() => setConfirm(null)}
         />

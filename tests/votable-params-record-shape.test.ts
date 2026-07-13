@@ -7,7 +7,7 @@
  * what the compile-time literal union used to enforce.
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   dbQueryMock,
@@ -61,6 +61,9 @@ import {
   WIDE_COLUMN_COMPONENT_KEYS,
   assertWideColumnsRegistered,
 } from '../src/scoring/registry.js';
+import { config } from '../src/config.js';
+
+const ORIGINAL_LOGIN_ALLOWLIST_ENABLED = config.LOGIN_ALLOWLIST_ENABLED;
 
 async function postVote(payload: unknown) {
   const app = buildTestApp();
@@ -111,6 +114,10 @@ describe('votable-params record shape (PROJ-816)', () => {
     });
   });
 
+  afterEach(() => {
+    config.LOGIN_ALLOWLIST_ENABLED = ORIGINAL_LOGIN_ALLOWLIST_ENABLED;
+  });
+
   describe('voteFieldForKey', () => {
     it('maps camelCase keys to snake_case `_weight` columns', () => {
       expect(voteFieldForKey('recency')).toBe('recency_weight');
@@ -141,6 +148,37 @@ describe('votable-params record shape (PROJ-816)', () => {
   });
 
   describe('vote route rejects unregistered weight keys', () => {
+    it('enforces pilot approval whenever the login allowlist is enabled', async () => {
+      config.LOGIN_ALLOWLIST_ENABLED = true;
+      isParticipantApprovedMock.mockResolvedValue(false);
+
+      const res = await postVote(registeredWeights(0.2));
+
+      expect(res.statusCode).toBe(403);
+      expect(res.json()).toMatchObject({ message: 'Governance voting pilot: approved participants only.' });
+      expect(isParticipantApprovedMock).toHaveBeenCalledWith('did:plc:alice');
+    });
+
+    it('does not apply the pilot allowlist when the feature flag is disabled', async () => {
+      config.LOGIN_ALLOWLIST_ENABLED = false;
+      isParticipantApprovedMock.mockResolvedValue(false);
+
+      const res = await postVote(registeredWeights(0.2));
+
+      expect(res.statusCode).toBe(200);
+      expect(isParticipantApprovedMock).not.toHaveBeenCalled();
+    });
+
+    it('accepts an approved pilot participant when the login allowlist is enabled', async () => {
+      config.LOGIN_ALLOWLIST_ENABLED = true;
+      isParticipantApprovedMock.mockResolvedValue(true);
+
+      const res = await postVote(registeredWeights(0.2));
+
+      expect(res.statusCode).toBe(200);
+      expect(isParticipantApprovedMock).toHaveBeenCalledWith('did:plc:alice');
+    });
+
     it('returns 400 UnregisteredWeightKey when an unknown `*_weight` field is submitted', async () => {
       const res = await postVote({
         recency_weight: 0.2,

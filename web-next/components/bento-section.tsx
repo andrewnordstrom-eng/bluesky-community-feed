@@ -134,7 +134,7 @@ function CommunityVoteUI() {
                 <p className="mt-2 text-foreground/75 text-sm font-semibold leading-snug">{step.label}</p>
               </div>
               {index < steps.length - 1 ? (
-                <span className="hidden text-primary/45 md:block" aria-hidden="true">
+                <span className="hidden text-primary/45 xl:block" aria-hidden="true">
                   &rarr;
                 </span>
               ) : null}

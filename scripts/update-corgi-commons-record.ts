@@ -1,4 +1,4 @@
-import { AppBskyFeedGenerator, BskyAgent } from '@atproto/api';
+import { Agent, AppBskyFeedGenerator, CredentialSession, XRPCError } from '@atproto/api';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -7,6 +7,32 @@ const COLLECTION = 'app.bsky.feed.generator';
 const FEED_RKEY = 'community-gov';
 const DISPLAY_NAME = 'Corgi Commons';
 const DESCRIPTION = 'Corgi Commons is a Bluesky feed shaped by community votes on ranking signals, topic priorities, and content rules. Inspect policies and ranking receipts at feed.corgi.network.';
+const BSKY_SERVICE = new URL('https://bsky.social');
+const NETWORK_TIMEOUT_MS = 15_000;
+
+const fetchWithTimeout: typeof globalThis.fetch = async (input, init) => {
+  const timeoutController = new AbortController();
+  const timeout = setTimeout(() => {
+    timeoutController.abort(new Error(`Bluesky request timed out after ${NETWORK_TIMEOUT_MS}ms`));
+  }, NETWORK_TIMEOUT_MS);
+  const signals = init?.signal
+    ? [init.signal, timeoutController.signal]
+    : [timeoutController.signal];
+
+  try {
+    return await globalThis.fetch(input, {
+      ...init,
+      signal: AbortSignal.any(signals),
+    });
+  } catch (error) {
+    if (timeoutController.signal.aborted && !init?.signal?.aborted) {
+      throw new Error(`Bluesky request timed out after ${NETWORK_TIMEOUT_MS}ms`, { cause: error });
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+};
 
 function requireEnvironmentValue(name: string): string {
   const value = process.env[name]?.trim();
@@ -17,6 +43,9 @@ function requireEnvironmentValue(name: string): string {
 }
 
 function errorSummary(error: unknown): string {
+  if (error instanceof XRPCError) {
+    return `${error.error} (HTTP ${error.status}): ${error.message}`;
+  }
   if (error instanceof Error) {
     return error.message;
   }
@@ -27,15 +56,16 @@ async function main(): Promise<void> {
   const apply = process.argv.includes('--apply');
   const identifier = requireEnvironmentValue('BSKY_IDENTIFIER');
   const password = requireEnvironmentValue('BSKY_APP_PASSWORD');
-  const agent = new BskyAgent({ service: 'https://bsky.social' });
+  const session = new CredentialSession(BSKY_SERVICE, fetchWithTimeout);
+  const agent = new Agent(session);
 
-  await agent.login({ identifier, password });
-  const publisherDid = agent.session?.did;
+  await session.login({ identifier, password });
+  const publisherDid = agent.did;
   if (!publisherDid) {
     throw new Error('Bluesky login completed without a publisher DID');
   }
 
-  const currentResponse = await agent.api.com.atproto.repo.getRecord({
+  const currentResponse = await agent.com.atproto.repo.getRecord({
     repo: publisherDid,
     collection: COLLECTION,
     rkey: FEED_RKEY,
@@ -81,15 +111,25 @@ async function main(): Promise<void> {
     return;
   }
 
-  await agent.api.com.atproto.repo.putRecord({
-    repo: publisherDid,
-    collection: COLLECTION,
-    rkey: FEED_RKEY,
-    record: updatedRecord,
-    swapRecord: currentResponse.data.cid,
-  });
+  try {
+    await agent.com.atproto.repo.putRecord({
+      repo: publisherDid,
+      collection: COLLECTION,
+      rkey: FEED_RKEY,
+      record: updatedRecord,
+      swapRecord: currentResponse.data.cid,
+    });
+  } catch (error) {
+    if (error instanceof XRPCError && /swap|cid|conflict/i.test(`${error.error} ${error.message}`)) {
+      throw new Error(
+        `Feed record changed after the dry run; compare-and-swap refused the update. Re-run without --apply and review the latest record. ${errorSummary(error)}`,
+        { cause: error },
+      );
+    }
+    throw error;
+  }
 
-  const verificationResponse = await agent.api.com.atproto.repo.getRecord({
+  const verificationResponse = await agent.com.atproto.repo.getRecord({
     repo: publisherDid,
     collection: COLLECTION,
     rkey: FEED_RKEY,

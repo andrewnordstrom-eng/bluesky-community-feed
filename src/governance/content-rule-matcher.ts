@@ -2,7 +2,18 @@ import type { ContentFilterResult, ContentRules } from './governance.types.js';
 
 const ASCII_KEYWORD_PATTERN = /^[a-z0-9][a-z0-9\s-]*$/;
 const UNICODE_WORD_CLASS = '\\p{L}\\p{N}';
+const MAX_KEYWORD_MATCHER_CACHE_SIZE = 256;
 const keywordMatcherCache = new Map<string, (text: string) => boolean>();
+
+function cacheKeywordMatcher(cacheKey: string, matcher: (text: string) => boolean): void {
+  if (!keywordMatcherCache.has(cacheKey) && keywordMatcherCache.size >= MAX_KEYWORD_MATCHER_CACHE_SIZE) {
+    const oldestKey = keywordMatcherCache.keys().next().value as string | undefined;
+    if (oldestKey !== undefined) {
+      keywordMatcherCache.delete(oldestKey);
+    }
+  }
+  keywordMatcherCache.set(cacheKey, matcher);
+}
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -13,12 +24,14 @@ function getKeywordMatcher(keyword: string, prefixMatch: boolean): (text: string
   const cacheKey = `${normalizedKeyword}:${prefixMatch ? 'prefix' : 'strict'}`;
   const cached = keywordMatcherCache.get(cacheKey);
   if (cached) {
+    keywordMatcherCache.delete(cacheKey);
+    keywordMatcherCache.set(cacheKey, cached);
     return cached;
   }
 
   if (!ASCII_KEYWORD_PATTERN.test(normalizedKeyword)) {
     const matcher = (text: string) => text.includes(normalizedKeyword);
-    keywordMatcherCache.set(cacheKey, matcher);
+    cacheKeywordMatcher(cacheKey, matcher);
     return matcher;
   }
 
@@ -33,7 +46,7 @@ function getKeywordMatcher(keyword: string, prefixMatch: boolean): (text: string
     'u'
   );
   const matcher = (text: string) => regex.test(text);
-  keywordMatcherCache.set(cacheKey, matcher);
+  cacheKeywordMatcher(cacheKey, matcher);
   return matcher;
 }
 

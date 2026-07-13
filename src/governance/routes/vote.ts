@@ -241,10 +241,10 @@ export function registerVoteRoute(app: FastifyInstance): void {
       });
     }
 
-    // 2b. Private mode: require approved participant
-    if (config.FEED_PRIVATE_MODE) {
+    // 2b. The production voting pilot is allowlisted independently of feed visibility.
+    if (config.LOGIN_ALLOWLIST_ENABLED) {
       if (!await isParticipantApproved(voterDid)) {
-        throw Errors.FORBIDDEN('Private feed mode: approved participants only.');
+        throw Errors.FORBIDDEN('Governance voting pilot: approved participants only.');
       }
     }
 

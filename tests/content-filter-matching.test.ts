@@ -2,6 +2,27 @@ import { describe, expect, it } from 'vitest';
 import { checkContentRules } from '../src/governance/content-rule-matcher.js';
 
 describe('content filter keyword matching', () => {
+  it('passes empty rules and handles missing text explicitly', () => {
+    expect(checkContentRules(null, { includeKeywords: [], excludeKeywords: [] })).toEqual({ passes: true });
+    expect(checkContentRules(null, { includeKeywords: ['research'], excludeKeywords: [] })).toEqual({
+      passes: false,
+      reason: 'no_text_with_include_filter',
+    });
+  });
+
+  it('gives exclusion rules precedence and intentionally prefix-matches them', () => {
+    const result = checkContentRules('A sports research roundup', {
+      includeKeywords: ['research'],
+      excludeKeywords: ['sport'],
+    });
+
+    expect(result).toEqual({
+      passes: false,
+      reason: 'excluded_keyword',
+      matchedKeyword: 'sport',
+    });
+  });
+
   it('does not match partial words for ASCII keywords', () => {
     const result = checkContentRules('jon bon jovi is such a fossil', {
       includeKeywords: ['foss'],

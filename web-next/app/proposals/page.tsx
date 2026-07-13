@@ -28,7 +28,11 @@ function phaseLabel(epoch: EpochResponse): string {
 }
 
 function policyApplied(epoch: EpochResponse): boolean {
-  return epoch.status === "active" || epoch.closed_at == null
+  return epoch.status === "active" && epoch.phase === "running"
+}
+
+function wasEnacted(epoch: EpochResponse): boolean {
+  return epoch.results_approved_at != null
 }
 
 /** The signal carrying the most weight in a policy — the round's headline. */
@@ -50,7 +54,7 @@ export default function ProposalsPage() {
   })
 
   const current = currentQuery.data
-  const past = (historyQuery.data?.epochs ?? []).filter((epoch) => epoch.closed_at != null && epoch.id !== current?.id)
+  const past = (historyQuery.data?.epochs ?? []).filter((epoch) => wasEnacted(epoch) && epoch.id !== current?.id)
 
   return (
     <AppShell>
@@ -161,7 +165,7 @@ export default function ProposalsPage() {
                         <div>
                           <p className="text-sm font-semibold text-foreground">Round #{epoch.id}</p>
                           <p className="text-xs text-foreground/50">
-                            Enacted {formatDate(epoch.closed_at ?? epoch.created_at)} · {epoch.vote_count} votes
+                            Enacted {formatDate(epoch.results_approved_at)} · {epoch.vote_count} votes
                           </p>
                         </div>
                       </div>

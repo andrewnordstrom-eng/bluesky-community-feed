@@ -54,6 +54,10 @@ export interface SnapshotCaptureArtifactPaths {
   reviewSheet: string;
 }
 
+export function snapshotApprovalWriteFlag(force: boolean): 'w' | 'wx' {
+  return force ? 'w' : 'wx';
+}
+
 export async function clearSnapshotCaptureArtifacts(paths: SnapshotCaptureArtifactPaths): Promise<void> {
   await Promise.all([
     rm(paths.manifest, { force: true }),
