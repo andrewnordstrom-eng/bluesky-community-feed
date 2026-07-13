@@ -69,4 +69,24 @@ describe('route rate-limit policy', () => {
       timeWindow: config.RATE_LIMIT_ADMIN_CRITICAL_WINDOW_MS,
     });
   });
+
+  // Guards the ordering the rate-limit-config comment calls out: the public
+  // waitlist POST must match its own IP-keyed login-tier branch, NOT fall
+  // through to the generic governance-mutation branch (which would DID-key it
+  // and apply vote limits). A future reorder that breaks this fails here.
+  it('rate-limits the public waitlist POST at the login tier with default IP keying', () => {
+    const policy = buildRouteRateLimitConfig(
+      '/api/governance/waitlist',
+      'POST',
+      noopKeyGenerator
+    );
+
+    expect(policy).toMatchObject({
+      max: config.RATE_LIMIT_LOGIN_MAX,
+      timeWindow: config.RATE_LIMIT_LOGIN_WINDOW_MS,
+    });
+    // No custom keyGenerator → inherits the plugin default (request.ip), so an
+    // unauthenticated caller is never keyed by a (nonexistent) DID.
+    expect(policy).not.toHaveProperty('keyGenerator');
+  });
 });

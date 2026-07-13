@@ -2,14 +2,21 @@ import Fastify from 'fastify';
 import type { FastifyRequest } from 'fastify';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { queryMock, resolveHandleMock, invalidateCacheMock } = vi.hoisted(() => ({
-  queryMock: vi.fn(),
-  resolveHandleMock: vi.fn(),
-  invalidateCacheMock: vi.fn(),
-}));
+const { queryMock, clientQueryMock, releaseMock, connectMock, resolveHandleMock, invalidateCacheMock } = vi.hoisted(() => {
+  const clientQuery = vi.fn();
+  const release = vi.fn();
+  return {
+    queryMock: vi.fn(),
+    clientQueryMock: clientQuery,
+    releaseMock: release,
+    connectMock: vi.fn(async () => ({ query: clientQuery, release })),
+    resolveHandleMock: vi.fn(),
+    invalidateCacheMock: vi.fn(),
+  };
+});
 
 vi.mock('../src/db/client.js', () => ({
-  db: { query: queryMock },
+  db: { query: queryMock, connect: connectMock },
 }));
 
 vi.mock('../src/admin/routes/resolve-handle.js', () => ({
@@ -50,9 +57,20 @@ const PENDING_ROW = {
 describe('admin waitlist routes', () => {
   beforeEach(() => {
     queryMock.mockReset();
+    clientQueryMock.mockReset();
+    releaseMock.mockReset();
+    connectMock.mockClear();
     resolveHandleMock.mockReset();
     invalidateCacheMock.mockReset();
     invalidateCacheMock.mockResolvedValue(undefined);
+    // Transactional client: BEGIN/upsert/audit/COMMIT succeed by default; the
+    // atomic-claim UPDATE returns a claimed row unless a test overrides it.
+    clientQueryMock.mockImplementation((sql: string) => {
+      if (/UPDATE waitlist_requests/i.test(sql) && /RETURNING/i.test(sql)) {
+        return Promise.resolve({ rows: [{ id: 7 }] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
   });
 
   it('GET /waitlist defaults to pending, oldest first', async () => {
@@ -84,13 +102,14 @@ describe('admin waitlist routes', () => {
     expect(response.statusCode).toBe(400);
   });
 
-  it('approve: resolves handle, upserts participant, marks row, invalidates cache, audits', async () => {
+  it('approve: atomically claims the row, upserts participant, audits in a transaction, invalidates cache', async () => {
     resolveHandleMock.mockResolvedValue({ did: 'did:plc:alice', handle: 'alice.bsky.social' });
-    queryMock
-      .mockResolvedValueOnce({ rows: [{ id: 7, handle: 'alice.bsky.social', status: 'pending' }] }) // select
-      .mockResolvedValueOnce({ rows: [] })  // participants upsert
-      .mockResolvedValueOnce({ rows: [] })  // waitlist update
-      .mockResolvedValueOnce({ rows: [] }); // audit insert
+    queryMock.mockResolvedValueOnce({ rows: [{ handle: 'alice.bsky.social', status: 'pending' }] }); // pre-check
+    const claimQuery = { rows: [{ id: 7 }] };
+    clientQueryMock.mockImplementation((sql: string) => {
+      if (/UPDATE waitlist_requests/i.test(sql) && /RETURNING/i.test(sql)) return Promise.resolve(claimQuery);
+      return Promise.resolve({ rows: [] });
+    });
     const app = buildApp();
 
     const response = await app.inject({ method: 'POST', url: '/waitlist/7/approve' });
@@ -98,39 +117,64 @@ describe('admin waitlist routes', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ success: true, did: 'did:plc:alice', handle: 'alice.bsky.social' });
 
-    const upsertCall = queryMock.mock.calls[1];
-    expect(upsertCall[0]).toContain('INSERT INTO approved_participants');
-    expect(upsertCall[0]).toContain('ON CONFLICT (did) DO UPDATE');
-    expect(upsertCall[1]).toEqual(['did:plc:alice', 'alice.bsky.social', ADMIN_DID, 'waitlist #7']);
-
-    const updateCall = queryMock.mock.calls[2];
-    expect(updateCall[0]).toContain("SET status = 'approved'");
-    expect(updateCall[1]).toEqual([7, 'did:plc:alice', ADMIN_DID]);
-
+    const sqls = clientQueryMock.mock.calls.map((c) => String(c[0]).trim());
+    // Runs inside a transaction and commits.
+    expect(sqls[0]).toBe('BEGIN');
+    expect(sqls[sqls.length - 1]).toBe('COMMIT');
+    // Atomic claim: the status flip is guarded by AND status = 'pending'.
+    const claim = clientQueryMock.mock.calls.find((c) => /UPDATE waitlist_requests/i.test(String(c[0])))!;
+    expect(String(claim[0])).toContain("AND status = 'pending'");
+    expect(claim[1]).toEqual([7, 'did:plc:alice', ADMIN_DID]);
+    // Participant upsert + audit ran on the same client.
+    const upsert = clientQueryMock.mock.calls.find((c) => /INSERT INTO approved_participants/i.test(String(c[0])))!;
+    expect(String(upsert[0])).toContain('ON CONFLICT (did) DO UPDATE');
+    expect(upsert[1]).toEqual(['did:plc:alice', 'alice.bsky.social', ADMIN_DID, 'waitlist #7']);
+    const audit = clientQueryMock.mock.calls.find((c) => /governance_audit_log/i.test(String(c[0])))!;
+    expect(audit[1][0]).toBe('waitlist_approved');
+    // Cache invalidated after commit, and the connection was released.
     expect(invalidateCacheMock).toHaveBeenCalledWith('did:plc:alice');
-
-    const auditCall = queryMock.mock.calls[3];
-    expect(auditCall[0]).toContain('governance_audit_log');
-    expect(auditCall[1][0]).toBe('waitlist_approved');
-    expect(auditCall[1][1]).toBe(ADMIN_DID);
+    expect(releaseMock).toHaveBeenCalledTimes(1);
   });
 
-  it('approve: 404 for an unknown id', async () => {
+  it('approve: lost race (claim returns no row) rolls back and 409s without touching participants', async () => {
+    resolveHandleMock.mockResolvedValue({ did: 'did:plc:alice', handle: 'alice.bsky.social' });
+    queryMock.mockResolvedValueOnce({ rows: [{ handle: 'alice.bsky.social', status: 'pending' }] }); // pre-check passes
+    clientQueryMock.mockImplementation((sql: string) => {
+      if (/UPDATE waitlist_requests/i.test(sql) && /RETURNING/i.test(sql)) return Promise.resolve({ rows: [] }); // claim lost
+      return Promise.resolve({ rows: [] });
+    });
+    const app = buildApp();
+
+    const response = await app.inject({ method: 'POST', url: '/waitlist/7/approve' });
+
+    expect(response.statusCode).toBe(409);
+    const sqls = clientQueryMock.mock.calls.map((c) => String(c[0]).trim());
+    expect(sqls).toContain('ROLLBACK');
+    expect(sqls.some((s) => /INSERT INTO approved_participants/i.test(s))).toBe(false);
+    expect(invalidateCacheMock).not.toHaveBeenCalled();
+    expect(releaseMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('approve: 404 for an unknown id (no network resolve, no transaction)', async () => {
     queryMock.mockResolvedValueOnce({ rows: [] });
     const app = buildApp();
 
     const response = await app.inject({ method: 'POST', url: '/waitlist/999/approve' });
 
     expect(response.statusCode).toBe(404);
+    expect(resolveHandleMock).not.toHaveBeenCalled();
+    expect(connectMock).not.toHaveBeenCalled();
   });
 
-  it('approve: 409 when already decided', async () => {
-    queryMock.mockResolvedValueOnce({ rows: [{ id: 7, handle: 'alice.bsky.social', status: 'approved' }] });
+  it('approve: 409 when already decided (fast pre-check, no network resolve)', async () => {
+    queryMock.mockResolvedValueOnce({ rows: [{ handle: 'alice.bsky.social', status: 'approved' }] });
     const app = buildApp();
 
     const response = await app.inject({ method: 'POST', url: '/waitlist/7/approve' });
 
     expect(response.statusCode).toBe(409);
+    expect(resolveHandleMock).not.toHaveBeenCalled();
+    expect(connectMock).not.toHaveBeenCalled();
   });
 
   it('approve: 400 when the handle cannot be resolved, and the row stays pending', async () => {

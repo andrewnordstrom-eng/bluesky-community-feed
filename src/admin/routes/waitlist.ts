@@ -135,8 +135,12 @@ export function registerWaitlistRoutes(app: FastifyInstance): void {
     const { id } = parsed.data;
     const adminDid = getAdminDid(request);
 
+    // Fast pre-check: avoid the external handle→DID resolution for an unknown
+    // or already-decided id. The authoritative pending-claim happens atomically
+    // inside the transaction below (this check can still race, so it isn't
+    // trusted for correctness — only to skip needless work).
     const existing = await db.query(
-      `SELECT id, handle, status FROM waitlist_requests WHERE id = $1`,
+      `SELECT handle, status FROM waitlist_requests WHERE id = $1`,
       [id]
     );
     if (existing.rows.length === 0) {
@@ -148,6 +152,8 @@ export function registerWaitlistRoutes(app: FastifyInstance): void {
 
     const { handle } = existing.rows[0];
 
+    // Resolve outside the transaction so the DB connection isn't held during a
+    // network round-trip to bsky.social.
     let did: string;
     try {
       const resolved = await resolveHandleToDid(handle);
@@ -159,35 +165,64 @@ export function registerWaitlistRoutes(app: FastifyInstance): void {
       );
     }
 
-    // Same upsert as the participants route: re-activates a soft-removed row.
-    await db.query(
-      `INSERT INTO approved_participants (did, handle, added_by, notes)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (did) DO UPDATE SET
-         removed_at = NULL,
-         handle = COALESCE($2, approved_participants.handle),
-         added_by = $3,
-         notes = $4,
-         added_at = NOW()`,
-      [did, handle, adminDid, `waitlist #${id}`]
-    );
+    // The participant upsert, the pending-claim, and the audit row commit
+    // together or not at all — the tables can never drift on partial failure.
+    const client = await db.connect();
+    let claimed = false;
+    try {
+      await client.query('BEGIN');
 
-    await db.query(
-      `UPDATE waitlist_requests
-       SET status = 'approved', did = $2, decided_at = NOW(), decided_by = $3
-       WHERE id = $1`,
-      [id, did, adminDid]
-    );
+      // Atomic claim: only one concurrent approve can flip a still-pending row,
+      // so a double-click / race can't double-approve or double-audit.
+      const claim = await client.query(
+        `UPDATE waitlist_requests
+         SET status = 'approved', did = $2, decided_at = NOW(), decided_by = $3
+         WHERE id = $1 AND status = 'pending'
+         RETURNING id`,
+        [id, did, adminDid]
+      );
 
-    // Without this, a login attempt made before approval leaves a cached
-    // negative for up to 300s and the newly approved account stays locked out.
+      if (claim.rows.length === 0) {
+        await client.query('ROLLBACK');
+      } else {
+        claimed = true;
+
+        // Same upsert as the participants route: re-activates a soft-removed row.
+        await client.query(
+          `INSERT INTO approved_participants (did, handle, added_by, notes)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (did) DO UPDATE SET
+             removed_at = NULL,
+             handle = COALESCE($2, approved_participants.handle),
+             added_by = $3,
+             notes = $4,
+             added_at = NOW()`,
+          [did, handle, adminDid, `waitlist #${id}`]
+        );
+
+        await client.query(
+          `INSERT INTO governance_audit_log (action, actor_did, details)
+           VALUES ($1, $2, $3)`,
+          ['waitlist_approved', adminDid, JSON.stringify({ id, handle, did })]
+        );
+
+        await client.query('COMMIT');
+      }
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    // Lost the atomic claim to a concurrent approve — the row is no longer pending.
+    if (!claimed) {
+      throw Errors.CONFLICT('Request already decided');
+    }
+
+    // After commit: a login attempt made before approval leaves a cached
+    // negative for up to 300s, so clear it or the account stays locked out.
     await invalidateParticipantCache(did);
-
-    await db.query(
-      `INSERT INTO governance_audit_log (action, actor_did, details)
-       VALUES ($1, $2, $3)`,
-      ['waitlist_approved', adminDid, JSON.stringify({ id, handle, did })]
-    );
 
     logger.info({ id, handle, did, adminDid }, 'Waitlist request approved');
 
