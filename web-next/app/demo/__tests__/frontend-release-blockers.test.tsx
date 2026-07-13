@@ -42,6 +42,18 @@ const votePanelSource = readFileSync(
   new URL("../../../components/demo/vote-panel.tsx", import.meta.url),
   "utf8",
 )
+const agentsPanelSource = readFileSync(
+  new URL("../../../components/demo/agents-panel.tsx", import.meta.url),
+  "utf8",
+)
+const receiptPanelSource = readFileSync(
+  new URL("../../../components/demo/receipt-panel.tsx", import.meta.url),
+  "utf8",
+)
+const panelLayoutSource = readFileSync(
+  new URL("../../../components/demo/panel-layout.ts", import.meta.url),
+  "utf8",
+)
 const sliderSource = readFileSync(
   new URL("../../../components/ui/slider.tsx", import.meta.url),
   "utf8",
@@ -153,12 +165,29 @@ describe("demo v4 frontend release blockers", () => {
     expect(demoPageSource).toMatch(/aria-live="polite" aria-atomic="true"[\s\S]*?\{receiptAnnouncement\}/)
   })
 
-  it("keeps expanded desktop voting controls independently scrollable with the action visible", () => {
-    expect(votePanelSource).toMatch(/xl:max-h-\[calc\(100dvh-7rem\)\]/)
-    expect(votePanelSource).toMatch(/xl:overflow-y-auto/)
-    expect(votePanelSource).toMatch(/xl:overscroll-contain/)
-    expect(votePanelSource).toMatch(/xl:\[scrollbar-gutter:stable\]/)
-    expect(votePanelSource).toMatch(/xl:shrink-0[\s\S]*?STEP_PANELS\.vote\.cta/)
+  it("keeps every desktop workflow panel bounded with independently scrolling content", () => {
+    expect(panelLayoutSource).toMatch(/xl:max-h-\[calc\(100dvh-7rem\)\]/)
+    expect(panelLayoutSource).toMatch(/xl:overflow-y-auto/)
+    expect(panelLayoutSource).toMatch(/xl:overscroll-contain/)
+    expect(panelLayoutSource).toMatch(/xl:\[scrollbar-gutter:stable\]/)
+    expect(votePanelSource.match(/className=\{DEMO_PANEL_FRAME_CLASS\}/g)).toHaveLength(1)
+    expect(votePanelSource.match(/className=\{`\$\{DEMO_PANEL_SCROLL_BODY_CLASS\}/g)).toHaveLength(1)
+    expect(agentsPanelSource.match(/className=\{DEMO_PANEL_FRAME_CLASS\}/g)).toHaveLength(2)
+    expect(agentsPanelSource.match(/className=\{`\$\{DEMO_PANEL_SCROLL_BODY_CLASS\}/g)).toHaveLength(2)
+    expect(receiptPanelSource.match(/<aside className=\{`\$\{DEMO_PANEL_FRAME_CLASS\}/g)).toHaveLength(1)
+    expect(receiptPanelSource.match(/className=\{`\$\{DEMO_PANEL_SCROLL_BODY_CLASS\}/g)).toHaveLength(1)
+    expect(votePanelSource).toMatch(/data-demo-panel-footer="vote"[^>]*xl:shrink-0[\s\S]{0,700}STEP_PANELS\.vote\.cta/)
+    expect(agentsPanelSource).toMatch(/data-demo-panel-footer="community"[^>]*xl:shrink-0[\s\S]{0,700}STEP_PANELS\.agents\.cta/)
+    expect(agentsPanelSource).toMatch(/data-demo-panel-footer="epoch"[^>]*xl:shrink-0[\s\S]{0,700}STEP_PANELS\.epoch\.cta/)
+    expect(receiptPanelSource).toMatch(/data-demo-panel-footer="receipt"[^>]*xl:shrink-0[\s\S]{0,700}Run another epoch/)
+  })
+
+  it("makes every independent desktop scrollport keyboard-focusable and named", () => {
+    expect(votePanelSource).toMatch(/role="region"[\s\S]{0,120}aria-label="Demo policy controls"[\s\S]{0,80}tabIndex=\{0\}/)
+    expect(agentsPanelSource).toMatch(/aria-label="Community ballot simulation details"[\s\S]{0,80}tabIndex=\{0\}/)
+    expect(agentsPanelSource).toMatch(/aria-label="Aggregated community policy details"[\s\S]{0,80}tabIndex=\{0\}/)
+    expect(receiptPanelSource).toMatch(/aria-label="Ranking receipt details"[\s\S]{0,80}tabIndex=\{0\}/)
+    expect(panelLayoutSource).toMatch(/xl:focus-visible:ring-2/)
   })
 
   it("submits a complete 26-topic policy and preserves a fine-tuned value", () => {
