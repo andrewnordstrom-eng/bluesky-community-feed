@@ -48,13 +48,14 @@ describe('web-next homepage anchors', () => {
     expect(demoContent).not.toContain('snapshot-rank');
   });
 
-  it('labels the landing replay as a local illustration and points to live verification', () => {
+  it('labels the landing replay as an illustrative Corgi Commons preview', () => {
     const pageContent = readRepoFile('web-next/app/page.tsx');
 
-    expect(pageContent).toContain('illustrative preview reorder here');
-    expect(pageContent).toMatch(/<Link href="\/demo"[^>]*>\s*live shadow demo\s*<\/Link>/s);
-    expect(pageContent).toContain('to verify the full flow');
+    expect(pageContent).toContain('Corgi Commons brings together open-network building');
+    expect(pageContent).toContain('Change the illustrative policy below');
+    expect(pageContent).toContain('Bluesky shows the ordered posts. Corgi shows the policy and receipts.');
     expect(pageContent).not.toContain('same feed reorders in Bluesky');
+    expect(pageContent).not.toContain('Birders Who Code');
   });
 
   it('keeps public support reachable without repository access', () => {
@@ -87,7 +88,7 @@ describe('web-next homepage anchors', () => {
     // The replay anchor now uses the <Section> layout primitive, which renders a
     // <section id="replay"> at runtime — accept either the component or raw tag.
     expect(replayContent).toMatch(/<(?:S|s)ection id="replay"/);
-    expect(replayContent).toContain('Standard Bluesky clients render the ordered posts, not Corgi score panels.');
+    expect(replayContent).toMatch(/standard Bluesky clients render the ordered posts, not Corgi score panels\./i);
     expect(howItWorksContent).toContain('Rank badges and receipt panels in this page are Corgi annotations.');
   });
 });

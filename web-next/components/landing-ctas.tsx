@@ -16,7 +16,7 @@ export function DemoCTA({ className }: LandingCTAProps) {
       )}
     >
       <Link href="/demo">
-        Explore the live demo
+        Try the governance demo
       </Link>
     </Button>
   )

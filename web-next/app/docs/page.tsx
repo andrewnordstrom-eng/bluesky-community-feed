@@ -16,9 +16,9 @@ const SECTIONS = [
     body: (
       <>
         <P>
-          Corgi is a community-governed custom feed for Bluesky. It ingests candidate posts, scores each one against five
-          signals, applies the community&rsquo;s current weights, and serves the ordered result back to Bluesky. Every
-          post keeps a receipt so the order is fully inspectable.
+          Corgi Commons is a Bluesky custom feed with inspectable, community-shaped ranking. Corgi ingests candidate
+          posts, computes five global signals, applies the approved policy, and serves an ordered feed back to Bluesky.
+          Corgi exposes policy metadata and ranking receipts when score provenance is available.
         </P>
         <P>
           This page explains the ranking model. To see it move, use the{" "}
@@ -36,10 +36,10 @@ const SECTIONS = [
         <P>Each post gets a raw score (0–1) on five signals:</P>
         <UL>
           <LI><Strong>Recency</Strong> — how recently the post appeared.</LI>
-          <LI><Strong>Engagement</Strong> — replies, reposts, and likes relative to the author&rsquo;s reach.</LI>
-          <LI><Strong>Bridging</Strong> — how well the post connects otherwise-separate subgroups in the community.</LI>
-          <LI><Strong>Source diversity</Strong> — whether the feed is hearing from a wider set of authors and sources.</LI>
-          <LI><Strong>Relevance</Strong> — how well the post matches the community&rsquo;s topics.</LI>
+          <LI><Strong>Engagement</Strong> — an observed, log-scaled combination of public likes, reposts, and replies; it is not predicted engagement.</LI>
+          <LI><Strong>Bridging</Strong> — Jaccard distance over engager follower sets, estimating whether a post connects otherwise-separate audiences.</LI>
+          <LI><Strong>Source diversity</Strong> — an author-repetition penalty within the ranked batch.</LI>
+          <LI><Strong>Relevance</Strong> — a weighted match between the post&rsquo;s sparse topic vector and the approved topic-priority map.</LI>
         </UL>
       </>
     ),
@@ -51,7 +51,7 @@ const SECTIONS = [
       <>
         <P>
           A post&rsquo;s total score is a weighted sum: <Strong>total = Σ (raw signal score × community weight)</Strong>.
-          The raw signal scores describe the post; the weights are set by the community and always sum to 100%. Change
+          The raw signal scores describe the post; the five global signal weights sum to 100%. Change
           the weights and the same posts reorder — without pretending the posts themselves changed.
         </P>
         <P>
@@ -62,15 +62,34 @@ const SECTIONS = [
     ),
   },
   {
+    id: "topics-rules",
+    heading: "Topic preferences and content rules",
+    body: (
+      <>
+        <P>
+          Topic preferences are separate from the five global signal weights. Posts receive a sparse vector from a
+          curated topic catalog during ingestion. The topic-priority map affects only the <Strong>relevance</Strong>
+          signal; it does not add another top-level scoring term.
+        </P>
+        <P>
+          Content rules determine eligibility. Adopted include keywords act as an allowlist, adopted excludes take
+          precedence, and a keyword needs at least 30% support among ballots that submit content rules. Publication-time
+          adjustments such as duplicate-link handling can also change final order after component scoring.
+        </P>
+      </>
+    ),
+  },
+  {
     id: "epochs",
     heading: "Epochs and voting",
     body: (
       <>
         <P>
-          An <Strong>epoch</Strong> is one saved feed policy — a full set of weights from a governance round. During an
-          open round, members vote on the weights. When the round closes, votes are combined with a{" "}
-          <Strong>trimmed mean</Strong> (a fixed share of outliers on each end is dropped) and the result becomes the
-          next epoch. Every epoch is retained, so you can always see how policy changed over time.
+          An <Strong>epoch</Strong> is one saved feed policy. A round can be scheduled or opened manually, and its voting
+          window is configurable. Fewer than 10 ballots use an arithmetic mean; 10 or more use a 10% trimmed mean.
+          Closing the window does not apply policy automatically: results are reviewed, an operator approves or rejects
+          the complete proposal, and approval applies signal weights, topic priorities, and adopted content rules before
+          rescoring. Every epoch is retained so policy changes remain inspectable.
         </P>
       </>
     ),
@@ -80,15 +99,15 @@ const SECTIONS = [
     heading: "Transparency receipts",
     body: (
       <>
-        <P>Every Corgi-scored post can show a receipt with:</P>
+        <P>When score provenance is available, a Corgi-ranked post can show a receipt with:</P>
         <UL>
-          <LI>The per-signal breakdown (raw score × weight = contribution) and the total.</LI>
+          <LI>The per-signal breakdown (raw score × weight = contribution), component total, publication adjustment, and final ranking score.</LI>
           <LI>A counterfactual: where the post would rank under a pure-engagement policy versus the community policy.</LI>
           <LI>The epoch the score was computed under, and when.</LI>
         </UL>
         <P>
-          Operator actions and weight changes are also written to an append-only <InlineLink href="/history">audit
-          log</InlineLink>. Individual votes are never exposed — only aggregated outcomes.
+          Governance actions and policy changes also appear in the <InlineLink href="/history">history</InlineLink>.
+          Individual ballots are not exposed on public transparency surfaces; only aggregate outcomes are shown.
         </P>
       </>
     ),

@@ -155,7 +155,7 @@ describe('shadow demo v4 route contract', () => {
       publicationAdjustment: expect.any(Number),
       componentScore: expect.any(Number),
       provenance: {
-        sourceFeedName: 'Community Governed Feed',
+        sourceFeedName: 'Corgi Commons',
         sourceRunId: 'run-1',
         sourceSnapshotDigest: 'a'.repeat(64),
       },
@@ -345,7 +345,7 @@ function corpus(): ShadowDemoCorpus {
     topicCatalog: [...TOPICS],
     sourceFeedUri: 'at://did:plc:amzyknmm4auxijvykyfgznw2/app.bsky.feed.generator/community-gov',
     sourceSnapshot: {
-      feedName: 'Community Governed Feed', digest: 'a'.repeat(64), runId: 'run-1', updatedAt: NOW.toISOString(), capturedAt: NOW.toISOString(), reviewedAt: NOW.toISOString(),
+      feedName: 'Corgi Commons', digest: 'a'.repeat(64), runId: 'run-1', updatedAt: NOW.toISOString(), capturedAt: NOW.toISOString(), reviewedAt: NOW.toISOString(),
       sourcePostCount: 100, selectionPolicyVersion: 'community-gov-reviewer-safe-v1', baselineOrderDigest: 'a'.repeat(64),
       publicationPolicy: { urlDedupEnabled: true, minimumOriginalTextLength: 200, minimumRelevance: 0, decay: [1, 0.7, 0.5, 0.3] },
     },

@@ -291,7 +291,7 @@ describe("HTTP shadow demo client", () => {
       new AbortController().signal,
     )
 
-    expect(response.payload.community.name).toBe("Community Governed Feed")
+    expect(response.payload.community.name).toBe("Corgi Commons")
     expect(response.payload.community.publicBlueskyFeedUrl).toContain("community-gov")
     expect(response.payload.session.capabilities.canOpenNativeBlueskyFeed).toBe(true)
     expect(response.payload.session.capabilities.canAdvanceEpoch).toBe(false)
@@ -664,7 +664,7 @@ function sessionPayload(
       sessionId: SESSION_ID,
       community: {
         id: "community_gov",
-        name: "Community Governed Feed",
+        name: "Corgi Commons",
         status: "live_shadow",
         description: "Research, data, software, and open-source methods.",
         liveFeedReady: true,
@@ -751,7 +751,7 @@ function corpusProvenance(): Record<string, unknown> {
     topicScoreThreshold: 0.5,
     eligiblePostCount: 80,
     sourceFeedUri: "at://did:plc:amzyknmm4auxijvykyfgznw2/app.bsky.feed.generator/community-gov",
-    sourceFeedName: "Community Governed Feed",
+    sourceFeedName: "Corgi Commons",
     sourceSnapshotDigest: "7".repeat(64),
     sourceRunId: "run-community-gov",
     sourceUpdatedAt: NOW,

@@ -2,7 +2,6 @@ import type { Metadata } from "next"
 import { Header } from "@/components/header"
 import { FooterSection } from "@/components/footer-section"
 import { HowItWorksReplay } from "@/components/how-it-works-replay"
-import { ModalityPreview } from "@/components/modality-preview"
 import { DemoCTA, WaitlistCTA } from "@/components/landing-ctas"
 import { Container, Section } from "@/components/ui/layout"
 import { PageHero, HeroGlow, HERO_TOP } from "@/components/ui/page-hero"
@@ -32,6 +31,21 @@ const surfaceBoundaries = [
   },
 ] as const
 
+const rankingJourney = [
+  { label: "Candidate posts", body: "Corgi ingests public Bluesky posts and computes reusable post signals." },
+  { label: "Ballot", body: "Approved participants can vote on signals, topic priorities, and content rules." },
+  { label: "Aggregation", body: "Corgi aggregates complete ballots after the configurable voting window closes." },
+  { label: "Review and approval", body: "Results are reviewed before an operator approves or rejects the proposed policy." },
+  { label: "Publish in Bluesky", body: "After approval and rescoring, Bluesky receives the posts in Corgi's order." },
+  { label: "Inspect in Corgi", body: "Corgi shows the policy, score components, publication adjustments, and receipts." },
+] as const
+
+const communityExamples = [
+  "Neighborhood mutual aid can prioritize urgent, well-sourced local updates.",
+  "Open-source maintainers can lift patches, docs, and release notes over generic project chatter.",
+  "Tabletop creators can favor indie releases, safety tools, and useful play resources.",
+] as const
+
 export default function HowItWorksPage() {
   return (
     <div className="min-h-screen overflow-hidden bg-background text-foreground">
@@ -49,11 +63,26 @@ export default function HowItWorksPage() {
                 align="left"
                 eyebrow="Replay a policy change"
                 title="Watch the same posts become a different feed."
-                subtitle="Corgi scores candidate posts once, then applies the active community policy. Change the epoch and the feed order changes with it."
+                subtitle="Follow a post from candidate set to community ballot, approved policy, Bluesky feed, and inspectable Corgi receipt."
               />
             </div>
           </Container>
         </section>
+
+        <Section bordered spacing="tight">
+          <ol className="grid gap-0 border-y border-border/60 md:grid-cols-2 xl:grid-cols-6">
+            {rankingJourney.map((step, index) => (
+              <li
+                key={step.label}
+                className="border-b border-border/60 px-4 py-5 last:border-b-0 md:border-r md:[&:nth-child(2n)]:border-r-0 xl:border-b-0 xl:[&:nth-child(2n)]:border-r xl:last:border-r-0"
+              >
+                <p className="font-mono text-[11px] font-semibold text-primary/75">{String(index + 1).padStart(2, "0")}</p>
+                <h2 className="mt-2 text-sm font-bold leading-snug text-foreground">{step.label}</h2>
+                <p className="mt-1.5 text-xs leading-relaxed text-foreground/58">{step.body}</p>
+              </li>
+            ))}
+          </ol>
+        </Section>
 
         <HowItWorksReplay />
 
@@ -69,12 +98,6 @@ export default function HowItWorksPage() {
               This separation is intentional: people get a normal Bluesky feed, and the explanation layer stays inspectable on Corgi.
             </p>
           </div>
-          <div className="flex justify-center">
-            <ModalityPreview />
-          </div>
-        </Section>
-
-        <Section bordered spacing="default">
           <div className="grid gap-4 md:grid-cols-3">
             {surfaceBoundaries.map((boundary) => (
               <div
@@ -94,6 +117,22 @@ export default function HowItWorksPage() {
           </div>
         </Section>
 
+        <Section bordered spacing="tight">
+          <div className="grid gap-5 md:grid-cols-[0.8fr_1.2fr] md:items-start">
+            <div>
+              <p className="text-[11px] font-mono uppercase tracking-[0.2em] text-foreground/55">Any community</p>
+              <h2 className="mt-2 font-display text-2xl font-bold leading-tight text-foreground md:text-3xl">
+                The mechanism is general. The policy is local.
+              </h2>
+            </div>
+            <ul className="divide-y divide-border/60 border-y border-border/60">
+              {communityExamples.map((example) => (
+                <li key={example} className="py-3 text-sm leading-relaxed text-foreground/62">{example}</li>
+              ))}
+            </ul>
+          </div>
+        </Section>
+
         <Section bordered spacing="default">
           <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
             <div className="max-w-2xl">
@@ -101,7 +140,7 @@ export default function HowItWorksPage() {
                 Inspect the live receipt path.
               </h2>
               <p className="mt-3 text-base leading-relaxed text-foreground/55">
-                The walkthrough above is illustrative. The public demo is where live ranking claims use Corgi receipts and snapshot data.
+                The walkthrough above is illustrative. The public demo starts from a frozen comparison corpus sourced from Corgi Commons and keeps every shadow vote isolated from production.
               </p>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row md:flex-shrink-0">
@@ -110,7 +149,7 @@ export default function HowItWorksPage() {
             </div>
           </div>
           <p className="mt-8 max-w-3xl text-xs leading-relaxed text-foreground/55">
-            Demo posts are illustrative; live ranking claims use Corgi receipts and snapshot data.
+            Demo posts on this page are illustrative. The reviewer demo identifies its frozen live-public snapshot and links back to source posts.
           </p>
         </Section>
       </main>

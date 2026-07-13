@@ -817,13 +817,13 @@ function corpusProvenanceFor(state: ShadowDemoSessionState): ShadowDemoSessionPa
   }
   if (state.communityId === 'community_gov' && state.corpus.sourceSnapshot) {
     if (!state.corpus.sourceFeedUri) {
-      throw new Error(`Community Governed Feed snapshot corpus is missing its source feed URI: ${state.corpusId}`);
+      throw new Error(`Corgi Commons snapshot corpus is missing its source feed URI: ${state.corpusId}`);
     }
     return {
       mode: 'production_feed_snapshot_session_frozen',
       label: 'Reviewer-safe snapshot of the live Community Governed Feed',
       description:
-        'Posts were sourced from the published Community Governed Feed and frozen so rank movement is attributable to shadow policy changes.',
+        'Posts were sourced from the published Corgi Commons feed and frozen so rank movement is attributable to shadow policy changes.',
       corpusId: state.corpusId,
       productionEpochId: state.corpus.baseProductionEpochId,
       sampledAt: state.corpus.health.sampledAt,
@@ -954,13 +954,13 @@ function validateTopicIntentForSession(
   const expected = new Set(topicSlugs);
   const received = Object.keys(intent.topicWeights);
   if (expected.size === 0) {
-    throw new DemoValidationError('Community Governed Feed topic catalog is unavailable for this session');
+    throw new DemoValidationError('Corgi Commons topic catalog is unavailable for this session');
   }
   const missing = [...expected].filter((slug) => intent.topicWeights[slug] === undefined);
   const unknown = received.filter((slug) => !expected.has(slug));
   if (missing.length > 0 || unknown.length > 0 || received.length !== expected.size) {
     throw new DemoValidationError(
-      `Community Governed Feed vote must include the complete frozen topic catalog; missing=${missing.join(',') || 'none'} unknown=${unknown.join(',') || 'none'}`
+      `Corgi Commons vote must include the complete frozen topic catalog; missing=${missing.join(',') || 'none'} unknown=${unknown.join(',') || 'none'}`
     );
   }
   return intent;
@@ -1191,7 +1191,7 @@ function counterfactualsForReceipt(options: {
   const previousCounterfactual = previousEpoch?.sequence === 1 && options.item.publishedRank !== undefined
     ? {
         label: 'previous_epoch' as const,
-        description: 'Published rank in the frozen Community Governed Feed baseline.',
+        description: 'Published rank in the frozen Corgi Commons baseline.',
         rank: options.item.publishedRank,
         deltaFromVisible: options.item.publishedRank - options.visibleRank,
       }

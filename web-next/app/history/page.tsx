@@ -548,7 +548,7 @@ export default function HistoryPage() {
               Governance ledger
             </h1>
             <p className="text-sm text-foreground/50 leading-relaxed max-w-lg">
-              Every weight change, keyword rule, and governance event — in full, forever. Select a round to inspect it.
+              Inspect recorded signal, topic, content-rule, and operator changes by policy round.
             </p>
             <p className="text-xs text-foreground/50 leading-relaxed max-w-lg">
               Corgi is in its pilot phase: the early rounds below were run with a small group of voters to

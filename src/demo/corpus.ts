@@ -34,7 +34,7 @@ import { emptyShadowTopicIntent } from './topic-intent.js';
 export const DEMO_COMMUNITIES: Record<ShadowDemoCommunityId, ShadowDemoCommunity> = {
   community_gov: {
     id: 'community_gov',
-    name: 'Community Governed Feed',
+    name: 'Corgi Commons',
     status: 'live_shadow',
     description:
       'The real public Corgi feed, frozen into an isolated comparison corpus for a replayable governance walkthrough.',
@@ -291,7 +291,7 @@ async function loadCommunityGovCorpus(options: LoadShadowDemoCorpusOptions): Pro
       return fallbackCorpus({
         communityId: options.communityId,
         now: options.now,
-        reason: `Community Governed Feed snapshot failed reviewer-safe gates: ${gateFailures.join('; ')}`,
+        reason: `Corgi Commons snapshot failed reviewer-safe gates: ${gateFailures.join('; ')}`,
         activeEpochId: epoch.id,
         baseWeights: approvedPolicy.signalWeights,
         baseTopicIntent,
@@ -330,14 +330,14 @@ async function loadCommunityGovCorpus(options: LoadShadowDemoCorpusOptions): Pro
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    logger.warn({ err }, 'Community Governed Feed demo snapshot load failed');
+    logger.warn({ err }, 'Corgi Commons demo snapshot load failed');
     // The v4 API requires the complete approved 26-topic policy. Snapshot-entry
     // failures may degrade to the fixture; policy corruption fails closed.
     const approvedPolicy = readApprovedCommunityGovPolicy();
     return fallbackCorpus({
       communityId: options.communityId,
       now: options.now,
-      reason: `Community Governed Feed snapshot could not be loaded: ${message}`,
+      reason: `Corgi Commons snapshot could not be loaded: ${message}`,
       activeEpochId: 0,
       baseWeights: approvedPolicy.signalWeights,
       baseTopicIntent: {

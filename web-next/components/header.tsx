@@ -208,7 +208,7 @@ export function Header() {
                 onClick={isDemoPage ? () => openDialog("waitlist") : undefined}
                 className="bg-primary text-primary-foreground hover:bg-primary-dark rounded-full px-5 text-sm shadow-[0_2px_8px_rgba(200,97,44,0.28)] hover:shadow-[0_4px_14px_rgba(200,97,44,0.38)] transition-all"
               >
-                {isDemoPage ? "Join the waitlist" : <Link href="/demo">Explore demo</Link>}
+                {isDemoPage ? "Join the waitlist" : <Link href="/demo">Try demo</Link>}
               </Button>
             </div>
 
@@ -294,7 +294,7 @@ export function Header() {
               >
                 {isDemoPage
                   ? "Join the waitlist"
-                  : <Link href="/demo" onClick={handleNavClick}>Explore demo</Link>}
+                  : <Link href="/demo" onClick={handleNavClick}>Try demo</Link>}
               </Button>
               {!isDemoPage && (
                 <button

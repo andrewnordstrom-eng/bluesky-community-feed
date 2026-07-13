@@ -1,15 +1,13 @@
-# Community-Governed Bluesky Feed Generator
+# Corgi Commons Feed Generator
 
 ## What This Is
 
-A Bluesky custom feed where **subscribers democratically vote on algorithm parameters**. Instead of one person deciding how posts are ranked, the community does through Polis-style deliberation.
+A production Bluesky custom feed with inspectable, community-shaped ranking. Corgi Commons is public to view and subscribe to; production governance participation is currently an approved waitlist pilot.
 
-- Users subscribe to the feed in their Bluesky app
-- Subscribers vote on how much weight each scoring component should have
-- Votes are aggregated using trimmed mean (removes outliers)
-- The feed algorithm uses the community-chosen weights
-
-**No one has built this before.** This is the first governance-weighted custom feed on AT Protocol.
+- Anyone can view Corgi Commons in Bluesky and use the isolated shadow demo
+- Approved pilot participants can submit signal weights, topic priorities, and content rules
+- Fewer than 10 ballots use an arithmetic mean; 10 or more use a 10% trimmed mean
+- Closed results require review and operator approval before the complete policy is applied and the feed is rescored
 
 ---
 
@@ -49,7 +47,7 @@ A Bluesky custom feed where **subscribers democratically vote on algorithm param
 2. **Scoring Pipeline** (every 5 minutes) → Calculates 5 component scores per post, applies governance weights, stores full decomposition
 3. **Top 1000 posts** → Pushed to Redis sorted set (`feed:current`)
 4. **getFeedSkeleton** → Bluesky app requests feed, we read from Redis and return post URIs
-5. **Users vote** → Weights aggregated via trimmed mean → Next epoch uses new weights
+5. **Approved participants vote** → Ballots aggregate after the configurable window → Results review and operator approval → Complete policy application → Rescore
 
 ---
 
@@ -86,40 +84,31 @@ Example with default weights:
 
 ### How Voting Works
 
-1. **Eligibility**: Only feed subscribers can vote (tracked when they request the feed)
-2. **Weight Distribution**: Voters set their preferred weight for each component (must sum to 100%)
-3. **One Vote Per Epoch**: Each subscriber gets one vote per governance epoch (can update)
-4. **Audit Trail**: All votes logged to append-only audit table
+1. **Eligibility**: Production voting is limited to approved waitlist participants during the pilot
+2. **Three ballot channels**: Five global signal weights, topic priorities that shape relevance, and include/exclude content rules
+3. **One ballot per epoch**: An approved participant can update their ballot while voting is open
+4. **Audit trail**: Governance and operator actions are recorded in the append-only audit table
 
 ### Trimmed Mean Aggregation
 
 To prevent manipulation by outliers:
 
-1. Collect all votes for the epoch
+1. Collect all ballots for the epoch
 2. For each component independently:
-   - Sort values
-   - Remove top 10% and bottom 10%
-   - Calculate mean of remaining values
+   - With fewer than 10 ballots, calculate the arithmetic mean
+   - With 10 or more, sort values and remove the top and bottom 10%
+   - Calculate the mean of the remaining values
 3. Normalize result to sum to exactly 1.0
 
-Minimum 10 votes required before trimming kicks in.
+Content-rule keywords use a separate threshold: at least 30% support among ballots that submit content rules. Include rules act as an allowlist and excludes take precedence.
 
 ### Epoch Lifecycle
 
-```
-┌──────────────┐    votes ≥ MIN_VOTES    ┌──────────────┐
-│    ACTIVE    │ ─────────────────────▶  │    VOTING    │
-│  (current)   │                         │  (closing)   │
-└──────────────┘                         └──────┬───────┘
-                                                │
-       ┌────────────────────────────────────────┘
-       │  aggregate votes, create new epoch
-       ▼
-┌──────────────┐                         ┌──────────────┐
-│    ACTIVE    │ ◀──────────────────────│    CLOSED    │
-│ (new epoch)  │                         │ (archived)   │
-└──────────────┘                         └──────────────┘
-```
+1. A vote is scheduled or opened manually with a configurable voting window.
+2. The window closes and ballots are aggregated into proposed signals, topics, and content rules.
+3. Results enter review; an operator approves or rejects the complete proposal.
+4. Approval applies all three policy channels, creates the next active epoch, and triggers a rescore.
+5. Bluesky receives the resulting ordered post URIs; Corgi exposes policy and receipt metadata.
 
 ---
 
@@ -140,13 +129,13 @@ Stores **decomposed scores** - 15 columns per post per epoch:
 Current and historical governance periods with weight distribution.
 
 ### governance_votes
-Individual subscriber votes (one per voter per epoch).
+Individual approved-participant ballots (one per voter per epoch, updatable while open).
 
 ### governance_audit_log
 **Append-only** record of all governance actions (trust anchor).
 
 ### subscribers
-Tracks who uses the feed and is eligible to vote.
+Tracks feed subscriptions and participant state; pilot voting eligibility is separately allowlisted.
 
 ### jetstream_cursor
 Persists cursor every 1000 events to resume without gaps.
@@ -160,38 +149,23 @@ The React frontend provides:
 - **Current Weights**: Radar chart showing active epoch's weight distribution
 - **Feed Statistics**: Posts scored, unique authors, average bridging
 - **Epoch History**: Timeline of all governance epochs with weight changes
-- **Post Explanations**: Why any post has its current rank (score breakdown)
+- **Post Explanations**: Score and ranking provenance when a Corgi receipt is available
 - **Audit Log**: Complete history of governance actions
 
 ---
 
 ## Current Limitations
 
-1. **All of Bluesky**: Currently ingests everything, not scoped to topic/community
-2. **No Moderation Layer**: Relies on Bluesky's own moderation
-3. **Relevance**: Uses keyword + embedding classification at ingestion time; governance weights determine per-topic relevance at scoring time
-4. **Single Feed**: One governance epoch affects one feed
+1. **Pilot governance access**: Viewing and the shadow demo are public; production voting is allowlisted
+2. **Single public governed feed**: Corgi Commons is the production feed; multi-community governance is not yet public
+3. **Relevance model**: Curated keyword topic classification is primary; sentence-embedding similarity is optional behind configuration
+4. **Receipt coverage**: A receipt requires persisted score provenance for the post and epoch
 
 ---
 
-## Future: Collection Governance
+## Content-Rule Governance
 
-Currently users vote on **ranking** (how to order posts). Future extension: vote on **collection** (what to include).
-
-### Potential Collection Rules
-
-- **Topic Keywords**: Include posts mentioning specific terms
-- **Source Allowlists/Blocklists**: Include/exclude specific accounts
-- **Content Type Filters**: Text only, images allowed, no reposts
-- **Language Filters**: English only, multilingual, etc.
-- **Engagement Thresholds**: Minimum likes to be considered
-
-### Implementation Path
-
-1. Add `collection_rules` JSONB column to `governance_epochs`
-2. Create voting UI for rule proposals
-3. Jetstream handlers check rules before inserting posts
-4. Separate epochs for collection rules vs. ranking weights
+Content rules are part of the current ballot. Include keywords form an allowlist, exclude keywords take precedence, and adopted rules are applied with the approved signal and topic policy before rescoring. The public shadow demo exposes only bounded exclusion-rule mechanics for this release.
 
 ---
 

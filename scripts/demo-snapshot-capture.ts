@@ -309,6 +309,6 @@ function escapeHtml(value: string): string {
 
 void main().catch((error: unknown) => {
   const message = error instanceof Error ? error.message : String(error);
-  process.stderr.write(`Community Governed Feed snapshot capture failed: ${message}\n`);
+  process.stderr.write(`Corgi Commons snapshot capture failed: ${message}\n`);
   process.exitCode = 1;
 });

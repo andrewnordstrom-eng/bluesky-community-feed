@@ -48,17 +48,17 @@ export function FooterSection() {
           <div className="flex flex-col justify-start items-start gap-5">
             <span className="text-foreground text-xl font-bold tracking-tight font-display">Corgi</span>
             <p className="text-foreground/60 text-sm font-normal leading-relaxed max-w-[220px]">
-              Your community runs the feed. Inspectable ranking.
+              Community-shaped feeds. Inspectable ranking.
             </p>
             <div className="flex justify-start items-center gap-3">
               <a
                 href={CORGI_FEED_URL}
-                aria-label="The Corgi feed on Bluesky"
+                aria-label="Corgi Commons on Bluesky"
                 className={`text-foreground/55 hover:text-primary transition-colors text-xs font-medium ${FOCUS}`}
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                Bluesky feed
+                Corgi Commons
               </a>
               <span className="text-foreground/55" aria-hidden="true">·</span>
               <a

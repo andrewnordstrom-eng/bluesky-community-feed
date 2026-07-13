@@ -241,7 +241,7 @@ export const DEMO_COMMUNITIES: Readonly<Record<ShadowDemoCommunityId, DemoCommun
     isPreview: false,
     community: {
       id: "community_gov",
-      name: "Community Governed Feed",
+      name: "Corgi Commons",
       tagline: "The real public Corgi feed, frozen into a reviewer-safe comparison set for isolated shadow governance.",
       corpusStrategy: "fixture_fallback",
       candidateTerms: [],
