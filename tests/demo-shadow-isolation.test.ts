@@ -148,6 +148,22 @@ describe('sudo Docker Compose command matcher', () => {
   });
 });
 
+describe('production deploy ordering guards', () => {
+  it('applies database migrations after verification and before service restart', () => {
+    const deploy = readFileSync(DEPLOY_FILE, 'utf8');
+    const verificationIndex = deploy.indexOf('npm run test -- --reporter=verbose --run');
+    const finalBuildIndex = deploy.indexOf('cd cli && npm ci && npx tsc');
+    const migrationIndex = deploy.indexOf('npm run migrate');
+    const restartIndex = deploy.indexOf('sudo systemctl restart bluesky-feed');
+
+    expect(verificationIndex).toBeGreaterThan(-1);
+    expect(finalBuildIndex).toBeGreaterThan(verificationIndex);
+    expect(migrationIndex).toBeGreaterThan(finalBuildIndex);
+    expect(restartIndex).toBeGreaterThan(migrationIndex);
+    expect(deploy.match(/npm run migrate/g)).toHaveLength(1);
+  });
+});
+
 function usesOnlySudoDockerComposeCommands(script: string): boolean {
   const tokens = tokenizeShellCommands(script);
   const invocationIndexes = tokens.flatMap((token, index) =>

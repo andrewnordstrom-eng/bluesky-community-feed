@@ -72,6 +72,9 @@ jobs:
             cd ..
             cd cli && npm ci && npx tsc
             cd ..
+            # Apply additive schema changes only after every build/test gate has
+            # passed, and before the new application process can start.
+            npm run migrate
             sudo docker compose -f docker-compose.prod.yml up -d --no-deps demo-redis
             for i in 1 2 3 4 5; do
               if sudo docker compose -f docker-compose.prod.yml exec -T demo-redis redis-cli ping | grep -q PONG; then
