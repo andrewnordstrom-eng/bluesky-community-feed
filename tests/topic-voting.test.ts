@@ -44,8 +44,19 @@ vi.mock('../src/lib/logger.js', () => ({
 
 import { registerVoteRoute } from '../src/governance/routes/vote.js';
 import { registerTopicRoutes } from '../src/governance/routes/topics.js';
+import { parseStoredTopicWeights } from '../src/governance/topic-weights.js';
 
-const ACTIVE_EPOCH = {
+interface TopicVoteEpoch {
+  id: number;
+  status: string;
+  phase: string;
+  voting_ends_at: string | null;
+  topic_weights: Record<string, number>;
+}
+
+const DATABASE_NOW = '2026-07-12T12:00:00.000Z';
+
+const ACTIVE_EPOCH: TopicVoteEpoch = {
   id: 5,
   status: 'voting',
   phase: 'voting',
@@ -66,15 +77,20 @@ const ACTIVE_TOPICS = [
 function setupDbMock(opts?: {
   hasSubscriber?: boolean;
   hasExistingVote?: boolean;
-  closesBeforeInsert?: boolean;
-  initialEpoch?: typeof ACTIVE_EPOCH;
+  guardedVotingEndsAt?: string | null;
+  initialEpoch?: TopicVoteEpoch;
 }): void {
   const {
     hasSubscriber = true,
     hasExistingVote = false,
-    closesBeforeInsert = false,
+    guardedVotingEndsAt,
     initialEpoch = ACTIVE_EPOCH,
   } = opts ?? {};
+  const effectiveGuardedDeadline = opts && 'guardedVotingEndsAt' in opts
+    ? guardedVotingEndsAt ?? null
+    : initialEpoch.voting_ends_at;
+  const guardedEpochOpen = effectiveGuardedDeadline === null
+    || Date.parse(effectiveGuardedDeadline) > Date.parse(DATABASE_NOW);
 
   dbQueryMock.mockImplementation((sql: string, _params?: unknown[]) => {
     // Subscriber check
@@ -89,7 +105,7 @@ function setupDbMock(opts?: {
       expect(sql).toContain("AND phase = 'voting'");
       expect(sql).toContain('AND (voting_ends_at IS NULL OR voting_ends_at > NOW())');
       expect(sql).toContain('FOR SHARE');
-      return Promise.resolve({ rows: closesBeforeInsert ? [] : [{ id: 1, is_new_vote: true }] });
+      return Promise.resolve({ rows: guardedEpochOpen ? [{ id: 1, is_new_vote: true }] : [] });
     }
     // Active epoch for voting
     if (sql.includes('governance_epochs') && sql.includes('status')) {
@@ -200,6 +216,19 @@ describe('GET /api/governance/topics', () => {
   });
 });
 
+describe('stored topic-weight policy parsing', () => {
+  it.each([
+    ['primitive', 'science'],
+    ['array', [0.5]],
+    ['out-of-range value', { 'science-research': 1.1 }],
+    ['mixed valid and invalid values', { 'science-research': 0.8, 'software-development': 'high' }],
+  ])('rejects a malformed %s policy without keeping partial values', (_label, raw) => {
+    expect(() => parseStoredTopicWeights(raw, 'test epoch')).toThrow(
+      'Invalid stored topic weights for test epoch'
+    );
+  });
+});
+
 describe('POST /api/governance/vote (topic_weights)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -247,7 +276,7 @@ describe('POST /api/governance/vote (topic_weights)', () => {
 
   it('rejects a ballot when voting closes between the initial check and atomic insert', async () => {
     getAuthenticatedDidMock.mockResolvedValue('did:plc:voter');
-    setupDbMock({ closesBeforeInsert: true });
+    setupDbMock({ guardedVotingEndsAt: DATABASE_NOW });
 
     const app = Fastify();
     registerVoteRoute(app);
@@ -269,7 +298,6 @@ describe('POST /api/governance/vote (topic_weights)', () => {
   it('uses the database deadline when an expired voting window reaches the guarded insert', async () => {
     getAuthenticatedDidMock.mockResolvedValue('did:plc:voter');
     setupDbMock({
-      closesBeforeInsert: true,
       initialEpoch: {
         ...ACTIVE_EPOCH,
         voting_ends_at: '2020-01-01T00:00:00.000Z',
@@ -291,6 +319,55 @@ describe('POST /api/governance/vote (topic_weights)', () => {
     expect(response.json()).toMatchObject({ error: 'VotingClosed' });
     expect(dbQueryMock.mock.calls.some(([sql]) => String(sql).includes('WITH open_epoch'))).toBe(true);
 
+    await app.close();
+  });
+
+  it('accepts a vote when the guarded voting deadline is open-ended', async () => {
+    getAuthenticatedDidMock.mockResolvedValue('did:plc:voter');
+    setupDbMock({
+      initialEpoch: {
+        ...ACTIVE_EPOCH,
+        voting_ends_at: null,
+      },
+    });
+
+    const app = Fastify();
+    registerVoteRoute(app);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/governance/vote',
+      payload: {
+        topic_weights: { 'software-development': 0.9 },
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    await app.close();
+  });
+
+  it('rejects a vote at the exact database deadline boundary', async () => {
+    getAuthenticatedDidMock.mockResolvedValue('did:plc:voter');
+    setupDbMock({
+      initialEpoch: {
+        ...ACTIVE_EPOCH,
+        voting_ends_at: DATABASE_NOW,
+      },
+    });
+
+    const app = Fastify();
+    registerVoteRoute(app);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/governance/vote',
+      payload: {
+        topic_weights: { 'software-development': 0.9 },
+      },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ error: 'VotingClosed' });
     await app.close();
   });
 

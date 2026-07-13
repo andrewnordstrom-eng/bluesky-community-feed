@@ -33,8 +33,10 @@ import {
   getCurrentContentRules,
   filterPosts,
   hasActiveContentRules,
+  invalidateContentRulesCache,
 } from '../governance/content-filter.js';
 import type { ContentRules } from '../governance/governance.types.js';
+import { invalidateGovernanceGateCache } from '../ingestion/governance-gate.js';
 import { updateScoringStatus } from '../admin/status-tracker.js';
 import { calculateAuthorConcentration } from '../transparency/metrics.js';
 import { applyFeedUrlDedup, FEED_URL_DEDUP_DECAY } from './feed-publication.js';
@@ -211,6 +213,30 @@ export function requestFullRescore(): void {
   fullRescoreRequestGeneration++;
 }
 
+async function completeGovernanceRescoreGeneration(
+  epochId: number,
+  generation: number
+): Promise<void> {
+  const result = await db.query<{ requested_generation: number | string }>(
+    `UPDATE governance_rescore_requests
+     SET completed_generation = GREATEST(completed_generation, $2),
+         completed_at = CASE
+           WHEN requested_generation <= $2 THEN NOW()
+           ELSE completed_at
+         END
+     WHERE epoch_id = $1
+       AND requested_generation >= $2
+     RETURNING requested_generation`,
+    [epochId, generation]
+  );
+
+  if (!result.rows[0]) {
+    throw new Error(
+      `Failed to complete governance rescore generation ${generation} for epoch ${epochId}`
+    );
+  }
+}
+
 /**
  * Run the complete scoring pipeline with timeout.
  * This is the main entry point called by the scheduler.
@@ -272,6 +298,12 @@ async function runScoringPipelineInternal(): Promise<void> {
       return;
     }
     const runId = randomUUID();
+    const durableRescoreGeneration = epoch.pendingRescoreGeneration;
+
+    if (durableRescoreGeneration !== null) {
+      await invalidateContentRulesCache();
+      await invalidateGovernanceGateCache();
+    }
 
     logger.info({ epochId: epoch.id, runId }, 'Using governance epoch');
 
@@ -282,7 +314,9 @@ async function runScoringPipelineInternal(): Promise<void> {
 
     // Force a full rescore periodically to catch recency decay
     const fullRescoreDue = incrementalRunCount >= config.SCORING_FULL_RESCORE_INTERVAL;
-    const policyRescoreDue = requestedFullRescoreGeneration > completedFullRescoreRequestGeneration;
+    const policyRescoreDue =
+      requestedFullRescoreGeneration > completedFullRescoreRequestGeneration
+      || durableRescoreGeneration !== null;
     const useIncremental = !isFirstRun && !epochChanged && !fullRescoreDue && !policyRescoreDue;
 
     if (fullRescoreDue && !isFirstRun && !epochChanged) {
@@ -366,6 +400,10 @@ async function runScoringPipelineInternal(): Promise<void> {
     // previous scores remain in post_scores. Reading from DB gives the
     // complete, correctly-ranked feed.
     const feedPublication = await writeToRedisFromDb(epoch.id, runId);
+
+    if (!useIncremental && durableRescoreGeneration !== null && feedPublication.published) {
+      await completeGovernanceRescoreGeneration(epoch.id, durableRescoreGeneration);
+    }
 
     const elapsed = Date.now() - startTime;
     logger.info(

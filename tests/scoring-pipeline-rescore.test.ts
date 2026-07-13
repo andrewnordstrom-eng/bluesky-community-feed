@@ -9,6 +9,8 @@ const {
   pipelineExecMock,
   getCurrentContentRulesMock,
   hasActiveContentRulesMock,
+  invalidateContentRulesCacheMock,
+  invalidateGovernanceGateCacheMock,
   updateScoringStatusMock,
 } = vi.hoisted(() => ({
   dbQueryMock: vi.fn(),
@@ -19,6 +21,8 @@ const {
   pipelineExecMock: vi.fn(),
   getCurrentContentRulesMock: vi.fn(),
   hasActiveContentRulesMock: vi.fn(),
+  invalidateContentRulesCacheMock: vi.fn(),
+  invalidateGovernanceGateCacheMock: vi.fn(),
   updateScoringStatusMock: vi.fn(),
 }));
 
@@ -43,6 +47,11 @@ vi.mock('../src/governance/content-filter.js', () => ({
   getCurrentContentRules: getCurrentContentRulesMock,
   hasActiveContentRules: hasActiveContentRulesMock,
   filterPosts: vi.fn(),
+  invalidateContentRulesCache: invalidateContentRulesCacheMock,
+}));
+
+vi.mock('../src/ingestion/governance-gate.js', () => ({
+  invalidateGovernanceGateCache: invalidateGovernanceGateCacheMock,
 }));
 
 vi.mock('../src/admin/status-tracker.js', () => ({
@@ -75,6 +84,8 @@ function setupDefaultMocks() {
     excludeKeywords: [],
   });
   hasActiveContentRulesMock.mockReturnValue(false);
+  invalidateContentRulesCacheMock.mockResolvedValue(undefined);
+  invalidateGovernanceGateCacheMock.mockResolvedValue(undefined);
   updateScoringStatusMock.mockResolvedValue(undefined);
 }
 
@@ -320,5 +331,74 @@ describe('periodic full rescore for recency decay', () => {
     setupDefaultMocks();
     await runEmptyCycle();
     expect(getPostsQueryMode()).toBe('full');
+  });
+
+  it('keeps a durable policy rescore pending when cache invalidation fails', async () => {
+    dbQueryMock.mockReset();
+    setupDefaultMocks();
+    dbQueryMock
+      .mockResolvedValueOnce({
+        rows: [{ ...makeEpochRow(2), pending_rescore_generation: '4' }],
+      });
+    invalidateContentRulesCacheMock.mockRejectedValueOnce(new Error('cache invalidation failed'));
+
+    await expect(runScoringPipeline()).rejects.toThrow('cache invalidation failed');
+    expect(getCurrentContentRulesMock).not.toHaveBeenCalled();
+    expect(
+      dbQueryMock.mock.calls.some(([sql]) => String(sql).includes('UPDATE governance_rescore_requests'))
+    ).toBe(false);
+
+    dbQueryMock.mockReset();
+    vi.clearAllMocks();
+    setupDefaultMocks();
+    dbQueryMock
+      .mockResolvedValueOnce({
+        rows: [{ ...makeEpochRow(2), pending_rescore_generation: '4' }],
+      })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await runScoringPipeline();
+
+    expect(getPostsQueryMode()).toBe('full');
+    expect(invalidateContentRulesCacheMock).toHaveBeenCalledTimes(1);
+    expect(invalidateGovernanceGateCacheMock).toHaveBeenCalledTimes(1);
+    expect(
+      dbQueryMock.mock.calls.some(([sql]) => String(sql).includes('UPDATE governance_rescore_requests'))
+    ).toBe(false);
+  });
+
+  it('completes only the durable generation observed by a published run', async () => {
+    dbQueryMock.mockReset();
+    setupDefaultMocks();
+    dbQueryMock
+      .mockResolvedValueOnce({
+        rows: [{ ...makeEpochRow(2), pending_rescore_generation: '4' }],
+      })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({
+        rows: [{
+          post_uri: 'at://did:plc:author/app.bsky.feed.post/1',
+          total_score: 0.8,
+          author_did: 'did:plc:author',
+          bridging_score: 0.5,
+          engagement_score: 0.4,
+          embed_url: null,
+          text_length: 120,
+        }],
+      })
+      .mockResolvedValueOnce({ rows: [{ requested_generation: '5' }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await runScoringPipeline();
+
+    const completion = dbQueryMock.mock.calls.find(
+      ([sql]) => String(sql).includes('UPDATE governance_rescore_requests')
+    );
+    expect(completion?.[1]).toEqual([2, 4]);
+    expect(invalidateContentRulesCacheMock).toHaveBeenCalledTimes(1);
+    expect(invalidateGovernanceGateCacheMock).toHaveBeenCalledTimes(1);
   });
 });

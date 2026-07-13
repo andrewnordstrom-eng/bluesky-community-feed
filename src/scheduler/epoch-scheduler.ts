@@ -18,6 +18,7 @@ import {
 } from '../governance/aggregation.js';
 import { readEpochWeights } from '../governance/weight-longtable.js';
 import { toContentRules, type ContentRules, type GovernanceWeights } from '../governance/governance.types.js';
+import { parseStoredTopicWeights } from '../governance/topic-weights.js';
 import {
   announceVotingClosed,
   announceVotingOpen,
@@ -78,20 +79,6 @@ function toDbContentRules(rules: ContentRules): { include_keywords: string[]; ex
     include_keywords: rules.includeKeywords,
     exclude_keywords: rules.excludeKeywords,
   };
-}
-
-function toTopicWeights(raw: unknown): Record<string, number> {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-    return {};
-  }
-
-  const weights: Record<string, number> = {};
-  for (const [slug, value] of Object.entries(raw)) {
-    if (typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1) {
-      weights[slug] = value;
-    }
-  }
-  return weights;
 }
 
 async function getVoteCounts(
@@ -256,7 +243,10 @@ async function closeExpiredVotingWindows(): Promise<{ transitioned: number; erro
       // committed atomically by the previous scheduler tick / PATCH route.
       const currentWeights = (await readEpochWeights({ epochId: epoch.id })) ?? toWeights(epoch);
       const currentRules = toContentRules((epoch.content_rules ?? null) as any);
-      const currentTopicWeights = toTopicWeights(epoch.topic_weights);
+      const currentTopicWeights = parseStoredTopicWeights(
+        epoch.topic_weights,
+        `governance epoch ${epoch.id} active policy`
+      );
 
       let proposedWeights = currentWeights;
       let proposedRules = currentRules;

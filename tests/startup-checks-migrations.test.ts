@@ -34,20 +34,20 @@ describe('startup migration checks', () => {
     redisPingMock.mockResolvedValue('PONG');
   });
 
-  it('fails startup checks when latest migration is below 014', async () => {
+  it('fails startup checks when latest migration is below 034', async () => {
     dbQueryMock
       .mockResolvedValueOnce({ rows: [{ ok: 1 }] }) // checkPostgres
       .mockResolvedValueOnce({ rows: [{ max_migration: 1 }] }); // checkMigrationVersion
 
     await expect(runStartupChecks()).rejects.toThrow(
-      /Migration startup check failed: database migrations are behind \(max=1, required=14\)/
+      /Migration startup check failed: database migrations are behind \(max=1, required=34\)/
     );
   });
 
-  it('passes startup checks when latest migration is 014', async () => {
+  it('passes startup checks when latest migration is 034', async () => {
     dbQueryMock
       .mockResolvedValueOnce({ rows: [{ ok: 1 }] }) // checkPostgres
-      .mockResolvedValueOnce({ rows: [{ max_migration: 14 }] }); // checkMigrationVersion
+      .mockResolvedValueOnce({ rows: [{ max_migration: 34 }] }); // checkMigrationVersion
 
     await expect(runStartupChecks()).resolves.toBeUndefined();
     expect(redisPingMock).toHaveBeenCalledTimes(1);

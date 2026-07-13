@@ -74,6 +74,13 @@ vi.mock('../src/governance/epoch-manager.js', () => ({
   triggerEpochTransition: triggerEpochTransitionMock,
 }));
 
+vi.mock('../src/bot/governance-announcements.js', () => ({
+  announceResultsApproved: vi.fn().mockResolvedValue(undefined),
+  announceVoteScheduled: vi.fn().mockResolvedValue(undefined),
+  announceVotingClosed: vi.fn().mockResolvedValue(undefined),
+  announceVotingOpen: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { registerGovernanceRoutes } from '../src/admin/routes/governance.js';
 
 function epochRow(overrides: Partial<Record<string, unknown>> = {}) {
@@ -291,7 +298,7 @@ describe('admin governance routes', () => {
       .mockResolvedValueOnce({ rows: [epochRow({ phase: 'results' })] })
       .mockResolvedValueOnce({ rows: [{ count: '0' }] })
       .mockResolvedValueOnce({ rows: [epochRow({ phase: 'running' })] })
-      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ requested_generation: '1' }] })
       .mockResolvedValueOnce({ rows: [] });
 
     const app = Fastify();
@@ -316,6 +323,27 @@ describe('admin governance routes', () => {
       },
     });
     expect(aggregateVotesMock).not.toHaveBeenCalled();
+
+    const policyUpdate = clientQueryMock.mock.calls.find(
+      (call) => typeof call[0] === 'string' && call[0].includes('vote_count = $8')
+    );
+    expect(policyUpdate?.[1]).toEqual([
+      0.2,
+      0.2,
+      0.2,
+      0.2,
+      0.2,
+      JSON.stringify({ 'software-development': 0.5 }),
+      JSON.stringify({ include_keywords: ['ai'], exclude_keywords: ['spam'] }),
+      0,
+      'did:plc:admin',
+      7,
+    ]);
+
+    const rescoreInsert = clientQueryMock.mock.calls.find(
+      (call) => typeof call[0] === 'string' && call[0].includes('INSERT INTO governance_rescore_requests')
+    );
+    expect(rescoreInsert?.[1]).toEqual([7]);
 
     const auditInsert = clientQueryMock.mock.calls.find(
       (call) => typeof call[0] === 'string' && call[0].includes('INSERT INTO governance_audit_log')
@@ -344,6 +372,21 @@ describe('admin governance routes', () => {
     expect(aggregateVotesMock).not.toHaveBeenCalled();
     expect(aggregateTopicWeightsMock).not.toHaveBeenCalled();
     expect(aggregateContentVotesMock).not.toHaveBeenCalled();
+    expect(writeEpochWeightsMock).not.toHaveBeenCalled();
+    expect(invalidateContentRulesCacheMock).not.toHaveBeenCalled();
+    expect(invalidateGovernanceGateCacheMock).not.toHaveBeenCalled();
+    expect(requestFullRescoreMock).not.toHaveBeenCalled();
+    expect(tryTriggerManualScoringRunMock).not.toHaveBeenCalled();
+    expect(
+      clientQueryMock.mock.calls.some(
+        ([sql]) => typeof sql === 'string' && sql.includes('UPDATE governance_epochs')
+      )
+    ).toBe(false);
+    expect(
+      clientQueryMock.mock.calls.some(
+        ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO governance_rescore_requests')
+      )
+    ).toBe(false);
 
     await app.close();
   });
@@ -431,7 +474,7 @@ describe('admin governance routes', () => {
         })],
       })
       .mockResolvedValueOnce({ rows: [{ total: '25', content: '8', topic: '25' }] })
-      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ requested_generation: '1' }] })
       .mockResolvedValueOnce({ rows: [] });
 
     const approved = await app.inject({
@@ -451,15 +494,87 @@ describe('admin governance routes', () => {
       rescoreTriggered: true,
     });
     expect(writeEpochWeightsMock).toHaveBeenCalledWith(expect.anything(), 7, proposedWeights);
-    expect(invalidateContentRulesCacheMock).toHaveBeenCalledTimes(1);
-    expect(invalidateGovernanceGateCacheMock).toHaveBeenCalledTimes(1);
+    expect(invalidateContentRulesCacheMock).not.toHaveBeenCalled();
+    expect(invalidateGovernanceGateCacheMock).not.toHaveBeenCalled();
     expect(requestFullRescoreMock).toHaveBeenCalledTimes(1);
     expect(tryTriggerManualScoringRunMock).toHaveBeenCalledWith();
 
     const update = clientQueryMock.mock.calls.find(
       (call) => typeof call[0] === 'string' && call[0].includes('topic_weights = $6')
     );
-    expect(update?.[1]).toContain(JSON.stringify(proposedTopicWeights));
+    expect(update?.[1]).toEqual([
+      proposedWeights.recency,
+      proposedWeights.engagement,
+      proposedWeights.bridging,
+      proposedWeights.sourceDiversity,
+      proposedWeights.relevance,
+      JSON.stringify(proposedTopicWeights),
+      JSON.stringify(proposedContentRules),
+      'did:plc:admin',
+      7,
+    ]);
+
+    const rescoreInsert = clientQueryMock.mock.calls.find(
+      (call) => typeof call[0] === 'string' && call[0].includes('INSERT INTO governance_rescore_requests')
+    );
+    expect(rescoreInsert?.[1]).toEqual([7]);
+    expect(rescoreInsert?.[0]).toContain(
+      'requested_generation = governance_rescore_requests.requested_generation + 1'
+    );
+
+    await app.close();
+  });
+
+  it('rolls back approved policy changes when the durable rescore cannot be enqueued', async () => {
+    clientQueryMock
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [epochRow({ phase: 'results' })] })
+      .mockResolvedValueOnce({ rows: [epochRow({ phase: 'running' })] })
+      .mockResolvedValueOnce({ rows: [{ total: '25', content: '8', topic: '25' }] })
+      .mockRejectedValueOnce(new Error('rescore outbox unavailable'));
+
+    const app = Fastify();
+    registerGovernanceRoutes(app);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/governance/approve-results',
+      payload: { announce: false },
+    });
+
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toMatchObject({ error: 'ApproveResultsFailed' });
+    expect(clientQueryMock).toHaveBeenCalledWith('ROLLBACK');
+    expect(clientQueryMock).not.toHaveBeenCalledWith('COMMIT');
+    expect(requestFullRescoreMock).not.toHaveBeenCalled();
+    expect(tryTriggerManualScoringRunMock).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it('reports a deferred rescore without undoing a committed policy approval', async () => {
+    clientQueryMock
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [epochRow({ phase: 'results' })] })
+      .mockResolvedValueOnce({ rows: [epochRow({ phase: 'running' })] })
+      .mockResolvedValueOnce({ rows: [{ total: '25', content: '8', topic: '25' }] })
+      .mockResolvedValueOnce({ rows: [{ requested_generation: '2' }] })
+      .mockResolvedValueOnce({ rows: [] });
+    tryTriggerManualScoringRunMock.mockRejectedValueOnce(new Error('scoring trigger unavailable'));
+
+    const app = Fastify();
+    registerGovernanceRoutes(app);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/governance/approve-results',
+      payload: { announce: false },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ success: true, rescoreTriggered: false });
+    expect(clientQueryMock).toHaveBeenCalledWith('COMMIT');
+    expect(requestFullRescoreMock).toHaveBeenCalledTimes(1);
 
     await app.close();
   });

@@ -161,6 +161,8 @@ describe('production governance lifecycle', () => {
         return Promise.resolve({ rows: [] });
       }
       if (sql.includes('SELECT *') && sql.includes('FOR UPDATE')) {
+        expect(sql).toContain("status = 'active'");
+        expect(sql).toContain("phase = 'voting'");
         expect(sql).toContain("auto_transition = TRUE");
         expect(sql).toContain('voting_ends_at <= NOW()');
         return Promise.resolve({ rows: [] });
@@ -180,6 +182,9 @@ describe('production governance lifecycle', () => {
     expect(aggregateTopicWeightsMock).not.toHaveBeenCalled();
     expect(aggregateContentVotesMock).not.toHaveBeenCalled();
     expect(announceVotingClosedMock).not.toHaveBeenCalled();
+    expect(clientQueryMock).toHaveBeenCalledWith('ROLLBACK');
+    expect(clientQueryMock).not.toHaveBeenCalledWith('COMMIT');
+    expect(releaseMock).toHaveBeenCalledTimes(1);
   });
 
   it('rolls back and releases the client when policy aggregation fails', async () => {
