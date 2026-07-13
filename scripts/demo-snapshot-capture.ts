@@ -1,12 +1,14 @@
-import { writeFile } from 'node:fs/promises';
 import { db } from '../src/db/client.js';
 import { redis } from '../src/db/redis.js';
 import { config } from '../src/config.js';
-import { loadShadowDemoCorpus, communityGovSnapshotGateFailures } from '../src/demo/corpus.js';
+import { loadCommunityGovCaptureCorpus, communityGovSnapshotGateFailures } from '../src/demo/corpus.js';
 import {
   canonicalizeFrozenEmbedUrl,
+  clearSnapshotCaptureArtifacts,
   createBoundedDemoFetch,
   scoreCompletenessRate,
+  writeSnapshotCaptureArtifacts,
+  type SnapshotCaptureReport,
 } from '../src/demo/snapshot-capture.js';
 import { readPostScore, type PostScoreRecord } from '../src/scoring/score-reader.js';
 import { FEED_URL_DEDUP_DECAY } from '../src/scoring/feed-publication.js';
@@ -32,6 +34,7 @@ const appViewFetch = createBoundedDemoFetch(APPVIEW_REQUEST_TIMEOUT_MS);
 async function main(): Promise<void> {
   try {
     const paths = parsePaths(process.argv.slice(2));
+    await clearSnapshotCaptureArtifacts(paths);
     const capturedAt = new Date();
     const readLiveSnapshot = createLivePublishedFeedSnapshotReader();
     const snapshot = await readLiveSnapshot(DEMO_SOURCE_SNAPSHOT_LIMIT);
@@ -46,14 +49,27 @@ async function main(): Promise<void> {
     }
     const frozenEntries = await buildFrozenEntries(snapshot, scores);
     const frozenSnapshot: PublishedFeedSnapshot = { ...snapshot, entries: frozenEntries };
-    const corpus = await loadShadowDemoCorpus({
-      communityId: 'community_gov',
+    const publicationPolicy = {
+      urlDedupEnabled: config.FEED_DEDUP_ENABLED,
+      minimumOriginalTextLength: config.FEED_DEDUP_MIN_TEXT,
+      minimumRelevance: config.FEED_MIN_RELEVANCE,
+      decay: [...FEED_URL_DEDUP_DECAY],
+    };
+    const corpus = await loadCommunityGovCaptureCorpus({
       now: capturedAt,
       fetchFn: appViewFetch,
       dbPool: db,
       readScore: readPostScore,
       readPublishedSnapshot: async () => frozenSnapshot,
+      policy: {
+        signalWeights: capturedPolicy.signalWeights,
+        topicCatalog: capturedPolicy.topicCatalog,
+        publicationPolicy,
+      },
     });
+    if (corpus.health.source !== 'production_feed_snapshot') {
+      throw new Error(`Capture corpus must remain live production data; received ${corpus.health.source}`);
+    }
     const publicItems = corpus.items.filter((item) => item.displayPost.kind === 'public_post');
     const reviewedCidByUri = new Map(publicItems.flatMap((item) =>
       item.displayPost.kind === 'public_post' ? [[item.postUri, item.displayPost.cid] as const] : []));
@@ -76,10 +92,7 @@ async function main(): Promise<void> {
       baselineOrderDigest: snapshot.baselineOrderDigest,
       signalWeights: capturedPolicy.signalWeights,
       publicationPolicy: {
-        urlDedupEnabled: config.FEED_DEDUP_ENABLED,
-        minimumOriginalTextLength: config.FEED_DEDUP_MIN_TEXT,
-        minimumRelevance: config.FEED_MIN_RELEVANCE,
-        decay: FEED_URL_DEDUP_DECAY,
+        ...publicationPolicy,
       },
       topicCatalog: capturedPolicy.topicCatalog,
       entries: approvedEntries,
@@ -106,8 +119,11 @@ async function main(): Promise<void> {
     const gateFailures = communityGovSnapshotGateFailures(corpus.health);
     if (completeness !== 1) gateFailures.push(`score decomposition completeness ${completeness} < 1`);
     if (!sourceLinksValid) gateFailures.push('one or more public source links failed validation');
-    const report = {
+    const report: SnapshotCaptureReport = {
       schemaVersion: manifest.schemaVersion,
+      artifactKind: 'live_production_snapshot_capture',
+      corpusSource: 'production_feed_snapshot',
+      approvable: gateFailures.length === 0,
       manifestDigest: manifest.snapshotDigest,
       capturedAt: capturedAt.toISOString(),
       productionEpochId: snapshot.productionEpochId,
@@ -133,13 +149,20 @@ async function main(): Promise<void> {
       },
       warnings: corpus.warnings,
     };
-    await Promise.all([
-      writeFile(paths.manifest, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8'),
-      writeFile(paths.report, `${JSON.stringify(report, null, 2)}\n`, 'utf8'),
-      writeFile(paths.reviewSheet, reviewSheetHtml(manifest, corpus.items), 'utf8'),
-    ]);
+    await writeSnapshotCaptureArtifacts({
+      paths,
+      report,
+      manifestJson: `${JSON.stringify(manifest, null, 2)}\n`,
+      reviewSheetHtml: reviewSheetHtml(manifest, corpus.items),
+    });
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
-    if (report.gateFailures.length > 0) process.exitCode = 2;
+    if (!report.approvable) {
+      process.stderr.write(
+        `Corgi Commons snapshot is not approvable; report written to ${paths.report}. `
+        + 'No manifest or review sheet was emitted.\n'
+      );
+      process.exitCode = 2;
+    }
   } finally {
     await Promise.allSettled([db.end(), redis.quit()]);
   }
