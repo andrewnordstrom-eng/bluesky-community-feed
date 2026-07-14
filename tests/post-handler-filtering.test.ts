@@ -130,6 +130,37 @@ describe('post handler content filtering', () => {
     expect(outcome).toBe('post-duplicate-noop');
   });
 
+  it('does not increment reply counts when a reply is replayed as a duplicate', async () => {
+    redisGetMock.mockResolvedValue(
+      JSON.stringify({
+        includeKeywords: [],
+        excludeKeywords: [],
+      })
+    );
+    dbQueryMock
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 });
+
+    const outcome = await handlePost(
+      'at://did:plc:abc/app.bsky.feed.post/replayed-reply',
+      'did:plc:abc',
+      'cid-replayed-reply',
+      {
+        text: 'A reply delivered again after cursor replay',
+        createdAt: new Date().toISOString(),
+        reply: {
+          root: { uri: 'at://did:plc:root/app.bsky.feed.post/root' },
+          parent: { uri: 'at://did:plc:root/app.bsky.feed.post/root' },
+        },
+      }
+    );
+
+    expect(outcome).toBe('post-duplicate-noop');
+    expect(dbQueryMock.mock.calls.some(([query]) =>
+      String(query).includes('SET reply_count = reply_count + 1')
+    )).toBe(false);
+  });
+
   it('inserts posts when content filter fails (fail-open)', async () => {
     // Redis fails, DB falls back and also fails
     redisGetMock.mockRejectedValue(new Error('redis connection refused'));

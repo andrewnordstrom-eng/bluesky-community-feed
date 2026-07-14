@@ -41,6 +41,59 @@ describe('queue saturation drop counter', () => {
     __testJetstreamQueue.reset();
   });
 
+  it('does not count reconnect-cancelled queued work as a hard-limit drop', async () => {
+    __testJetstreamQueue.reset();
+    await Promise.all(
+      Array.from({ length: __testJetstreamQueue.maxConcurrentEvents }, () =>
+        __testJetstreamQueue.acquireSlot()
+      )
+    );
+
+    const queuedResult = __testJetstreamQueue.processMessage(Buffer.from('{}'));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(__testJetstreamQueue.getState().queued).toBe(1);
+
+    __testJetstreamQueue.drainQueuedSlots(false);
+    await expect(queuedResult).resolves.toMatchObject({
+      acquired: false,
+      dropped: false,
+      errorMessage: 'jetstream message cancelled for reconnect',
+    });
+    expect(__testJetstreamQueue.getDroppedCount()).toBe(0);
+    expect(__testJetstreamQueue.getRuntimeState()).toMatchObject({
+      overloadReconnectCount: 0,
+      flowControlFailureReconnectCount: 0,
+      totalDroppedEvents: 0,
+    });
+
+    __testJetstreamQueue.reset();
+  });
+
+  it('keeps a queued duplicate timestamp behind the safely persisted cursor', async () => {
+    __testJetstreamQueue.reset();
+    __testJetstreamQueue.setCursorForTests('1000');
+    await Promise.all(
+      Array.from({ length: __testJetstreamQueue.maxConcurrentEvents }, () =>
+        __testJetstreamQueue.acquireSlot()
+      )
+    );
+
+    const queuedResult = __testJetstreamQueue.processMessage(Buffer.from(JSON.stringify({
+      did: 'did:plc:queued-cursor',
+      time_us: 1000,
+      kind: 'identity',
+    })));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(__testJetstreamQueue.getState().queued).toBe(1);
+    expect(__testJetstreamQueue.getCursorState().lastCursorUs).toBe('999');
+
+    __testJetstreamQueue.drainQueuedSlots(false);
+    await expect(queuedResult).resolves.toMatchObject({ acquired: false, dropped: false });
+    expect(__testJetstreamQueue.getCursorState().lastCursorUs).toBe('999');
+    __testJetstreamQueue.reset();
+  });
+
   it('resetDroppedCount clears the counter', () => {
     __testJetstreamQueue.reset();
 

@@ -73,7 +73,9 @@ describe('health response redaction', () => {
       pauseCount: 3,
       resumeCount: 3,
       overloadReconnectCount: 0,
+      flowControlFailureReconnectCount: 0,
       totalDroppedEvents: 0,
+      failedCursorPersistenceFloorUs: null,
       cursorUs: null,
       cursorLagMs: null,
     };

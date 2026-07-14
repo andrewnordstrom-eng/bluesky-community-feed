@@ -251,6 +251,52 @@ describe('jetstream lifecycle', () => {
     }
   });
 
+  it('does not let a delayed overload callback close a replacement socket', async () => {
+    vi.useFakeTimers();
+    try {
+      let resolveCursorSave: (() => void) | null = null;
+      dbQueryMock.mockImplementation((query: unknown) => {
+        if (String(query).includes('INSERT INTO jetstream_cursor')) {
+          return new Promise((resolve) => {
+            resolveCursorSave = () => resolve({ rows: [] });
+          });
+        }
+        return Promise.resolve({ rows: [] });
+      });
+
+      const {
+        __testJetstreamQueue,
+        startJetstream,
+        stopJetstream,
+        triggerJetstreamReconnect,
+      } = await import('../src/ingestion/jetstream.js');
+      await startJetstream();
+      const overloadedSocket = sockets[0];
+      overloadedSocket?.open();
+      __testJetstreamQueue.setCursorForTests('500');
+
+      __testJetstreamQueue.triggerQueueOverload();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(resolveCursorSave).not.toBeNull();
+
+      triggerJetstreamReconnect();
+      await vi.advanceTimersByTimeAsync(1000);
+      const replacementSocket = sockets[1];
+      replacementSocket?.open();
+
+      const finishCursorSave = resolveCursorSave as (() => void) | null;
+      finishCursorSave?.();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(wsCloseMock).not.toHaveBeenCalledWith(1013, 'event_queue_overflow');
+      expect(replacementSocket?.readyState).toBe(MockWebSocket.OPEN);
+      dbQueryMock.mockResolvedValue({ rows: [] });
+      await stopJetstream();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('waits for active work before saving the final shutdown cursor', async () => {
     dbQueryMock.mockResolvedValue({ rows: [] });
     let finishHandler: ((outcome: string) => void) | null = null;
@@ -283,6 +329,33 @@ describe('jetstream lifecycle', () => {
       String(query).includes('INSERT INTO jetstream_cursor')
     );
     expect(cursorWrite?.[1]).toEqual(['500']);
+  });
+
+  it('fails shutdown when the final cursor cannot be persisted', async () => {
+    dbQueryMock.mockImplementation((query: string) => {
+      if (query.includes('INSERT INTO jetstream_cursor')) {
+        return Promise.reject(new Error('cursor database unavailable'));
+      }
+      return Promise.resolve({ rows: [] });
+    });
+    processEventMock.mockResolvedValue('non-commit-ignored');
+
+    const { getJetstreamStartedAt, startJetstream, stopJetstream } =
+      await import('../src/ingestion/jetstream.js');
+    await startJetstream();
+    latestSocket?.open();
+    latestSocket?.emitMessage(Buffer.from(JSON.stringify({
+      did: 'did:plc:shutdown-write-failure',
+      time_us: 700,
+      kind: 'identity',
+    })));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    await expect(stopJetstream()).rejects.toMatchObject({
+      name: 'JetstreamCursorPersistenceError',
+      message: 'Failed to persist final Jetstream cursor 700',
+    });
+    expect(getJetstreamStartedAt()).toBeNull();
   });
 
   it('reset clears pending reconnects and restores the primary connection lifecycle', async () => {
@@ -381,6 +454,54 @@ describe('jetstream lifecycle', () => {
       totalDroppedEvents: 0,
     });
     expect(wsCloseMock).not.toHaveBeenCalledWith(1013, expect.anything());
+
+    await stopJetstream();
+  });
+
+  it('serializes create and delete events for the same record in arrival order', async () => {
+    dbQueryMock.mockResolvedValue({ rows: [] });
+    const observedOperations: string[] = [];
+    let completeCreate: (() => void) | null = null;
+    processEventMock.mockImplementation((event: { commit?: { operation?: string } }) => {
+      const operation = event.commit?.operation ?? 'unknown';
+      observedOperations.push(operation);
+      if (operation === 'create') {
+        return new Promise<string>((resolve) => {
+          completeCreate = () => resolve('post-inserted');
+        });
+      }
+      return Promise.resolve('delete-post-applied');
+    });
+
+    const { startJetstream, stopJetstream } = await import('../src/ingestion/jetstream.js');
+    await startJetstream();
+    latestSocket?.open();
+    const baseEvent = {
+      did: 'did:plc:ordered-record',
+      kind: 'commit',
+      commit: {
+        rev: 'revision',
+        collection: 'app.bsky.feed.post',
+        rkey: 'same-record',
+      },
+    };
+    latestSocket?.emitMessage(Buffer.from(JSON.stringify({
+      ...baseEvent,
+      time_us: 1000,
+      commit: { ...baseEvent.commit, operation: 'create', cid: 'cid-create', record: {} },
+    })));
+    latestSocket?.emitMessage(Buffer.from(JSON.stringify({
+      ...baseEvent,
+      time_us: 1001,
+      commit: { ...baseEvent.commit, operation: 'delete' },
+    })));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(observedOperations).toEqual(['create']);
+    const releaseCreate = completeCreate as (() => void) | null;
+    releaseCreate?.();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(observedOperations).toEqual(['create', 'delete']);
 
     await stopJetstream();
   });

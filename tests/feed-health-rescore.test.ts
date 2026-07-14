@@ -142,7 +142,9 @@ describe('admin manual rescore overlap guard', () => {
       pauseCount: 7,
       resumeCount: 6,
       overloadReconnectCount: 0,
+      flowControlFailureReconnectCount: 0,
       totalDroppedEvents: 0,
+      failedCursorPersistenceFloorUs: null,
       cursorUs: '1770590709000000',
       cursorLagMs: 3000,
     });
@@ -197,7 +199,9 @@ describe('admin manual rescore overlap guard', () => {
           pauseCount: 7,
           resumeCount: 6,
           overloadReconnectCount: 0,
+          flowControlFailureReconnectCount: 0,
           totalDroppedEvents: 0,
+          failedCursorPersistenceFloorUs: null,
         },
         subscribers: {
           total: 120,
@@ -236,7 +240,9 @@ describe('admin manual rescore overlap guard', () => {
       pauseCount: 0,
       resumeCount: 0,
       overloadReconnectCount: 0,
+      flowControlFailureReconnectCount: 0,
       totalDroppedEvents: 0,
+      failedCursorPersistenceFloorUs: null,
       cursorUs: null,
       cursorLagMs: null,
     });
@@ -273,7 +279,9 @@ describe('admin manual rescore overlap guard', () => {
           pauseCount: 0,
           resumeCount: 0,
           overloadReconnectCount: 0,
+          flowControlFailureReconnectCount: 0,
           totalDroppedEvents: 0,
+          failedCursorPersistenceFloorUs: null,
         },
       });
     } finally {

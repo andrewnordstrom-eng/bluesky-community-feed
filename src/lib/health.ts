@@ -34,7 +34,9 @@ export interface JetstreamHealth extends ComponentHealth {
   pause_count?: number;
   resume_count?: number;
   overload_reconnect_count?: number;
+  flow_control_failure_reconnect_count?: number;
   total_dropped_events?: number;
+  failed_cursor_persistence_floor_us?: string;
 }
 
 export interface ScoringHealth extends ComponentHealth {
@@ -112,7 +114,9 @@ export function calculateJetstreamHealth(
     pause_count: runtimeState.pauseCount,
     resume_count: runtimeState.resumeCount,
     overload_reconnect_count: runtimeState.overloadReconnectCount,
+    flow_control_failure_reconnect_count: runtimeState.flowControlFailureReconnectCount,
     total_dropped_events: runtimeState.totalDroppedEvents,
+    failed_cursor_persistence_floor_us: runtimeState.failedCursorPersistenceFloorUs ?? undefined,
     error,
   };
 }

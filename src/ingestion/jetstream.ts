@@ -83,26 +83,27 @@ const JetstreamEventSchema = z.discriminatedUnion('kind', [
 
 // Concurrency control — prevents ingestion from starving the DB pool
 let activeEventCount = 0;
-const eventQueue: Array<(acquired: boolean) => void> = [];
+type SlotAcquireResult = 'acquired' | 'queue-full' | 'cancelled';
+const eventQueue: Array<(result: SlotAcquireResult) => void> = [];
 const activeDrainWaiters: Array<() => void> = [];
 let queueOverflowReconnectInProgress = false;
 
 /** Acquire a slot before processing an event (blocks if at limit). */
-function acquireSlot(): Promise<boolean> {
+function acquireSlot(): Promise<SlotAcquireResult> {
   if (isShuttingDown) {
-    return Promise.resolve(false);
+    return Promise.resolve('cancelled');
   }
 
   if (activeEventCount < MAX_CONCURRENT_EVENTS) {
     activeEventCount++;
-    return Promise.resolve(true);
+    return Promise.resolve('acquired');
   }
 
   if (eventQueue.length >= MAX_PENDING_EVENTS) {
-    return Promise.resolve(false);
+    return Promise.resolve('queue-full');
   }
 
-  return new Promise<boolean>((resolve) => {
+  return new Promise<SlotAcquireResult>((resolve) => {
     eventQueue.push(resolve);
     applyCurrentInboundBackpressure();
   });
@@ -117,7 +118,7 @@ function releaseSlot(): void {
   const next = eventQueue.shift();
   if (next) {
     activeEventCount++;
-    next(true);
+    next('acquired');
   }
 
   if (activeEventCount === 0) {
@@ -138,10 +139,10 @@ function waitForActiveEventsToDrain(): Promise<void> {
   });
 }
 
-function drainQueuedSlots(acquired: boolean): void {
+function drainQueuedSlots(result: 'acquired' | 'cancelled'): void {
   while (eventQueue.length > 0) {
     const resolve = eventQueue.shift();
-    resolve?.(acquired);
+    resolve?.(result);
   }
 }
 
@@ -160,6 +161,7 @@ let inboundPaused = false;
 let inboundPauseCount = 0;
 let inboundResumeCount = 0;
 let overloadReconnectCount = 0;
+let flowControlFailureReconnectCount = 0;
 let eventCounter = 0;
 let lastCursorUs: bigint | undefined;
 let maxCompletedCursorUs: bigint | undefined;
@@ -172,6 +174,13 @@ const HANDLER_ERROR_OUTCOMES = new Set<IngestionEventOutcome>([
   'follow-handler-error',
   'delete-handler-error',
 ]);
+
+class JetstreamCursorPersistenceError extends Error {
+  constructor(cursorUs: bigint) {
+    super(`Failed to persist final Jetstream cursor ${cursorUs.toString()}`);
+    this.name = 'JetstreamCursorPersistenceError';
+  }
+}
 
 function isHandlerErrorOutcome(outcome: IngestionEventOutcome): boolean {
   return HANDLER_ERROR_OUTCOMES.has(outcome);
@@ -197,6 +206,7 @@ const failedCursorPins = new Map<string, FailedCursorPin>();
 let failedCursorPinMutationLock: Promise<void> = Promise.resolve();
 let lastFailedCursorPinWarningAtMs = 0;
 let failedCursorDeadLetterCount = 0;
+let failedCursorPersistenceFloor: { cursorUs: bigint; generation: number } | null = null;
 let reconnectAttempts = 0;
 let consecutiveFailures = 0;
 let useFallback = false;
@@ -205,6 +215,7 @@ let ingestionStartedAt: Date | null = null;
 let lastEventReceivedAt: Date | null = null;
 let lastDisconnectedAt: Date | null = null;
 const eventCountByMinute = new Map<number, number>();
+const recordProcessingTails = new Map<string, Promise<void>>();
 
 export interface JetstreamRuntimeState {
   activeEvents: number;
@@ -217,7 +228,9 @@ export interface JetstreamRuntimeState {
   pauseCount: number;
   resumeCount: number;
   overloadReconnectCount: number;
+  flowControlFailureReconnectCount: number;
   totalDroppedEvents: number;
+  failedCursorPersistenceFloorUs: string | null;
   cursorUs: string | null;
   cursorLagMs: number | null;
 }
@@ -259,7 +272,7 @@ function pauseInboundIfNeeded(socket: InboundFlowControlSocket, generation: numb
     );
   } catch (err) {
     logger.error({ err, queuedEvents: eventQueue.length }, 'Failed to pause Jetstream inbound delivery');
-    handleQueueOverload();
+    handleFlowControlFailure(socket, 'backpressure_pause_failed');
   }
 }
 
@@ -300,8 +313,7 @@ function resumeInboundIfReady(): void {
     );
   } catch (err) {
     logger.error({ err, queuedEvents: eventQueue.length }, 'Failed to resume Jetstream inbound delivery');
-    detachInboundFlowControl(socket);
-    socket.close(1011, 'backpressure_resume_failed');
+    handleFlowControlFailure(socket, 'backpressure_resume_failed');
   }
 }
 
@@ -413,6 +425,38 @@ function failedCursorPinKey(event: JetstreamEvent): string {
   ]);
 }
 
+function eventOrderingKey(event: JetstreamEvent): string | null {
+  if (event.kind !== 'commit' || event.commit === undefined) {
+    return null;
+  }
+  return `${event.did}/${event.commit.collection}/${event.commit.rkey}`;
+}
+
+async function processEventInArrivalOrder(event: JetstreamEvent): Promise<IngestionEventOutcome> {
+  const orderingKey = eventOrderingKey(event);
+  if (orderingKey === null) {
+    return processEvent(event);
+  }
+
+  const previousTail = recordProcessingTails.get(orderingKey) ?? Promise.resolve();
+  let releaseCurrent!: () => void;
+  const current = new Promise<void>((resolve) => {
+    releaseCurrent = resolve;
+  });
+  const currentTail = previousTail.then(() => current);
+  recordProcessingTails.set(orderingKey, currentTail);
+
+  await previousTail;
+  try {
+    return await processEvent(event);
+  } finally {
+    releaseCurrent();
+    if (recordProcessingTails.get(orderingKey) === currentTail) {
+      recordProcessingTails.delete(orderingKey);
+    }
+  }
+}
+
 async function withFailedCursorPinLock<T>(operation: () => Promise<T>): Promise<T> {
   const previousLock = failedCursorPinMutationLock;
   let releaseLock!: () => void;
@@ -435,9 +479,25 @@ function deleteFailedCursorPinIfCurrent(eventKey: string, expectedPin: FailedCur
 
 function resetFailedCursorPinState(): void {
   failedCursorPins.clear();
-  failedCursorPinMutationLock = Promise.resolve();
+  failedCursorPersistenceFloor = null;
   lastFailedCursorPinWarningAtMs = 0;
   failedCursorDeadLetterCount = 0;
+}
+
+function preserveFailedCursorSafetyFloor(failedCursorPin: FailedCursorPin): void {
+  if (failedCursorPin.generation !== connectionGeneration) {
+    return;
+  }
+  if (
+    failedCursorPersistenceFloor === null ||
+    failedCursorPersistenceFloor.generation !== failedCursorPin.generation ||
+    failedCursorPin.cursorUs < failedCursorPersistenceFloor.cursorUs
+  ) {
+    failedCursorPersistenceFloor = {
+      cursorUs: failedCursorPin.cursorUs,
+      generation: failedCursorPin.generation,
+    };
+  }
 }
 
 function beginConnectionGeneration(): number {
@@ -464,6 +524,17 @@ function incrementCursorCount(
     return;
   }
   cursorCounts.set(cursorUs, { generation, count: 1 });
+}
+
+function registerActiveCursor(cursorUs: bigint, generation: number): void {
+  incrementCursorCount(activeCursorUs, cursorUs, generation);
+  if (
+    generation === connectionGeneration &&
+    lastCursorUs !== undefined &&
+    cursorUs <= lastCursorUs
+  ) {
+    lastCursorUs = cursorUs > 1n ? cursorUs - 1n : undefined;
+  }
 }
 
 function decrementCursorCount(
@@ -562,7 +633,12 @@ async function evictOldestFailedCursorPinUnlocked(nowMs: number): Promise<void> 
   const recorded = await recordFailedCursorDeadLetter(oldestEventKey, oldestPin, 'pin_limit', nowMs, {
     maxFailedCursorPins: FAILED_CURSOR_PIN_MAX_COUNT,
   });
-  deleteFailedCursorPinIfCurrent(oldestEventKey, oldestPin);
+  if (recorded) {
+    deleteFailedCursorPinIfCurrent(oldestEventKey, oldestPin);
+  } else {
+    preserveFailedCursorSafetyFloor(oldestPin);
+    deleteFailedCursorPinIfCurrent(oldestEventKey, oldestPin);
+  }
   logger.warn(
     {
       cursorUs: oldestPin.cursorUs.toString(),
@@ -571,7 +647,7 @@ async function evictOldestFailedCursorPinUnlocked(nowMs: number): Promise<void> 
       oldestFailedCursorPinAgeMs: oldestFailedCursorPinAgeMs(nowMs),
       durableRecordWritten: recorded,
     },
-    'Dead-lettered oldest Jetstream failed cursor pin after pin limit'
+    'Attempted to dead-letter oldest Jetstream failed cursor pin after pin limit'
   );
 }
 
@@ -593,10 +669,13 @@ async function pruneExpiredFailedCursorPins(nowMs: number): Promise<void> {
       });
       if (recorded) {
         durableRecordsWritten += 1;
+        deleteFailedCursorPinIfCurrent(eventKey, failedCursorPin);
+      } else {
+        preserveFailedCursorSafetyFloor(failedCursorPin);
+        deleteFailedCursorPinIfCurrent(eventKey, failedCursorPin);
       }
       expiredCount += 1;
       oldestExpiredCursorUs ??= failedCursorPin.cursorUs.toString();
-      deleteFailedCursorPinIfCurrent(eventKey, failedCursorPin);
     }
     if (expiredCount === 0) {
       return;
@@ -617,6 +696,9 @@ async function pruneExpiredFailedCursorPins(nowMs: number): Promise<void> {
 
 async function addFailedCursorPin(eventKey: string, cursorUs: bigint, generation: number): Promise<void> {
   await withFailedCursorPinLock(async () => {
+    if (generation !== connectionGeneration) {
+      return;
+    }
     const nowMs = Date.now();
     const existing = failedCursorPins.get(eventKey);
     if (existing && existing.generation === generation) {
@@ -678,6 +760,9 @@ async function addFailedCursorPin(eventKey: string, cursorUs: bigint, generation
 
 async function removeFailedCursorPin(eventKey: string, generation: number): Promise<void> {
   await withFailedCursorPinLock(async () => {
+    if (generation !== connectionGeneration) {
+      return;
+    }
     const existing = failedCursorPins.get(eventKey);
     if (!existing || existing.generation !== generation) {
       return;
@@ -689,6 +774,12 @@ async function removeFailedCursorPin(eventKey: string, generation: number): Prom
 async function minimumUnsafeCursorUs(): Promise<bigint | undefined> {
   await pruneExpiredFailedCursorPins(Date.now());
   let minimum: bigint | undefined;
+  if (
+    failedCursorPersistenceFloor !== null &&
+    failedCursorPersistenceFloor.generation === connectionGeneration
+  ) {
+    minimum = failedCursorPersistenceFloor.cursorUs;
+  }
   for (const [cursorUs, cursorCount] of activeCursorUs.entries()) {
     if (cursorCount.generation !== connectionGeneration || cursorCount.count < 1) {
       continue;
@@ -727,18 +818,36 @@ async function processJetstreamMessageData(
   messageGeneration: number | null
 ): Promise<JetstreamMessageProcessResult> {
   const effectiveGeneration = messageGeneration ?? connectionGeneration;
-  const acquired = await acquireSlot();
-  if (!acquired) {
-    if (isShuttingDown) {
+  let parsedEvent: JetstreamEvent | null = null;
+  let parseError: unknown = null;
+  let parsed = false;
+  let eventCursorUs: bigint | null = null;
+  try {
+    parsedEvent = parseJetstreamEvent(data);
+    parsed = true;
+    eventCursorUs = BigInt(parsedEvent.time_us);
+    registerActiveCursor(eventCursorUs, effectiveGeneration);
+  } catch (err) {
+    parseError = err;
+  }
+
+  const slotResult = await acquireSlot();
+  if (slotResult !== 'acquired') {
+    if (slotResult === 'cancelled') {
+      if (eventCursorUs !== null) {
+        decrementCursorCount(activeCursorUs, eventCursorUs, effectiveGeneration);
+      }
       return {
         acquired: false,
         dropped: false,
-        parsed: false,
+        parsed,
         processed: false,
         ingestionOutcome: null,
         cursorUs: null,
         cursorSaved: false,
-        errorMessage: 'jetstream shutting down',
+        errorMessage: isShuttingDown
+          ? 'jetstream shutting down'
+          : 'jetstream message cancelled for reconnect',
         eventCounter,
         queueState: { active: activeEventCount, queued: eventQueue.length },
       };
@@ -746,10 +855,13 @@ async function processJetstreamMessageData(
     droppedEventCount++;
     totalDroppedEventCount++;
     onQueueOverflow();
+    if (eventCursorUs !== null) {
+      decrementCursorCount(activeCursorUs, eventCursorUs, effectiveGeneration);
+    }
     return {
       acquired: false,
       dropped: true,
-      parsed: false,
+      parsed,
       processed: false,
       ingestionOutcome: null,
       cursorUs: null,
@@ -761,11 +873,14 @@ async function processJetstreamMessageData(
   }
 
   if (messageGeneration !== null && effectiveGeneration !== connectionGeneration) {
+    if (eventCursorUs !== null) {
+      decrementCursorCount(activeCursorUs, eventCursorUs, effectiveGeneration);
+    }
     releaseSlot();
     return {
       acquired: true,
       dropped: false,
-      parsed: false,
+      parsed,
       processed: false,
       ingestionOutcome: null,
       cursorUs: null,
@@ -778,33 +893,28 @@ async function processJetstreamMessageData(
 
   let cursorUs: string | null = null;
   let cursorSaved = false;
-  let parsed = false;
   let ingestionOutcome: IngestionEventOutcome | null = null;
-  let eventCursorUs: bigint | null = null;
-  let eventForFailedCursorPin: JetstreamEvent | null = null;
   let eventFailedCursorPinKey: string | null = null;
 
   function resolveEventFailedCursorPinKey(): string | null {
-    if (eventForFailedCursorPin === null) {
+    if (parsedEvent === null) {
       return null;
     }
-    eventFailedCursorPinKey ??= failedCursorPinKey(eventForFailedCursorPin);
+    eventFailedCursorPinKey ??= failedCursorPinKey(parsedEvent);
     return eventFailedCursorPinKey;
   }
 
   try {
-    const event = parseJetstreamEvent(data);
-    parsed = true;
-    if (event.time_us) {
-      eventCursorUs = BigInt(event.time_us);
-      eventForFailedCursorPin = event;
-      incrementCursorCount(activeCursorUs, eventCursorUs, effectiveGeneration);
+    if (parseError !== null) {
+      throw parseError;
+    }
+    if (parsedEvent === null) {
+      throw new TypeError('Jetstream event parser returned no event');
     }
     try {
-      ingestionOutcome = await processEvent(event);
+      ingestionOutcome = await processEventInArrivalOrder(parsedEvent);
       if (
         eventCursorUs !== null &&
-        eventForFailedCursorPin !== null &&
         effectiveGeneration === connectionGeneration
       ) {
         if (isHandlerErrorOutcome(ingestionOutcome)) {
@@ -958,7 +1068,7 @@ export async function stopJetstream(): Promise<void> {
   if (socket) {
     socket.close();
   }
-  drainQueuedSlots(false);
+  drainQueuedSlots('cancelled');
 
   // Stop metrics reporting
   if (metricsIntervalId) {
@@ -970,13 +1080,18 @@ export async function stopJetstream(): Promise<void> {
   // after they finish so shutdown cannot leave acknowledged work behind.
   await waitForActiveEventsToDrain();
 
-  // Save final cursor
-  if (lastCursorUs) {
-    await saveCursor(lastCursorUs);
-    logger.info({ cursor: lastCursorUs.toString() }, 'Final cursor saved');
+  try {
+    // Save final cursor
+    if (lastCursorUs) {
+      const saved = await saveCursor(lastCursorUs);
+      if (!saved) {
+        throw new JetstreamCursorPersistenceError(lastCursorUs);
+      }
+      logger.info({ cursor: lastCursorUs.toString() }, 'Final cursor saved');
+    }
+  } finally {
+    ingestionStartedAt = null;
   }
-
-  ingestionStartedAt = null;
 }
 
 /**
@@ -1037,7 +1152,7 @@ function connect(cursor?: bigint): void {
     }
     const processingPromise = processJetstreamMessageData(data, () => {
       if (!isShuttingDown && ws === socket && socket.readyState === WebSocket.OPEN) {
-        handleQueueOverload();
+        handleQueueOverload(socket, sessionGeneration);
       }
     }, sessionGeneration);
     void processingPromise.catch((err: unknown) => {
@@ -1064,7 +1179,7 @@ function connect(cursor?: bigint): void {
     if (sessionGeneration === connectionGeneration) {
       invalidateConnectionGeneration();
     }
-    drainQueuedSlots(false);
+    drainQueuedSlots('cancelled');
     logger.warn({ code, reason: reason.toString() }, 'Jetstream connection closed');
     if (!isShuttingDown) {
       consecutiveFailures++;
@@ -1078,7 +1193,7 @@ function connect(cursor?: bigint): void {
   });
 }
 
-function handleQueueOverload(): void {
+function handleQueueOverload(overloadedSocket: WebSocket, overloadedGeneration: number): void {
   if (queueOverflowReconnectInProgress || isShuttingDown) {
     return;
   }
@@ -1097,16 +1212,64 @@ function handleQueueOverload(): void {
   );
 
   // Drop queued-but-not-started handlers; active handlers continue and release naturally.
-  drainQueuedSlots(false);
+  drainQueuedSlots('cancelled');
 
   void (async () => {
     if (lastCursorUs) {
-      await saveCursor(lastCursorUs);
-      logger.warn({ cursor: lastCursorUs.toString() }, 'Saved cursor before overload reconnect');
+      const saved = await saveCursor(lastCursorUs);
+      if (saved) {
+        logger.warn({ cursor: lastCursorUs.toString() }, 'Saved cursor before overload reconnect');
+      } else {
+        logger.error(
+          { cursor: lastCursorUs.toString() },
+          'Failed to save cursor before overload reconnect; durable cursor replay is required'
+        );
+      }
     }
 
-    if (ws) {
-      ws.close(1013, 'event_queue_overflow');
+    if (
+      ws === overloadedSocket &&
+      connectionGeneration === overloadedGeneration &&
+      (overloadedSocket.readyState === WebSocket.OPEN || overloadedSocket.readyState === WebSocket.CONNECTING)
+    ) {
+      overloadedSocket.close(1013, 'event_queue_overflow');
+    }
+  })();
+}
+
+function handleFlowControlFailure(
+  socket: InboundFlowControlSocket,
+  closeReason: 'backpressure_pause_failed' | 'backpressure_resume_failed'
+): void {
+  if (queueOverflowReconnectInProgress || isShuttingDown) {
+    return;
+  }
+  queueOverflowReconnectInProgress = true;
+  flowControlFailureReconnectCount += 1;
+  logger.error(
+    {
+      closeReason,
+      queuedEvents: eventQueue.length,
+      activeEventCount,
+      maxConcurrentEvents: MAX_CONCURRENT_EVENTS,
+    },
+    'Jetstream flow-control operation failed; forcing reconnect for recovery'
+  );
+  drainQueuedSlots('cancelled');
+
+  void (async () => {
+    if (lastCursorUs) {
+      const saved = await saveCursor(lastCursorUs);
+      if (!saved) {
+        logger.error(
+          { cursor: lastCursorUs.toString(), closeReason },
+          'Failed to save cursor before flow-control recovery reconnect'
+        );
+      }
+    }
+    detachInboundFlowControl(socket);
+    if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+      socket.close(1011, closeReason);
     }
   })();
 }
@@ -1256,7 +1419,12 @@ export function getJetstreamRuntimeState(): JetstreamRuntimeState {
     pauseCount: inboundPauseCount,
     resumeCount: inboundResumeCount,
     overloadReconnectCount,
+    flowControlFailureReconnectCount,
     totalDroppedEvents: totalDroppedEventCount,
+    failedCursorPersistenceFloorUs:
+      failedCursorPersistenceFloor?.generation === connectionGeneration
+        ? failedCursorPersistenceFloor.cursorUs.toString()
+        : null,
     cursorUs: lastCursorUs === undefined ? null : lastCursorUs.toString(),
     cursorLagMs: calculateCursorLagMs(lastCursorUs, Date.now()),
   };
@@ -1292,7 +1460,7 @@ export function triggerJetstreamReconnect(): void {
   consecutiveFailures = 0;
   queueOverflowReconnectInProgress = false;
   clearReconnectTimer();
-  drainQueuedSlots(false);
+  drainQueuedSlots('cancelled');
 
   if (ws) {
     ws.close(1012, 'admin reconnect');
@@ -1317,8 +1485,9 @@ export function clearJetstreamFailedCursorPins(reason: string): number {
     throw new RangeError('reason must be a non-empty string when clearing Jetstream failed cursor pins');
   }
 
-  const clearedCount = failedCursorPins.size;
+  const clearedCount = failedCursorPins.size + (failedCursorPersistenceFloor === null ? 0 : 1);
   failedCursorPins.clear();
+  failedCursorPersistenceFloor = null;
   logger.warn({ clearedCount, reason }, 'Cleared Jetstream failed cursor pins by operator request');
   return clearedCount;
 }
@@ -1336,9 +1505,13 @@ export const __testJetstreamQueue = {
   failedCursorPinRetryLimit: FAILED_CURSOR_PIN_RETRY_LIMIT,
   failedCursorPinMaxCount: FAILED_CURSOR_PIN_MAX_COUNT,
   failedCursorPinMaxAgeMs: FAILED_CURSOR_PIN_MAX_AGE_MS,
-  acquireSlot,
+  async acquireSlot(): Promise<boolean> {
+    return (await acquireSlot()) === 'acquired';
+  },
   releaseSlot,
-  drainQueuedSlots,
+  drainQueuedSlots(acquired: boolean): void {
+    drainQueuedSlots(acquired ? 'acquired' : 'cancelled');
+  },
   reset(): void {
     isShuttingDown = true;
     queueOverflowReconnectInProgress = false;
@@ -1353,7 +1526,7 @@ export const __testJetstreamQueue = {
     if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
       socket.close(1000, 'test reset');
     }
-    drainQueuedSlots(false);
+    drainQueuedSlots('cancelled');
     activeEventCount = 0;
     while (activeDrainWaiters.length > 0) {
       activeDrainWaiters.shift()?.();
@@ -1364,6 +1537,8 @@ export const __testJetstreamQueue = {
     inboundPauseCount = 0;
     inboundResumeCount = 0;
     overloadReconnectCount = 0;
+    flowControlFailureReconnectCount = 0;
+    recordProcessingTails.clear();
     detachInboundFlowControl(null);
     eventCounter = 0;
     lastCursorUs = undefined;
@@ -1409,6 +1584,15 @@ export const __testJetstreamQueue = {
   },
   getFailedCursorDeadLetterCount(): number {
     return failedCursorDeadLetterCount;
+  },
+  getFailedCursorPersistenceFloor(): string | null {
+    return failedCursorPersistenceFloor?.cursorUs.toString() ?? null;
+  },
+  triggerQueueOverload(): void {
+    if (ws === null) {
+      throw new Error('Cannot trigger test queue overload without an active Jetstream socket');
+    }
+    handleQueueOverload(ws, connectionGeneration);
   },
   processMessage(data: Buffer): Promise<JetstreamMessageProcessResult> {
     return processJetstreamMessageData(data, () => undefined, null);

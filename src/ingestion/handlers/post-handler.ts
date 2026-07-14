@@ -207,7 +207,7 @@ export async function handlePost(
     );
 
     // If this is a reply, increment reply count on the root post
-    if (replyRoot) {
+    if (replyRoot && postResult.rowCount) {
       await db.query(
         `UPDATE post_engagement SET reply_count = reply_count + 1, updated_at = NOW()
          WHERE post_uri = $1`,

@@ -1622,7 +1622,7 @@ No commit, merge, or deployment has occurred. Production deployment and complete
 ## 2026-07-13 #06 - PROJ-1851 Jetstream ingestion backpressure
 
 **Branch:** `dev/PROJ-1851-jetstream-backpressure`
-**Commits:** pending review closeout.
+**Commits:** `8bd9aa842db37eb053989da768bfad71e151c2d2`, `7cf05e021ed659cf268ecf9cfdff852880365a78`; final adversarial hardening is included here pending review closeout.
 
 ### Incident evidence
 
@@ -1638,15 +1638,24 @@ Reconnects reset in-memory cursor bookkeeping to the durable resume cursor, so a
 
 Jetstream health now requires both recent event handling and a cursor less than five minutes behind. A stale cursor degrades operator/public health while `/health/ready` remains dependent only on PostgreSQL and Redis, allowing a healthy process to catch up without a restart loop.
 
+Two independent adversarial reviews then found correctness hazards that the first pass did not cover. Queued cursors are now registered before they wait for a processing slot, so a later event cannot advance the safe cursor past same-timestamp queued work. Commit events for the same DID/collection/rkey are serialized in arrival order, and replayed duplicate replies no longer increment a root post's reply count when the post insert is a no-op.
+
+Reconnect cancellation is now distinct from a hard-limit drop, and pause/resume failures have their own reconnect counter. Delayed overload recovery is bound to the socket and connection generation that overflowed, so it cannot close a replacement socket. Graceful shutdown raises a typed error when the final cursor cannot be persisted while still clearing its stopped lifecycle state. Failed dead-letter persistence retains a bounded, fail-closed cursor floor; stale generations cannot overwrite it, operators can see it in health surfaces, and only an explicit operator clear or a new connection generation releases it.
+
 ### Verification
 
 - Focused backpressure, lifecycle, message-processing, metrics, and health suite: 6 files / 63 tests passed.
-- Full backend suite: 153 files / 1,708 tests passed.
+- Full backend suite: 153 files / 1,716 tests passed on the final exact worktree.
 - `npm run build`, `npm run verify`, `npm run docs:verify`, `web-next` lint, and `web-next` strict TypeScript passed. The canonical `web-next` package has no test script; its production build passed through `npm run verify`.
 - Socket-level coverage proves high-water pause, buffered-frame headroom, low-water resume, pause/resume exception recovery, sustained asynchronous drainage, zero overflow reconnects/drops on the bounded path, closed/no-socket handling, hard-limit drop telemetry, startup null-cursor serialization, five-minute health boundaries, durable-cursor reset after reconnect, safe in-memory cursor fallback when a reconnect-time database read fails, stale-socket close and message isolation after a replacement connection is active, final-cursor persistence after active shutdown work drains, complete test lifecycle reset, and cancellation of obsolete reconnect timers before an operator-triggered replacement.
 - The first local CodeRabbit review reported one major health-message gap and five maintainability/test gaps. A second current-diff review found one duplicated freshness threshold plus three test/documentation gaps. All ten findings were addressed before commit. A third local convergence request and a final exact-diff retry both stalled without results and were terminated after bounded waits; hosted exact-head review remains required before closeout.
 - Hosted review of commit `8bd9aa842db37eb053989da768bfad71e151c2d2` reported nine inline threads plus two outside-diff lifecycle findings. All valid findings were addressed in the follow-up diff. A local review of that follow-up remained in summarization for five minutes without emitting a finding and was terminated; a new hosted current-head review remains mandatory after push.
+- Post-adversarial focused verification passed: 7 files / 78 tests covering backpressure, lifecycle, cursor safety, dead-letter failure, same-record ordering, duplicate replies, health telemetry, and replacement-socket isolation. Root TypeScript build also passed.
+- A production-shaped local burst used the real `startJetstream()` WebSocket path, PostgreSQL 16, Redis 7, the full migration set, and 5,000 valid cursor-bearing events. It completed in 989.38 ms (5,053.69 events/second), exercised 26 high-water pauses and 26 low-water resumes, held 20 active handlers with a maximum pending depth of 275, and recorded zero hard-limit drops, overload reconnects, flow-control-failure reconnects, or fail-closed cursor floors. The expected, runtime, and persisted cursors all matched at `1800000000027714`; Redis returned `PONG`; and cleanup exited cleanly.
+- The earlier sequential replay receipt remains complementary rather than a substitute for the socket burst: 5,000 events at 802.44 events/second, p95 handler latency 3.08 ms, p99 4.34 ms, zero drops, zero handler/state/outcome mismatches, and 2,369 durable mutations.
 
 ### Release boundary
 
 This entry records local implementation and deterministic verification only. Production success requires the exact merged SHA to show no new hard-limit reconnects or dropped events, increasing pause/resume counters, a declining cursor lag, unchanged public-feed availability, and healthy readiness while catch-up proceeds. No cursor jump or backlog drop is authorized.
+
+Cursor-staleness health is now observable, but no tracked alert consumer yet pages on stalled cursor progression. That operational alert is intentionally split from this ingestion-correctness PR so liveness/readiness restart semantics are not changed in the incident fix.

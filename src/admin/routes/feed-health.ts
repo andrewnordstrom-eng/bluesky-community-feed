@@ -122,7 +122,9 @@ export function registerFeedHealthRoutes(app: FastifyInstance): void {
         pauseCount: jetstreamRuntime.pauseCount,
         resumeCount: jetstreamRuntime.resumeCount,
         overloadReconnectCount: jetstreamRuntime.overloadReconnectCount,
+        flowControlFailureReconnectCount: jetstreamRuntime.flowControlFailureReconnectCount,
         totalDroppedEvents: jetstreamRuntime.totalDroppedEvents,
+        failedCursorPersistenceFloorUs: jetstreamRuntime.failedCursorPersistenceFloorUs,
       },
       subscribers: {
         total: parseInt(subStats.rows[0].total, 10),

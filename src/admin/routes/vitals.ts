@@ -191,7 +191,9 @@ export function registerVitalsRoutes(app: FastifyInstance): void {
         pause_count: jetstreamRuntime.pauseCount,
         resume_count: jetstreamRuntime.resumeCount,
         overload_reconnect_count: jetstreamRuntime.overloadReconnectCount,
+        flow_control_failure_reconnect_count: jetstreamRuntime.flowControlFailureReconnectCount,
         total_dropped_events: jetstreamRuntime.totalDroppedEvents,
+        failed_cursor_persistence_floor_us: jetstreamRuntime.failedCursorPersistenceFloorUs,
       },
 
       scoring: scoringRun

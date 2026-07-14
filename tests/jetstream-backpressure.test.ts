@@ -160,7 +160,7 @@ describe('jetstream backpressure queue', () => {
     __testJetstreamQueue.reset();
   });
 
-  it('forces overload recovery when pausing inbound delivery throws', async () => {
+  it('records flow-control recovery separately when pausing inbound delivery throws', async () => {
     __testJetstreamQueue.reset();
 
     const pause = vi.fn(() => {
@@ -188,7 +188,9 @@ describe('jetstream backpressure queue', () => {
       inboundPaused: false,
       pendingEvents: 0,
       pauseCount: 0,
-      overloadReconnectCount: 1,
+      overloadReconnectCount: 0,
+      flowControlFailureReconnectCount: 1,
+      totalDroppedEvents: 0,
     });
 
     __testJetstreamQueue.reset();
@@ -228,6 +230,9 @@ describe('jetstream backpressure queue', () => {
     expect(__testJetstreamQueue.getRuntimeState()).toMatchObject({
       inboundPaused: false,
       resumeCount: 0,
+      overloadReconnectCount: 0,
+      flowControlFailureReconnectCount: 1,
+      totalDroppedEvents: 0,
     });
 
     __testJetstreamQueue.drainQueuedSlots(false);
