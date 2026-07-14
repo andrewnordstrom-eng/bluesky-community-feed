@@ -622,14 +622,15 @@
         "tags": [
           "Auth"
         ],
-        "description": "Returns the authenticated user's session info. Requires a valid session cookie or bearer token.",
+        "description": "Returns the current browser session state. Anonymous callers receive authenticated=false.",
         "security": [
           {
             "cookieAuth": []
           },
           {
             "bearerAuth": []
-          }
+          },
+          {}
         ],
         "responses": {
           "200": {
@@ -637,61 +638,57 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "authenticated": {
-                      "type": "boolean",
-                      "example": true
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "authenticated": {
+                          "type": "boolean",
+                          "example": false,
+                          "enum": [
+                            false
+                          ]
+                        }
+                      },
+                      "required": [
+                        "authenticated"
+                      ],
+                      "additionalProperties": false
                     },
-                    "did": {
-                      "type": "string",
-                      "description": "Authenticated user DID",
-                      "example": "did:plc:abc123"
-                    },
-                    "handle": {
-                      "type": "string",
-                      "description": "Bluesky handle",
-                      "example": "alice.bsky.social"
-                    },
-                    "expiresAt": {
-                      "type": "string",
-                      "format": "date-time",
-                      "description": "Session expiration timestamp"
+                    {
+                      "type": "object",
+                      "properties": {
+                        "authenticated": {
+                          "type": "boolean",
+                          "example": true,
+                          "enum": [
+                            true
+                          ]
+                        },
+                        "did": {
+                          "type": "string",
+                          "description": "Authenticated user DID",
+                          "example": "did:plc:abc123"
+                        },
+                        "handle": {
+                          "type": "string",
+                          "description": "Bluesky handle",
+                          "example": "alice.bsky.social"
+                        },
+                        "expiresAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "description": "Session expiration timestamp"
+                        }
+                      },
+                      "required": [
+                        "authenticated",
+                        "did",
+                        "handle",
+                        "expiresAt"
+                      ],
+                      "additionalProperties": false
                     }
-                  },
-                  "required": [
-                    "authenticated",
-                    "did",
-                    "handle",
-                    "expiresAt"
-                  ]
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Default Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string",
-                      "description": "Error code (e.g. \"ValidationError\", \"NotFound\")"
-                    },
-                    "message": {
-                      "type": "string",
-                      "description": "Human-readable error message"
-                    },
-                    "correlationId": {
-                      "type": "string",
-                      "description": "Request correlation ID for debugging"
-                    }
-                  },
-                  "required": [
-                    "error",
-                    "message"
                   ]
                 }
               }

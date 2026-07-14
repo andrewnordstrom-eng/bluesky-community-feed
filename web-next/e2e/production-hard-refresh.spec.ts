@@ -33,7 +33,6 @@ function collectBrowserErrors(page: Page): BrowserErrors {
   page.on("console", (message) => {
     if (message.type() === "error") {
       const location = message.location()
-      if (isExpectedLoggedOutSessionError(message.text(), location.url)) return
       const source = location.url === "" ? "unknown source" : `${location.url}:${location.lineNumber}`
       errors.console.push(`${message.text()} (${source})`)
     }
@@ -43,15 +42,6 @@ function collectBrowserErrors(page: Page): BrowserErrors {
   })
 
   return errors
-}
-
-function isExpectedLoggedOutSessionError(message: string, sourceUrl: string): boolean {
-  if (!message.includes("401 (Unauthorized)")) return false
-  try {
-    return new URL(sourceUrl).pathname === "/api/governance/auth/session"
-  } catch {
-    return false
-  }
 }
 
 async function isRouteVisible(page: Page, route: PublicRoute): Promise<boolean> {

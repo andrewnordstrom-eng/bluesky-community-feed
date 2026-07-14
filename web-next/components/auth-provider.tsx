@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, type ReactNode } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { authApi, type SessionResponse } from "@/lib/api/client"
+import { authApi, type AuthenticatedSessionResponse } from "@/lib/api/client"
 import { AuthRequestCoordinator } from "@/lib/auth-request"
 
 /** Query key for the current session — invalidated after login/logout. */
@@ -10,7 +10,7 @@ export const SESSION_QUERY_KEY = ["auth", "session"] as const
 
 interface AuthContextValue {
   /** The live session, or null when unauthenticated / still resolving. */
-  session: SessionResponse | null
+  session: AuthenticatedSessionResponse | null
   /** True only when the backend confirms an authenticated session. */
   isAuthenticated: boolean
   /** True while the very first session probe is in flight. */
@@ -31,9 +31,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => () => loginRequests.current.cancel(), [])
 
-  // Auth state is derived ONLY from the session endpoint. When the user is not
-  // signed in, getSession() rejects (401) and `data` stays undefined — so we
-  // never retry that expected "not authenticated" answer.
+  // Auth state is derived ONLY from the session endpoint. Anonymous callers
+  // receive an explicit authenticated=false response without a failed request.
   const sessionQuery = useQuery({
     queryKey: SESSION_QUERY_KEY,
     queryFn: authApi.getSession,
@@ -70,8 +69,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryClient.clear()
   }, [queryClient])
 
-  const session = sessionQuery.data ?? null
-  const isAuthenticated = sessionQuery.data?.authenticated === true
+  const sessionResponse = sessionQuery.data
+  const session: AuthenticatedSessionResponse | null =
+    sessionResponse?.authenticated === true ? sessionResponse : null
+  const isAuthenticated = session !== null
 
   const value = useMemo<AuthContextValue>(
     () => ({

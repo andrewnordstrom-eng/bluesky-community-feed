@@ -198,20 +198,32 @@ export function registerAuthRoute(app: FastifyInstance): void {
     schema: {
       tags: ['Auth'],
       summary: 'Get current session',
-      description: 'Returns the authenticated user\'s session info. Requires a valid session cookie or bearer token.',
-      security: governanceSecurity,
+      description: 'Returns the current browser session state. Anonymous callers receive authenticated=false.',
+      security: [...governanceSecurity, {}],
       response: {
         200: {
-          type: 'object',
-          properties: {
-            authenticated: { type: 'boolean', example: true },
-            did: { type: 'string', description: 'Authenticated user DID', example: 'did:plc:abc123' },
-            handle: { type: 'string', description: 'Bluesky handle', example: 'alice.bsky.social' },
-            expiresAt: { type: 'string', format: 'date-time', description: 'Session expiration timestamp' },
-          },
-          required: ['authenticated', 'did', 'handle', 'expiresAt'],
+          oneOf: [
+            {
+              type: 'object',
+              properties: {
+                authenticated: { type: 'boolean', const: false, example: false },
+              },
+              required: ['authenticated'],
+              additionalProperties: false,
+            },
+            {
+              type: 'object',
+              properties: {
+                authenticated: { type: 'boolean', const: true, example: true },
+                did: { type: 'string', description: 'Authenticated user DID', example: 'did:plc:abc123' },
+                handle: { type: 'string', description: 'Bluesky handle', example: 'alice.bsky.social' },
+                expiresAt: { type: 'string', format: 'date-time', description: 'Session expiration timestamp' },
+              },
+              required: ['authenticated', 'did', 'handle', 'expiresAt'],
+              additionalProperties: false,
+            },
+          ],
         },
-        401: ErrorResponseSchema,
         503: ErrorResponseSchema,
       },
     },
@@ -230,10 +242,7 @@ export function registerAuthRoute(app: FastifyInstance): void {
     }
 
     if (!session) {
-      return reply.code(401).send({
-        error: 'NotAuthenticated',
-        message: 'No valid session found',
-      });
+      return reply.send({ authenticated: false });
     }
 
     return reply.send({

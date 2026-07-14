@@ -1,9 +1,22 @@
 import axios from 'axios';
 import type { GovernanceWeights } from './types';
 import {
+  parseSessionResponse,
+  type AnonymousSessionResponse,
+  type AuthenticatedSessionResponse,
+  type SessionResponse,
+} from './session-contract';
+import {
   waitlistJoinResponseSchema,
   type WaitlistJoinResponse,
 } from './waitlist-contract';
+
+export {
+  parseSessionResponse,
+  type AnonymousSessionResponse,
+  type AuthenticatedSessionResponse,
+  type SessionResponse,
+};
 
 // API base URL — same-origin relative by default (the Fastify backend serves
 // this build), overridable via NEXT_PUBLIC_API_URL for local dev against a
@@ -28,13 +41,6 @@ export interface LoginResponse {
   expiresAt: string;
 }
 
-export interface SessionResponse {
-  authenticated: boolean;
-  did: string;
-  handle: string;
-  expiresAt: string;
-}
-
 // Auth API
 export const authApi = {
   login: async (handle: string, appPassword: string, signal: AbortSignal): Promise<LoginResponse> => {
@@ -48,8 +54,8 @@ export const authApi = {
   },
 
   getSession: async (): Promise<SessionResponse> => {
-    const response = await api.get<SessionResponse>('/api/governance/auth/session');
-    return response.data;
+    const response = await api.get<unknown>('/api/governance/auth/session');
+    return parseSessionResponse(response.data);
   },
 
   logout: async (): Promise<void> => {
