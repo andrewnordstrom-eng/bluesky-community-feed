@@ -1,10 +1,22 @@
 import axios from 'axios';
-import { z } from 'zod';
 import type { GovernanceWeights } from './types';
+import {
+  parseSessionResponse,
+  type AnonymousSessionResponse,
+  type AuthenticatedSessionResponse,
+  type SessionResponse,
+} from './session-contract';
 import {
   waitlistJoinResponseSchema,
   type WaitlistJoinResponse,
 } from './waitlist-contract';
+
+export {
+  parseSessionResponse,
+  type AnonymousSessionResponse,
+  type AuthenticatedSessionResponse,
+  type SessionResponse,
+};
 
 // API base URL — same-origin relative by default (the Fastify backend serves
 // this build), overridable via NEXT_PUBLIC_API_URL for local dev against a
@@ -27,30 +39,6 @@ export interface LoginResponse {
   did: string;
   handle: string;
   expiresAt: string;
-}
-
-export const authenticatedSessionResponseSchema = z.object({
-  authenticated: z.literal(true),
-  did: z.string().min(1),
-  handle: z.string().min(1),
-  expiresAt: z.string().datetime({ offset: true }),
-}).strict();
-
-export const anonymousSessionResponseSchema = z.object({
-  authenticated: z.literal(false),
-}).strict();
-
-export const sessionResponseSchema = z.discriminatedUnion('authenticated', [
-  authenticatedSessionResponseSchema,
-  anonymousSessionResponseSchema,
-]);
-
-export type AuthenticatedSessionResponse = z.infer<typeof authenticatedSessionResponseSchema>;
-export type AnonymousSessionResponse = z.infer<typeof anonymousSessionResponseSchema>;
-export type SessionResponse = z.infer<typeof sessionResponseSchema>;
-
-export function parseSessionResponse(value: unknown): SessionResponse {
-  return sessionResponseSchema.parse(value);
 }
 
 // Auth API

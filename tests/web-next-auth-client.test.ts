@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseSessionResponse } from '../web-next/lib/api/client';
+import { parseSessionResponse } from '../web-next/lib/api/session-contract';
 
 describe('web-next auth session response contract', () => {
   it('accepts the anonymous session response', () => {
