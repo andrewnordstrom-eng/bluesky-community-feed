@@ -178,34 +178,41 @@ describe('admin manual rescore overlap guard', () => {
 
     const app = Fastify();
     registerFeedHealthRoutes(app);
+    try {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/feed-health',
+      });
 
-    const response = await app.inject({
-      method: 'GET',
-      url: '/feed-health',
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({
-      jetstream: {
-        connected: true,
-        eventsLast5min: 12345,
-        cursorLagMs: 3000,
-        pendingEvents: 40,
-        inboundPaused: true,
-      },
-      subscribers: {
-        total: 120,
-        withVotes: 14,
-        activeLastWeek: 95,
-      },
-      database: {
-        newestPost: '2026-02-08T22:45:09.000Z',
-      },
-      feedSize: 51,
-    });
-    expect(redisGetMock).not.toHaveBeenCalled();
-
-    await app.close();
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        jetstream: {
+          connected: true,
+          eventsLast5min: 12345,
+          cursorUs: '1770590709000000',
+          cursorLagMs: 3000,
+          activeEvents: 20,
+          pendingEvents: 40,
+          inboundPaused: true,
+          pauseCount: 7,
+          resumeCount: 6,
+          overloadReconnectCount: 0,
+          totalDroppedEvents: 0,
+        },
+        subscribers: {
+          total: 120,
+          withVotes: 14,
+          activeLastWeek: 95,
+        },
+        database: {
+          newestPost: '2026-02-08T22:45:09.000Z',
+        },
+        feedSize: 51,
+      });
+      expect(redisGetMock).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
   });
 
   it('reports null cursor telemetry before Jetstream establishes a cursor', async () => {
@@ -252,20 +259,26 @@ describe('admin manual rescore overlap guard', () => {
 
     const app = Fastify();
     registerFeedHealthRoutes(app);
-    const response = await app.inject({ method: 'GET', url: '/feed-health' });
+    try {
+      const response = await app.inject({ method: 'GET', url: '/feed-health' });
 
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({
-      jetstream: {
-        connected: false,
-        cursorUs: null,
-        cursorLagMs: null,
-        activeEvents: 0,
-        pendingEvents: 0,
-      },
-    });
-
-    await app.close();
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        jetstream: {
+          connected: false,
+          cursorUs: null,
+          cursorLagMs: null,
+          activeEvents: 0,
+          pendingEvents: 0,
+          pauseCount: 0,
+          resumeCount: 0,
+          overloadReconnectCount: 0,
+          totalDroppedEvents: 0,
+        },
+      });
+    } finally {
+      await app.close();
+    }
   });
 
   it('triggers manual jetstream reconnect and writes audit log', async () => {

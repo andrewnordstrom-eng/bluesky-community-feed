@@ -31,6 +31,12 @@ class MockWebSocket {
   }
 
   close(code?: number, reason?: string): void {
+    if (
+      code !== undefined &&
+      (code < 1000 || code > 4999 || code === 1004 || code === 1005 || code === 1006)
+    ) {
+      throw new RangeError(`Invalid WebSocket close code: ${code}`);
+    }
     wsCloseMock(code, reason);
     this.emitClose(code, reason);
   }
@@ -115,7 +121,8 @@ describe('jetstream lifecycle', () => {
       await startJetstream();
       __testJetstreamQueue.setCursorForTests('500');
 
-      latestSocket?.close(1006, 'network interruption');
+      expect(() => latestSocket?.close(1006, 'network interruption')).toThrow(RangeError);
+      latestSocket?.emitClose(1006, 'network interruption');
       await vi.advanceTimersByTimeAsync(1000);
 
       expect(wsCtorMock).toHaveBeenCalledTimes(2);
@@ -185,6 +192,43 @@ describe('jetstream lifecycle', () => {
     }
   });
 
+  it('ignores buffered messages from a replaced socket before event side effects', async () => {
+    vi.useFakeTimers();
+    try {
+      dbQueryMock.mockResolvedValue({ rows: [] });
+      processEventMock.mockResolvedValue('non-commit-ignored');
+      const { startJetstream, stopJetstream } = await import('../src/ingestion/jetstream.js');
+      await startJetstream();
+      const firstSocket = sockets[0];
+      firstSocket?.open();
+
+      firstSocket?.emitClose(1006, 'network interruption');
+      await vi.advanceTimersByTimeAsync(1000);
+      const replacementSocket = sockets[1];
+      replacementSocket?.open();
+
+      firstSocket?.emitMessage(Buffer.from(JSON.stringify({
+        did: 'did:plc:stale-socket-user',
+        time_us: 100,
+        kind: 'identity',
+      })));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(processEventMock).not.toHaveBeenCalled();
+
+      replacementSocket?.emitMessage(Buffer.from(JSON.stringify({
+        did: 'did:plc:current-socket-user',
+        time_us: 200,
+        kind: 'identity',
+      })));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(processEventMock).toHaveBeenCalledTimes(1);
+
+      await stopJetstream();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('cancels a pending reconnect before an operator-triggered replacement', async () => {
     vi.useFakeTimers();
     try {
@@ -201,6 +245,68 @@ describe('jetstream lifecycle', () => {
       await vi.advanceTimersByTimeAsync(60_000);
       expect(wsCtorMock).toHaveBeenCalledTimes(2);
 
+      await stopJetstream();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('waits for active work before saving the final shutdown cursor', async () => {
+    dbQueryMock.mockResolvedValue({ rows: [] });
+    let finishHandler: ((outcome: string) => void) | null = null;
+    processEventMock.mockImplementation(() => new Promise<string>((resolve) => {
+      finishHandler = resolve;
+    }));
+
+    const { startJetstream, stopJetstream } = await import('../src/ingestion/jetstream.js');
+    await startJetstream();
+    latestSocket?.open();
+    latestSocket?.emitMessage(Buffer.from(JSON.stringify({
+      did: 'did:plc:shutdown-user',
+      time_us: 500,
+      kind: 'identity',
+    })));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    let stopResolved = false;
+    const stopPromise = stopJetstream().then(() => {
+      stopResolved = true;
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(stopResolved).toBe(false);
+
+    const completeHandler = finishHandler as ((outcome: string) => void) | null;
+    completeHandler?.('non-commit-ignored');
+    await stopPromise;
+
+    const cursorWrite = dbQueryMock.mock.calls.find(([query]) =>
+      String(query).includes('INSERT INTO jetstream_cursor')
+    );
+    expect(cursorWrite?.[1]).toEqual(['500']);
+  });
+
+  it('reset clears pending reconnects and restores the primary connection lifecycle', async () => {
+    vi.useFakeTimers();
+    try {
+      dbQueryMock.mockResolvedValue({ rows: [] });
+      const { __testJetstreamQueue, startJetstream, stopJetstream } =
+        await import('../src/ingestion/jetstream.js');
+      await startJetstream();
+      const primaryUrl = String(wsCtorMock.mock.calls[0]?.[0]);
+
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        sockets[attempt]?.emitClose(1006, 'network interruption');
+        await vi.advanceTimersByTimeAsync(1000 * (2 ** attempt));
+      }
+      expect(String(wsCtorMock.mock.calls[5]?.[0])).not.toBe(primaryUrl);
+
+      __testJetstreamQueue.reset();
+      const connectionCountAfterReset = wsCtorMock.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(wsCtorMock).toHaveBeenCalledTimes(connectionCountAfterReset);
+
+      await startJetstream();
+      expect(String(wsCtorMock.mock.lastCall?.[0])).toBe(primaryUrl);
       await stopJetstream();
     } finally {
       vi.useRealTimers();

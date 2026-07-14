@@ -61,6 +61,7 @@ describe('health response redaction', () => {
 
   it('calculates event and cursor freshness at the five-minute boundary', () => {
     const nowMs = new Date('2026-07-13T23:30:00.000Z').getTime();
+    const ingestionStartedAt = new Date(nowMs - 1000);
     const runtimeState = {
       activeEvents: 20,
       pendingEvents: 25,
@@ -81,7 +82,8 @@ describe('health response redaction', () => {
       true,
       new Date(nowMs - 1000),
       runtimeState,
-      nowMs
+      nowMs,
+      ingestionStartedAt
     )).toMatchObject({
       status: 'healthy',
       connected: true,
@@ -90,9 +92,21 @@ describe('health response redaction', () => {
 
     expect(calculateJetstreamHealth(
       true,
+      new Date(nowMs - 299_999),
+      runtimeState,
+      nowMs,
+      ingestionStartedAt
+    )).toMatchObject({
+      status: 'healthy',
+      last_event_age_ms: 299_999,
+    });
+
+    expect(calculateJetstreamHealth(
+      true,
       new Date(nowMs - 300_000),
       runtimeState,
-      nowMs
+      nowMs,
+      ingestionStartedAt
     )).toMatchObject({
       status: 'unhealthy',
       connected: true,
@@ -103,8 +117,20 @@ describe('health response redaction', () => {
     expect(calculateJetstreamHealth(
       true,
       new Date(nowMs - 1000),
+      { ...runtimeState, cursorLagMs: 299_999 },
+      nowMs,
+      ingestionStartedAt
+    )).toMatchObject({
+      status: 'healthy',
+      cursor_lag_ms: 299_999,
+    });
+
+    expect(calculateJetstreamHealth(
+      true,
+      new Date(nowMs - 1000),
       { ...runtimeState, cursorLagMs: 300_000 },
-      nowMs
+      nowMs,
+      ingestionStartedAt
     )).toMatchObject({
       status: 'unhealthy',
       connected: true,
@@ -112,7 +138,36 @@ describe('health response redaction', () => {
       error: 'Jetstream cursor is 300s behind',
     });
 
-    expect(calculateJetstreamHealth(false, null, runtimeState, nowMs)).toMatchObject({
+    expect(calculateJetstreamHealth(
+      true,
+      null,
+      runtimeState,
+      nowMs,
+      new Date(nowMs - 299_999)
+    )).toMatchObject({
+      status: 'healthy',
+      connected: true,
+    });
+
+    expect(calculateJetstreamHealth(
+      true,
+      null,
+      runtimeState,
+      nowMs,
+      new Date(nowMs - 300_000)
+    )).toMatchObject({
+      status: 'unhealthy',
+      connected: true,
+      error: 'No Jetstream events processed for 300s',
+    });
+
+    expect(calculateJetstreamHealth(
+      false,
+      null,
+      runtimeState,
+      nowMs,
+      ingestionStartedAt
+    )).toMatchObject({
       status: 'unhealthy',
       connected: false,
       error: 'WebSocket not connected',
@@ -242,9 +297,14 @@ describe('health response redaction', () => {
           jetstream: {
             status: 'unhealthy',
             connected: true,
+            cursor_us: '1783949494284543',
             cursor_lag_ms: 35_691_400,
+            active_events: 20,
             pending_events: 100,
             inbound_paused: true,
+            pause_count: 12,
+            resume_count: 11,
+            overload_reconnect_count: 0,
             total_dropped_events: 0,
           },
         },

@@ -1632,17 +1632,20 @@ Production remained live and ready, but the Jetstream worker repeatedly filled i
 
 The WebSocket now pauses inbound delivery when the pending queue reaches a bounded high-water mark and resumes only after it drains to a lower threshold. The existing 10,000-event overflow/reconnect path remains as a last-resort circuit breaker. Pause activation occurs in the same synchronous queue mutation that enqueues work, avoiding an ordering dependency in the message callback.
 
+Hosted review identified two additional lifecycle races before release. Messages buffered on a replaced socket are now rejected before `processEvent`, and graceful shutdown detaches inbound delivery, drains active handlers, then saves the resulting safely completed cursor. The test reset path now closes sockets, cancels reconnect/metrics timers, and restores primary/fallback state. An explicit reserved-headroom calculation covers frames already buffered when `pause()` takes effect.
+
 Reconnects reset in-memory cursor bookkeeping to the durable resume cursor, so a failed pre-close save cannot cause replayed events to inherit a newer unsaved cursor or save interval. Runtime telemetry now reports active and pending work, pause/resume counts, overload reconnects, cumulative drops, safely completed cursor, and cursor lag through admin health, feed-health, and vitals surfaces.
 
 Jetstream health now requires both recent event handling and a cursor less than five minutes behind. A stale cursor degrades operator/public health while `/health/ready` remains dependent only on PostgreSQL and Redis, allowing a healthy process to catch up without a restart loop.
 
 ### Verification
 
-- Focused backpressure, lifecycle, message-processing, metrics, and health suite: 6 files / 55 tests passed.
-- Full backend suite: 153 files / 1,700 tests passed.
+- Focused backpressure, lifecycle, message-processing, metrics, and health suite: 6 files / 63 tests passed.
+- Full backend suite: 153 files / 1,708 tests passed.
 - `npm run build`, `npm run verify`, `npm run docs:verify`, `web-next` lint, and `web-next` strict TypeScript passed. The canonical `web-next` package has no test script; its production build passed through `npm run verify`.
-- Socket-level coverage proves high-water pause, low-water resume, sustained asynchronous drainage, zero overflow reconnects/drops on the bounded path, closed/no-socket handling, hard-limit drop telemetry, startup null-cursor serialization, five-minute health boundaries, durable-cursor reset after reconnect, safe in-memory cursor fallback when a reconnect-time database read fails, stale-socket close isolation after a replacement connection is active, and cancellation of obsolete reconnect timers before an operator-triggered replacement.
+- Socket-level coverage proves high-water pause, buffered-frame headroom, low-water resume, pause/resume exception recovery, sustained asynchronous drainage, zero overflow reconnects/drops on the bounded path, closed/no-socket handling, hard-limit drop telemetry, startup null-cursor serialization, five-minute health boundaries, durable-cursor reset after reconnect, safe in-memory cursor fallback when a reconnect-time database read fails, stale-socket close and message isolation after a replacement connection is active, final-cursor persistence after active shutdown work drains, complete test lifecycle reset, and cancellation of obsolete reconnect timers before an operator-triggered replacement.
 - The first local CodeRabbit review reported one major health-message gap and five maintainability/test gaps. A second current-diff review found one duplicated freshness threshold plus three test/documentation gaps. All ten findings were addressed before commit. A third local convergence request and a final exact-diff retry both stalled without results and were terminated after bounded waits; hosted exact-head review remains required before closeout.
+- Hosted review of commit `8bd9aa842db37eb053989da768bfad71e151c2d2` reported nine inline threads plus two outside-diff lifecycle findings. All valid findings were addressed in the follow-up diff. A local review of that follow-up remained in summarization for five minutes without emitting a finding and was terminated; a new hosted current-head review remains mandatory after push.
 
 ### Release boundary
 

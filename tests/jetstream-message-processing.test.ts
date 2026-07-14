@@ -588,7 +588,6 @@ describe('Jetstream message processing', () => {
   });
 
   it('does not pin or advance a failed message from a stale connection generation', async () => {
-    processEventMock.mockRejectedValueOnce(new Error('stale generation handler threw'));
     __testJetstreamQueue.invalidateConnectionForTests();
 
     const result = await __testJetstreamQueue.processMessageForGeneration(
@@ -597,7 +596,8 @@ describe('Jetstream message processing', () => {
     );
 
     expect(result.processed).toBe(false);
-    expect(result.errorMessage).toBe('stale generation handler threw');
+    expect(result.errorMessage).toBe('stale jetstream connection');
+    expect(processEventMock).not.toHaveBeenCalled();
     expect(__testJetstreamQueue.getFailedCursorPinCount()).toBe(0);
     expect(__testJetstreamQueue.getCursorState()).toEqual({
       eventCounter: 0,

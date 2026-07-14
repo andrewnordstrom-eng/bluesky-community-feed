@@ -86,4 +86,33 @@ describe('queue saturation drop counter', () => {
       vi.useRealTimers();
     }
   });
+
+  it('reports null cursor telemetry before a cursor is observed', () => {
+    __testJetstreamQueue.reset();
+    expect(__testJetstreamQueue.getRuntimeState()).toMatchObject({
+      cursorUs: null,
+      cursorLagMs: null,
+    });
+  });
+
+  it('reports zero lag for current and future cursors', () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-07-13T23:30:00.000Z'));
+      const currentCursorUs = BigInt(Date.now()) * 1000n;
+      __testJetstreamQueue.reset();
+      __testJetstreamQueue.setCursorForTests(currentCursorUs.toString());
+      expect(__testJetstreamQueue.getRuntimeState().cursorLagMs).toBe(0);
+
+      const futureCursorUs = currentCursorUs + 60_000_000n;
+      __testJetstreamQueue.setCursorForTests(futureCursorUs.toString());
+      expect(__testJetstreamQueue.getRuntimeState()).toMatchObject({
+        cursorUs: futureCursorUs.toString(),
+        cursorLagMs: 0,
+      });
+    } finally {
+      __testJetstreamQueue.reset();
+      vi.useRealTimers();
+    }
+  });
 });

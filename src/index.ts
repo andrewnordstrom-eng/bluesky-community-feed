@@ -3,6 +3,7 @@ import { logger } from './lib/logger.js';
 import { createServer } from './feed/server.js';
 import {
   getJetstreamRuntimeState,
+  getJetstreamStartedAt,
   getLastEventReceivedAt,
   isJetstreamConnected,
   startJetstream,
@@ -115,7 +116,8 @@ async function main() {
     isJetstreamConnected(),
     getLastEventReceivedAt(),
     getJetstreamRuntimeState(),
-    Date.now()
+    Date.now(),
+    getJetstreamStartedAt()
   ));
 
   // 5. Register scoring health check (before starting scoring so it's available during initial run)

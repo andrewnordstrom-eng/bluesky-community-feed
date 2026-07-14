@@ -76,19 +76,26 @@ export function calculateJetstreamHealth(
   connected: boolean,
   lastEventAt: Date | null,
   runtimeState: JetstreamRuntimeState,
-  nowMs: number
+  nowMs: number,
+  ingestionStartedAt: Date | null
 ): JetstreamHealth {
   const lastEventAgeMs = lastEventAt === null ? undefined : nowMs - lastEventAt.getTime();
-  const eventIsFresh = lastEventAgeMs === undefined || lastEventAgeMs < JETSTREAM_FRESHNESS_LIMIT_MS;
+  const startupAgeMs = ingestionStartedAt === null
+    ? undefined
+    : Math.max(0, nowMs - ingestionStartedAt.getTime());
+  const eventFreshnessAgeMs = lastEventAgeMs ?? startupAgeMs;
+  const cursorFreshnessAgeMs = runtimeState.cursorLagMs ?? startupAgeMs;
+  const eventIsFresh =
+    eventFreshnessAgeMs === undefined || eventFreshnessAgeMs < JETSTREAM_FRESHNESS_LIMIT_MS;
   const cursorIsFresh =
-    runtimeState.cursorLagMs === null || runtimeState.cursorLagMs < JETSTREAM_FRESHNESS_LIMIT_MS;
+    cursorFreshnessAgeMs === undefined || cursorFreshnessAgeMs < JETSTREAM_FRESHNESS_LIMIT_MS;
   const isHealthy = connected && eventIsFresh && cursorIsFresh;
 
   let error: string | undefined;
   if (!connected) {
     error = 'WebSocket not connected';
   } else if (!eventIsFresh) {
-    error = `No Jetstream events processed for ${Math.round((lastEventAgeMs ?? 0) / 1000)}s`;
+    error = `No Jetstream events processed for ${Math.round((eventFreshnessAgeMs ?? 0) / 1000)}s`;
   } else if (!cursorIsFresh) {
     error = `Jetstream cursor is ${Math.round((runtimeState.cursorLagMs ?? 0) / 1000)}s behind`;
   }

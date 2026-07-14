@@ -119,6 +119,122 @@ describe('jetstream backpressure queue', () => {
     __testJetstreamQueue.reset();
   });
 
+  it('reserves room for frames already buffered when inbound delivery pauses', async () => {
+    __testJetstreamQueue.reset();
+
+    const pause = vi.fn();
+    __testJetstreamQueue.setFlowControlSocket({
+      readyState: 1,
+      pause,
+      resume: vi.fn(),
+      close: vi.fn(),
+    });
+    await Promise.all(
+      Array.from({ length: __testJetstreamQueue.maxConcurrentEvents }, () =>
+        __testJetstreamQueue.acquireSlot()
+      )
+    );
+
+    const bufferedFrameCount = Math.min(
+      __testJetstreamQueue.pauseReservedHeadroom,
+      __testJetstreamQueue.maxConcurrentEvents * 2
+    );
+    const pendingAcquires = Array.from(
+      { length: __testJetstreamQueue.pauseQueueThreshold + bufferedFrameCount },
+      () => __testJetstreamQueue.acquireSlot()
+    );
+
+    expect(pause).toHaveBeenCalledTimes(1);
+    expect(__testJetstreamQueue.getRuntimeState()).toMatchObject({
+      inboundPaused: true,
+      pendingEvents: __testJetstreamQueue.pauseQueueThreshold + bufferedFrameCount,
+      overloadReconnectCount: 0,
+      totalDroppedEvents: 0,
+    });
+    expect(__testJetstreamQueue.getState().queued).toBeLessThan(
+      __testJetstreamQueue.maxPendingEvents
+    );
+
+    __testJetstreamQueue.drainQueuedSlots(false);
+    await Promise.all(pendingAcquires);
+    __testJetstreamQueue.reset();
+  });
+
+  it('forces overload recovery when pausing inbound delivery throws', async () => {
+    __testJetstreamQueue.reset();
+
+    const pause = vi.fn(() => {
+      throw new Error('pause failed');
+    });
+    __testJetstreamQueue.setFlowControlSocket({
+      readyState: 1,
+      pause,
+      resume: vi.fn(),
+      close: vi.fn(),
+    });
+    await Promise.all(
+      Array.from({ length: __testJetstreamQueue.maxConcurrentEvents }, () =>
+        __testJetstreamQueue.acquireSlot()
+      )
+    );
+    const pendingAcquires = Array.from(
+      { length: __testJetstreamQueue.pauseQueueThreshold },
+      () => __testJetstreamQueue.acquireSlot()
+    );
+
+    await Promise.all(pendingAcquires);
+    expect(pause).toHaveBeenCalledTimes(1);
+    expect(__testJetstreamQueue.getRuntimeState()).toMatchObject({
+      inboundPaused: false,
+      pendingEvents: 0,
+      pauseCount: 0,
+      overloadReconnectCount: 1,
+    });
+
+    __testJetstreamQueue.reset();
+  });
+
+  it('detaches and closes the socket when resuming inbound delivery throws', async () => {
+    __testJetstreamQueue.reset();
+
+    const close = vi.fn();
+    const resume = vi.fn(() => {
+      throw new Error('resume failed');
+    });
+    __testJetstreamQueue.setFlowControlSocket({
+      readyState: 1,
+      pause: vi.fn(),
+      resume,
+      close,
+    });
+    await Promise.all(
+      Array.from({ length: __testJetstreamQueue.maxConcurrentEvents }, () =>
+        __testJetstreamQueue.acquireSlot()
+      )
+    );
+    const pendingAcquires = Array.from(
+      { length: __testJetstreamQueue.pauseQueueThreshold },
+      () => __testJetstreamQueue.acquireSlot()
+    );
+
+    const releasesUntilResume =
+      __testJetstreamQueue.pauseQueueThreshold - __testJetstreamQueue.resumeQueueThreshold;
+    for (let index = 0; index < releasesUntilResume; index += 1) {
+      __testJetstreamQueue.releaseSlot();
+    }
+
+    expect(resume).toHaveBeenCalledTimes(1);
+    expect(close).toHaveBeenCalledWith(1011, 'backpressure_resume_failed');
+    expect(__testJetstreamQueue.getRuntimeState()).toMatchObject({
+      inboundPaused: false,
+      resumeCount: 0,
+    });
+
+    __testJetstreamQueue.drainQueuedSlots(false);
+    await Promise.all(pendingAcquires);
+    __testJetstreamQueue.reset();
+  });
+
   it('does not pause without an open flow-control socket', async () => {
     __testJetstreamQueue.reset();
     expect(() => __testJetstreamQueue.applyInboundBackpressure()).not.toThrow();
