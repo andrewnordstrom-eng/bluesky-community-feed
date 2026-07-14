@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { z } from 'zod';
 import type { GovernanceWeights } from './types';
 import {
   waitlistJoinResponseSchema,
@@ -28,18 +29,29 @@ export interface LoginResponse {
   expiresAt: string;
 }
 
-export interface AuthenticatedSessionResponse {
-  authenticated: true;
-  did: string;
-  handle: string;
-  expiresAt: string;
-}
+export const authenticatedSessionResponseSchema = z.object({
+  authenticated: z.literal(true),
+  did: z.string().min(1),
+  handle: z.string().min(1),
+  expiresAt: z.string().datetime({ offset: true }),
+}).strict();
 
-export interface AnonymousSessionResponse {
-  authenticated: false;
-}
+export const anonymousSessionResponseSchema = z.object({
+  authenticated: z.literal(false),
+}).strict();
 
-export type SessionResponse = AuthenticatedSessionResponse | AnonymousSessionResponse;
+export const sessionResponseSchema = z.discriminatedUnion('authenticated', [
+  authenticatedSessionResponseSchema,
+  anonymousSessionResponseSchema,
+]);
+
+export type AuthenticatedSessionResponse = z.infer<typeof authenticatedSessionResponseSchema>;
+export type AnonymousSessionResponse = z.infer<typeof anonymousSessionResponseSchema>;
+export type SessionResponse = z.infer<typeof sessionResponseSchema>;
+
+export function parseSessionResponse(value: unknown): SessionResponse {
+  return sessionResponseSchema.parse(value);
+}
 
 // Auth API
 export const authApi = {
@@ -54,8 +66,8 @@ export const authApi = {
   },
 
   getSession: async (): Promise<SessionResponse> => {
-    const response = await api.get<SessionResponse>('/api/governance/auth/session');
-    return response.data;
+    const response = await api.get<unknown>('/api/governance/auth/session');
+    return parseSessionResponse(response.data);
   },
 
   logout: async (): Promise<void> => {

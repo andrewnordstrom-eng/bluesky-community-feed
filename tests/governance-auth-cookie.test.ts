@@ -125,6 +125,28 @@ describe('governance auth cookie flow', () => {
     await app.close();
   });
 
+  it('returns an anonymous session state when the cookie token is stale', async () => {
+    getSessionByTokenMock.mockResolvedValueOnce(null);
+
+    const app = Fastify();
+    registerAuthRoute(app);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/governance/auth/session',
+      headers: {
+        cookie: `${config.GOVERNANCE_SESSION_COOKIE_NAME}=stale-session-token`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ authenticated: false });
+    expect(getSessionByTokenMock).toHaveBeenCalledTimes(1);
+    expect(getSessionByTokenMock).toHaveBeenCalledWith('stale-session-token');
+
+    await app.close();
+  });
+
   it('clears session cookie on logout and invalidates token', async () => {
     deleteSessionMock.mockResolvedValue(undefined);
 
