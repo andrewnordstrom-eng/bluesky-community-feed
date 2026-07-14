@@ -39,3 +39,13 @@ describe('web-next post-login redirect wiring', () => {
     }
   });
 });
+
+describe('web-next signed-out /vote preview', () => {
+  it('frames the ballot as a pilot preview with a waitlist CTA for signed-out visitors', () => {
+    const src = read('app/vote/page.tsx');
+    // Shown only when signed out, and its CTA reuses the page's waitlist dialog.
+    expect(src).toContain('{!isAuthenticated && (');
+    expect(src).toContain('previewing the community ballot');
+    expect(src).toContain('onClick={onRequireAuth}');
+  });
+});

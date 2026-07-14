@@ -418,6 +418,28 @@ function VoteWorkbench({ epoch, myVote, topics, contentRules, isAuthenticated, o
         {/* ── CENTER ─────────────────────────────────────── */}
         <main className="flex flex-col gap-6 min-w-0">
 
+          {/* Signed-out visitors see the ballot as a read-only preview; frame it
+              as an intentional pilot invitation rather than a form that quietly
+              can't be submitted. The CTA reuses the page's waitlist dialog. */}
+          {!isAuthenticated && (
+            <div className="rounded-xl border border-primary/20 bg-primary/[0.06] px-5 py-4 flex flex-col sm:flex-row sm:items-center gap-4">
+              <div className="flex flex-col gap-1 min-w-0">
+                <span className="text-[10px] font-mono text-primary uppercase tracking-widest">Limited pilot</span>
+                <p className="text-sm font-semibold text-foreground leading-snug">You&rsquo;re previewing the community ballot</p>
+                <p className="text-sm text-foreground/60 leading-relaxed">
+                  Voting is open to approved accounts while we pilot. Join the waitlist and we&rsquo;ll bring you in as seats open.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={onRequireAuth}
+                className="shrink-0 self-start sm:self-center whitespace-nowrap rounded-full bg-primary text-primary-foreground hover:bg-primary-dark px-5 py-2.5 text-sm font-semibold shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              >
+                Join the waitlist
+              </button>
+            </div>
+          )}
+
           {/* ── Section 01: Ranking weights ─────────────── */}
           {activeSection === "weights" && (
             <div className="rounded-xl border border-border bg-card p-6 flex flex-col gap-6">
