@@ -741,14 +741,23 @@ export function registerExportRoutes(app: FastifyInstance): void {
         'and topics/community-weights.json.',
       security: adminSecurity,
       querystring: FullDatasetQueryJsonSchema,
-      produces: ['application/zip'],
       response: {
         200: {
-          type: 'string',
-          format: 'binary',
           description: 'ZIP archive containing CSV and JSON files for the epoch',
+          content: {
+            'application/zip': {
+              schema: { type: 'string', format: 'binary' },
+            },
+          },
         },
-        400: ErrorResponseSchema,
+        400: {
+          description: 'Invalid export query',
+          content: {
+            'application/json': {
+              schema: ErrorResponseSchema,
+            },
+          },
+        },
       },
     },
   }, async (request: FastifyRequest, reply: FastifyReply) => {

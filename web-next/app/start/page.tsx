@@ -7,9 +7,9 @@ import { Container } from "@/components/ui/layout"
 import { PageHero, HeroGlow, HERO_TOP } from "@/components/ui/page-hero"
 
 export const metadata: Metadata = {
-  title: "Get started — add the Corgi feed in Bluesky",
+  title: "Get started — Corgi Commons and the governance demo",
   description:
-    "Add the community-governed Corgi feed to your Bluesky app, explore it read-only, and connect an app password when you're ready to vote.",
+    "View Corgi Commons on Bluesky, try the anonymous governance demo, or request access to the limited voting pilot.",
   alternates: { canonical: "/start/" },
 }
 
@@ -18,27 +18,21 @@ const CORGI_FEED_URL = "https://bsky.app/profile/corgi-network.bsky.social/feed/
 const steps = [
   {
     n: "01",
-    title: "Open the Corgi feed on Bluesky",
+    title: "View and subscribe to Corgi Commons",
     body: "Open the feed in your Bluesky app or on the web, then use Bluesky's feed controls to save it to your Home. No Corgi account is required to browse it.",
     cta: { label: "Open the feed on Bluesky", href: CORGI_FEED_URL, external: true },
   },
   {
     n: "02",
-    title: "Explore it read-only",
-    body: "Browse the ranked feed and open any post's receipt to see exactly why it ranked where it did. You can inspect everything without signing in.",
-    cta: { label: "Open the live demo", href: "/demo", external: false },
+    title: "Try isolated shadow governance",
+    body: "Use the anonymous demo to propose a policy, combine it with 24 scripted deterministic voter archetypes, rerank a frozen comparison corpus, and inspect what moved. The session never changes the public feed.",
+    cta: { label: "Try the governance demo", href: "/demo", external: false },
   },
   {
     n: "03",
-    title: "Join the waitlist to vote",
-    body: "Voting is in a limited pilot. Request access with your Bluesky handle; once you're approved, Corgi signs you in with a Bluesky app password — a scoped credential you can revoke anytime. Your real password never touches Corgi.",
+    title: "Request access to the voting pilot",
+    body: "Governance participation is currently limited to approved waitlist participants. If approved, Corgi signs you in with a Bluesky app password — a scoped credential you can revoke anytime. Your real password never touches Corgi.",
     cta: { label: "Join the waitlist", href: "/sign-in", external: false },
-  },
-  {
-    n: "04",
-    title: "Shape the feed with your community",
-    body: "During an open round, set how much each ranking signal should matter. When the round closes, the community's aggregated weights become the feed's next policy.",
-    cta: { label: "See the ballot", href: "/vote", external: false },
   },
 ] as const
 
@@ -54,8 +48,8 @@ export default function StartPage() {
             size="md"
             align="center"
             eyebrow="Get started"
-            title="Add the Corgi feed in Bluesky."
-            subtitle="Corgi is a normal Bluesky custom feed — with one difference: your community governs how it ranks. Add it in a minute, explore it read-only, and vote when you’re ready."
+            title="Open Corgi Commons, try the demo, or join the pilot."
+            subtitle="Anyone can view the live Bluesky feed and use the anonymous shadow demo. Governance participation is currently available through an approved waitlist pilot."
             actions={
               <>
                 <Button
@@ -68,7 +62,7 @@ export default function StartPage() {
                   href="/demo"
                   className="rounded-full px-5 py-3 text-base font-medium text-foreground/70 hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                 >
-                  Explore the demo first &rarr;
+                  Try the governance demo &rarr;
                 </Link>
               </>
             }

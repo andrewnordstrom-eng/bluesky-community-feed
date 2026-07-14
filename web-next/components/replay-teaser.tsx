@@ -101,10 +101,10 @@ export function ReplayTeaser() {
                   <Image src="/images/bluesky-butterfly-logo.svg" alt="Bluesky" width={24} height={21} className="h-[21px] w-[24px]" />
                 </div>
                 <div className="mt-1 flex min-w-0 items-end gap-5 overflow-x-auto text-[13px] font-semibold text-[#42576C]">
-                  {["Discover", "Following", "Birders Who Code", "Tools"].map((tab) => (
+                  {["Discover", "Following", "Corgi Commons", "Tools"].map((tab) => (
                     <span
                       key={tab}
-                      className={`shrink-0 border-b-2 pb-2.5 ${tab === "Birders Who Code" ? "border-[#0085FF] text-[#0B0F14]" : "border-transparent"}`}
+                      className={`shrink-0 border-b-2 pb-2.5 ${tab === "Corgi Commons" ? "border-[#0085FF] text-[#0B0F14]" : "border-transparent"}`}
                     >
                       {tab}
                     </span>
@@ -162,18 +162,17 @@ export function ReplayTeaser() {
             </div>
 
             <p className="text-[11px] leading-relaxed text-foreground/55">
-              Tap <span className="font-semibold text-primary">Why</span> on any post for its receipt. Rank badges and receipts are
-              Corgi annotations, not native Bluesky chrome.
+              Select <span className="font-semibold text-primary">Inspect</span> on any post for its score breakdown. Rank badges and receipts are Corgi annotations, not native Bluesky chrome.
             </p>
           </div>
         </div>
 
         <div className="flex flex-col gap-2 border-t border-border/60 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <span className="text-xs text-foreground/55">
-            Illustrative demo &mdash; live ranking claims use Corgi receipts and snapshot data.
+            Illustrative preview &mdash; the governance demo uses a frozen snapshot sourced from Corgi Commons.
           </span>
           <Link href="/how-it-works#replay" className="text-sm font-semibold text-primary hover:underline underline-offset-2">
-            See the full math and every receipt &rarr;
+            See the full policy and receipt walkthrough &rarr;
           </Link>
         </div>
       </div>

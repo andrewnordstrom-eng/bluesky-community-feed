@@ -47,7 +47,7 @@ export function getDemoCorpusPresentation(feed: ShadowDemoFeed): DemoCorpusPrese
   const sampledAt = formatDemoTimestamp(feed.corpusProvenance.sampledAt)
   return {
     usesMechanicsFixture: false,
-    provenanceLine: `${feed.corpusProvenance.label}${sampledAt ? ` · captured ${sampledAt}` : ""} · frozen for this session`,
+    provenanceLine: `Reviewer-safe snapshot of Corgi Commons${sampledAt ? ` · captured ${sampledAt}` : ""} · frozen for this session`,
     metricsLine: `${shown} shown · ${withheld} withheld · ${sourceCount} published entries · ${eligibleCount} eligible`,
   }
 }
@@ -64,7 +64,7 @@ export function getLiveProofPresentation(
   usesMechanicsFixture: boolean,
 ): LiveProofPresentation {
   const snapshot = provenance?.mode === "production_feed_snapshot_session_frozen" ? provenance : null
-  const feedName = snapshot?.sourceFeedName ?? "Community Governed Feed"
+  const feedName = "Corgi Commons"
 
   if (usesMechanicsFixture) {
     return {

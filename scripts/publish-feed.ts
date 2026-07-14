@@ -61,10 +61,10 @@ async function main() {
   // Create the feed generator record
   const record = {
     did: serviceDid,
-    displayName: 'Community Governed Feed',
+    displayName: 'Corgi Commons',
     description:
-      'A community-governed feed where subscribers vote on algorithm weights and topic priorities. ' +
-      '25 steerable topics, transparent scoring, democratic control.',
+      'Corgi Commons is a Bluesky feed shaped by community votes on ranking signals, topic priorities, and content rules. ' +
+      'Inspect policies and ranking receipts at feed.corgi.network.',
     acceptsInteractions: true,
     createdAt: new Date().toISOString(),
   };
@@ -91,7 +91,7 @@ async function main() {
     console.log('Next steps:');
     console.log('1. Update FEEDGEN_PUBLISHER_DID in .env to:', agent.session!.did);
     console.log('2. The feed should now appear when searching in Bluesky');
-    console.log('3. Users can find it by searching for "Community Governed Feed"');
+    console.log('3. Users can find it by searching for "Corgi Commons"');
     console.log('');
     console.log('To unpublish later:');
     console.log(`  npx tsx scripts/unpublish-feed.ts`);

@@ -27,7 +27,7 @@ export default function NotFound() {
               href="/demo"
               className="rounded-full px-5 py-3 text-base font-medium text-foreground/70 hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             >
-              Explore the live demo &rarr;
+              Try the governance demo &rarr;
             </Link>
           </div>
         </div>

@@ -466,7 +466,7 @@ export default function DemoPage() {
         ) : null}
 
         <p className="sr-only" aria-live="polite">
-          {busy ? "Updating the shadow demo." : session === null ? "Start a Community Governed Feed demo session." : `Demo phase: ${phase}.`}
+          {busy ? "Updating the shadow demo." : session === null ? "Start a Corgi Commons demo session." : `Demo phase: ${phase}.`}
         </p>
         <p className="sr-only" aria-live="polite" aria-atomic="true">
           {receiptAnnouncement}
@@ -519,7 +519,7 @@ export default function DemoPage() {
                 <div className={`order-2 flex flex-col gap-3 xl:order-1 ${reranked && mobileView === "receipt" ? "hidden xl:flex" : ""}`}>
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
-                      <h2 className="text-lg font-bold text-foreground">{community.name}</h2>
+                      <h2 className="text-lg font-bold text-foreground">Corgi Commons</h2>
                       <p className="text-xs text-foreground/55">
                         {corpusPresentation?.provenanceLine}
                       </p>
@@ -537,7 +537,7 @@ export default function DemoPage() {
                   ) : null}
                   <CorpusFeed
                     feed={feed}
-                    communityName={community.name}
+                    communityName="Corgi Commons"
                     epochLabel={publishedEpoch ? `Epoch ${publishedEpoch.sequence}` : "Baseline"}
                     selectedUri={selectedUri}
                     onSelect={handleSelect}

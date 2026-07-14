@@ -27,7 +27,7 @@ export interface CorgiRankBadgeProps {
   readonly fullReceiptHref?: string
   /** Hide the movement pill + line when there's no prior epoch to compare against. */
   readonly showMovement?: boolean
-  /** Hide the "Why" popover when the surface already shows a full receipt panel (the demo). */
+  /** Hide the inspect popover when the surface already shows a full receipt panel (the demo). */
   readonly showWhy?: boolean
   /** For static/mockup screenshots — start expanded. */
   readonly defaultOpen?: boolean
@@ -140,9 +140,10 @@ export function CorgiRankBadge({
           onClick={() => setOpen((value) => !value)}
           aria-expanded={open}
           aria-controls={panelId}
-          className={`group mt-2 inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-foreground/50 transition-colors hover:text-primary ${FOCUS}`}
+          aria-label={`Inspect ranking for post ranked #${rank}`}
+          className={`group mt-2 inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-[0.08em] text-foreground/55 transition-colors hover:text-primary ${FOCUS}`}
         >
-          Why
+          Inspect
           <ChevronDown className={`h-3 w-3 transition-transform duration-200 ${open ? "rotate-180" : ""}`} aria-hidden="true" />
         </button>
       ) : null}

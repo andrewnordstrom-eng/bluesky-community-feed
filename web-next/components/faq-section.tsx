@@ -23,7 +23,7 @@ const faqData = [
   {
     question: "How does voting on the weights work?",
     answer:
-      "When a voting round is active, members choose how much each ranking factor should matter: recency, engagement, bridging (posts that connect subgroups), source diversity, and topic relevance. When the round ends, the aggregate weights become the next feed policy and the feed reranks accordingly. The full history stays inspectable. During the pilot, voting accounts are approved from a waitlist — the demo and every transparency page stay open to everyone.",
+      "During the limited pilot, approved participants can vote on five global ranking signals, topic priorities that shape relevance, and include or exclude content rules. When the configurable window closes, Corgi aggregates the ballots for results review. An operator approves or rejects the complete policy before any production rescore. The anonymous shadow demo and public feed remain open to everyone.",
   },
   {
     question: "Is Corgi secure? Does it need my Bluesky password?",
@@ -33,7 +33,7 @@ const faqData = [
   {
     question: "What is an epoch?",
     answer:
-      "An epoch is one saved feed policy from a voting round. Your community sets how long rounds last. When a round closes, the new weights go live, and every epoch's weights are saved so you can always see how the ranking policy changed.",
+      "An epoch is one saved feed policy. A round can be scheduled or opened manually, and its voting window is configurable. After the window closes, results are reviewed and approved before the policy is applied and the feed is rescored. Corgi keeps the policy history so changes remain inspectable.",
   },
   {
     question: "Can researchers use Corgi's data?",

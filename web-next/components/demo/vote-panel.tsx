@@ -314,7 +314,7 @@ export function VotePanel({
                       <option value="weight">Current weight</option><option value="alphabetical">Alphabetical</option>
                     </select>
                     <label className="inline-flex h-10 items-center gap-2 rounded-lg border border-border bg-background px-3 text-xs font-medium text-foreground/70">
-                      <input type="checkbox" checked={changedOnly} onChange={(event) => setChangedOnly(event.target.checked)} aria-label="Show topics different from live policy" />Different from live
+                      <input type="checkbox" checked={changedOnly} onChange={(event) => setChangedOnly(event.target.checked)} aria-label="Show topics different from baseline policy" />Different from baseline
                     </label>
                     <button type="button" onClick={resetTopics} className={`inline-flex h-10 items-center gap-1.5 rounded-lg border border-border bg-background px-3 text-xs font-semibold text-foreground/70 ${FOCUS}`}>
                       <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />Reset preset
@@ -345,7 +345,7 @@ export function VotePanel({
               ) : (
                 <div className="mt-4">
                   <p className="text-xs leading-relaxed text-foreground/60">
-                    Propose keywords to exclude. A rule is adopted when at least {contentRuleThreshold} of {contentRuleElectorate} ballots back it.
+                    Advanced, exclusion-only demo: propose keywords to withhold from this frozen corpus. A rule is adopted when at least {contentRuleThreshold} of {contentRuleElectorate} demo ballots back it. Production also supports include rules, with excludes taking precedence.
                   </p>
 
                   {suggestedExcludeKeywords.length > 0 ? (

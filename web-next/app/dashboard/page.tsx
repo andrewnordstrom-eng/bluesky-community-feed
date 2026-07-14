@@ -195,7 +195,7 @@ export default function DashboardPage() {
               ) : (
                 <>
                   <p className="mb-2.5 max-w-xl text-[15px] leading-relaxed text-foreground/60">
-                    Five signals decide the feed order. This is the mix the community&rsquo;s votes have settled on.
+                    Five global signals contribute to the ranking score. This is the active, approved production mix.
                   </p>
                   <PolicyBar weights={currentEpoch.weights} height={14} />
                   <PolicyLegend weights={currentEpoch.weights} className="mt-3" />
@@ -209,7 +209,7 @@ export default function DashboardPage() {
             <div>
               <Eyebrow>Get involved</Eyebrow>
               <p className="mt-2 text-sm leading-relaxed text-foreground/65">
-                The weights are set entirely by community votes. Cast or change yours before the round closes.
+                During the approved pilot, your ballot contributes to a proposed policy. Closed results are reviewed before any production change is applied.
               </p>
             </div>
             <div className="flex flex-col gap-2.5">
@@ -261,7 +261,7 @@ export default function DashboardPage() {
                 <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-biscuit">
                   <div className="h-full rounded-full bg-primary/70" style={{ width: `${participation}%` }} />
                 </div>
-                <p className="mt-1.5 text-[11px] text-foreground/55">members voted · each vote counts equally</p>
+                <p className="mt-1.5 text-[11px] text-foreground/55">ballots submitted · mean below 10, 10% trim at 10+</p>
               </div>
             )}
             {participation != null && <div className="hidden w-px self-stretch bg-border/60 sm:block" />}

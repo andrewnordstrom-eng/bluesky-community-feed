@@ -5,7 +5,7 @@ import { LegalLayout, P, UL, LI, Strong, InlineLink } from "@/components/legal-l
 export const metadata: Metadata = {
   title: "About Corgi — who runs it and how it's governed",
   description:
-    "Corgi is an open-source, community-governed Bluesky feed. Learn who operates it, how the feed is governed, and what happens to your vote and your account.",
+    "Corgi is an open-source Bluesky feed with inspectable, community-shaped ranking. Learn how the pilot, policy review, and receipts work.",
   alternates: { canonical: "/about/" },
 }
 
@@ -21,9 +21,9 @@ const SECTIONS = [
           together and in the open, what its own feed rewards.
         </P>
         <P>
-          Corgi is a <Strong>community-governed feed for Bluesky</Strong>. Members vote on how much each ranking signal
-          matters, the feed reranks accordingly, and every post carries a receipt showing exactly why it landed where it
-          did. Bluesky renders the ordered posts; Corgi shows the math.
+          Corgi is a <Strong>community-shaped feed for Bluesky</Strong>. During the limited pilot, approved participants
+          can vote on ranking signals, topic priorities, and content rules. Approved policy changes are applied before
+          the feed is rescored. Bluesky renders the ordered posts; Corgi shows the policy and available ranking receipts.
         </P>
       </>
     ),
@@ -53,10 +53,12 @@ const SECTIONS = [
       <>
         <P>The governance loop is deliberately simple and auditable:</P>
         <UL>
-          <LI><Strong>Propose &amp; vote</Strong> — during an open round, members set weights for five signals: recency, engagement, bridging, source diversity, and topic relevance.</LI>
-          <LI><Strong>Aggregate</Strong> — votes are combined with a trimmed mean (outliers on each end are dropped) so no single voter can swing the feed.</LI>
-          <LI><Strong>Apply</Strong> — when the round closes, the aggregated weights become the next <Strong>epoch</Strong>, and the live feed reranks.</LI>
-          <LI><Strong>Record</Strong> — every weight change and operator action is written to an append-only audit log that anyone can inspect.</LI>
+          <LI><Strong>Open a round</Strong> — a vote can be scheduled or opened manually, with a configurable response window.</LI>
+          <LI><Strong>Vote</Strong> — approved participants can submit five global signal weights, topic priorities that shape relevance, and include or exclude content rules.</LI>
+          <LI><Strong>Aggregate</Strong> — fewer than 10 ballots use an arithmetic mean; 10 or more use a 10% trimmed mean. Content rules require at least 30% support among content-rule ballots.</LI>
+          <LI><Strong>Review &amp; approve</Strong> — closed-round results are reviewed before an operator approves or rejects the complete proposed policy.</LI>
+          <LI><Strong>Apply &amp; rescore</Strong> — approval applies signals, topics, and adopted rules together to the active <Strong>epoch</Strong>, returns it to running, and queues a durable feed rescore.</LI>
+          <LI><Strong>Record</Strong> — policy changes and operator actions are written to the governance audit trail.</LI>
         </UL>
         <P>
           You can watch this happen on the <InlineLink href="/how-it-works">how-it-works</InlineLink> page, or inspect the
@@ -71,7 +73,7 @@ const SECTIONS = [
     body: (
       <>
         <UL>
-          <LI><Strong>Inspectable by default</Strong> — the ranking weights, the per-post score breakdowns, and the audit log are always public.</LI>
+          <LI><Strong>Inspectable by default</Strong> — active ranking policy, available per-post score breakdowns, and governance history are exposed on Corgi.</LI>
           <LI><Strong>Your vote is private, the outcome is public</Strong> — individual votes are never exposed; only the aggregated result is.</LI>
           <LI><Strong>Open source</Strong> — the implementation is public so the community can verify, fork, and improve it.</LI>
           <LI><Strong>No dark patterns</Strong> — no ads, no engagement bait, no selling data.</LI>
@@ -89,8 +91,8 @@ const SECTIONS = [
           We never receive your main password, and you can revoke access at any time from your Bluesky settings.
         </P>
         <P>
-          We collect only what&rsquo;s needed to run governance: your Bluesky handle/DID, your vote preferences, and your
-          research-consent status. Full details are in the{" "}
+          Governance access is currently an approved waitlist pilot. For participants, we collect only what is needed to
+          operate the pilot: your Bluesky handle/DID, ballot preferences, and research-consent status. Full details are in the{" "}
           <InlineLink href="/privacy">Privacy Policy</InlineLink>.
         </P>
       </>

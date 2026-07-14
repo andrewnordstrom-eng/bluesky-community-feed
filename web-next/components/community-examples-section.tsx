@@ -5,13 +5,6 @@ import { SIGNAL_LABELS } from "@/lib/signals"
 // canonical ranking signals and the kind of feed noise each policy addresses.
 const communityExamples = [
   {
-    name: "Birders Who Code",
-    initials: "BC",
-    signal: SIGNAL_LABELS.bridging,
-    description: "Field notes, scripts, and bird-call datasets stay balanced against generic tech jokes.",
-    accentClass: "bg-[#CFE1D0] text-[#3E643F]",
-  },
-  {
     name: "Neighborhood Mutual Aid",
     initials: "MA",
     signal: `${SIGNAL_LABELS.recency} + ${SIGNAL_LABELS.source_diversity}`,
@@ -19,25 +12,11 @@ const communityExamples = [
     accentClass: "bg-[#C8DDF2] text-[#284C6D]",
   },
   {
-    name: "Open-Source Maintainers",
+    name: "Open-source Maintainers",
     initials: "OS",
     signal: SIGNAL_LABELS.relevance,
     description: "Patches, docs, and release notes outrank memes and project drama.",
     accentClass: "bg-[#F0D1A8] text-[#7A4A20]",
-  },
-  {
-    name: "Science & Research Feeds",
-    initials: "SR",
-    signal: SIGNAL_LABELS.source_diversity,
-    description: "Papers, replications, and expert context beat hot takes and hype.",
-    accentClass: "bg-[#C6E2EA] text-[#245A68]",
-  },
-  {
-    name: "Local Newsroom & Civic Desk",
-    initials: "LC",
-    signal: `${SIGNAL_LABELS.recency} + ${SIGNAL_LABELS.source_diversity}`,
-    description: "Council meetings, transit, housing, and weather stay findable during a news burst.",
-    accentClass: "bg-[#D4DBE2] text-[#3A4A5C]",
   },
   {
     name: "Tabletop Creators",
@@ -67,7 +46,7 @@ export function CommunityExamplesSection() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 pb-6 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 pb-6 md:grid-cols-3">
         {communityExamples.map((community) => (
           <article key={community.name} className="rounded-2xl border border-border bg-card p-5 shadow-[0_2px_10px_rgba(46,38,32,0.05)]">
             <div className="flex items-start gap-3">

@@ -120,7 +120,7 @@ describe("demo v4 frontend release blockers", () => {
   it("keeps the fixture live-proof panel separate and omits the fixture timestamp", () => {
     const presentation = getLiveProofPresentation(snapshotProvenance, true)
 
-    expect(presentation.feedName).toBe("Contract-backed feed name")
+    expect(presentation.feedName).toBe("Corgi Commons")
     expect(presentation.sourceTimestamp).toBeNull()
     expect(presentation.description).toContain("mechanics fixture")
     expect(COMMUNITY_GOV_FEED_URL).toBe("https://bsky.app/profile/corgi-network.bsky.social/feed/community-gov")
@@ -131,7 +131,7 @@ describe("demo v4 frontend release blockers", () => {
     const presentation = getLiveProofPresentation(snapshotProvenance, false)
 
     expect(presentation.eyebrow).toBe("Snapshot source live on Bluesky")
-    expect(presentation.feedName).toBe("Contract-backed feed name")
+    expect(presentation.feedName).toBe("Corgi Commons")
     expect(presentation.description).toMatch(/published-feed comparison corpus/i)
     expect(presentation.sourceTimestamp).toMatch(/Jul 11, 2026.*UTC/i)
     expect(presentation.description).not.toMatch(/reviewed snapshot/i)

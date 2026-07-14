@@ -151,7 +151,7 @@ function RoundCard({ epoch }: { epoch: EpochResponse }) {
           Community ballot
         </h1>
         <p className="text-xs text-foreground/55 leading-relaxed">
-          Your votes shape how the feed ranks posts.
+          Your ballot contributes to the next proposed feed policy.
         </p>
       </div>
 
@@ -181,12 +181,11 @@ function RoundCard({ epoch }: { epoch: EpochResponse }) {
 
       {state === "review" ? (
         <div className="rounded-lg bg-biscuit px-3 py-2.5 text-xs text-foreground/55 leading-relaxed">
-          Voting is closed for this round. Results are being tallied.
+          Voting is closed for this round. Aggregated results are awaiting review and operator approval.
         </div>
       ) : state === "closed" ? (
         <div className="rounded-lg bg-biscuit px-3 py-2.5 text-xs text-foreground/55 leading-relaxed">
-          Voting for this round closed{closedOn ? ` on ${closedOn}` : ""}. The aggregated weights are the
-          feed&rsquo;s active policy until the next round opens.
+          Voting for this round closed{closedOn ? ` on ${closedOn}` : ""}. The approved policy is active until another proposal is approved.
         </div>
       ) : epoch.voting_ends_at ? (
         <div className="flex items-center justify-between">
@@ -448,7 +447,7 @@ function VoteWorkbench({ epoch, myVote, topics, contentRules, isAuthenticated, o
                 <h2 className="text-lg font-semibold text-foreground leading-snug">Signal weights</h2>
                 <p className="text-sm text-foreground/50 leading-relaxed">
                   Drag to allocate importance across the five signals. Adjusting one redistributes the rest — they
-                  always sum to 100%. The thin marker on each track is the community&rsquo;s current average.
+                  always sum to 100%. The thin marker on each track is the active approved policy.
                 </p>
               </div>
 
@@ -493,7 +492,7 @@ function VoteWorkbench({ epoch, myVote, topics, contentRules, isAuthenticated, o
                     aggregation; the API `rules.threshold` is an absolute vote
                     count for that round, not a percentage, so it is not rendered here. */}
                 <p className="text-sm text-foreground/50 leading-relaxed">
-                  Vote on which keywords to boost or suppress. Keywords take effect when backed by at least 30% of members voting on content rules.
+                  Include keywords form an allowlist; exclude keywords take precedence. A keyword is proposed for adoption when at least 30% of ballots that submit content rules support it, and it is applied only after results review and approval.
                 </p>
               </div>
 
@@ -554,7 +553,7 @@ function VoteWorkbench({ epoch, myVote, topics, contentRules, isAuthenticated, o
                     <span className="text-[10px] font-mono text-foreground/55 uppercase tracking-widest">03 — Topic preferences</span>
                     <h2 className="text-lg font-semibold text-foreground leading-snug">Topics</h2>
                     <p className="text-sm text-foreground/50 leading-relaxed">
-                      Slide right to boost a topic, left to reduce it. The vertical marker shows the community average.
+                      Slide right to boost a topic, left to reduce it. Topic preferences shape only the relevance signal. The vertical marker shows the active approved topic policy.
                     </p>
                   </div>
                   {touchedTopicCount > 0 && (
@@ -687,7 +686,7 @@ function VoteWorkbench({ epoch, myVote, topics, contentRules, isAuthenticated, o
               <p className="text-xs text-foreground/50">{ballotCountText(epoch.vote_count)}</p>
             )}
             <p className="text-[10px] text-foreground/50 leading-relaxed">
-              Each vote counts equally.
+              Fewer than 10 ballots use an arithmetic mean; 10 or more use a 10% trimmed mean.
             </p>
           </div>
 

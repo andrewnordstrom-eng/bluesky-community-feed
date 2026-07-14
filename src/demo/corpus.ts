@@ -26,15 +26,19 @@ import {
   type ShadowDemoTopicIntent,
   type ShadowDemoTopicKey,
   type ShadowDemoTopicCatalogEntry,
+  type ShadowDemoPublicationPolicy,
   type ShadowDemoWeights,
 } from './types.js';
 import { equalShadowWeights, internalRawScoresToShadow, internalWeightsToShadow } from './weights.js';
 import { emptyShadowTopicIntent } from './topic-intent.js';
+import { COMMUNITY_GOV_SNAPSHOT_GATE } from './snapshot-capture.js';
+
+export { COMMUNITY_GOV_SNAPSHOT_GATE } from './snapshot-capture.js';
 
 export const DEMO_COMMUNITIES: Record<ShadowDemoCommunityId, ShadowDemoCommunity> = {
   community_gov: {
     id: 'community_gov',
-    name: 'Community Governed Feed',
+    name: 'Corgi Commons',
     status: 'live_shadow',
     description:
       'The real public Corgi feed, frozen into an isolated comparison corpus for a replayable governance walkthrough.',
@@ -77,13 +81,6 @@ export const DEMO_COMMUNITIES: Record<ShadowDemoCommunityId, ShadowDemoCommunity
 const CANDIDATE_LIMIT = 80;
 const SCORE_READ_BATCH_SIZE = 10;
 const APPVIEW_TIMEOUT_MS = 8000;
-export const COMMUNITY_GOV_SNAPSHOT_GATE = {
-  minimumEligiblePosts: 40,
-  minimumDisplayablePosts: 12,
-  minimumEnglishTaggedShare: 0.8,
-  maximumTopAuthorConcentration: 0.1,
-  minimumRichMediaShare: 0.2,
-} as const;
 const MIN_PUBLIC_SCORED_POSTS = 10;
 const OPEN_SCIENCE_TOPIC_SLUGS = SHADOW_DEMO_TOPIC_KEYS;
 const OPEN_SCIENCE_TERM_RULES = [
@@ -148,9 +145,25 @@ export interface LoadShadowDemoCorpusOptions {
   readPublishedSnapshot?: (limit: number) => Promise<PublishedFeedSnapshot>;
 }
 
+export interface CommunityGovCapturePolicy {
+  signalWeights: ShadowDemoWeights;
+  topicCatalog: ShadowDemoTopicCatalogEntry[];
+  publicationPolicy: ShadowDemoPublicationPolicy;
+}
+
+interface CommunityGovCorpusBehavior {
+  policy: CommunityGovCapturePolicy;
+  gateFailureMode: 'fixture_fallback' | 'return_degraded_live';
+  loadFailureMode: 'fixture_fallback' | 'throw';
+}
+
 export async function loadShadowDemoCorpus(options: LoadShadowDemoCorpusOptions): Promise<ShadowDemoCorpus> {
   if (options.communityId === 'community_gov') {
-    return loadCommunityGovCorpus(options);
+    return loadCommunityGovCorpus(options, {
+      policy: readApprovedCommunityGovPolicy(),
+      gateFailureMode: 'fixture_fallback',
+      loadFailureMode: 'fixture_fallback',
+    });
   }
   if (options.communityId !== 'open_science_builders') {
     return fallbackCorpus({
@@ -227,6 +240,23 @@ export async function loadShadowDemoCorpus(options: LoadShadowDemoCorpusOptions)
   }
 }
 
+export async function loadCommunityGovCaptureCorpus(
+  options: Omit<LoadShadowDemoCorpusOptions, 'communityId'> & { policy: CommunityGovCapturePolicy }
+): Promise<ShadowDemoCorpus> {
+  return loadCommunityGovCorpus({
+    communityId: 'community_gov',
+    now: options.now,
+    fetchFn: options.fetchFn,
+    dbPool: options.dbPool,
+    readScore: options.readScore,
+    readPublishedSnapshot: options.readPublishedSnapshot,
+  }, {
+    policy: options.policy,
+    gateFailureMode: 'return_degraded_live',
+    loadFailureMode: 'throw',
+  });
+}
+
 export function createDefaultCorpusLoader(): (options: {
   communityId: ShadowDemoCommunityId;
   now: Date;
@@ -241,9 +271,12 @@ export function createDefaultCorpusLoader(): (options: {
   });
 }
 
-async function loadCommunityGovCorpus(options: LoadShadowDemoCorpusOptions): Promise<ShadowDemoCorpus> {
+async function loadCommunityGovCorpus(
+  options: LoadShadowDemoCorpusOptions,
+  behavior: CommunityGovCorpusBehavior
+): Promise<ShadowDemoCorpus> {
   try {
-    const approvedPolicy = readApprovedCommunityGovPolicy();
+    const approvedPolicy = behavior.policy;
     const readPublishedSnapshot = options.readPublishedSnapshot ?? createDefaultPublishedFeedSnapshotReader();
     const snapshot = await readPublishedSnapshot(DEMO_SOURCE_SNAPSHOT_LIMIT);
     const epoch = await readEpochById(options.dbPool, snapshot.productionEpochId);
@@ -287,11 +320,12 @@ async function loadCommunityGovCorpus(options: LoadShadowDemoCorpusOptions): Pro
       eligibleItems.length
     );
     const gateFailures = communityGovSnapshotGateFailures(health);
-    if (gateFailures.length > 0) {
+    const reviewedHealth = applyCommunityGovSnapshotGateStatus(health);
+    if (gateFailures.length > 0 && behavior.gateFailureMode === 'fixture_fallback') {
       return fallbackCorpus({
         communityId: options.communityId,
         now: options.now,
-        reason: `Community Governed Feed snapshot failed reviewer-safe gates: ${gateFailures.join('; ')}`,
+        reason: `Corgi Commons snapshot failed reviewer-safe gates: ${gateFailures.join('; ')}`,
         activeEpochId: epoch.id,
         baseWeights: approvedPolicy.signalWeights,
         baseTopicIntent,
@@ -299,6 +333,13 @@ async function loadCommunityGovCorpus(options: LoadShadowDemoCorpusOptions): Pro
         sourceFeedUri: snapshot.feedUri,
       });
     }
+    const warning = gateFailures.length > 0
+      ? [{
+          code: 'shadow_demo_snapshot_not_approvable',
+          message: `Corgi Commons snapshot failed reviewer-safe gates: ${gateFailures.join('; ')}`,
+          severity: 'degraded' as const,
+        }]
+      : [];
     return {
       corpusId: `corpus-${randomUUID()}`,
       communityId: options.communityId,
@@ -308,8 +349,8 @@ async function loadCommunityGovCorpus(options: LoadShadowDemoCorpusOptions): Pro
       createdAt: options.now.toISOString(),
       expiresAt: expiresAt(options.now).toISOString(),
       items: eligibleItems,
-      health,
-      warnings: [],
+      health: reviewedHealth,
+      warnings: warning,
       topicCatalog,
       sourceFeedUri: snapshot.feedUri,
       sourceSnapshot: {
@@ -330,14 +371,17 @@ async function loadCommunityGovCorpus(options: LoadShadowDemoCorpusOptions): Pro
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    logger.warn({ err }, 'Community Governed Feed demo snapshot load failed');
+    logger.warn({ err }, 'Corgi Commons demo snapshot load failed');
+    if (behavior.loadFailureMode === 'throw') {
+      throw new Error(`Corgi Commons live snapshot capture could not be loaded: ${message}`, { cause: err });
+    }
     // The v4 API requires the complete approved 26-topic policy. Snapshot-entry
     // failures may degrade to the fixture; policy corruption fails closed.
     const approvedPolicy = readApprovedCommunityGovPolicy();
     return fallbackCorpus({
       communityId: options.communityId,
       now: options.now,
-      reason: `Community Governed Feed snapshot could not be loaded: ${message}`,
+      reason: `Corgi Commons snapshot could not be loaded: ${message}`,
       activeEpochId: 0,
       baseWeights: approvedPolicy.signalWeights,
       baseTopicIntent: {
@@ -370,6 +414,13 @@ export function communityGovSnapshotGateFailures(health: ShadowDemoCorpusHealth)
     failures.push(`rich-media share ${richMediaShare} < ${COMMUNITY_GOV_SNAPSHOT_GATE.minimumRichMediaShare}`);
   }
   return failures;
+}
+
+export function applyCommunityGovSnapshotGateStatus(
+  health: ShadowDemoCorpusHealth
+): ShadowDemoCorpusHealth {
+  if (communityGovSnapshotGateFailures(health).length === 0) return health;
+  return { ...health, status: 'degraded' };
 }
 
 async function readEpochById(dbPool: Pick<Pool, 'query'>, epochId: number): Promise<ActiveEpochRow | null> {

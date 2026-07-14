@@ -1,6 +1,5 @@
 "use client"
 
-import Link from "next/link"
 import { Header } from "@/components/header"
 import { HeroSection } from "@/components/hero-section"
 import { ReplayTeaser } from "@/components/replay-teaser"
@@ -28,20 +27,18 @@ export default function LandingPage() {
         <AnimatedSection className="relative z-20 pt-14 pb-4 md:pt-20" delay={0.15}>
           <Container width="stage">
             <div className="mx-auto mb-8 max-w-[720px] text-center md:mb-10">
-              <p className="mb-3 text-[11px] font-mono uppercase tracking-[0.22em] text-foreground/50">
-                Interactive preview
+              <p className="mb-3 text-[11px] font-mono uppercase tracking-[0.22em] text-foreground/55">
+                Corgi Commons preview
               </p>
               <h2 className="font-display text-3xl font-bold leading-tight tracking-tight text-foreground text-balance md:text-[40px] md:leading-[1.1]">
-                See a community reshape its own feed.
+                One feed. A policy the community can inspect.
               </h2>
               <p className="mx-auto mt-4 max-w-[620px] text-base leading-relaxed text-foreground/60">
-                Meet <span className="font-semibold text-foreground">Birders Who Code</span>, a sample community of
-                developers who bird. Choose how they rank posts and watch this illustrative preview reorder here, with
-                the Corgi score behind every move. Then use the{" "}
-                <Link href="/demo" className="font-semibold text-primary underline decoration-primary/35 underline-offset-4 hover:decoration-primary">
-                  live shadow demo
-                </Link>{" "}
-                to verify the full flow.
+                Corgi Commons brings together open-network building, research, software, data, and the conversations
+                connecting them. Change the illustrative policy below to see how the same posts reorder.
+              </p>
+              <p className="mx-auto mt-3 max-w-[620px] text-sm font-semibold leading-relaxed text-foreground/70">
+                Bluesky shows the ordered posts. Corgi shows the policy and receipts.
               </p>
             </div>
             <div className="flex justify-center">

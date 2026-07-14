@@ -14,7 +14,7 @@
  * - adoption threshold is computed over the full 25-ballot electorate.
  */
 
-import { checkContentRules } from '../governance/content-filter.js';
+import { checkContentRules } from '../governance/content-rule-matcher.js';
 import { normalizeKeywords } from '../governance/governance.types.js';
 import {
   SHADOW_DEMO_CONTENT_RULE_SUPPORT_THRESHOLD,

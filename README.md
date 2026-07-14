@@ -5,7 +5,7 @@
 <h1 align="center">Corgi</h1>
 
 <p align="center">
-  A community-governed Bluesky feed where subscribers vote on the ranking algorithm.
+  Community-shaped Bluesky ranking with inspectable policy and receipts.
 </p>
 
 [![Deploy](https://github.com/andrewnordstrom-eng/bluesky-community-feed/actions/workflows/deploy.yml/badge.svg)](https://github.com/andrewnordstrom-eng/bluesky-community-feed/actions/workflows/deploy.yml)
@@ -16,41 +16,39 @@
 [![Node >= 20](https://img.shields.io/badge/Node-%3E%3D20-339933)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-6-3178C6)](https://www.typescriptlang.org/)
 
-Corgi is a production Bluesky custom feed where subscribers democratically vote on ranking weights and content rules. The backend applies those decisions in a transparent, auditable scoring pipeline. Every ranking decision is decomposed, stored, and explainable.
+Corgi Commons is a production Bluesky custom feed shaped through a limited governance pilot. Approved participants can vote on five global ranking signals, topic priorities that shape relevance, and content rules that shape eligibility. Closed results are reviewed and approved before the complete policy is applied and the feed is rescored. Bluesky shows the ordered posts; Corgi exposes the policy and available ranking receipts.
 
 > **Research question:** Can communities meaningfully govern their own recommendation algorithms?
 
 ![Governance dashboard screenshot](docs/screenshots/dashboard.png)
 
-**Live production snapshot:** on 2026-07-07 at 03:00 UTC, `GET /api/transparency/stats` reported epoch 2 active with 3,348 scored posts, 3,007 unique authors, and 0 votes in the current epoch. See [the dated anonymized metrics packet](docs/lab/2026-07-07-recsys-live-metrics-packet.md) for commands, caveats, and counterfactual receipts.
-
 ---
 
 ## Try It
 
-**No coding required** — just a Bluesky account.
+**No coding required.** Anyone can use the anonymous demo; a Bluesky account is needed only to save or subscribe to the feed.
 
-1. **Add Corgi's feed** — Search "Community Governed" in Bluesky's Feeds tab, or open:
-   [View feed on Bluesky](https://bsky.app/profile/corgi-network.bsky.social/feed/community-gov)
+1. **Open Corgi Commons** — view or subscribe to the public feed without a Corgi account:
+   [Open Corgi Commons on Bluesky](https://bsky.app/profile/corgi-network.bsky.social/feed/community-gov)
 
-2. **Vote on the algorithm** — Sign in with your Bluesky handle + [app password](https://bsky.app/settings/app-passwords):
-   [feed.corgi.network/vote](https://feed.corgi.network/vote)
+2. **Try isolated shadow governance** — propose a policy, combine it with 24 scripted deterministic voter archetypes, and inspect how a frozen comparison corpus reranks without changing production:
+   [feed.corgi.network/demo](https://feed.corgi.network/demo)
 
-3. **See the transparency dashboard** — View current weights, vote history, and score breakdowns:
-   [feed.corgi.network/dashboard](https://feed.corgi.network/dashboard)
+3. **Request pilot access** — production governance participation is currently available through an approved waitlist:
+   [feed.corgi.network/start](https://feed.corgi.network/start)
 
 ---
 
 ## Features
 
 **Governance**
-- Community voting on ranking components: starts with recency, engagement, bridging, source diversity, relevance — the registry accepts arbitrary additions (see [Contributing a scoring component](docs/contributing-scoring-components.md))
-- Content-rule voting with include/exclude keywords
-- Epoch-based governance lifecycle with trimmed-mean aggregation
+- Ballots can cover five global ranking signals, topic priorities, and include/exclude content rules
+- Include rules act as an allowlist, excludes take precedence, and rule adoption requires at least 30% support among content-rule ballots
+- Scheduled or manual rounds with configurable voting windows, arithmetic mean below 10 ballots, 10% trimmed mean at 10 or more, results review, operator approval, and post-approval rescoring
 - Append-only audit log (DB-enforced, no edits or deletes)
 
 **Scoring & Transparency**
-- Full score decomposition persisted per post per epoch — raw, weight, weighted for every registered component, in a normalized long table
+- Score decomposition persisted per post per epoch — raw, weight, and weighted contribution for every registered component, in a normalized long table
 - Transparency endpoints: per-post explanations, counterfactual analysis, feed-level statistics
 - Redis-backed feed serving with snapshot cursors (<50ms response time)
 
@@ -61,7 +59,7 @@ Corgi is a production Bluesky custom feed where subscribers democratically vote 
 - Interaction analytics: scroll depth, engagement attribution, keyword performance
 
 **Research Mode**
-- Private feed gating: approved participant list for controlled studies
+- Approved governance-participant list for the limited pilot; viewing Corgi Commons and using the shadow demo stay public
 - Research consent flow with IRB-ready architecture
 - Anonymized data export (deterministic hashing, correlatable across tables)
 - Legal framework: Terms of Service, Privacy Policy, research consent separation
@@ -75,7 +73,7 @@ Corgi is a production Bluesky custom feed where subscribers democratically vote 
 - Research data export: votes, scores, engagement, epochs, audit log (CSV/JSON)
 
 **Engineering**
-- 500+ automated tests (unit, integration, stress) with PR-gated CI
+- Automated unit, integration, contract, and stress tests with PR-gated CI
 - Genuinely pluggable scoring components: implement the `ScoringComponent` interface from `@corgi/feed-sdk`, register, ship. No schema migration required. See the [contribution guide](docs/contributing-scoring-components.md) and the [civility example](examples/civility-component/) for an end-to-end walk-through. ADR-0001 covers the design.
 - Pre-commit hooks (husky + lint-staged + tsc)
 - Dependabot for automated dependency updates
@@ -212,7 +210,7 @@ Five components, each normalized to 0.0–1.0:
 | Source Diversity | Author variety | Diminishing returns per author (1.0 → 0.7 → 0.5 → 0.3) |
 | Relevance | Topic match × community preference | Weighted dot product of topic vectors and governance weights |
 
-**Final score:** `total = Σ(component_raw × governance_weight)` where weights sum to 1.0 and are set by community vote.
+**Component score:** `total = Σ(component_raw × approved_signal_weight)` where the five global signal weights sum to 1.0. Topic preferences affect the relevance component only; eligibility rules and publication adjustments are applied separately.
 
 All 15 numeric values (5× raw, weight, weighted) are persisted per post per epoch for full auditability.
 

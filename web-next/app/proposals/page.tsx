@@ -8,7 +8,7 @@ import { PolicyBar, PolicyLegend } from "@/components/ui/policy-bar"
 import { ErrorCard, Skeleton } from "@/components/ui/state-kit"
 import { SIGNAL_KEYS, SIGNAL_LABELS } from "@/lib/signals"
 import { weightsApi, transparencyApi, type EpochResponse } from "@/lib/api/client"
-import { votingState, votingClosedDate } from "@/lib/governance-status"
+import { policyApplied, votingState, votingClosedDate } from "@/lib/governance-status"
 
 function pct(value: number): string {
   return `${Math.round(value * 100)}%`
@@ -27,8 +27,8 @@ function phaseLabel(epoch: EpochResponse): string {
   return policyApplied(epoch) ? "Active policy" : "Closed"
 }
 
-function policyApplied(epoch: EpochResponse): boolean {
-  return epoch.status === "active" || epoch.closed_at == null
+function wasEnacted(epoch: EpochResponse): boolean {
+  return epoch.results_approved_at != null
 }
 
 /** The signal carrying the most weight in a policy — the round's headline. */
@@ -50,7 +50,7 @@ export default function ProposalsPage() {
   })
 
   const current = currentQuery.data
-  const past = (historyQuery.data?.epochs ?? []).filter((epoch) => epoch.closed_at != null && epoch.id !== current?.id)
+  const past = (historyQuery.data?.epochs ?? []).filter((epoch) => wasEnacted(epoch) && epoch.id !== current?.id)
 
   return (
     <AppShell>
@@ -59,9 +59,9 @@ export default function ProposalsPage() {
           <p className="font-mono text-[11px] uppercase tracking-[0.22em] text-foreground/55">Governance</p>
           <h1 className="mt-2 font-display text-3xl font-bold tracking-tight text-foreground md:text-4xl">Proposals</h1>
           <p className="mt-3 max-w-2xl text-base leading-relaxed text-foreground/60">
-            Every governance round is a proposal to reweight the feed. Members vote on the five ranking signals; when the
-            round closes, the aggregated weights become the next epoch and the feed reranks. Each enacted proposal is
-            recorded below and in the{" "}
+            Every governance round proposes a complete policy: five global signal weights, topic priorities, and content
+            rules. When the voting window closes, ballots are aggregated for results review. An operator approves or
+            rejects the proposal before the active policy is changed and rescored. Enacted proposals are recorded below and in the{" "}
             <Link
               href="/history"
               className="rounded text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
@@ -145,7 +145,7 @@ export default function ProposalsPage() {
             />
           ) : past.length === 0 ? (
             <p className="rounded-2xl border border-border bg-card px-5 py-6 text-sm text-foreground/55">
-              No past rounds yet. When a round closes, the enacted policy will appear here.
+              No enacted proposals yet. An approved policy will appear here after results review.
             </p>
           ) : (
             <div className="flex flex-col gap-3">
@@ -161,7 +161,7 @@ export default function ProposalsPage() {
                         <div>
                           <p className="text-sm font-semibold text-foreground">Round #{epoch.id}</p>
                           <p className="text-xs text-foreground/50">
-                            Enacted {formatDate(epoch.closed_at ?? epoch.created_at)} · {epoch.vote_count} votes
+                            Enacted {formatDate(epoch.results_approved_at)} · {epoch.vote_count} votes
                           </p>
                         </div>
                       </div>

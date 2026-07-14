@@ -5,7 +5,8 @@ import approvedManifestJson from '../demo/community-gov-release-snapshot.json' w
 
 export const COMMUNITY_GOV_FEED_URI =
   'at://did:plc:amzyknmm4auxijvykyfgznw2/app.bsky.feed.generator/community-gov';
-export const COMMUNITY_GOV_FEED_NAME = 'Community Governed Feed';
+export const COMMUNITY_GOV_FEED_NAME = 'Corgi Commons';
+const LEGACY_COMMUNITY_GOV_FEED_NAME = 'Community Governed Feed';
 export const DEMO_SOURCE_SNAPSHOT_LIMIT = 100;
 export const COMMUNITY_GOV_ACTIVE_TOPIC_COUNT = 26;
 
@@ -97,7 +98,13 @@ const ApprovedPolicySchema = z.object({
 const ApprovedSnapshotManifestSchema = z.object({
   schemaVersion: z.literal('2026-07-11.community-gov-snapshot.v3'),
   feedUri: z.literal(COMMUNITY_GOV_FEED_URI),
-  feedName: z.literal(COMMUNITY_GOV_FEED_NAME),
+  // Accept the previously approved manifest until the mechanically captured
+  // Corgi Commons manifest lands. Runtime presentation always uses the current
+  // canonical name returned by readApprovedCommunityGovSnapshot().
+  feedName: z.union([
+    z.literal(COMMUNITY_GOV_FEED_NAME),
+    z.literal(LEGACY_COMMUNITY_GOV_FEED_NAME),
+  ]),
   productionEpochId: z.number().int().positive(),
   sourceRunId: z.string().trim().min(1),
   sourceUpdatedAt: z.string().datetime({ offset: true }),
@@ -128,7 +135,7 @@ export async function readPublishedCommunityGovSnapshot(
   limit: number
 ): Promise<PublishedFeedSnapshot> {
   if (limit !== DEMO_SOURCE_SNAPSHOT_LIMIT) {
-    throw new Error(`Community Governed Feed release snapshot limit must equal ${DEMO_SOURCE_SNAPSHOT_LIMIT}: ${limit}`);
+    throw new Error(`Corgi Commons release snapshot limit must equal ${DEMO_SOURCE_SNAPSHOT_LIMIT}: ${limit}`);
   }
   const snapshotRead = await reader.eval(
     `local ranked = redis.call('ZREVRANGE', KEYS[1], 0, tonumber(ARGV[1]), 'WITHSCORES')
@@ -142,12 +149,12 @@ export async function readPublishedCommunityGovSnapshot(
     limit - 1
   );
   if (!Array.isArray(snapshotRead) || !Array.isArray(snapshotRead[0]) || !Array.isArray(snapshotRead[1])) {
-    throw new Error('Community Governed Feed atomic snapshot read returned an invalid response');
+    throw new Error('Corgi Commons atomic snapshot read returned an invalid response');
   }
   const ranked = snapshotRead[0].map(String);
   const metadata = snapshotRead[1].map((value) => value === null ? null : String(value));
   if (ranked.length !== limit * 2) {
-    throw new Error(`Community Governed Feed snapshot returned ${ranked.length} ranked values; expected ${limit * 2}`);
+    throw new Error(`Corgi Commons snapshot returned ${ranked.length} ranked values; expected ${limit * 2}`);
   }
   const productionEpochId = Number(metadata[0]);
   const sourceRunId = metadata[1];
@@ -159,19 +166,19 @@ export async function readPublishedCommunityGovSnapshot(
     || !sourceUpdatedAt
     || Number.isNaN(Date.parse(sourceUpdatedAt))
   ) {
-    throw new Error('Community Governed Feed snapshot metadata is incomplete or invalid');
+    throw new Error('Corgi Commons snapshot metadata is incomplete or invalid');
   }
   const entries: PublishedFeedEntry[] = [];
   for (let index = 0; index < ranked.length; index += 2) {
     const uri = ranked[index];
     const publishedScore = Number(ranked[index + 1]);
     if (!uri.startsWith('at://') || !Number.isFinite(publishedScore) || publishedScore < 0) {
-      throw new Error(`Community Governed Feed snapshot contains an invalid entry at rank ${index / 2 + 1}`);
+      throw new Error(`Corgi Commons snapshot contains an invalid entry at rank ${index / 2 + 1}`);
     }
     entries.push({ uri, publishedRank: index / 2 + 1, publishedScore });
   }
   if (new Set(entries.map((entry) => entry.uri)).size !== entries.length) {
-    throw new Error('Community Governed Feed snapshot contains duplicate post URIs');
+    throw new Error('Corgi Commons snapshot contains duplicate post URIs');
   }
   return {
     feedUri: COMMUNITY_GOV_FEED_URI,
@@ -201,7 +208,7 @@ export function createLivePublishedFeedSnapshotReader(): (limit: number) => Prom
 
 export function readApprovedCommunityGovSnapshot(limit: number): PublishedFeedSnapshot {
   if (limit !== DEMO_SOURCE_SNAPSHOT_LIMIT) {
-    throw new Error(`Approved Community Governed Feed snapshot must be read at its full ${DEMO_SOURCE_SNAPSHOT_LIMIT}-entry size`);
+    throw new Error(`Approved Corgi Commons snapshot must be read at its full ${DEMO_SOURCE_SNAPSHOT_LIMIT}-entry size`);
   }
   const manifest = parseApprovedSnapshotManifest(approvedManifestJson);
   const entries = manifest.entries.map((entry, index) => {
@@ -210,7 +217,7 @@ export function readApprovedCommunityGovSnapshot(limit: number): PublishedFeedSn
       || !entry.uri.startsWith('at://')
       || !Number.isFinite(entry.publishedScore)
     ) {
-      throw new Error(`Approved Community Governed Feed snapshot contains an invalid entry at rank ${index + 1}`);
+      throw new Error(`Approved Corgi Commons snapshot contains an invalid entry at rank ${index + 1}`);
     }
     return {
       ...entry,
@@ -222,11 +229,11 @@ export function readApprovedCommunityGovSnapshot(limit: number): PublishedFeedSn
     };
   });
   if (new Set(entries.map((entry) => entry.uri)).size !== entries.length) {
-    throw new Error('Approved Community Governed Feed snapshot contains duplicate post URIs');
+    throw new Error('Approved Corgi Commons snapshot contains duplicate post URIs');
   }
   const digest = communityGovManifestDigest(manifest);
   if (digest !== manifest.snapshotDigest) {
-    throw new Error(`Approved Community Governed Feed snapshot digest mismatch: expected ${manifest.snapshotDigest}, computed ${digest}`);
+    throw new Error(`Approved Corgi Commons snapshot digest mismatch: expected ${manifest.snapshotDigest}, computed ${digest}`);
   }
   return {
     feedUri: COMMUNITY_GOV_FEED_URI,
@@ -261,7 +268,7 @@ export function parseApprovedCommunityGovPolicy(input: unknown): {
     const detail = parsed.error.issues
       .map((issue) => `${issue.path.join('.') || '<root>'}: ${issue.message}`)
       .join('; ');
-    throw new Error(`Approved Community Governed Feed policy manifest is invalid: ${detail}`);
+    throw new Error(`Approved Corgi Commons policy manifest is invalid: ${detail}`);
   }
   const policy = parsed.data;
   const topicSlugs = policy.topicCatalog.map((topic) => topic.slug);
@@ -271,11 +278,11 @@ export function parseApprovedCommunityGovPolicy(input: unknown): {
     || policy.topicCatalog.some((topic) => !topic.slug || !topic.name || !Number.isFinite(topic.baselineWeight) || topic.baselineWeight < 0 || topic.baselineWeight > 1)
     || Object.values(policy.signalWeights).some((weight) => !Number.isFinite(weight) || weight < 0 || weight > 1)
   ) {
-    throw new Error('Approved Community Governed Feed policy manifest is invalid');
+    throw new Error('Approved Corgi Commons policy manifest is invalid');
   }
   const signalSum = Object.values(policy.signalWeights).reduce((sum, weight) => sum + weight, 0);
   if (Math.abs(signalSum - 1) > 1e-9) {
-    throw new Error(`Approved Community Governed Feed signal weights must sum to 1; received ${signalSum}`);
+    throw new Error(`Approved Corgi Commons signal weights must sum to 1; received ${signalSum}`);
   }
   return {
     signalWeights: { ...policy.signalWeights },
@@ -293,7 +300,7 @@ export function parseApprovedSnapshotManifest(input: unknown): ApprovedSnapshotM
     const detail = parsed.error.issues
       .map((issue) => `${issue.path.join('.') || '<root>'}: ${issue.message}`)
       .join('; ');
-    throw new Error(`Approved Community Governed Feed snapshot manifest is invalid: ${detail}`);
+    throw new Error(`Approved Corgi Commons snapshot manifest is invalid: ${detail}`);
   }
   return parsed.data;
 }

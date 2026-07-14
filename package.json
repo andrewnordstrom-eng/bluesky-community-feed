@@ -15,6 +15,7 @@
     "publish-feed": "tsx scripts/publish-feed.ts",
     "feed:birders-scout": "tsx scripts/birders-feed-scout.ts",
     "demo:capture-community-gov": "tsx scripts/demo-snapshot-capture.ts --manifest /tmp/corgi-community-gov-manifest.json --report /tmp/corgi-community-gov-report.json --review-sheet /tmp/corgi-community-gov-review.html",
+    "demo:approve-community-gov": "tsx scripts/approve-demo-snapshot.ts",
     "test": "npm run sdk:build && vitest tests",
     "generate:component": "tsx scripts/generate-scoring-component.ts",
     "generate:route": "tsx scripts/generate-route.ts",
