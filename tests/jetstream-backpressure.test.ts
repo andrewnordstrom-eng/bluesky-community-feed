@@ -1,4 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('../src/ingestion/event-processor.js', () => ({
+  processEvent: vi.fn(),
+}));
+
 import { __testJetstreamQueue } from '../src/ingestion/jetstream.js';
 
 describe('jetstream backpressure queue', () => {
@@ -54,6 +59,96 @@ describe('jetstream backpressure queue', () => {
     await expect(queuedB).resolves.toBe(false);
     expect(__testJetstreamQueue.getState().queued).toBe(0);
 
+    __testJetstreamQueue.reset();
+  });
+
+  it('pauses inbound delivery at the high-water mark and resumes after drainage', async () => {
+    __testJetstreamQueue.reset();
+
+    const pause = vi.fn();
+    const resume = vi.fn();
+    __testJetstreamQueue.setFlowControlSocket({
+      readyState: 1,
+      pause,
+      resume,
+      close: vi.fn(),
+    });
+
+    await Promise.all(
+      Array.from({ length: __testJetstreamQueue.maxConcurrentEvents }, () =>
+        __testJetstreamQueue.acquireSlot()
+      )
+    );
+    const pendingAcquires = Array.from(
+      { length: __testJetstreamQueue.pauseQueueThreshold },
+      () => __testJetstreamQueue.acquireSlot()
+    );
+
+    __testJetstreamQueue.applyInboundBackpressure();
+    __testJetstreamQueue.applyInboundBackpressure();
+
+    expect(pause).toHaveBeenCalledTimes(1);
+    expect(__testJetstreamQueue.getRuntimeState()).toMatchObject({
+      activeEvents: __testJetstreamQueue.maxConcurrentEvents,
+      inboundPaused: true,
+      pendingEvents: __testJetstreamQueue.pauseQueueThreshold,
+      pauseCount: 1,
+      resumeCount: 0,
+      totalDroppedEvents: 0,
+    });
+
+    const releasesUntilResume =
+      __testJetstreamQueue.pauseQueueThreshold - __testJetstreamQueue.resumeQueueThreshold;
+    for (let index = 0; index < releasesUntilResume; index += 1) {
+      __testJetstreamQueue.releaseSlot();
+    }
+
+    expect(resume).toHaveBeenCalledTimes(1);
+    expect(__testJetstreamQueue.getRuntimeState()).toMatchObject({
+      activeEvents: __testJetstreamQueue.maxConcurrentEvents,
+      inboundPaused: false,
+      pendingEvents: __testJetstreamQueue.resumeQueueThreshold,
+      pauseCount: 1,
+      resumeCount: 1,
+      overloadReconnectCount: 0,
+      totalDroppedEvents: 0,
+    });
+
+    __testJetstreamQueue.drainQueuedSlots(false);
+    await Promise.all(pendingAcquires);
+    __testJetstreamQueue.reset();
+  });
+
+  it('does not pause without an open flow-control socket', async () => {
+    __testJetstreamQueue.reset();
+    expect(() => __testJetstreamQueue.applyInboundBackpressure()).not.toThrow();
+
+    const pause = vi.fn();
+    __testJetstreamQueue.setFlowControlSocket({
+      readyState: 3,
+      pause,
+      resume: vi.fn(),
+      close: vi.fn(),
+    });
+    await Promise.all(
+      Array.from({ length: __testJetstreamQueue.maxConcurrentEvents }, () =>
+        __testJetstreamQueue.acquireSlot()
+      )
+    );
+    const pendingAcquires = Array.from(
+      { length: __testJetstreamQueue.pauseQueueThreshold },
+      () => __testJetstreamQueue.acquireSlot()
+    );
+
+    expect(pause).not.toHaveBeenCalled();
+    expect(__testJetstreamQueue.getRuntimeState()).toMatchObject({
+      inboundPaused: false,
+      pendingEvents: __testJetstreamQueue.pauseQueueThreshold,
+      pauseCount: 0,
+    });
+
+    __testJetstreamQueue.drainQueuedSlots(false);
+    await Promise.all(pendingAcquires);
     __testJetstreamQueue.reset();
   });
 });

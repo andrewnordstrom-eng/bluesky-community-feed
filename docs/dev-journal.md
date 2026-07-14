@@ -1618,3 +1618,32 @@ The v4 product path now starts directly with Community Governed Feed, exposes al
 ### Release boundary
 
 No commit, merge, or deployment has occurred. Production deployment and complete browser signoff remain blocked on PROJ-1753 until fresh-load and HTTP revalidation prove the CSP/304 blank-page defect closed. The live-feed panel is proof of the public feed; the guided comparison set is deliberately frozen and does not claim to rescan the firehose or reproduce all candidates that might enter a new production scoring run.
+
+## 2026-07-13 #06 - PROJ-1851 Jetstream ingestion backpressure
+
+**Branch:** `dev/PROJ-1851-jetstream-backpressure`
+**Commits:** pending review closeout.
+
+### Incident evidence
+
+Production remained live and ready, but the Jetstream worker repeatedly filled its 10,000-event pending queue and reconnected from an old cursor. The service logged 1,828 queue-saturation events between 2026-07-12 07:57 EDT and incident capture. Twenty handlers were active, cursor lag was approximately 35,700 seconds (9.9 hours), and a 30-second sample advanced the cursor by only 27.4 seconds, so lag was still growing despite green liveness/readiness and zero systemd restarts.
+
+### What changed
+
+The WebSocket now pauses inbound delivery when the pending queue reaches a bounded high-water mark and resumes only after it drains to a lower threshold. The existing 10,000-event overflow/reconnect path remains as a last-resort circuit breaker. Pause activation occurs in the same synchronous queue mutation that enqueues work, avoiding an ordering dependency in the message callback.
+
+Reconnects reset in-memory cursor bookkeeping to the durable resume cursor, so a failed pre-close save cannot cause replayed events to inherit a newer unsaved cursor or save interval. Runtime telemetry now reports active and pending work, pause/resume counts, overload reconnects, cumulative drops, safely completed cursor, and cursor lag through admin health, feed-health, and vitals surfaces.
+
+Jetstream health now requires both recent event handling and a cursor less than five minutes behind. A stale cursor degrades operator/public health while `/health/ready` remains dependent only on PostgreSQL and Redis, allowing a healthy process to catch up without a restart loop.
+
+### Verification
+
+- Focused backpressure, lifecycle, message-processing, metrics, and health suite: 6 files / 55 tests passed.
+- Full backend suite: 153 files / 1,700 tests passed.
+- `npm run build`, `npm run verify`, `npm run docs:verify`, `web-next` lint, and `web-next` strict TypeScript passed. The canonical `web-next` package has no test script; its production build passed through `npm run verify`.
+- Socket-level coverage proves high-water pause, low-water resume, sustained asynchronous drainage, zero overflow reconnects/drops on the bounded path, closed/no-socket handling, hard-limit drop telemetry, startup null-cursor serialization, five-minute health boundaries, durable-cursor reset after reconnect, safe in-memory cursor fallback when a reconnect-time database read fails, stale-socket close isolation after a replacement connection is active, and cancellation of obsolete reconnect timers before an operator-triggered replacement.
+- The first local CodeRabbit review reported one major health-message gap and five maintainability/test gaps. A second current-diff review found one duplicated freshness threshold plus three test/documentation gaps. All ten findings were addressed before commit. A third local convergence request and a final exact-diff retry both stalled without results and were terminated after bounded waits; hosted exact-head review remains required before closeout.
+
+### Release boundary
+
+This entry records local implementation and deterministic verification only. Production success requires the exact merged SHA to show no new hard-limit reconnects or dropped events, increasing pause/resume counters, a declining cursor lag, unchanged public-feed availability, and healthy readiness while catch-up proceeds. No cursor jump or backlog drop is authorized.
