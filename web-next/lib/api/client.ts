@@ -28,12 +28,18 @@ export interface LoginResponse {
   expiresAt: string;
 }
 
-export interface SessionResponse {
-  authenticated: boolean;
+export interface AuthenticatedSessionResponse {
+  authenticated: true;
   did: string;
   handle: string;
   expiresAt: string;
 }
+
+export interface AnonymousSessionResponse {
+  authenticated: false;
+}
+
+export type SessionResponse = AuthenticatedSessionResponse | AnonymousSessionResponse;
 
 // Auth API
 export const authApi = {

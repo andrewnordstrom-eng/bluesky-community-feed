@@ -109,6 +109,22 @@ describe('governance auth cookie flow', () => {
     await app.close();
   });
 
+  it('returns an anonymous session state without an error status', async () => {
+    const app = Fastify();
+    registerAuthRoute(app);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/governance/auth/session',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ authenticated: false });
+    expect(getSessionByTokenMock).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
   it('clears session cookie on logout and invalidates token', async () => {
     deleteSessionMock.mockResolvedValue(undefined);
 
