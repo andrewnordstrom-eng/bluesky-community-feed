@@ -1,9 +1,8 @@
 import React from "react"
-import { ChevronDown } from "lucide-react"
+import Link from "next/link"
+import { ChevronDown, Play } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { DemoCTA } from "@/components/landing-ctas"
-
-const CORGI_COMMONS_URL = "https://bsky.app/profile/corgi-network.bsky.social/feed/community-gov"
 
 export function HeroSection() {
   return (
@@ -143,9 +142,10 @@ export function HeroSection() {
       <div className="relative z-10 flex flex-col sm:flex-row items-center gap-3">
         <DemoCTA />
         <Button asChild variant="ghost" className="text-foreground/70 hover:text-foreground px-5 py-3 rounded-full font-medium text-base">
-          <a href={CORGI_COMMONS_URL} target="_blank" rel="noopener noreferrer">
-            Open Corgi Commons &rarr;
-          </a>
+          <Link href="/how-it-works/#video-overview">
+            <Play aria-hidden="true" />
+            Watch 4-minute overview
+          </Link>
         </Button>
       </div>
       {/* Trust line */}

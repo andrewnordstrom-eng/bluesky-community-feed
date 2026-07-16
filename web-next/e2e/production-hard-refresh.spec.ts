@@ -25,6 +25,7 @@ const PUBLIC_ROUTES: readonly PublicRoute[] = [
 
 const HTML_ACCEPT = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
 const REQUIRED_HTML_SCRIPT_POLICY = "script-src 'self' 'unsafe-inline'"
+const REQUIRED_HTML_FRAME_POLICY = "frame-src 'self' https://www.youtube-nocookie.com"
 const REQUIRED_RATE_LIMIT_HEADROOM = 120
 
 function collectBrowserErrors(page: Page): BrowserErrors {
@@ -76,6 +77,13 @@ async function verifyConditionalHeaders(
       actual: initial.headers()["content-security-policy"] ?? "missing",
     })
   }
+  if (!initial.headers()["content-security-policy"]?.includes(REQUIRED_HTML_FRAME_POLICY)) {
+    failures.push({
+      path: route.path,
+      check: "200 iframe CSP",
+      actual: initial.headers()["content-security-policy"] ?? "missing",
+    })
+  }
 
   if (etag === undefined) {
     failures.push({ path: route.path, check: "ETag", actual: "missing" })
@@ -96,6 +104,13 @@ async function verifyConditionalHeaders(
     failures.push({
       path: route.path,
       check: "304 CSP",
+      actual: conditional.headers()["content-security-policy"] ?? "missing",
+    })
+  }
+  if (!conditional.headers()["content-security-policy"]?.includes(REQUIRED_HTML_FRAME_POLICY)) {
+    failures.push({
+      path: route.path,
+      check: "304 iframe CSP",
       actual: conditional.headers()["content-security-policy"] ?? "missing",
     })
   }

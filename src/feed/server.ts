@@ -80,6 +80,7 @@ export async function createServer(options?: CreateServerOptions) {
         defaultSrc: ["'self'"],
         baseUri: ["'self'"],
         frameAncestors: ["'none'"],
+        frameSrc: ["'self'", 'https://www.youtube-nocookie.com'],
         objectSrc: ["'none'"],
         scriptSrc: ["'self'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
