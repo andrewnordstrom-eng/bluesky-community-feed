@@ -6,6 +6,7 @@ const STATIC_EXPORT_HTML_CSP = [
   "default-src 'self'",
   "base-uri 'self'",
   "frame-ancestors 'none'",
+  "frame-src 'self' https://www.youtube-nocookie.com",
   "object-src 'none'",
   "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",

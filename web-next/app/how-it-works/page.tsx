@@ -9,9 +9,12 @@ import { PageHero, HeroGlow, HERO_TOP } from "@/components/ui/page-hero"
 export const metadata: Metadata = {
   title: "How Corgi Works - Community-governed Bluesky ranking",
   description:
-    "Replay how the same posts become a different Bluesky feed when a community changes Corgi's ranking policy.",
+    "Watch Corgi's four-minute product walkthrough, then replay how community policy changes the order of a Bluesky feed.",
   alternates: { canonical: "/how-it-works/" },
 }
+
+const DEMO_VIDEO_URL = "https://www.youtube.com/watch?v=b1TTIcc5ykU"
+const DEMO_VIDEO_EMBED_URL = "https://www.youtube-nocookie.com/embed/b1TTIcc5ykU?rel=0"
 
 const surfaceBoundaries = [
   {
@@ -68,6 +71,49 @@ export default function HowItWorksPage() {
             </div>
           </Container>
         </section>
+
+        <Section
+          id="video-overview"
+          width="stage"
+          bordered="y"
+          spacing="default"
+          className="scroll-mt-24 md:scroll-mt-28"
+        >
+          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-foreground/55">
+                Product walkthrough · 4:14
+              </p>
+              <h2 className="mt-2 font-display text-2xl font-bold tracking-tight text-foreground md:text-3xl">
+                See the complete governance loop.
+              </h2>
+            </div>
+            <a
+              href={DEMO_VIDEO_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-fit text-sm font-semibold text-primary underline-offset-4 transition-colors hover:text-primary-dark hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              Watch on YouTube ↗
+            </a>
+          </div>
+
+          <div className="aspect-video overflow-hidden rounded-2xl border border-border/70 bg-card shadow-[0_2px_12px_rgba(46,38,32,0.07)]">
+            <iframe
+              className="h-full w-full border-0"
+              src={DEMO_VIDEO_EMBED_URL}
+              title="Corgi: Community-Governed Ranking for Bluesky"
+              loading="lazy"
+              referrerPolicy="strict-origin-when-cross-origin"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowFullScreen
+            />
+          </div>
+
+          <p className="mt-3 text-sm leading-relaxed text-foreground/55">
+            A concise system overview followed by the reviewer-safe product demo, shown end to end.
+          </p>
+        </Section>
 
         <Section bordered spacing="tight">
           <ol className="grid gap-0 border-y border-border/60 md:grid-cols-2 xl:grid-cols-6">

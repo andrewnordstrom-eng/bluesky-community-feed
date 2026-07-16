@@ -12,6 +12,7 @@ import {
 
 const HTML_ACCEPT = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 const HTML_SCRIPT_POLICY = "script-src 'self' 'unsafe-inline'";
+const HTML_FRAME_POLICY = "frame-src 'self' https://www.youtube-nocookie.com";
 
 const temporaryDirectories: string[] = [];
 
@@ -77,6 +78,7 @@ describe('static-export response headers', () => {
 
       expect(initial.statusCode).toBe(200);
       expect(initial.headers['content-security-policy']).toContain(HTML_SCRIPT_POLICY);
+      expect(initial.headers['content-security-policy']).toContain(HTML_FRAME_POLICY);
       expect(initial.headers['cache-control']).toBe('no-cache');
       expect(initial.headers.etag).toBeTypeOf('string');
 
@@ -91,6 +93,7 @@ describe('static-export response headers', () => {
 
       expect(conditional.statusCode).toBe(304);
       expect(conditional.headers['content-security-policy']).toContain(HTML_SCRIPT_POLICY);
+      expect(conditional.headers['content-security-policy']).toContain(HTML_FRAME_POLICY);
       expect(conditional.headers['cache-control']).toBe('no-cache');
 
       const staticAsset = await app.inject({
