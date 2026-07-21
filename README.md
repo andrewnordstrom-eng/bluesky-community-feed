@@ -33,7 +33,9 @@
   <img src="https://img.shields.io/badge/TypeScript-strict-3178C6" alt="TypeScript strict mode">
 </p>
 
-Corgi Commons is a production Bluesky custom feed and a limited governance pilot. Anyone can view the public feed. Approved pilot participants can vote on five global ranking signals, topic priorities, and content rules. A closed round is reviewed and approved before its complete policy is applied and the feed is rescored.
+Corgi — short for Community-Oriented Recommendation: Governance and Infrastructure — treats a shared recommender as a community resource.
+
+Corgi Commons is a production Bluesky custom feed and a limited governance pilot. Anyone can view the public feed. Approved pilot participants can collectively govern five global ranking signals, topic priorities, and content rules. A closed round is reviewed and approved before its complete policy is applied and the feed is rescored.
 
 Bluesky renders the ordered posts. Corgi provides the governance and explanation layer: the active policy, score decomposition, epoch history, counterfactuals, and available ranking receipts.
 
@@ -63,7 +65,7 @@ The published walkthrough follows the complete path from candidate posts to a co
 
 1. **Ingest candidates.** Corgi reads public Bluesky activity from Jetstream, persists posts and interactions, and classifies post topics.
 2. **Compute reusable signals.** The scorer evaluates each candidate across recency, engagement, bridging, source diversity, and topic relevance.
-3. **Collect a complete ballot.** Approved participants can vote on global signal weights, topic priorities, and include/exclude content rules.
+3. **Collect valid ballots.** Approved participants can vote on global signal weights, topic priorities, include/exclude content rules, or any combination of those channels. A ballot must include at least one channel; a signal-weight vote includes the complete normalized five-weight vector.
 4. **Aggregate and review.** Ballots aggregate after the configured voting window. The proposed policy must pass results review and operator approval; a direct transition cannot bypass that lifecycle.
 5. **Rescore and publish.** The approved policy becomes a new epoch, the candidate set is rescored, and the current feed snapshot is served through the AT Protocol feed-generator endpoint.
 6. **Inspect what happened.** Corgi exposes per-post score components, governance history, feed-level statistics, counterfactual rankings, and an append-only governance audit log.
@@ -245,7 +247,9 @@ npm run cli -- topics list
 
 ## Research and Citation
 
-Corgi is an open-source research instrument for studying community-governed recommendation. The system is designed to make policy changes measurable across epochs while keeping participant consent and export boundaries explicit.
+Corgi is an open-source research instrument for studying community-governed recommendation. Its central question is collective rather than individual: how can a community set the objective of a recommender it shares? The system makes the resulting policy, score decomposition, and changes across epochs inspectable while keeping participant consent and export boundaries explicit.
+
+The shadow demo demonstrates the mechanism, not a result about human behavior. One reviewer ballot and 24 deterministic synthetic voters rerank a fixed post set so within-session rank changes can be attributed to policy changes rather than corpus drift. The synthetic electorate is not evidence that the voter archetypes model people or that a human community has reached consensus.
 
 If you use Corgi in research, cite the repository URL and the exact commit SHA used for the analysis. Treat the software's capabilities, the public shadow demo, and any human-study findings as separate claims.
 
