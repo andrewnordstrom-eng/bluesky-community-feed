@@ -8,6 +8,7 @@ const {
   isJetstreamConnectedMock,
   getLastEventReceivedAtMock,
   getJetstreamEventsLast5MinMock,
+  getJetstreamRuntimeStateMock,
   getJetstreamDisconnectedAtMock,
   triggerJetstreamReconnectMock,
   redisGetMock,
@@ -19,6 +20,7 @@ const {
   isJetstreamConnectedMock: vi.fn(),
   getLastEventReceivedAtMock: vi.fn(),
   getJetstreamEventsLast5MinMock: vi.fn(),
+  getJetstreamRuntimeStateMock: vi.fn(),
   getJetstreamDisconnectedAtMock: vi.fn(),
   triggerJetstreamReconnectMock: vi.fn(),
   redisGetMock: vi.fn(),
@@ -54,6 +56,7 @@ vi.mock('../src/ingestion/jetstream.js', () => ({
   isJetstreamConnected: isJetstreamConnectedMock,
   getLastEventReceivedAt: getLastEventReceivedAtMock,
   getJetstreamEventsLast5Min: getJetstreamEventsLast5MinMock,
+  getJetstreamRuntimeState: getJetstreamRuntimeStateMock,
   getJetstreamDisconnectedAt: getJetstreamDisconnectedAtMock,
   triggerJetstreamReconnect: triggerJetstreamReconnectMock,
 }));
@@ -68,6 +71,7 @@ describe('admin manual rescore overlap guard', () => {
     isJetstreamConnectedMock.mockReset();
     getLastEventReceivedAtMock.mockReset();
     getJetstreamEventsLast5MinMock.mockReset();
+    getJetstreamRuntimeStateMock.mockReset();
     getJetstreamDisconnectedAtMock.mockReset();
     triggerJetstreamReconnectMock.mockReset();
     redisGetMock.mockReset();
@@ -127,6 +131,23 @@ describe('admin manual rescore overlap guard', () => {
     isJetstreamConnectedMock.mockReturnValue(true);
     getLastEventReceivedAtMock.mockReturnValue(new Date('2026-02-08T22:45:09.000Z'));
     getJetstreamEventsLast5MinMock.mockReturnValue(12345);
+    getJetstreamRuntimeStateMock.mockReturnValue({
+      activeEvents: 20,
+      pendingEvents: 40,
+      maxConcurrentEvents: 20,
+      maxPendingEvents: 10000,
+      pauseQueueThreshold: 100,
+      resumeQueueThreshold: 25,
+      inboundPaused: true,
+      pauseCount: 7,
+      resumeCount: 6,
+      overloadReconnectCount: 0,
+      flowControlFailureReconnectCount: 0,
+      totalDroppedEvents: 0,
+      failedCursorPersistenceFloorUs: null,
+      cursorUs: '1770590709000000',
+      cursorLagMs: 3000,
+    });
     getJetstreamDisconnectedAtMock.mockReturnValue(null);
     redisZCardMock.mockResolvedValue(51);
 
@@ -159,31 +180,113 @@ describe('admin manual rescore overlap guard', () => {
 
     const app = Fastify();
     registerFeedHealthRoutes(app);
+    try {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/feed-health',
+      });
 
-    const response = await app.inject({
-      method: 'GET',
-      url: '/feed-health',
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        jetstream: {
+          connected: true,
+          eventsLast5min: 12345,
+          cursorUs: '1770590709000000',
+          cursorLagMs: 3000,
+          activeEvents: 20,
+          pendingEvents: 40,
+          inboundPaused: true,
+          pauseCount: 7,
+          resumeCount: 6,
+          overloadReconnectCount: 0,
+          flowControlFailureReconnectCount: 0,
+          totalDroppedEvents: 0,
+          failedCursorPersistenceFloorUs: null,
+        },
+        subscribers: {
+          total: 120,
+          withVotes: 14,
+          activeLastWeek: 95,
+        },
+        database: {
+          newestPost: '2026-02-08T22:45:09.000Z',
+        },
+        feedSize: 51,
+      });
+      expect(redisGetMock).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('reports null cursor telemetry before Jetstream establishes a cursor', async () => {
+    getScoringStatusMock.mockResolvedValue({
+      timestamp: null,
+      duration_ms: 0,
+      posts_scored: 0,
+      posts_filtered: 0,
     });
-
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({
-      jetstream: {
-        connected: true,
-        eventsLast5min: 12345,
-      },
-      subscribers: {
-        total: 120,
-        withVotes: 14,
-        activeLastWeek: 95,
-      },
-      database: {
-        newestPost: '2026-02-08T22:45:09.000Z',
-      },
-      feedSize: 51,
+    isJetstreamConnectedMock.mockReturnValue(false);
+    getLastEventReceivedAtMock.mockReturnValue(null);
+    getJetstreamEventsLast5MinMock.mockReturnValue(0);
+    getJetstreamRuntimeStateMock.mockReturnValue({
+      activeEvents: 0,
+      pendingEvents: 0,
+      maxConcurrentEvents: 20,
+      maxPendingEvents: 10_000,
+      pauseQueueThreshold: 100,
+      resumeQueueThreshold: 25,
+      inboundPaused: false,
+      pauseCount: 0,
+      resumeCount: 0,
+      overloadReconnectCount: 0,
+      flowControlFailureReconnectCount: 0,
+      totalDroppedEvents: 0,
+      failedCursorPersistenceFloorUs: null,
+      cursorUs: null,
+      cursorLagMs: null,
     });
-    expect(redisGetMock).not.toHaveBeenCalled();
+    getJetstreamDisconnectedAtMock.mockReturnValue(null);
+    redisZCardMock.mockResolvedValue(0);
+    dbQueryMock
+      .mockResolvedValueOnce({
+        rows: [{
+          total_posts: '0',
+          posts_24h: '0',
+          posts_7d: '0',
+          oldest_post: null,
+          newest_post: null,
+        }],
+      })
+      .mockResolvedValueOnce({
+        rows: [{ total: '0', with_votes: '0', active_last_week: '0' }],
+      })
+      .mockResolvedValueOnce({ rows: [] });
 
-    await app.close();
+    const app = Fastify();
+    registerFeedHealthRoutes(app);
+    try {
+      const response = await app.inject({ method: 'GET', url: '/feed-health' });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        jetstream: {
+          connected: false,
+          cursorUs: null,
+          cursorLagMs: null,
+          activeEvents: 0,
+          pendingEvents: 0,
+          pauseCount: 0,
+          resumeCount: 0,
+          overloadReconnectCount: 0,
+          flowControlFailureReconnectCount: 0,
+          totalDroppedEvents: 0,
+          failedCursorPersistenceFloorUs: null,
+        },
+      });
+    } finally {
+      await app.close();
+    }
   });
 
   it('triggers manual jetstream reconnect and writes audit log', async () => {

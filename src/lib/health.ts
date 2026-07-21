@@ -14,6 +14,8 @@ import { db, healthDb } from '../db/client.js';
 import { redis } from '../db/redis.js';
 import { logger } from './logger.js';
 import type { DiskStatus } from '../maintenance/disk-monitor.js';
+import type { JetstreamRuntimeState } from '../ingestion/jetstream.js';
+import { JETSTREAM_FRESHNESS_LIMIT_MS } from '../ingestion/jetstream-health.js';
 
 export interface ComponentHealth {
   status: 'healthy' | 'unhealthy';
@@ -24,6 +26,17 @@ export interface ComponentHealth {
 export interface JetstreamHealth extends ComponentHealth {
   connected: boolean;
   last_event_age_ms?: number;
+  cursor_us?: string;
+  cursor_lag_ms?: number;
+  active_events?: number;
+  pending_events?: number;
+  inbound_paused?: boolean;
+  pause_count?: number;
+  resume_count?: number;
+  overload_reconnect_count?: number;
+  flow_control_failure_reconnect_count?: number;
+  total_dropped_events?: number;
+  failed_cursor_persistence_floor_us?: string;
 }
 
 export interface ScoringHealth extends ComponentHealth {
@@ -58,6 +71,54 @@ export interface HealthStatus {
 
 export interface PublicHealthStatus {
   status: 'ok' | 'degraded';
+}
+
+/** Build Jetstream health from connection, event-recency, and cursor progress. */
+export function calculateJetstreamHealth(
+  connected: boolean,
+  lastEventAt: Date | null,
+  runtimeState: JetstreamRuntimeState,
+  nowMs: number,
+  ingestionStartedAt: Date | null
+): JetstreamHealth {
+  const lastEventAgeMs = lastEventAt === null ? undefined : nowMs - lastEventAt.getTime();
+  const startupAgeMs = ingestionStartedAt === null
+    ? undefined
+    : Math.max(0, nowMs - ingestionStartedAt.getTime());
+  const eventFreshnessAgeMs = lastEventAgeMs ?? startupAgeMs;
+  const cursorFreshnessAgeMs = runtimeState.cursorLagMs ?? startupAgeMs;
+  const eventIsFresh =
+    eventFreshnessAgeMs === undefined || eventFreshnessAgeMs < JETSTREAM_FRESHNESS_LIMIT_MS;
+  const cursorIsFresh =
+    cursorFreshnessAgeMs === undefined || cursorFreshnessAgeMs < JETSTREAM_FRESHNESS_LIMIT_MS;
+  const isHealthy = connected && eventIsFresh && cursorIsFresh;
+
+  let error: string | undefined;
+  if (!connected) {
+    error = 'WebSocket not connected';
+  } else if (!eventIsFresh) {
+    error = `No Jetstream events processed for ${Math.round((eventFreshnessAgeMs ?? 0) / 1000)}s`;
+  } else if (!cursorIsFresh) {
+    error = `Jetstream cursor is ${Math.round((runtimeState.cursorLagMs ?? 0) / 1000)}s behind`;
+  }
+
+  return {
+    status: isHealthy ? 'healthy' : 'unhealthy',
+    connected,
+    last_event_age_ms: lastEventAgeMs,
+    cursor_us: runtimeState.cursorUs ?? undefined,
+    cursor_lag_ms: runtimeState.cursorLagMs ?? undefined,
+    active_events: runtimeState.activeEvents,
+    pending_events: runtimeState.pendingEvents,
+    inbound_paused: runtimeState.inboundPaused,
+    pause_count: runtimeState.pauseCount,
+    resume_count: runtimeState.resumeCount,
+    overload_reconnect_count: runtimeState.overloadReconnectCount,
+    flow_control_failure_reconnect_count: runtimeState.flowControlFailureReconnectCount,
+    total_dropped_events: runtimeState.totalDroppedEvents,
+    failed_cursor_persistence_floor_us: runtimeState.failedCursorPersistenceFloorUs ?? undefined,
+    error,
+  };
 }
 
 // Timeout for health check queries (ms)

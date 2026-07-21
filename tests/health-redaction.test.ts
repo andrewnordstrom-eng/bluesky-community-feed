@@ -38,6 +38,7 @@ vi.mock('../src/lib/logger.js', () => ({
 }));
 
 import {
+  calculateJetstreamHealth,
   getPublicHealthStatus,
   registerJetstreamHealth,
   registerScoringHealth,
@@ -56,6 +57,123 @@ describe('health response redaction', () => {
       status: 'healthy',
       is_running: false,
     }));
+  });
+
+  it('calculates event and cursor freshness at the five-minute boundary', () => {
+    const nowMs = new Date('2026-07-13T23:30:00.000Z').getTime();
+    const ingestionStartedAt = new Date(nowMs - 1000);
+    const runtimeState = {
+      activeEvents: 20,
+      pendingEvents: 25,
+      maxConcurrentEvents: 20,
+      maxPendingEvents: 10_000,
+      pauseQueueThreshold: 100,
+      resumeQueueThreshold: 25,
+      inboundPaused: false,
+      pauseCount: 3,
+      resumeCount: 3,
+      overloadReconnectCount: 0,
+      flowControlFailureReconnectCount: 0,
+      totalDroppedEvents: 0,
+      failedCursorPersistenceFloorUs: null,
+      cursorUs: null,
+      cursorLagMs: null,
+    };
+
+    expect(calculateJetstreamHealth(
+      true,
+      new Date(nowMs - 1000),
+      runtimeState,
+      nowMs,
+      ingestionStartedAt
+    )).toMatchObject({
+      status: 'healthy',
+      connected: true,
+      last_event_age_ms: 1000,
+    });
+
+    expect(calculateJetstreamHealth(
+      true,
+      new Date(nowMs - 299_999),
+      runtimeState,
+      nowMs,
+      ingestionStartedAt
+    )).toMatchObject({
+      status: 'healthy',
+      last_event_age_ms: 299_999,
+    });
+
+    expect(calculateJetstreamHealth(
+      true,
+      new Date(nowMs - 300_000),
+      runtimeState,
+      nowMs,
+      ingestionStartedAt
+    )).toMatchObject({
+      status: 'unhealthy',
+      connected: true,
+      last_event_age_ms: 300_000,
+      error: 'No Jetstream events processed for 300s',
+    });
+
+    expect(calculateJetstreamHealth(
+      true,
+      new Date(nowMs - 1000),
+      { ...runtimeState, cursorLagMs: 299_999 },
+      nowMs,
+      ingestionStartedAt
+    )).toMatchObject({
+      status: 'healthy',
+      cursor_lag_ms: 299_999,
+    });
+
+    expect(calculateJetstreamHealth(
+      true,
+      new Date(nowMs - 1000),
+      { ...runtimeState, cursorLagMs: 300_000 },
+      nowMs,
+      ingestionStartedAt
+    )).toMatchObject({
+      status: 'unhealthy',
+      connected: true,
+      cursor_lag_ms: 300_000,
+      error: 'Jetstream cursor is 300s behind',
+    });
+
+    expect(calculateJetstreamHealth(
+      true,
+      null,
+      runtimeState,
+      nowMs,
+      new Date(nowMs - 299_999)
+    )).toMatchObject({
+      status: 'healthy',
+      connected: true,
+    });
+
+    expect(calculateJetstreamHealth(
+      true,
+      null,
+      runtimeState,
+      nowMs,
+      new Date(nowMs - 300_000)
+    )).toMatchObject({
+      status: 'unhealthy',
+      connected: true,
+      error: 'No Jetstream events processed for 300s',
+    });
+
+    expect(calculateJetstreamHealth(
+      false,
+      null,
+      runtimeState,
+      nowMs,
+      ingestionStartedAt
+    )).toMatchObject({
+      status: 'unhealthy',
+      connected: false,
+      error: 'WebSocket not connected',
+    });
   });
 
   it('returns only redacted status for public health when database is down', async () => {
@@ -143,6 +261,53 @@ describe('health response redaction', () => {
           jetstream: {
             status: 'unhealthy',
             connected: false,
+          },
+        },
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('surfaces stale cursor and queue backpressure details to operators', async () => {
+    healthDbQueryMock.mockResolvedValue({ rows: [{ '?column?': 1 }] });
+    redisPingMock.mockResolvedValue('PONG');
+    registerJetstreamHealth(() => ({
+      status: 'unhealthy',
+      connected: true,
+      cursor_us: '1783949494284543',
+      cursor_lag_ms: 35_691_400,
+      active_events: 20,
+      pending_events: 100,
+      inbound_paused: true,
+      pause_count: 12,
+      resume_count: 11,
+      overload_reconnect_count: 0,
+      total_dropped_events: 0,
+      error: 'Jetstream cursor is 35691s behind',
+    }));
+
+    const app = Fastify();
+    registerAdminHealthRoutes(app);
+    try {
+      const response = await app.inject({ method: 'GET', url: '/health' });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        status: 'degraded',
+        components: {
+          jetstream: {
+            status: 'unhealthy',
+            connected: true,
+            cursor_us: '1783949494284543',
+            cursor_lag_ms: 35_691_400,
+            active_events: 20,
+            pending_events: 100,
+            inbound_paused: true,
+            pause_count: 12,
+            resume_count: 11,
+            overload_reconnect_count: 0,
+            total_dropped_events: 0,
           },
         },
       });

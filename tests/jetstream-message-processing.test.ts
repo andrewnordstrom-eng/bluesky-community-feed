@@ -493,6 +493,53 @@ describe('Jetstream message processing', () => {
     expect(__testJetstreamQueue.getFailedCursorPinCount()).toBe(1);
   });
 
+  it('does not let a stale failed-pin waiter overwrite current-generation safety state', async () => {
+    let rejectDeadLetter: (() => void) | null = null;
+    let markDeadLetterStarted: (() => void) | null = null;
+    const deadLetterStarted = new Promise<void>((resolve) => {
+      markDeadLetterStarted = resolve;
+    });
+    dbQueryMock.mockImplementation((query: unknown) => {
+      if (String(query).includes('INSERT INTO jetstream_failed_cursor_dead_letters')) {
+        markDeadLetterStarted?.();
+        return new Promise((_resolve, reject) => {
+          rejectDeadLetter = () => reject(new Error('stale dead-letter database failure'));
+        });
+      }
+      return Promise.resolve({ rowCount: 1, rows: [] });
+    });
+    processEventMock.mockImplementation((event: { commit?: { rkey?: string } }) =>
+      Promise.resolve(event.commit?.rkey === 'cross-generation-poison'
+        ? 'post-handler-error'
+        : 'non-commit-ignored')
+    );
+    const poisonMessage = postCommitMessage(
+      'did:plc:cursor-user',
+      1000,
+      'cross-generation-poison'
+    );
+
+    for (let attempt = 1; attempt < __testJetstreamQueue.failedCursorPinRetryLimit; attempt += 1) {
+      await __testJetstreamQueue.processMessage(poisonMessage);
+    }
+    const staleRetry = __testJetstreamQueue.processMessageForGeneration(poisonMessage, 0);
+    await deadLetterStarted;
+
+    __testJetstreamQueue.invalidateConnectionForTests();
+    const currentFailure = __testJetstreamQueue.processMessageForGeneration(poisonMessage, 1);
+    const failDeadLetter = rejectDeadLetter as (() => void) | null;
+    failDeadLetter?.();
+    await Promise.all([staleRetry, currentFailure]);
+
+    expect(__testJetstreamQueue.getFailedCursorPinCount()).toBe(1);
+    expect(__testJetstreamQueue.getFailedCursorPersistenceFloor()).toBeNull();
+    const newerResult = await __testJetstreamQueue.processMessageForGeneration(
+      identityMessage('did:plc:cursor-user', 1001),
+      1
+    );
+    expect(newerResult.cursorUs).toBe('999');
+  });
+
   it('keeps a failed cursor pinned when durable dead-letter persistence fails', async () => {
     dbQueryMock.mockImplementation((query: unknown) => {
       if (String(query).includes('INSERT INTO jetstream_failed_cursor_dead_letters')) {
@@ -554,7 +601,7 @@ describe('Jetstream message processing', () => {
       expect.objectContaining({
         maxFailedCursorPins: __testJetstreamQueue.failedCursorPinMaxCount,
       }),
-      'Dead-lettered oldest Jetstream failed cursor pin after pin limit'
+      'Attempted to dead-letter oldest Jetstream failed cursor pin after pin limit'
     );
   });
 
@@ -578,6 +625,7 @@ describe('Jetstream message processing', () => {
 
     expect(__testJetstreamQueue.getFailedCursorPinCount()).toBe(__testJetstreamQueue.failedCursorPinMaxCount);
     expect(__testJetstreamQueue.getFailedCursorDeadLetterCount()).toBe(0);
+    expect(__testJetstreamQueue.getFailedCursorPersistenceFloor()).toBe('1');
     expect(deadLetterInsertCalls()).toHaveLength(1);
     expect(loggerErrorMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -588,7 +636,6 @@ describe('Jetstream message processing', () => {
   });
 
   it('does not pin or advance a failed message from a stale connection generation', async () => {
-    processEventMock.mockRejectedValueOnce(new Error('stale generation handler threw'));
     __testJetstreamQueue.invalidateConnectionForTests();
 
     const result = await __testJetstreamQueue.processMessageForGeneration(
@@ -597,7 +644,8 @@ describe('Jetstream message processing', () => {
     );
 
     expect(result.processed).toBe(false);
-    expect(result.errorMessage).toBe('stale generation handler threw');
+    expect(result.errorMessage).toBe('stale jetstream connection');
+    expect(processEventMock).not.toHaveBeenCalled();
     expect(__testJetstreamQueue.getFailedCursorPinCount()).toBe(0);
     expect(__testJetstreamQueue.getCursorState()).toEqual({
       eventCounter: 0,
@@ -657,6 +705,35 @@ describe('Jetstream message processing', () => {
       }),
       'Expired Jetstream failed cursor pins after age limit'
     );
+  });
+
+  it('preserves a cursor safety floor when age-limit dead-letter persistence fails', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-06T00:00:00.000Z'));
+    dbQueryMock.mockImplementation((query: unknown) => {
+      if (String(query).includes('INSERT INTO jetstream_failed_cursor_dead_letters')) {
+        return Promise.reject(new Error('dead-letter database unavailable'));
+      }
+      return Promise.resolve({ rowCount: 1, rows: [] });
+    });
+    processEventMock.mockImplementation((event: { time_us?: number }) =>
+      Promise.resolve(event.time_us === 1000 ? 'post-handler-error' : 'non-commit-ignored')
+    );
+
+    await __testJetstreamQueue.processMessage(identityMessage('did:plc:cursor-user', 999));
+    await __testJetstreamQueue.processMessage(identityMessage('did:plc:cursor-user', 1000));
+    expect(__testJetstreamQueue.getFailedCursorPinCount()).toBe(1);
+
+    vi.setSystemTime(new Date(Date.now() + __testJetstreamQueue.failedCursorPinMaxAgeMs + 1));
+    const newerResult = await __testJetstreamQueue.processMessage(
+      identityMessage('did:plc:cursor-user', 1001)
+    );
+
+    expect(newerResult.cursorUs).toBe('999');
+    expect(__testJetstreamQueue.getFailedCursorPinCount()).toBe(0);
+    expect(__testJetstreamQueue.getFailedCursorPersistenceFloor()).toBe('1000');
+    expect(__testJetstreamQueue.getRuntimeState().failedCursorPersistenceFloorUs).toBe('1000');
+    expect(__testJetstreamQueue.getFailedCursorDeadLetterCount()).toBe(0);
   });
 
   it('allows a previously failed cursor to advance after the same event replays successfully', async () => {

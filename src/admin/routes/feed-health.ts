@@ -16,6 +16,7 @@ import { adminSecurity } from '../../lib/openapi.js';
 import {
   getJetstreamDisconnectedAt,
   getJetstreamEventsLast5Min,
+  getJetstreamRuntimeState,
   getLastEventReceivedAt,
   isJetstreamConnected,
   triggerJetstreamReconnect,
@@ -53,6 +54,7 @@ export function registerFeedHealthRoutes(app: FastifyInstance): void {
     const connected = isJetstreamConnected();
     const lastEventAt = getLastEventReceivedAt();
     const disconnectedAt = getJetstreamDisconnectedAt();
+    const jetstreamRuntime = getJetstreamRuntimeState();
     const disconnectedForSeconds =
       !connected && disconnectedAt
         ? Math.max(0, Math.floor((Date.now() - disconnectedAt.getTime()) / 1000))
@@ -112,6 +114,17 @@ export function registerFeedHealthRoutes(app: FastifyInstance): void {
         lastEvent: lastEventAt ? lastEventAt.toISOString() : null,
         eventsLast5min: getJetstreamEventsLast5Min(),
         disconnectedForSeconds,
+        cursorUs: jetstreamRuntime.cursorUs,
+        cursorLagMs: jetstreamRuntime.cursorLagMs,
+        activeEvents: jetstreamRuntime.activeEvents,
+        pendingEvents: jetstreamRuntime.pendingEvents,
+        inboundPaused: jetstreamRuntime.inboundPaused,
+        pauseCount: jetstreamRuntime.pauseCount,
+        resumeCount: jetstreamRuntime.resumeCount,
+        overloadReconnectCount: jetstreamRuntime.overloadReconnectCount,
+        flowControlFailureReconnectCount: jetstreamRuntime.flowControlFailureReconnectCount,
+        totalDroppedEvents: jetstreamRuntime.totalDroppedEvents,
+        failedCursorPersistenceFloorUs: jetstreamRuntime.failedCursorPersistenceFloorUs,
       },
       subscribers: {
         total: parseInt(subStats.rows[0].total, 10),

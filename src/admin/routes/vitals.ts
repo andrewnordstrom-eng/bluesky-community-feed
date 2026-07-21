@@ -15,6 +15,7 @@ import { getHealthStatus } from '../../lib/health.js';
 import {
   getLastEventReceivedAt,
   getJetstreamEventsLast5Min,
+  getJetstreamRuntimeState,
   isJetstreamConnected,
   getJetstreamDisconnectedAt,
 } from '../../ingestion/jetstream.js';
@@ -123,6 +124,7 @@ export function registerVitalsRoutes(app: FastifyInstance): void {
     const connected = isJetstreamConnected();
     const lastEventAt = getLastEventReceivedAt();
     const disconnectedAt = getJetstreamDisconnectedAt();
+    const jetstreamRuntime = getJetstreamRuntimeState();
 
     // Feed freshness
     let feedAgeMs: number | undefined;
@@ -181,6 +183,17 @@ export function registerVitalsRoutes(app: FastifyInstance): void {
         last_event_at: lastEventAt?.toISOString() ?? null,
         last_event_age_ms: lastEventAt ? Date.now() - lastEventAt.getTime() : null,
         disconnected_since: !connected && disconnectedAt ? disconnectedAt.toISOString() : null,
+        cursor_us: jetstreamRuntime.cursorUs,
+        cursor_lag_ms: jetstreamRuntime.cursorLagMs,
+        active_events: jetstreamRuntime.activeEvents,
+        pending_events: jetstreamRuntime.pendingEvents,
+        inbound_paused: jetstreamRuntime.inboundPaused,
+        pause_count: jetstreamRuntime.pauseCount,
+        resume_count: jetstreamRuntime.resumeCount,
+        overload_reconnect_count: jetstreamRuntime.overloadReconnectCount,
+        flow_control_failure_reconnect_count: jetstreamRuntime.flowControlFailureReconnectCount,
+        total_dropped_events: jetstreamRuntime.totalDroppedEvents,
+        failed_cursor_persistence_floor_us: jetstreamRuntime.failedCursorPersistenceFloorUs,
       },
 
       scoring: scoringRun

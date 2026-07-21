@@ -1,12 +1,25 @@
 import { config } from './config.js';
 import { logger } from './lib/logger.js';
 import { createServer } from './feed/server.js';
-import { startJetstream, stopJetstream, isJetstreamConnected, getLastEventReceivedAt } from './ingestion/jetstream.js';
+import {
+  getJetstreamRuntimeState,
+  getJetstreamStartedAt,
+  getLastEventReceivedAt,
+  isJetstreamConnected,
+  startJetstream,
+  stopJetstream,
+} from './ingestion/jetstream.js';
 import { startScoring, stopScoring, isScoringInProgress } from './scoring/scheduler.js';
 import { getLastScoringRunAt } from './scoring/pipeline.js';
 import { runStartupChecks } from './lib/startup-checks.js';
 import { registerShutdownHandlers } from './lib/shutdown.js';
-import { registerJetstreamHealth, registerScoringHealth, registerDiskHealth, JetstreamHealth, ScoringHealth } from './lib/health.js';
+import {
+  calculateJetstreamHealth,
+  registerDiskHealth,
+  registerJetstreamHealth,
+  registerScoringHealth,
+  type ScoringHealth,
+} from './lib/health.js';
 import { getDiskStatus } from './maintenance/disk-monitor.js';
 import { registerBotRoutes } from './bot/server.js';
 import { initializeBot } from './bot/agent.js';
@@ -99,21 +112,13 @@ async function main() {
   }
 
   // 4. Register Jetstream health check
-  registerJetstreamHealth((): JetstreamHealth => {
-    const connected = isJetstreamConnected();
-    const lastEventAt = getLastEventReceivedAt();
-    const lastEventAgeMs = lastEventAt ? Date.now() - lastEventAt.getTime() : undefined;
-
-    // Consider unhealthy if no events for more than 5 minutes
-    const isHealthy = connected && (lastEventAgeMs === undefined || lastEventAgeMs < 300_000);
-
-    return {
-      status: isHealthy ? 'healthy' : 'unhealthy',
-      connected,
-      last_event_age_ms: lastEventAgeMs,
-      error: !connected ? 'WebSocket not connected' : undefined,
-    };
-  });
+  registerJetstreamHealth(() => calculateJetstreamHealth(
+    isJetstreamConnected(),
+    getLastEventReceivedAt(),
+    getJetstreamRuntimeState(),
+    Date.now(),
+    getJetstreamStartedAt()
+  ));
 
   // 5. Register scoring health check (before starting scoring so it's available during initial run)
   registerScoringHealth((): ScoringHealth => {

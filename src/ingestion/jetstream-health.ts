@@ -1,0 +1,1 @@
+export const JETSTREAM_FRESHNESS_LIMIT_MS = 5 * 60_000;
