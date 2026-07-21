@@ -168,8 +168,9 @@ cd ..
 # Fill every value marked REQUIRED before starting the full service.
 cp .env.example .env
 
-# Start local PostgreSQL and the primary Redis instance.
-docker compose up -d
+# Start local PostgreSQL and the primary Redis instance, then wait for both
+# Compose health checks to pass before running migrations.
+docker compose up -d --wait --wait-timeout 60 postgres redis
 
 npm run migrate
 npx tsx scripts/seed-governance.ts
@@ -195,6 +196,8 @@ npm test -- --run
 npm --prefix web-next run build
 npm run cli -- --help
 ```
+
+> **Known limitation (2026-07-21):** `npm run docs:verify` exits nonzero on a clean checkout because 12 tracked documents in `docs/freshness.json` exceed the 120-day review window. The command still checks links, commands, and repository references before reporting that repository-wide freshness debt.
 
 ## Interfaces
 
