@@ -93,10 +93,10 @@ The current production registry contains five normalized scoring components:
 | **Source diversity** | Whether one author is dominating a ranking batch | Diminishing score for repeated posts from the same author |
 | **Topic relevance** | How well a post's classified topics match community priorities | Confidence-dampened topic-vector relevance against approved topic weights |
 
-The component score is:
+Each component first produces a raw score. Corgi multiplies those raw values by the approved signal weights, then sums the weighted contributions into the total score:
 
 ```text
-component score = Σ(raw component × approved signal weight)
+total score = Σ(raw component score × approved signal weight)
 ```
 
 Global signal weights sum to `1.0`. Topic priorities affect the relevance component. Eligibility rules and publication-stage adjustments are applied separately. Corgi persists each component's raw value, approved weight, and weighted contribution so a ranking can be reconstructed rather than merely described.
