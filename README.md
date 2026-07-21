@@ -148,7 +148,7 @@ flowchart LR
 ### Prerequisites
 
 - Node.js `>=20.19.0`
-- Docker with Docker Compose
+- Docker with Docker Compose v2.17.0 or newer
 - A Bluesky feed identity and app password if you intend to publish or update a feed record
 
 ### Install and run
